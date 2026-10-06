@@ -3,9 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::grpc::{
-    CallControl, CallDriver, FramedRequest, OneRequest, SendHalf, FRAME_PREFIX,
+    CallControl, CallDriver, FramedMessage, OneRequest, SendHalf, FRAME_PREFIX,
 };
-use bytes::Bytes;
 use tokio::sync::{mpsc, watch, Semaphore};
 
 use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
@@ -46,7 +45,7 @@ pub(crate) struct CallTask {
 pub(crate) enum Command {
     /// A message, and the bytes its lend was charged, which it may not have filled.
     Send {
-        message: Bytes,
+        message: FramedMessage,
         charged: usize,
     },
     EndSend,
@@ -277,10 +276,9 @@ impl CallState {
         }
 
         // The arena before the permit is spent: a refusal that left the ledger charged and the
-        // permit forgotten would be a send window that never opens again. A call that sends one
-        // request has the gRPC prefix kept ahead of what the host writes, and its commit frames
-        // the request there.
-        let prefix = if one_request { FRAME_PREFIX } else { 0 };
+        // permit forgotten would be a send window that never opens again. The gRPC prefix is kept
+        // ahead of what the host writes, and the commit frames the message there.
+        let prefix = FRAME_PREFIX;
         let mut data = match arena(prefix, len, Some(&self.channel.spares)) {
             Ok(data) => data,
             Err(status) => {
@@ -371,7 +369,11 @@ impl CallState {
         self.handed_over();
         slot.send(Command::Send {
             charged: lent.charged,
-            message: self.channel.spares.message(lent.data),
+            message: self
+                .channel
+                .spares
+                .framed(lent.data)
+                .expect("lent with its prefix ahead"),
         });
         ak_status::AK_STATUS_OK
     }
@@ -401,7 +403,7 @@ impl CallState {
         self.ledger.hold();
         window.forget();
         slot.send(Command::Send {
-            message: Bytes::new(),
+            message: FramedMessage::empty(),
             charged: 0,
         });
         ak_status::AK_STATUS_OK
@@ -432,9 +434,9 @@ impl CallState {
             Some(lent) => self
                 .channel
                 .spares
-                .request(lent.data)
+                .framed(lent.data)
                 .expect("lent with its prefix ahead"),
-            None => FramedRequest::empty(),
+            None => FramedMessage::empty(),
         });
         if !given {
             return refused(lent);

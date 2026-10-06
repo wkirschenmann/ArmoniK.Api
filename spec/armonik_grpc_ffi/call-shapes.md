@@ -477,7 +477,7 @@ the one exception: its new steps are proved, not reworded, so it came last, at s
    WRITE_DONE's "exactly once", the SLOT_BUSY wake-up and the write-done flag that what else
    changes and level 1 above list; and the measure of hyper's body pipe task, of the socket writes
    per request and of `content-length`. Done: `AK_CALL_ONE_REQUEST`, which the binding sets on
-   unary and server-streaming calls; the transport's `FramedRequest` and `OneRequest`, a slot the
+   unary and server-streaming calls; the transport's `FramedMessage` and `OneRequest`, a slot the
    commit fills only while the call takes it, so a refused commit leaves the host its buffer whole;
    the call's task spawned by the commit, or earlier by a cancellation or a lend refused for the
    budget; the body swapped in the engine's HTTP/2 service and kept, the same buffer, for a replay.

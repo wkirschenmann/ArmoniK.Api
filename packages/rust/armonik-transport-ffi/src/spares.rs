@@ -8,8 +8,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use armonik_transport::grpc::FramedRequest;
-use bytes::Bytes;
+use armonik_transport::grpc::FramedMessage;
 
 use crate::held::Held;
 use crate::ledger::Ledger;
@@ -107,21 +106,12 @@ impl Spares {
         }
     }
 
-    /// `data` as a message, its arena kept here once the message is done with.
-    pub(crate) fn message(self: &Arc<Self>, data: Vec<u8>) -> Bytes {
+    /// `data` as a message, framed in place, its arena kept here once the message is done with.
+    pub(crate) fn framed(self: &Arc<Self>, data: Vec<u8>) -> Option<FramedMessage> {
         if data.capacity() < POOLED_FROM {
-            return Bytes::from(data);
+            return FramedMessage::in_place(data);
         }
-        Bytes::from_owner(self.returning(data))
-    }
-
-    /// `data` as a call's one request, framed in place, its arena kept here once the request is
-    /// done with.
-    pub(crate) fn request(self: &Arc<Self>, data: Vec<u8>) -> Option<FramedRequest> {
-        if data.capacity() < POOLED_FROM {
-            return FramedRequest::in_place(data);
-        }
-        FramedRequest::in_place_owned(self.returning(data))
+        FramedMessage::in_place_owned(self.returning(data))
     }
 
     #[cfg(test)]
@@ -250,20 +240,18 @@ mod tests {
         ledger.release_bytes(2 * POOLED_FROM);
     }
 
-    /// A message's arena comes back once its last bytes are dropped, and not before.
+    /// A message's arena comes back once the message is dropped, and not before.
     #[test]
-    fn a_message_comes_back_with_its_last_bytes() {
+    fn a_message_comes_back_once_dropped() {
         let ledger = Arc::new(Ledger::new(0, 0).expect("a valid ledger"));
         let spares = Spares::new(&ledger, 4);
         let mut data = arena(POOLED_FROM);
         data.resize(10, 7);
-        let message = spares.message(data);
-        let clone = message.clone();
-        assert_eq!(&message[..], &[7; 10]);
+        let message = spares.framed(data).expect("room for the prefix");
+        assert_eq!(message.len(), 5);
 
-        drop(message);
         assert_eq!(spares.len(), 0);
-        drop(clone);
+        drop(message);
         assert_eq!(spares.len(), 1);
     }
 }

@@ -1,6 +1,8 @@
 mod common;
 
-use armonik_transport::grpc::{CallStartOptions, GrpcStatusCode, RecvResult};
+use armonik_transport::grpc::{
+    CallStartOptions, FramedMessage, GrpcStatusCode, RecvResult, FRAME_PREFIX,
+};
 use bytes::Bytes;
 use common::echo::*;
 
@@ -32,6 +34,37 @@ async fn every_message_of_a_client_stream_reaches_the_server_before_its_one_repl
         vec![Bytes::from(format!("{}:{}", SENT.len(), SENT.join(",")))],
         "the server saw every message, in order, and answered once"
     );
+}
+
+/// Messages framed in place by the caller and messages framed by a copy reach the server alike,
+/// in order, whatever room their buffers had.
+#[tokio::test]
+async fn framed_and_plain_messages_of_a_stream_reach_the_server_alike() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new(COLLECT))
+        .expect("the call starts")
+        .split();
+
+    let mut in_place = vec![0xff; FRAME_PREFIX];
+    in_place.extend_from_slice(b"one");
+    send.send_framed(FramedMessage::in_place(in_place).expect("room for the prefix"))
+        .await
+        .expect("sent framed");
+    send.send_message(Bytes::from_static(b"two"))
+        .await
+        .expect("sent plain");
+    send.send_framed(FramedMessage::copy_of(b"three").expect("a message"))
+        .await
+        .expect("sent framed by a copy");
+    send.end_send().await.expect("the half-close");
+
+    let (_head, messages, status) = read_to_terminal(&mut recv).await;
+
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(messages, vec![Bytes::from_static(b"3:one,two,three")]);
 }
 
 /// Each message answered before the next is sent, which a single window has to allow.

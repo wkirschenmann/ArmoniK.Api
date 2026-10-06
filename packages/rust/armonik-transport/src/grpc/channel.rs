@@ -5,7 +5,7 @@ use std::sync::{Arc, PoisonError, TryLockError};
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, USER_AGENT};
 use http::uri::PathAndQuery;
 use http::{StatusCode, Uri};
@@ -13,6 +13,7 @@ use http_body_util::BodyExt;
 use hyper::body::{Body, Frame, Incoming, SizeHint};
 use hyper::client::conn::http2::SendRequest;
 use tokio::sync::{broadcast, watch};
+use tonic::codegen::tokio_stream::Stream;
 use tonic::metadata::MetadataMap;
 use tower_service::Service;
 
@@ -28,7 +29,7 @@ use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
 use super::request::OneRequest;
-use super::retry::{ChannelReplay, RetryConfig};
+use super::retry::{AttemptMessages, ChannelReplay, RequestBody, RetryConfig};
 use super::status::{GrpcStatus, GrpcStatusCode, Unprocessed};
 use crate::utils::safe_endpoint;
 
@@ -455,14 +456,14 @@ impl Inner {
         self: &Arc<Self>,
         answered: Answered,
         one_response: bool,
-        body: Option<Bytes>,
+        body: RequestBody,
     ) -> tonic::client::Grpc<Http2> {
         tonic::client::Grpc::with_origin(
             Http2 {
                 inner: Arc::clone(self),
                 answered,
                 one_response,
-                body,
+                body: Some(body),
             },
             self.endpoint.clone(),
         )
@@ -712,14 +713,13 @@ impl<C> Drop for Driven<C> {
 ///
 /// Ready at once: the session is dialled or joined inside `call`, where a call that goes away
 /// detaches from the dial instead of cancelling it for every call waiting on it.
-#[derive(Clone)]
 pub(crate) struct Http2 {
     inner: Arc<Inner>,
     answered: Answered,
     one_response: bool,
     /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
-    /// from an empty stream of messages.
-    body: Option<Bytes>,
+    /// from an empty stream of messages. Taken by the one request tonic's client sends.
+    body: Option<RequestBody>,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -750,8 +750,14 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
         let one_response = self.one_response;
-        if let Some(body) = &self.body {
-            *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body.clone()));
+        match self.body.take() {
+            Some(RequestBody::Framed(body)) => {
+                *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body));
+            }
+            Some(RequestBody::Stream(messages)) => {
+                *request.body_mut() = tonic::body::Body::new(FramedMessages::new(messages));
+            }
+            None => {}
         }
         Box::pin(async move {
             request
@@ -787,6 +793,77 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
 
             Ok(response.map(|body| ResponseBody::new(body, lease, one_response)))
         })
+    }
+}
+
+/// Below this, a framed message ready together with another is gathered with it into one DATA
+/// frame.
+const GATHERED_BELOW: usize = 4 * 1024;
+
+/// What a frame of gathered messages holds at most: tonic's encoder's threshold for handing a batch
+/// on.
+const GATHERED_UP_TO: usize = 32 * 1024;
+
+/// A stream's messages as a request body, each a DATA frame as it was framed, with no copy - but
+/// for framed messages under [`GATHERED_BELOW`] bytes that are ready together, which are gathered
+/// by a copy into one frame, up to [`GATHERED_UP_TO`], so that a stream of small messages does not
+/// cost a frame each.
+struct FramedMessages {
+    messages: AttemptMessages,
+    /// A message that ended a gathering, sent next.
+    held: Option<Bytes>,
+}
+
+impl FramedMessages {
+    fn new(messages: AttemptMessages) -> Self {
+        Self {
+            messages,
+            held: None,
+        }
+    }
+}
+
+impl Body for FramedMessages {
+    type Data = Bytes;
+    type Error = tonic::Status;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        let first = match this.held.take() {
+            Some(message) => message,
+            None => match ready!(Pin::new(&mut this.messages).poll_next(cx)) {
+                Some(message) => message,
+                None => return Poll::Ready(None),
+            },
+        };
+        if first.len() >= GATHERED_BELOW {
+            return Poll::Ready(Some(Ok(Frame::data(first))));
+        }
+
+        // A small message is copied only to share a frame with another that is ready behind it.
+        let mut gathered: Option<BytesMut> = None;
+        loop {
+            let size = gathered.as_ref().map_or(first.len(), BytesMut::len);
+            match Pin::new(&mut this.messages).poll_next(cx) {
+                Poll::Ready(Some(next))
+                    if next.len() < GATHERED_BELOW && size + next.len() <= GATHERED_UP_TO =>
+                {
+                    gathered
+                        .get_or_insert_with(|| BytesMut::from(&first[..]))
+                        .extend_from_slice(&next);
+                }
+                Poll::Ready(Some(next)) => {
+                    this.held = Some(next);
+                    break;
+                }
+                Poll::Ready(None) | Poll::Pending => break,
+            }
+        }
+        let frame = gathered.map_or(first, BytesMut::freeze);
+        Poll::Ready(Some(Ok(Frame::data(frame))))
     }
 }
 
@@ -1087,7 +1164,70 @@ fn method_path(method: &str) -> Result<PathAndQuery, ChannelError> {
 #[cfg(test)]
 mod tests {
     use super::super::driver::Delivery;
+    use super::super::request::FramedMessage;
     use super::*;
+
+    /// A small message alone goes as it was framed, with no copy.
+    #[tokio::test]
+    async fn a_small_message_alone_goes_as_it_was_framed() {
+        let (_closed, closed) = watch::channel(false);
+        let (call, live, _driving) = call::create(8, None, closed);
+        let (mut send, _recv, _control) = call.split();
+        let replay = super::super::retry::Replay::new(live, None, Arc::new(ChannelReplay::new(0)));
+
+        let message = FramedMessage::copy_of(b"alone").expect("a message");
+        let framed = message.body().as_ptr();
+        send.send_framed(message).await.expect("queued");
+
+        let mut body = FramedMessages::new(replay.attempt());
+        let frame = body
+            .frame()
+            .await
+            .expect("a frame")
+            .expect("no error")
+            .into_data()
+            .expect("a DATA frame");
+        assert_eq!(frame.as_ptr(), framed);
+    }
+
+    /// Small messages ready together go as one DATA frame, a large one as a frame of its own, and
+    /// the order holds.
+    #[tokio::test]
+    async fn small_messages_ready_together_are_gathered_into_one_frame() {
+        let (_closed, closed) = watch::channel(false);
+        let (call, live, _driving) = call::create(8, None, closed);
+        let (mut send, _recv, _control) = call.split();
+        let replay = super::super::retry::Replay::new(live, None, Arc::new(ChannelReplay::new(0)));
+
+        let large = vec![7; GATHERED_BELOW];
+        for message in [&b"one"[..], b"two", &large, b"three"] {
+            send.send_message(Bytes::copy_from_slice(message))
+                .await
+                .expect("queued");
+        }
+        drop(send);
+
+        let mut body = FramedMessages::new(replay.attempt());
+        let mut frames = Vec::new();
+        while let Some(frame) = body.frame().await {
+            frames.push(frame.expect("a frame").into_data().expect("a DATA frame"));
+        }
+
+        let framed = |message: &[u8]| {
+            let mut frame = vec![0];
+            frame.extend_from_slice(&u32::try_from(message.len()).expect("small").to_be_bytes());
+            frame.extend_from_slice(message);
+            frame
+        };
+        assert_eq!(
+            frames,
+            vec![
+                Bytes::from([framed(b"one"), framed(b"two")].concat()),
+                Bytes::from(framed(&large)),
+                Bytes::from(framed(b"three")),
+            ]
+        );
+    }
 
     /// Both edges of the window, at the door that takes a number.
     ///

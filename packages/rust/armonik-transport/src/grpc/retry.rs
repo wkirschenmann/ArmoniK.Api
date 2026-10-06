@@ -251,12 +251,11 @@ pub(crate) enum Sent {
 }
 
 impl Sent {
-    /// A new attempt's request: what tonic encodes, and the body the engine's own service gives
-    /// the request instead when there is one.
-    pub(crate) fn attempt(&self) -> (Attempt, Option<Bytes>) {
+    /// A new attempt's request body, which the engine's own service puts below tonic's client.
+    pub(crate) fn attempt(&self) -> RequestBody {
         match self {
-            Self::Stream(replay) => (Attempt::Stream(replay.attempt()), None),
-            Self::One(one) => (Attempt::Framed, Some(one.request.clone())),
+            Self::Stream(replay) => RequestBody::Stream(replay.attempt()),
+            Self::One(one) => RequestBody::Framed(one.request.clone()),
         }
     }
 
@@ -275,22 +274,10 @@ impl Sent {
     }
 }
 
-/// One attempt's messages as tonic encodes them: the call's stream, or nothing when the request's
-/// body is the framed one.
-pub(crate) enum Attempt {
+/// One attempt's request body, framed already: the call's stream of messages, or its one request.
+pub(crate) enum RequestBody {
     Stream(AttemptMessages),
-    Framed,
-}
-
-impl Stream for Attempt {
-    type Item = Bytes;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            Self::Stream(messages) => Pin::new(messages).poll_next(cx),
-            Self::Framed => Poll::Ready(None),
-        }
-    }
+    Framed(Bytes),
 }
 
 /// The one request of a call that sends one, which every attempt sends again whole. Held for the
@@ -353,7 +340,7 @@ impl Drop for Replay {
     }
 }
 
-/// One attempt's request messages, as the stream tonic's client encodes.
+/// One attempt's framed messages, the stream its request body is made of.
 pub(crate) struct AttemptMessages {
     kept: Arc<Mutex<Kept>>,
     attempt: u64,
@@ -388,17 +375,18 @@ impl Stream for AttemptMessages {
                 Poll::Ready(None)
             }
             Poll::Ready(Some(message)) => {
+                let len = message.len();
+                let message = message.into_body();
                 let fits = !kept.committed
                     && kept
                         .bytes
-                        .checked_add(message.len())
+                        .checked_add(len)
                         .is_some_and(|after| after <= kept.call_limit)
-                    && kept.channel.reserve(message.len());
+                    && kept.channel.reserve(len);
                 if fits {
-                    // Shared with the encoder, which only reads it; its length is what the
-                    // budget is charged.
+                    // Shared with the request body, which only reads it.
                     kept.messages.push(message.clone());
-                    kept.bytes += message.len();
+                    kept.bytes += len;
                     kept.replayed += 1;
                 } else {
                     kept.commit();
@@ -418,6 +406,12 @@ mod tests {
     use tonic::codegen::tokio_stream::StreamExt;
 
     use super::super::call::create;
+    use super::super::request::{FramedMessage, FRAME_PREFIX};
+
+    /// A message as the request body carries it, its frame's prefix taken off.
+    fn unframed(framed: Option<Bytes>) -> Option<Bytes> {
+        framed.map(|framed| framed.slice(FRAME_PREFIX..))
+    }
 
     #[test]
     fn a_policy_that_could_not_back_off_is_refused() {
@@ -480,7 +474,10 @@ mod tests {
             .await
             .expect("sent");
         let mut first = replay.attempt();
-        assert_eq!(first.next().await, Some(Bytes::from_static(b"one")));
+        assert_eq!(
+            unframed(first.next().await),
+            Some(Bytes::from_static(b"one"))
+        );
         assert_eq!(channel.used(), 3);
 
         send.send_message(Bytes::from_static(b"two"))
@@ -489,8 +486,14 @@ mod tests {
         drop(send);
         let mut second = replay.attempt();
         assert_eq!(first.next().await, None, "the first attempt reads no more");
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"one")));
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"two")));
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"one"))
+        );
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"two"))
+        );
         assert_eq!(second.next().await, None);
 
         replay.commit();
@@ -507,20 +510,15 @@ mod tests {
         let (mut send, _recv, _control) = call.split();
         let replay = Replay::new(live, Some(64), Arc::new(ChannelReplay::new(1024)));
 
-        let message = Bytes::from(b"one".to_vec());
-        send.send_message(message.clone()).await.expect("sent");
+        let message = FramedMessage::copy_of(b"one").expect("a message");
+        let framed = message.body().as_ptr();
+        send.send_framed(message).await.expect("sent");
         let mut first = replay.attempt();
-        assert_eq!(
-            first.next().await.map(|sent| sent.as_ptr()),
-            Some(message.as_ptr())
-        );
+        assert_eq!(first.next().await.map(|sent| sent.as_ptr()), Some(framed));
         drop(send);
 
         let mut second = replay.attempt();
-        assert_eq!(
-            second.next().await.map(|kept| kept.as_ptr()),
-            Some(message.as_ptr())
-        );
+        assert_eq!(second.next().await.map(|kept| kept.as_ptr()), Some(framed));
     }
 
     /// A head that arrives while an attempt is still replaying commits the call, and the attempt
@@ -543,16 +541,25 @@ mod tests {
         first.next().await;
 
         let mut second = replay.attempt();
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"one")));
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"one"))
+        );
         replay.commit();
         assert_eq!(channel.used(), 6, "what was kept is still being sent");
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"two")));
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"two"))
+        );
         assert_eq!(channel.used(), 0, "and goes once it is");
 
         send.send_message(Bytes::from_static(b"three"))
             .await
             .expect("sent");
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"three")));
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"three"))
+        );
     }
 
     /// A failed attempt waiting on the host's next message is woken when it is superseded, and
@@ -581,7 +588,10 @@ mod tests {
             .await
             .expect("sent");
         let mut second = replay.attempt();
-        assert_eq!(second.next().await, Some(Bytes::from_static(b"late")));
+        assert_eq!(
+            unframed(second.next().await),
+            Some(Bytes::from_static(b"late"))
+        );
     }
 
     /// A call that ends with no attempt to follow gives the channel back its share at once, even
@@ -618,7 +628,10 @@ mod tests {
                 .await
                 .expect("sent");
             let mut first = replay.attempt();
-            assert_eq!(first.next().await, Some(Bytes::from_static(b"12345")));
+            assert_eq!(
+                unframed(first.next().await),
+                Some(Bytes::from_static(b"12345"))
+            );
             assert_eq!(channel.used(), 0);
             let standing = replay.supersede();
             assert!(!standing.retryable, "{call_limit}/{channel_limit}");
@@ -641,7 +654,10 @@ mod tests {
             .await
             .expect("sent");
         let mut first = replay.attempt();
-        assert_eq!(first.next().await, Some(Bytes::from_static(b"sent")));
+        assert_eq!(
+            unframed(first.next().await),
+            Some(Bytes::from_static(b"sent"))
+        );
         assert!(!replay.supersede().whole);
         assert_eq!(channel.used(), 0);
     }

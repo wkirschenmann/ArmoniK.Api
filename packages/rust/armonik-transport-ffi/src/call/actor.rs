@@ -185,7 +185,7 @@ async fn write_until_closed(
                     // lend: `LARGEST_LENDABLE` caps the ceiling itself, so it cannot reach here to
                     // be lost behind an acquittal. Asserted rather than argued, because the day
                     // that stops being true is the day a message goes missing in silence.
-                    let sent = half.send_message(message).await;
+                    let sent = half.send_framed(message).await;
                     debug_assert!(
                         matches!(
                             sent,

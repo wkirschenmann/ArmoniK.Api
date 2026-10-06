@@ -20,7 +20,7 @@ use super::channel::Inner;
 use super::contained::contained;
 use super::metadata::Metadata;
 use super::request::{RequestSlot, FRAME_PREFIX};
-use super::retry::{jittered, Attempt, OneReplay, Replay, Sent};
+use super::retry::{jittered, OneReplay, Replay, RequestBody, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{GrpcStatus, Unprocessed};
 
@@ -444,7 +444,7 @@ async fn attempt<S: ResponseSink>(
     inner: &Arc<Inner>,
     path: PathAndQuery,
     metadata: HeaderMap,
-    (messages, body): (Attempt, Option<Bytes>),
+    body: RequestBody,
     deadline: Option<Instant>,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
@@ -452,7 +452,9 @@ async fn attempt<S: ResponseSink>(
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> Ended {
-    let mut request = tonic::Request::new(messages);
+    // tonic encodes no message: the body is the engine's, framed already, put below tonic's
+    // client by the channel's own service.
+    let mut request = tonic::Request::new(tonic::codegen::tokio_stream::empty::<Bytes>());
     *request.metadata_mut() = MetadataMap::from_headers(metadata);
     // What is left of it before any dial, which tonic writes as `grpc-timeout` in the unit that
     // keeps it within the eight digits the protocol allows. The dial makes it slightly long, and
@@ -624,8 +626,7 @@ fn past_the_limit(status: tonic::Status) -> tonic::Status {
 /// divides by it when it decompresses.
 const CODEC_BUFFER: usize = 1024;
 
-/// How much a stream's encoder gathers before it hands a batch on: tonic's default, which its
-/// settings do not expose.
+/// Unused: `BufferSettings` asks for an encoder's threshold, and the engine encodes nothing.
 const YIELD_THRESHOLD: usize = 32 * 1024;
 
 /// Messages as the caller's bytes, both ways: the engine serializes nothing of its own.
@@ -651,7 +652,7 @@ impl Encoder for BytesCodec {
     type Item = Bytes;
     type Error = tonic::Status;
 
-    /// The one copy a message makes on its way out.
+    /// Never fed: a request's messages reach the wire framed by the engine, below tonic.
     fn encode(&mut self, item: Self::Item, dst: &mut EncodeBuf<'_>) -> Result<(), Self::Error> {
         dst.put(item);
         Ok(())

@@ -12,7 +12,7 @@ use tonic::codegen::tokio_stream::Stream;
 use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
-use super::request::{self, OneRequest, RequestSlot};
+use super::request::{self, FramedMessage, OneRequest, RequestSlot};
 use super::status::{GrpcStatus, GrpcStatusCode};
 
 /// Where a call's response head came from. The head's metadata is empty unless it is `Wire`.
@@ -162,48 +162,51 @@ impl GrpcCall {
 
 #[derive(Debug)]
 pub struct SendHalf {
-    messages: mpsc::Sender<Bytes>,
+    messages: mpsc::Sender<FramedMessage>,
     over: watch::Receiver<bool>,
     max_message_size: Option<usize>,
     control: CallControl,
 }
 
 impl SendHalf {
-    /// Queues `message`. A call that may be retried keeps it for a replay, charging its length to
-    /// the replay's budget: a slice of a larger buffer keeps that whole buffer alive while the
-    /// budget counts the slice, so a caller passes a buffer of its own.
+    /// Queues `message`, framed by a copy into a buffer of its own. [`SendHalf::send_framed`]
+    /// sends a message framed in place, with none.
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
-        // Here and not in the encoder, which would fail the whole call later and far from the send
-        // that caused it.
-        if u32::try_from(message.len()).is_err() {
-            return Err(CallError::MessageTooLong { len: message.len() });
-        }
-        let Self {
-            messages,
-            over,
-            max_message_size,
-            control,
-        } = self;
+        self.admit(message.len())?;
+        let framed = FramedMessage::copy_of(&message).expect("a length a four-byte prefix carries");
+        self.queue(framed).await
+    }
 
-        if *over.borrow() {
+    /// Queues `message` as it is framed. A call that may be retried keeps it for a replay,
+    /// charging its length to the replay's budget: a buffer larger than its message stays alive
+    /// whole while the budget counts the message.
+    pub async fn send_framed(&mut self, message: FramedMessage) -> Result<(), CallError> {
+        self.admit(message.len())?;
+        self.queue(message).await
+    }
+
+    /// Refuses a message of `len` bytes before any of it is queued: the call ends with the
+    /// refusal, as the gRPC status table has a message past the configured limit end.
+    fn admit(&self, len: usize) -> Result<(), CallError> {
+        // Here and not later, which would fail the whole call far from the send that caused it.
+        if u32::try_from(len).is_err() {
+            return Err(CallError::MessageTooLong { len });
+        }
+        if *self.over.borrow() {
             return Err(CallError::Ended);
         }
-        // Before the queue, so none of it is sent: the call ends with the refusal, as the gRPC
-        // status table has a message past the configured limit end.
-        if let Some(max) = max_message_size.filter(|max| message.len() > *max) {
-            control.refuse(GrpcStatus::new(
+        if let Some(max) = self.max_message_size.filter(|max| len > *max) {
+            self.control.refuse(GrpcStatus::new(
                 GrpcStatusCode::ResourceExhausted,
-                format!(
-                    "a message of {} bytes is past the {max} the channel sends",
-                    message.len()
-                ),
+                format!("a message of {len} bytes is past the {max} the channel sends"),
             ));
-            return Err(CallError::MessageTooLarge {
-                len: message.len(),
-                max,
-            });
+            return Err(CallError::MessageTooLarge { len, max });
         }
+        Ok(())
+    }
 
+    async fn queue(&mut self, message: FramedMessage) -> Result<(), CallError> {
+        let Self { messages, over, .. } = self;
         let message = match messages.try_send(message) {
             Ok(()) => return Ok(()),
             Err(mpsc::error::TrySendError::Closed(_)) => return Err(CallError::Ended),
@@ -320,15 +323,15 @@ impl CallControl {
     }
 }
 
-/// The messages a call sends, as the stream tonic's client encodes into the request body.
+/// The messages a call sends, framed, as the stream the request body is made of.
 pub(crate) struct RequestMessages {
-    messages: mpsc::Receiver<Bytes>,
+    messages: mpsc::Receiver<FramedMessage>,
     over: oneshot::Receiver<()>,
     ended: bool,
 }
 
 impl Stream for RequestMessages {
-    type Item = Bytes;
+    type Item = FramedMessage;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();

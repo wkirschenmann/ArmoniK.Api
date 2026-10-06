@@ -29,8 +29,8 @@ const SENTINEL: [u8; 8] = [0xde, 0xad, 0xbe, 0xef, 0xa5, 0x5a, 0xc3, 0x3c];
 pub(crate) struct Lent {
     pub(super) tag: u64,
     pub(super) call: Arc<CallState>,
-    /// The arena: `prefix` bytes kept for the gRPC prefix of a call's one request, the `len`
-    /// bytes lent to the host, then the sentinel. Its length is the prefix's until the host says
+    /// The arena: `prefix` bytes kept for the message's gRPC prefix, the `len` bytes lent to the
+    /// host, then the sentinel. Its length is the prefix's until the host says
     /// how many bytes it wrote, since the others are not this library's to read before then.
     pub(super) data: Vec<u8>,
     pub(super) prefix: usize,

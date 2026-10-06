@@ -1456,8 +1456,10 @@ body already is. The replay keeps the same buffer. The FFI lends five bytes more
 hands the host the address past them, so the ABI does not move and the .NET binding gains it
 without a change. A caller with a plain `Bytes` still has it framed by a copy.
 
-**Deliverable**: no copy of a sent message on any cardinality, the replay unchanged, and the
-benchmark's streamed upload measured before and after, throughput and CPU per MiB.
+**Deliverable**: no copy of a sent message on any cardinality - but small messages ready
+together, gathered by a copy into one DATA frame as tonic's encoder gathered them - the replay
+unchanged, and the benchmark's streamed upload measured before and after, throughput and CPU per
+MiB.
 
 ### T6.14: One configuration loader, every host
 

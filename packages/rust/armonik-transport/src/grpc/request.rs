@@ -6,10 +6,10 @@ use tokio::sync::Notify;
 /// The bytes ahead of a gRPC message on the wire: its compression flag and its length.
 pub const FRAME_PREFIX: usize = 5;
 
-/// A request of one message, framed in place: the gRPC prefix, then the message, in one
-/// allocation that is the request's whole body.
+/// A message framed in place: the gRPC prefix, then the message, in one allocation that goes on
+/// the wire as it is - a call's one request, or a message of a stream.
 #[derive(Debug)]
-pub struct FramedRequest(Bytes);
+pub struct FramedMessage(Bytes);
 
 /// Writes the prefix of the message after it; None when there is no room for it or the message
 /// no four-byte length carries.
@@ -20,7 +20,7 @@ fn prefixed(buffer: &mut [u8]) -> Option<()> {
     Some(())
 }
 
-impl FramedRequest {
+impl FramedMessage {
     /// `buffer` holds the message after [`FRAME_PREFIX`] bytes kept for the prefix, which this
     /// writes. None when the buffer has no room for the prefix or the message no four-byte length
     /// carries.
@@ -29,7 +29,7 @@ impl FramedRequest {
         Some(Self(Bytes::from(buffer)))
     }
 
-    /// As [`FramedRequest::in_place`], with `buffer` the owner of the request's bytes until the
+    /// As [`FramedMessage::in_place`], with `buffer` the owner of the message's bytes until the
     /// last of them is dropped: what it does then is its own, such as going back to a pool.
     pub fn in_place_owned<B>(mut buffer: B) -> Option<Self>
     where
@@ -51,15 +51,28 @@ impl FramedRequest {
         Self(Bytes::from_static(&[0; FRAME_PREFIX]))
     }
 
+    /// The message's length, the prefix left out.
+    pub fn len(&self) -> usize {
+        self.0.len() - FRAME_PREFIX
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub(crate) fn body(&self) -> Bytes {
         self.0.clone()
+    }
+
+    pub(crate) fn into_body(self) -> Bytes {
+        self.0
     }
 }
 
 /// What a call that sends one request has been given of it.
 enum Given {
     Waiting,
-    Request(FramedRequest),
+    Request(FramedMessage),
     /// Taken by the driver, or never to be: the call ended first.
     Closed,
 }
@@ -91,7 +104,7 @@ pub struct OneRequest(Arc<Slot>);
 impl OneRequest {
     /// Gives the call its request, which `make` builds only if the call takes it: false, with
     /// `make` not called, once the call was given one or has ended.
-    pub fn give(&self, make: impl FnOnce() -> FramedRequest) -> bool {
+    pub fn give(&self, make: impl FnOnce() -> FramedMessage) -> bool {
         let mut given = self.0.given();
         if !matches!(*given, Given::Waiting) {
             return false;
@@ -120,7 +133,7 @@ pub(crate) struct RequestSlot(Arc<Slot>);
 
 impl RequestSlot {
     /// The request, once given; None when the call will never have one.
-    pub(crate) async fn taken(&self) -> Option<FramedRequest> {
+    pub(crate) async fn taken(&self) -> Option<FramedMessage> {
         loop {
             {
                 let mut given = self.0.given();
@@ -159,11 +172,11 @@ mod tests {
     fn the_prefix_is_written_ahead_of_the_message() {
         let mut buffer = vec![0xff; FRAME_PREFIX];
         buffer.extend_from_slice(b"abc");
-        let framed = FramedRequest::in_place(buffer).expect("room for the prefix");
+        let framed = FramedMessage::in_place(buffer).expect("room for the prefix");
         assert_eq!(&framed.body()[..], &[0, 0, 0, 0, 3, b'a', b'b', b'c']);
 
-        assert_eq!(&FramedRequest::empty().body()[..], &[0; FRAME_PREFIX]);
-        assert!(FramedRequest::in_place(vec![0; FRAME_PREFIX - 1]).is_none());
+        assert_eq!(&FramedMessage::empty().body()[..], &[0; FRAME_PREFIX]);
+        assert!(FramedMessage::in_place(vec![0; FRAME_PREFIX - 1]).is_none());
     }
 
     /// An owner holds the request's bytes until the last of them is dropped, and is dropped then.
@@ -189,7 +202,7 @@ mod tests {
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut buffer = vec![0xff; FRAME_PREFIX];
         buffer.extend_from_slice(b"abc");
-        let framed = FramedRequest::in_place_owned(Owner(buffer, Arc::clone(&dropped)))
+        let framed = FramedMessage::in_place_owned(Owner(buffer, Arc::clone(&dropped)))
             .expect("room for the prefix");
         let body = framed.body();
         assert_eq!(&body[..], &[0, 0, 0, 0, 3, b'a', b'b', b'c']);
@@ -208,7 +221,7 @@ mod tests {
         assert!(!request.give(|| unreachable!("the call has ended")));
 
         let (request, slot) = one_request();
-        assert!(request.give(FramedRequest::empty));
+        assert!(request.give(FramedMessage::empty));
         assert!(!request.give(|| unreachable!("the call has one")));
         assert!(slot.taken().await.is_some());
 

@@ -6,7 +6,7 @@ mod common;
 use std::time::{Duration, Instant};
 
 use armonik_transport::grpc::{
-    CallStartOptions, Deadline, FramedRequest, GrpcChannel, GrpcChannelConfig, GrpcStatus,
+    CallStartOptions, Deadline, FramedMessage, GrpcChannel, GrpcChannelConfig, GrpcStatus,
     GrpcStatusCode, MetadataValue, RecvResult, ResponseHead, ResponseSink, RetryConfig,
 };
 use armonik_transport::http2::TransportConfig;
@@ -370,7 +370,7 @@ async fn a_one_request_call_refused_unprocessed_is_sent_again_with_no_policy() {
     let (request, _control, driver) = channel(&refuser.endpoint)
         .prepare_one_request_call(CallStartOptions::new(ECHO))
         .expect("an open channel");
-    assert!(request.give(|| FramedRequest::copy_of(b"hello").expect("a message")));
+    assert!(request.give(|| FramedMessage::copy_of(b"hello").expect("a message")));
 
     let (ended, code) = tokio::sync::oneshot::channel();
     driver.drive(EndOnly(Some(ended))).await;

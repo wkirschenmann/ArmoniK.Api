@@ -1,7 +1,7 @@
 mod common;
 
 use armonik_transport::grpc::{
-    CallError, CallStartOptions, ChannelError, FramedRequest, GrpcChannelConfig, GrpcStatus,
+    CallError, CallStartOptions, ChannelError, FramedMessage, GrpcChannelConfig, GrpcStatus,
     GrpcStatusCode, HeadOrigin, MetadataValue, ResponseHead, ResponseSink, RetryConfig,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
@@ -71,7 +71,7 @@ async fn a_one_request_call_sends_its_framed_request() {
         .prepare_one_request_call(CallStartOptions::new(ECHO))
         .expect("an open channel");
     assert!(
-        request.give(|| FramedRequest::copy_of(b"hello").expect("a message of five bytes")),
+        request.give(|| FramedMessage::copy_of(b"hello").expect("a message of five bytes")),
         "the call takes its request"
     );
     let (sink, heard) = Recording::new();
@@ -264,7 +264,7 @@ async fn a_one_request_call_states_its_length_and_a_stream_does_not() {
     let (request, _control, driver) = channel
         .prepare_one_request_call(CallStartOptions::new("/raw/EchoHeaders"))
         .expect("an open channel");
-    assert!(request.give(|| FramedRequest::copy_of(b"hello").expect("a message")));
+    assert!(request.give(|| FramedMessage::copy_of(b"hello").expect("a message")));
     let (sink, heard) = Recording::new();
     driver.drive(sink).await;
     let heard = heard.await.expect("the sink heard the end");
@@ -739,7 +739,7 @@ async fn a_request_past_the_send_limit_sends_nothing() {
     let (request, _control, driver) = channel
         .prepare_one_request_call(CallStartOptions::new(ECHO))
         .expect("an open channel");
-    assert!(request.give(|| FramedRequest::copy_of(b"fives").expect("a message of five bytes")));
+    assert!(request.give(|| FramedMessage::copy_of(b"fives").expect("a message of five bytes")));
     let (sink, heard) = Recording::new();
     driver.drive(sink).await;
 
