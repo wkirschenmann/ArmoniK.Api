@@ -35,5 +35,3 @@ impl From<v3::InitKeyedDataStream> for InitKeyedDataStream {
         }
     }
 }
-
-super::impl_convert!(req InitKeyedDataStream : v3::InitKeyedDataStream);

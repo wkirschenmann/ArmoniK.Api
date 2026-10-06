@@ -83,8 +83,6 @@ impl From<v3::submitter::CreateLargeTaskRequest> for LargeRequest {
     }
 }
 
-super::super::impl_convert!(req LargeRequest : v3::submitter::CreateLargeTaskRequest);
-
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Status {
@@ -198,5 +196,3 @@ impl From<v3::submitter::CreateTaskReply> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::submitter::CreateTaskReply);

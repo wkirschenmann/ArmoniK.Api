@@ -179,5 +179,3 @@ impl From<v3::tasks::TaskSummary> for Summary {
         }
     }
 }
-
-super::super::impl_convert!(req Summary : v3::tasks::TaskSummary);

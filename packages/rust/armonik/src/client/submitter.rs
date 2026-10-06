@@ -19,20 +19,14 @@ use super::{GrpcCall, GrpcCallStream};
 
 #[derive(Clone)]
 #[deprecated]
-pub struct Submitter<T> {
-    inner: v3::submitter::submitter_client::SubmitterClient<T>,
+pub struct Submitter {
+    inner: v3::submitter::submitter_client::SubmitterClient,
 }
 
 #[allow(deprecated)]
-impl<T> Submitter<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Submitter {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::submitter::submitter_client::SubmitterClient::new(channel),
         }
@@ -85,9 +79,11 @@ where
 
         match response {
             create_tasks::Response::Status(statuses) => Ok(statuses),
-            create_tasks::Response::Error(msg) => {
-                Err(tonic::Status::internal(msg)).context(super::GrpcSnafu {})
-            }
+            create_tasks::Response::Error(msg) => Err(armonik_transport::grpc::GrpcStatus::new(
+                armonik_transport::grpc::GrpcStatusCode::Internal,
+                msg,
+            ))
+            .context(super::GrpcSnafu {}),
         }
     }
 
@@ -99,9 +95,11 @@ where
 
         match response {
             create_tasks::Response::Status(statuses) => Ok(statuses),
-            create_tasks::Response::Error(msg) => {
-                Err(tonic::Status::internal(msg)).context(super::GrpcSnafu {})
-            }
+            create_tasks::Response::Error(msg) => Err(armonik_transport::grpc::GrpcStatus::new(
+                armonik_transport::grpc::GrpcStatusCode::Internal,
+                msg,
+            ))
+            .context(super::GrpcSnafu {}),
         }
     }
 
@@ -170,9 +168,11 @@ where
 
         match response {
             Output::Ok => Ok(()),
-            Output::Error { details } => {
-                Err(tonic::Status::internal(details)).context(super::GrpcSnafu {})
-            }
+            Output::Error { details } => Err(armonik_transport::grpc::GrpcStatus::new(
+                armonik_transport::grpc::GrpcStatusCode::Internal,
+                details,
+            ))
+            .context(super::GrpcSnafu {}),
         }
     }
 
@@ -347,7 +347,7 @@ super::impl_call! {
                 .into())
         }
 
-        async fn call(self, request: try_get_result::Request) -> Result<futures::stream::BoxStream<'static, Result<try_get_result::Response, tonic::Status>>> {
+        async fn call(self, request: try_get_result::Request) -> Result<futures::stream::BoxStream<'static, Result<try_get_result::Response, armonik_transport::grpc::GrpcStatus>>> {
             let span = tracing::debug_span!("Submitter::try_get_result");
             let call = tracing_futures::Instrument::instrument(
                 self
@@ -454,12 +454,8 @@ super::impl_call! {
     }
 }
 
-impl<T, S> GrpcCallStream<create_tasks::LargeRequest, S> for &'_ mut Submitter<T>
+impl<S> GrpcCallStream<create_tasks::LargeRequest, S> for &'_ mut Submitter
 where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     S: Stream<Item = create_tasks::LargeRequest> + Send + 'static,
 {
     type Response = create_tasks::Response;
@@ -531,7 +527,9 @@ mod tests {
         match client.create_small_tasks("session-id", None, []).await {
             Ok(_) => (),
             Err(crate::client::RequestError::Grpc { source, .. }) => {
-                if source.code() != tonic::Code::Internal || !source.message().is_empty() {
+                if source.code != armonik_transport::grpc::GrpcStatusCode::Internal
+                    || !source.message.is_empty()
+                {
                     panic!("{source:?}")
                 }
             }
@@ -552,7 +550,9 @@ mod tests {
         {
             Ok(_) => (),
             Err(crate::client::RequestError::Grpc { source, .. }) => {
-                if source.code() != tonic::Code::Internal || !source.message().is_empty() {
+                if source.code != armonik_transport::grpc::GrpcStatusCode::Internal
+                    || !source.message.is_empty()
+                {
                     panic!("{source:?}")
                 }
             }
@@ -762,7 +762,9 @@ mod tests {
         {
             Ok(_) => (),
             Err(crate::client::RequestError::Grpc { source, .. }) => {
-                if source.code() != tonic::Code::Internal || !source.message().is_empty() {
+                if source.code != armonik_transport::grpc::GrpcStatusCode::Internal
+                    || !source.message.is_empty()
+                {
                     panic!("{source:?}")
                 }
             }
@@ -783,7 +785,9 @@ mod tests {
         {
             Ok(_) => (),
             Err(crate::client::RequestError::Grpc { source, .. }) => {
-                if source.code() != tonic::Code::Internal || !source.message().is_empty() {
+                if source.code != armonik_transport::grpc::GrpcStatusCode::Internal
+                    || !source.message.is_empty()
+                {
                     panic!("{source:?}")
                 }
             }

@@ -42,10 +42,6 @@ impl From<v3::events::EventSubscriptionRequest> for Request {
     }
 }
 
-super::super::impl_convert!(
-    req Request : v3::events::EventSubscriptionRequest
-);
-
 /// Response containing the update event.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

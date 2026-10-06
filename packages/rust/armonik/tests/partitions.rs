@@ -53,8 +53,7 @@ impl armonik::server::PartitionsService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().partitions_server()).into_partitions();
+    let mut client = common::client(Service::default().partitions_server()).into_partitions();
 
     let response = client
         .list(
@@ -74,8 +73,7 @@ async fn list() {
 
 #[tokio::test]
 async fn get() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().partitions_server()).into_partitions();
+    let mut client = common::client(Service::default().partitions_server()).into_partitions();
 
     let response = client.get("rpc-get-input").await.unwrap();
 

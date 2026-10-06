@@ -31,8 +31,7 @@ impl armonik::server::VersionsService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().versions_server()).into_versions();
+    let mut client = common::client(Service::default().versions_server()).into_versions();
 
     let response = client.list().await.unwrap();
 

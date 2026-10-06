@@ -50,8 +50,6 @@ impl From<v3::sort_direction::SortDirection> for SortDirection {
     }
 }
 
-super::impl_convert!(req SortDirection : v3::sort_direction::SortDirection);
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Sort<T> {

@@ -174,7 +174,7 @@ impl armonik::server::AgentService for Service {
 
 #[tokio::test]
 async fn create_results_metadata() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .create_results_metadata("rpc-create-results-metadata-input", "", ["result-id"])
@@ -186,7 +186,7 @@ async fn create_results_metadata() {
 
 #[tokio::test]
 async fn create_results() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .create_results("rpc-create-results-input", "", [("result-id", b"")])
@@ -198,7 +198,7 @@ async fn create_results() {
 
 #[tokio::test]
 async fn notify_result_data() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .notify_result_data("rpc-notify-result-data-input", "", [""])
@@ -211,7 +211,7 @@ async fn notify_result_data() {
 
 #[tokio::test]
 async fn submit_tasks() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .submit_tasks("rpc-submit-tasks-input", "", None, [])
@@ -223,7 +223,7 @@ async fn submit_tasks() {
 
 #[tokio::test]
 async fn get_resource_data() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .call(agent::get_resource_data::Request {
@@ -238,7 +238,7 @@ async fn get_resource_data() {
 
 #[tokio::test]
 async fn get_common_data() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .call(agent::get_common_data::Request {
@@ -253,7 +253,7 @@ async fn get_common_data() {
 
 #[tokio::test]
 async fn get_direct_data() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .call(agent::get_direct_data::Request {
@@ -268,7 +268,7 @@ async fn get_direct_data() {
 
 #[tokio::test]
 async fn create_tasks() {
-    let mut client = armonik::Client::with_channel(Service::default().agent_server()).into_agent();
+    let mut client = common::client(Service::default().agent_server()).into_agent();
 
     let response = client
         .create_tasks(futures::stream::iter([

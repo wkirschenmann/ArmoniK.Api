@@ -185,16 +185,6 @@ macro_rules! impl_convert {
     ),* $(,)?}) => {
         crate::impl_convert!(@struct {} _value: $A => $B { $($($a)+ $(=> $($b)+)?,)* });
         crate::impl_convert!(@struct {} _value: $B => $A { $($($($b)+ =>)? $($a)+,)* });
-        crate::impl_convert!(req $A : $B);
-    };
-
-    // Request
-    (req $A:ty : $B:ty) => {
-        impl tonic::IntoRequest<$B> for $A {
-            fn into_request(self) -> tonic::Request<$B> {
-                tonic::Request::new(self.into())
-            }
-        }
     };
 }
 pub(crate) use impl_convert;

@@ -147,7 +147,7 @@ impl armonik::server::TasksService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client
         .list(
@@ -168,7 +168,7 @@ async fn list() {
 
 #[tokio::test]
 async fn list_detailed() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client
         .list_detailed(
@@ -189,7 +189,7 @@ async fn list_detailed() {
 
 #[tokio::test]
 async fn get() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client.get("rpc-get-input").await.unwrap();
 
@@ -199,7 +199,7 @@ async fn get() {
 
 #[tokio::test]
 async fn cancel() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client.cancel(["rpc-cancel-input"]).await.unwrap();
 
@@ -209,7 +209,7 @@ async fn cancel() {
 
 #[tokio::test]
 async fn get_result_ids() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client
         .get_result_ids(["rpc-get-result-ids-input"])
@@ -224,7 +224,7 @@ async fn get_result_ids() {
 
 #[tokio::test]
 async fn count_status() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client
         .count_status(tasks::filter::Or::default())
@@ -236,7 +236,7 @@ async fn count_status() {
 
 #[tokio::test]
 async fn submit() {
-    let mut client = armonik::Client::with_channel(Service::default().tasks_server()).into_tasks();
+    let mut client = common::client(Service::default().tasks_server()).into_tasks();
 
     let response = client
         .submit(

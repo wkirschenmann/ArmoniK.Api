@@ -78,5 +78,3 @@ impl From<v3::tasks::filter_field::ValueCondition> for Condition {
         }
     }
 }
-
-super::super::impl_convert!(req Condition : v3::tasks::filter_field::ValueCondition);

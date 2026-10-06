@@ -45,8 +45,6 @@ impl From<v3::results::ImportResultsDataRequest> for Request {
     }
 }
 
-super::super::impl_convert!(req Request : v3::results::ImportResultsDataRequest);
-
 /// Response for creating results without data.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -74,5 +72,3 @@ impl From<v3::results::ImportResultsDataResponse> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::results::ImportResultsDataResponse);

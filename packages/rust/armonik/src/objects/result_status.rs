@@ -58,5 +58,3 @@ impl From<v3::result_status::ResultStatus> for ResultStatus {
         }
     }
 }
-
-super::impl_convert!(req ResultStatus : v3::result_status::ResultStatus);

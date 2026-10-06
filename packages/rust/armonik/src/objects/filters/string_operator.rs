@@ -58,5 +58,3 @@ impl From<v3::FilterStringOperator> for FilterStringOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterStringOperator : v3::FilterStringOperator);

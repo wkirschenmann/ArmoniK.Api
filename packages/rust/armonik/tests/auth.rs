@@ -33,7 +33,7 @@ impl armonik::server::AuthService for Service {
 
 #[tokio::test]
 async fn current_user() {
-    let mut client = armonik::Client::with_channel(Service::default().auth_server()).into_auth();
+    let mut client = common::client(Service::default().auth_server()).into_auth();
 
     let response = client.current_user().await.unwrap();
 

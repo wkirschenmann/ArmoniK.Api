@@ -12,19 +12,13 @@ use super::GrpcCall;
 
 /// Service for handling sessions
 #[derive(Clone)]
-pub struct Sessions<T> {
-    inner: v3::sessions::sessions_client::SessionsClient<T>,
+pub struct Sessions {
+    inner: v3::sessions::sessions_client::SessionsClient,
 }
 
-impl<T> Sessions<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Sessions {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::sessions::sessions_client::SessionsClient::new(channel),
         }

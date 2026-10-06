@@ -63,5 +63,3 @@ impl From<v3::session_status::SessionStatus> for SessionStatus {
         }
     }
 }
-
-super::impl_convert!(req SessionStatus : v3::session_status::SessionStatus);

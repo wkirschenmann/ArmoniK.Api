@@ -34,5 +34,3 @@ impl From<v3::Output> for Output {
         }
     }
 }
-
-super::impl_convert!(req Output : v3::Output);

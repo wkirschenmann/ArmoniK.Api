@@ -59,5 +59,3 @@ impl From<v3::results::GetOwnerTaskIdResponse> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::results::GetOwnerTaskIdResponse);

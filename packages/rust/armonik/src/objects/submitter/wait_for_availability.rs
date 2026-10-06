@@ -62,5 +62,3 @@ impl From<v3::submitter::AvailabilityReply> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::submitter::AvailabilityReply);

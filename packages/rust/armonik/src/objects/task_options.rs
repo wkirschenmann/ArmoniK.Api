@@ -91,8 +91,6 @@ impl From<v3::TaskOptions> for TaskOptions {
     }
 }
 
-super::impl_convert!(req TaskOptions : v3::TaskOptions);
-
 /// Represents a field in a task option.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -157,6 +155,3 @@ impl From<v3::tasks::TaskOptionField> for TaskOptionField {
         value.field.into()
     }
 }
-
-super::super::impl_convert!(req TaskOptionField : v3::sessions::TaskOptionField);
-super::super::impl_convert!(req TaskOptionField : v3::tasks::TaskOptionField);

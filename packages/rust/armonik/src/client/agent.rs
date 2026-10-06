@@ -13,19 +13,13 @@ use super::{GrpcCall, GrpcCallStream};
 
 /// The ResultsService provides methods for interacting with results.
 #[derive(Clone)]
-pub struct Agent<T> {
-    inner: v3::agent::agent_client::AgentClient<T>,
+pub struct Agent {
+    inner: v3::agent::agent_client::AgentClient,
 }
 
-impl<T> Agent<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Agent {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::agent::agent_client::AgentClient::new(channel),
         }
@@ -119,7 +113,11 @@ where
             create_tasks::Response::Error {
                 communication_token: _,
                 error,
-            } => Err(tonic::Status::internal(error)).context(super::GrpcSnafu {}),
+            } => Err(armonik_transport::grpc::GrpcStatus::new(
+                armonik_transport::grpc::GrpcStatusCode::Internal,
+                error,
+            ))
+            .context(super::GrpcSnafu {}),
         }
     }
 
@@ -237,12 +235,8 @@ super::impl_call! {
     }
 }
 
-impl<T, S> GrpcCallStream<create_tasks::Request, S> for &'_ mut Agent<T>
+impl<S> GrpcCallStream<create_tasks::Request, S> for &'_ mut Agent
 where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     S: Stream<Item = create_tasks::Request> + Send + 'static,
 {
     type Response = create_tasks::Response;

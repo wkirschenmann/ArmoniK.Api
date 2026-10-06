@@ -1,18 +1,13 @@
-//! Two ways to reach an ArmoniK server, with no configuration in common.
+//! The gRPC client engine ArmoniK's clients reach a server with.
 //!
-//! [`connect`] builds a `tonic` channel over `hyper-rustls` from a [`ClientConfig`]: TLS, mTLS,
-//! the keepalives and every timeout, read from the `GrpcClient__*` environment. It is what the
-//! Rust client dials with.
+//! [`grpc`] over [`http2`] is the engine: tonic's client, which carries the gRPC framing, over an
+//! HTTP/2 session of this crate's own, in cleartext or over TLS. The C ABI configures it with an
+//! [`options::ChannelOptions`] document, where the schema states each setting's bounds and the
+//! generated .NET class its spelling. The Rust client configures it with a [`ClientConfig`], read
+//! from the `GrpcClient__*` environment, through [`ClientConfig::channel_config`], which refuses a
+//! setting the engine has not got rather than drop it.
 //!
-//! [`grpc`] over [`http2`] is the engine the C ABI drives: tonic's client, which carries the gRPC
-//! framing, over an HTTP/2 session of this crate's own, in cleartext or over TLS, and configured
-//! by an [`options::ChannelOptions`] document rather than by the environment.
-//!
-//! Nothing converts one configuration into the other, and that is the point: seventeen fields
-//! answer to fourteen the engine has no use for, so a conversion would drop them and leave a
-//! caller no way to see which of its settings survived. A setting reaches the engine by being
-//! named in [`options`], where the schema states its bounds and the generated .NET class its
-//! spelling.
+//! [`connect`] builds a `tonic` channel over `hyper-rustls` from the same [`ClientConfig`].
 
 mod coalesce;
 mod config;

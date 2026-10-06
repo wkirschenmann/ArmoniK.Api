@@ -29,9 +29,8 @@ use crate::utils::{chain, safe_endpoint};
 
 /// What this connector needs in order to dial: where, how long to wait, and how to secure it.
 ///
-/// Not [`crate::ClientConfig`], which configures [`crate::connect`] and carries the keepalives
-/// tonic reads. The two are separate types because they drive separate engines, and nothing
-/// converts between them.
+/// [`crate::ClientConfig::channel_config`] builds one, inside a channel's configuration, from the
+/// `GrpcClient__*` options.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct TransportConfig {

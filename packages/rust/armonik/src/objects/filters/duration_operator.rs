@@ -58,5 +58,3 @@ impl From<v3::FilterDurationOperator> for FilterDurationOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterDurationOperator : v3::FilterDurationOperator);

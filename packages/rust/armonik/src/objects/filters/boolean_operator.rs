@@ -33,5 +33,3 @@ impl From<v3::FilterBooleanOperator> for FilterBooleanOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterBooleanOperator : v3::FilterBooleanOperator);

@@ -42,5 +42,3 @@ impl From<v3::worker::HealthCheckReply> for Response {
         value.status.into()
     }
 }
-
-super::super::impl_convert!(req Response : v3::worker::HealthCheckReply);

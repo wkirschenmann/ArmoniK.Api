@@ -56,5 +56,3 @@ impl From<v3::partitions::filter_field::ValueCondition> for Condition {
         }
     }
 }
-
-super::super::impl_convert!(req Condition : v3::partitions::filter_field::ValueCondition);

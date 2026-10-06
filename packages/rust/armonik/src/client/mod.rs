@@ -5,11 +5,12 @@ use snafu::{ResultExt, Snafu};
 // Re-exported here, so a caller reaches them through the client rather than through the transport
 // crate.
 #[cfg(feature = "_gen-client")]
-use armonik_transport::ConfigSnafu;
+pub use armonik_transport::grpc::{GrpcChannel, GrpcStatus, GrpcStatusCode};
 #[cfg(feature = "_gen-client")]
-pub use armonik_transport::{
-    ClientConfig, ClientConfigArgs, ConfigError, ConnectionError, ReadEnvError,
-};
+pub use armonik_transport::{ClientConfig, ClientConfigArgs, ConfigError, ReadEnvError};
+
+#[cfg(feature = "_gen-client")]
+pub mod rpc;
 
 #[cfg(feature = "worker")]
 mod agent;
@@ -62,28 +63,53 @@ pub use versions::Versions;
 #[cfg(feature = "agent")]
 pub use worker::Worker;
 
-/// ArmoniK Client
+/// ArmoniK Client, over the engine's channel.
 #[derive(Clone)]
-pub struct Client<T = tonic::transport::Channel> {
-    channel: T,
+pub struct Client {
+    channel: GrpcChannel,
 }
 
-impl Client<tonic::transport::Channel> {
+/// Why a client could not be built.
+#[derive(Debug, Snafu)]
+#[non_exhaustive]
+pub enum ConnectionError {
+    #[snafu(display("the client's configuration is refused"))]
+    #[non_exhaustive]
+    Config { source: ConfigError },
+    #[snafu(display("the channel's configuration is refused"))]
+    #[non_exhaustive]
+    Channel {
+        source: armonik_transport::grpc::GrpcChannelConfigError,
+    },
+    #[snafu(display("the channel could not connect"))]
+    #[non_exhaustive]
+    Connect {
+        source: armonik_transport::grpc::ChannelError,
+    },
+}
+
+impl Client {
     /// Create a new client using the configuration from the environment variables
     pub async fn new() -> Result<Self, ConnectionError> {
         Self::with_config(ClientConfig::from_env().context(ConfigSnafu {})?).await
     }
 
-    /// Create a new client with the specified client configuration
+    /// Create a new client with the specified client configuration, connected once it returns.
+    ///
+    /// The client's connections run on the tokio runtime current here, which must outlive it.
     pub async fn with_config(config: ClientConfig) -> Result<Self, ConnectionError> {
         // Rendered rather than printed: `endpoint` is a public field, so a config built by hand
         // never met the check that refuses `user:password@`, and this span is a log line.
         let endpoint = armonik_transport::safe_endpoint(&config.endpoint);
         tracing_futures::Instrument::instrument(
             async move {
-                Ok(Self::with_channel(
-                    armonik_transport::connect(config).await?,
-                ))
+                let channel = GrpcChannel::new(
+                    config.channel_config().context(ConfigSnafu {})?,
+                    tokio::runtime::Handle::current(),
+                )
+                .context(ChannelSnafu {})?;
+                channel.connect().await.context(ConnectSnafu {})?;
+                Ok(Self::with_channel(channel))
             },
             tracing::debug_span!("Client", endpoint),
         )
@@ -131,199 +157,146 @@ impl Client<tonic::transport::Channel> {
     }
 }
 
-impl<T> Client<T>
-where
-    T: Clone,
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
-    /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+impl Client {
+    /// Build a client from the engine's channel
+    pub fn with_channel(channel: GrpcChannel) -> Self {
         Self { channel }
     }
 
     #[cfg(feature = "worker")]
     /// Create a borrowed [`Agent`]
-    pub fn agent(&mut self) -> Agent<&mut Self> {
-        Agent::with_channel(self)
+    pub fn agent(&mut self) -> Agent {
+        Agent::with_channel(self.channel.clone())
     }
     #[cfg(feature = "worker")]
     /// Create an owned [`Agent`]
-    pub fn into_agent(self) -> Agent<Self> {
-        Agent::with_channel(self)
+    pub fn into_agent(self) -> Agent {
+        Agent::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Applications`]
-    pub fn applications(&mut self) -> Applications<&mut Self> {
-        Applications::with_channel(self)
+    pub fn applications(&mut self) -> Applications {
+        Applications::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Applications`]
-    pub fn into_applications(self) -> Applications<Self> {
-        Applications::with_channel(self)
+    pub fn into_applications(self) -> Applications {
+        Applications::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Auth`]
-    pub fn auth(&mut self) -> Auth<&mut Self> {
-        Auth::with_channel(self)
+    pub fn auth(&mut self) -> Auth {
+        Auth::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Auth`]
-    pub fn into_auth(self) -> Auth<Self> {
-        Auth::with_channel(self)
+    pub fn into_auth(self) -> Auth {
+        Auth::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Events`]
-    pub fn events(&mut self) -> Events<&mut Self> {
-        Events::with_channel(self)
+    pub fn events(&mut self) -> Events {
+        Events::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Events`]
-    pub fn into_events(self) -> Events<Self> {
-        Events::with_channel(self)
+    pub fn into_events(self) -> Events {
+        Events::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`HealthChecks`]
-    pub fn health_checks(&mut self) -> HealthChecks<&mut Self> {
-        HealthChecks::with_channel(self)
+    pub fn health_checks(&mut self) -> HealthChecks {
+        HealthChecks::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`HealthChecks`]
-    pub fn into_health_checks(self) -> HealthChecks<Self> {
-        HealthChecks::with_channel(self)
+    pub fn into_health_checks(self) -> HealthChecks {
+        HealthChecks::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Partitions`]
-    pub fn partitions(&mut self) -> Partitions<&mut Self> {
-        Partitions::with_channel(self)
+    pub fn partitions(&mut self) -> Partitions {
+        Partitions::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Partitions`]
-    pub fn into_partitions(self) -> Partitions<Self> {
-        Partitions::with_channel(self)
+    pub fn into_partitions(self) -> Partitions {
+        Partitions::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Results`]
-    pub fn results(&mut self) -> Results<&mut Self> {
-        Results::with_channel(self)
+    pub fn results(&mut self) -> Results {
+        Results::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Results`]
-    pub fn into_results(self) -> Results<Self> {
-        Results::with_channel(self)
+    pub fn into_results(self) -> Results {
+        Results::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Sessions`]
-    pub fn sessions(&mut self) -> Sessions<&mut Self> {
-        Sessions::with_channel(self)
+    pub fn sessions(&mut self) -> Sessions {
+        Sessions::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Sessions`]
-    pub fn into_sessions(self) -> Sessions<Self> {
-        Sessions::with_channel(self)
+    pub fn into_sessions(self) -> Sessions {
+        Sessions::with_channel(self.channel)
     }
 
     /// Create a borrowed [`Submitter`]
     #[cfg(feature = "client")]
     #[deprecated]
     #[allow(deprecated)]
-    pub fn submitter(&mut self) -> Submitter<&mut Self> {
-        Submitter::with_channel(self)
+    pub fn submitter(&mut self) -> Submitter {
+        Submitter::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     #[deprecated]
     #[allow(deprecated)]
     /// Create an owned [`Submitter`]
-    pub fn into_submitter(self) -> Submitter<Self> {
-        Submitter::with_channel(self)
+    pub fn into_submitter(self) -> Submitter {
+        Submitter::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Tasks`]
-    pub fn tasks(&mut self) -> Tasks<&mut Self> {
-        Tasks::with_channel(self)
+    pub fn tasks(&mut self) -> Tasks {
+        Tasks::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Tasks`]
-    pub fn into_tasks(self) -> Tasks<Self> {
-        Tasks::with_channel(self)
+    pub fn into_tasks(self) -> Tasks {
+        Tasks::with_channel(self.channel)
     }
 
     #[cfg(feature = "client")]
     /// Create a borrowed [`Versions`]
-    pub fn versions(&mut self) -> Versions<&mut Self> {
-        Versions::with_channel(self)
+    pub fn versions(&mut self) -> Versions {
+        Versions::with_channel(self.channel.clone())
     }
     #[cfg(feature = "client")]
     /// Create an owned [`Versions`]
-    pub fn into_versions(self) -> Versions<Self> {
-        Versions::with_channel(self)
+    pub fn into_versions(self) -> Versions {
+        Versions::with_channel(self.channel)
     }
 
     #[cfg(feature = "agent")]
     /// Create a borrowed [`Worker`]
-    pub fn worker(&mut self) -> Worker<&mut Self> {
-        Worker::with_channel(self)
+    pub fn worker(&mut self) -> Worker {
+        Worker::with_channel(self.channel.clone())
     }
     #[cfg(feature = "agent")]
     /// Create an owned [`Worker`]
-    pub fn into_worker(self) -> Worker<Self> {
-        Worker::with_channel(self)
-    }
-}
-
-impl<T> tonic::client::GrpcService<tonic::body::Body> for Client<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
-    type ResponseBody = T::ResponseBody;
-    type Error = T::Error;
-    type Future = T::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.channel.poll_ready(cx)
-    }
-
-    fn call(&mut self, request: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
-        self.channel.call(request)
-    }
-}
-
-impl<T> tonic::client::GrpcService<tonic::body::Body> for &'_ mut Client<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
-    type ResponseBody = T::ResponseBody;
-    type Error = T::Error;
-    type Future = T::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.channel.poll_ready(cx)
-    }
-
-    fn call(&mut self, request: tonic::codegen::http::Request<tonic::body::Body>) -> Self::Future {
-        self.channel.call(request)
+    pub fn into_worker(self) -> Worker {
+        Worker::with_channel(self.channel)
     }
 }
 
@@ -370,8 +343,8 @@ pub enum RequestError {
     #[snafu(display("Grpc request error [{location}]"))]
     #[non_exhaustive]
     Grpc {
-        #[snafu(source(from(tonic::Status, Box::new)))]
-        source: Box<tonic::Status>,
+        #[snafu(source(from(GrpcStatus, Box::new)))]
+        source: Box<GrpcStatus>,
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -384,13 +357,7 @@ macro_rules! impl_call {
         }
     };
     (@one $Client:ident($self:ident, $request:ident: $Request:ty) -> Result<$Response:ty, $Error:ty> $block:block) => {
-        impl<T> $crate::client::GrpcCall<$Request> for &'_ mut $Client<T>
-        where
-            T: tonic::client::GrpcService<tonic::body::Body>,
-            T::Error: Into<tonic::codegen::StdError>,
-            T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-            <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-        {
+        impl $crate::client::GrpcCall<$Request> for &'_ mut $Client {
             type Response = $Response;
             type Error = $Error;
 

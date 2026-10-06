@@ -58,5 +58,3 @@ impl From<v3::FilterDateOperator> for FilterDateOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterDateOperator : v3::FilterDateOperator);

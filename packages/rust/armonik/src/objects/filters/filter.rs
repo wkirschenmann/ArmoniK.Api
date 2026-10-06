@@ -31,8 +31,6 @@ macro_rules! impl_filter_condition {
                 }
             }
         }
-
-        super::super::impl_convert!(req $name : v3::$name);
     };
 }
 
@@ -67,8 +65,6 @@ impl From<v3::FilterDate> for FilterDate {
     }
 }
 
-super::super::impl_convert!(req FilterDate : v3::FilterDate);
-
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FilterDuration {
@@ -96,8 +92,6 @@ impl From<v3::FilterDuration> for FilterDuration {
 }
 
 impl Eq for FilterDuration {}
-
-super::super::impl_convert!(req FilterDuration : v3::FilterDuration);
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

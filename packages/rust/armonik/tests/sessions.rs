@@ -185,8 +185,7 @@ impl armonik::server::SessionsService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client
         .list(
@@ -207,8 +206,7 @@ async fn list() {
 
 #[tokio::test]
 async fn get() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.get("rpc-get-input").await.unwrap();
 
@@ -218,8 +216,7 @@ async fn get() {
 
 #[tokio::test]
 async fn cancel() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.cancel("rpc-cancel-input").await.unwrap();
 
@@ -229,8 +226,7 @@ async fn cancel() {
 
 #[tokio::test]
 async fn create() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client
         .create(vec![String::from("rpc-create-input")], Default::default())
@@ -242,8 +238,7 @@ async fn create() {
 
 #[tokio::test]
 async fn pause() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.pause("rpc-pause-input").await.unwrap();
 
@@ -253,8 +248,7 @@ async fn pause() {
 
 #[tokio::test]
 async fn resume() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.resume("rpc-resume-input").await.unwrap();
 
@@ -264,8 +258,7 @@ async fn resume() {
 
 #[tokio::test]
 async fn close() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.close("rpc-close-input").await.unwrap();
 
@@ -275,8 +268,7 @@ async fn close() {
 
 #[tokio::test]
 async fn purge() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.purge("rpc-purge-input").await.unwrap();
 
@@ -286,8 +278,7 @@ async fn purge() {
 
 #[tokio::test]
 async fn delete() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client.delete("rpc-delete-input").await.unwrap();
 
@@ -297,8 +288,7 @@ async fn delete() {
 
 #[tokio::test]
 async fn stop_submission() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().sessions_server()).into_sessions();
+    let mut client = common::client(Service::default().sessions_server()).into_sessions();
 
     let response = client
         .stop_submission("rpc-stop-input", true, true)

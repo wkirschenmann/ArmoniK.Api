@@ -7,19 +7,13 @@ use crate::utils::IntoCollection;
 use super::GrpcCall;
 
 #[derive(Clone)]
-pub struct Partitions<T> {
-    inner: v3::partitions::partitions_client::PartitionsClient<T>,
+pub struct Partitions {
+    inner: v3::partitions::partitions_client::PartitionsClient,
 }
 
-impl<T> Partitions<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Partitions {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::partitions::partitions_client::PartitionsClient::new(channel),
         }

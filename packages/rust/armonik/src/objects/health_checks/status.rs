@@ -48,5 +48,3 @@ impl From<v3::health_checks::HealthStatusEnum> for Status {
         }
     }
 }
-
-super::super::impl_convert!(req Status : v3::health_checks::HealthStatusEnum);

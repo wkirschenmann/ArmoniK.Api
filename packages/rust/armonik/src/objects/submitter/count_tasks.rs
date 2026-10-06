@@ -20,6 +20,4 @@ impl From<v3::submitter::TaskFilter> for Request {
     }
 }
 
-super::super::impl_convert!(req Request : v3::submitter::TaskFilter);
-
 pub type Response = super::super::Count;

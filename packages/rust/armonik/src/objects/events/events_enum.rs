@@ -58,5 +58,3 @@ impl From<v3::events::EventsEnum> for EventsEnum {
         }
     }
 }
-
-super::super::impl_convert!(req EventsEnum : v3::events::EventsEnum);

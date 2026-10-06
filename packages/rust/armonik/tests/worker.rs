@@ -43,8 +43,7 @@ impl armonik::server::WorkerService for Service {
 
 #[tokio::test]
 async fn health_check() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().worker_server()).into_worker();
+    let mut client = common::client(Service::default().worker_server()).into_worker();
 
     let response = client.health_check().await.unwrap();
 
@@ -53,8 +52,7 @@ async fn health_check() {
 
 #[tokio::test]
 async fn process() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().worker_server()).into_worker();
+    let mut client = common::client(Service::default().worker_server()).into_worker();
 
     let response = client
         .process(worker::process::Request {

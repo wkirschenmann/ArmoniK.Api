@@ -1,3 +1,6 @@
+#[path = "codegen/clients.rs"]
+mod clients;
+
 /// The proto files to compile, relative to [`PROTO_ROOT`].
 ///
 /// A list rather than a glob, so that each file can be named to `cargo:rerun-if-changed` below.
@@ -64,11 +67,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=protos");
     println!("cargo:rerun-if-changed=build.rs");
 
+    println!("cargo:rerun-if-changed=codegen/clients.rs");
+
+    let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
+    let descriptor_set = out_dir.join("armonik_descriptor_set.bin");
+    // The servers are tonic's; the clients are this crate's, over the engine's channel.
     tonic_prost_build::configure()
         .use_arc_self(true)
-        .build_client(cfg!(feature = "_gen-client"))
+        .build_client(false)
         .build_server(cfg!(feature = "_gen-server"))
+        .file_descriptor_set_path(&descriptor_set)
         // Both slices have to hold the same type, and `proto_files` is `Vec<String>`.
         .compile_protos(&proto_files, &[String::from(PROTO_ROOT)])?;
+    if cfg!(feature = "_gen-client") {
+        clients::generate(&descriptor_set, &out_dir)?;
+    }
     Ok(())
 }

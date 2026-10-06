@@ -19,7 +19,7 @@ client = ["_gen-client"]
 server = ["_gen-server"]
 agent = ["_gen-client", "_gen-server"]
 worker = ["_gen-client", "_gen-server"]
-_gen-client = ["tonic/channel", "dep:armonik-transport"]
+_gen-client = ["dep:armonik-transport", "dep:tokio"]
 _gen-server = ["tonic/server", "tonic/router", "dep:tokio"]
 
 [dependencies]
@@ -34,14 +34,18 @@ futures.workspace = true
 snafu.workspace = true
 tracing.workspace = true
 tracing-futures = { workspace = true, features = ["futures-03"] }
-tokio = { workspace = true, optional = true }
+# `rt`: a call that streams requests sends them from a task of its own.
+tokio = { workspace = true, optional = true, features = ["rt"] }
 serde = { workspace = true, optional = true }
 
 [dev-dependencies]
-# Only the `get_nb_request` test helper needs these: it drives a raw HTTP request through the connector
-# `armonik-transport` builds, to read the mock server's `/calls.json`.
-hyper = { workspace = true, features = ["client", "http1"] }
-hyper-util = { workspace = true, features = ["client", "http1"] }
+# `client` and `http1` for the `get_nb_request` test helper, which drives a raw HTTP request through
+# the connector `armonik-transport` builds to read the mock server's `/calls.json`; `server`,
+# `http2`, `service` and `tokio` for the loopback server the integration tests' clients reach.
+hyper = { workspace = true, features = ["client", "http1", "server", "http2"] }
+hyper-util = { workspace = true, features = ["client", "http1", "server", "service", "tokio"] }
+http.workspace = true
+tower-service.workspace = true
 eyre.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 http-body-util.workspace = true
@@ -51,14 +55,15 @@ async-stream.workspace = true
 tokio = { workspace = true, features = [
   "rt-multi-thread",
   "macros",
+  "net",
   "sync",
   "time",
-  # `test-util` for the paused clock the cancellation tests run on.
-  "test-util",
 ] }
 tokio-util.workspace = true
 
 [build-dependencies]
+prost.workspace = true
+prost-types.workspace = true
 tonic-prost-build.workspace = true
 
 [[test]]

@@ -94,8 +94,6 @@ impl From<v3::agent::CreateTaskRequest> for Request {
     }
 }
 
-super::super::impl_convert!(req Request : v3::agent::CreateTaskRequest);
-
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Status {
@@ -228,5 +226,3 @@ impl From<v3::agent::CreateTaskReply> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::agent::CreateTaskReply);

@@ -38,5 +38,3 @@ impl From<v3::FilterArrayOperator> for FilterArrayOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterArrayOperator : v3::FilterArrayOperator);

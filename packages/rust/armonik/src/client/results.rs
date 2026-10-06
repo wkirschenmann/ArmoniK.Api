@@ -14,19 +14,13 @@ use super::{GrpcCall, GrpcCallStream};
 
 /// The ResultsService provides methods for interacting with results.
 #[derive(Clone)]
-pub struct Results<T> {
-    inner: v3::results::results_client::ResultsClient<T>,
+pub struct Results {
+    inner: v3::results::results_client::ResultsClient,
 }
 
-impl<T> Results<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Results {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::results::results_client::ResultsClient::new(channel),
         }
@@ -346,13 +340,7 @@ super::impl_call! {
     }
 }
 
-impl<T> GrpcCall<download::Request> for &'_ mut Results<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl GrpcCall<download::Request> for &'_ mut Results {
     type Response =
         futures::stream::BoxStream<'static, Result<download::Response, super::RequestError>>;
     type Error = super::RequestError;
@@ -377,12 +365,8 @@ where
     }
 }
 
-impl<T, S> GrpcCallStream<upload::Request, S> for &'_ mut Results<T>
+impl<S> GrpcCallStream<upload::Request, S> for &'_ mut Results
 where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
     S: Stream<Item = upload::Request> + Send + 'static,
 {
     type Response = upload::Response;

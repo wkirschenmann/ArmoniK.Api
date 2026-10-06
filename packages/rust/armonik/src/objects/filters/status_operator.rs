@@ -38,5 +38,3 @@ impl From<v3::FilterStatusOperator> for FilterStatusOperator {
         }
     }
 }
-
-super::super::impl_convert!(req FilterStatusOperator : v3::FilterStatusOperator);

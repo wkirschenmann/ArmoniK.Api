@@ -58,5 +58,3 @@ impl From<v3::submitter::ResultReply> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::submitter::ResultReply);

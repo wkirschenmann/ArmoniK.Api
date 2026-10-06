@@ -4,11 +4,14 @@ use hyper::{http::HeaderValue, Uri};
 use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use snafu::{ResultExt, Snafu};
 
+use crate::grpc::GrpcChannelConfig;
+use crate::http2::{ClientIdentity, TransportConfig};
+
 /// Options for creating a gRPC Client
 ///
-/// Read by [`crate::connect`] alone, which is the `tonic` path. The engine behind the C ABI is
-/// configured by [`crate::options::ChannelOptions`] instead, and nothing carries a value from
-/// here to there.
+/// The Rust client's configuration, read from its `GrpcClient__*` variables and turned into the
+/// engine's by [`ClientConfig::channel_config`]. The engine behind the C ABI is configured by
+/// [`crate::options::ChannelOptions`] instead.
 #[derive(Debug, Default)]
 #[non_exhaustive]
 pub struct ClientConfig {
@@ -27,29 +30,33 @@ pub struct ClientConfig {
     /// Every certificate in the file, because a bundle during a root rotation holds two, and
     /// taking the first would refuse the half of the fleet signed by the other.
     pub cacert: Vec<CertificateDer<'static>>,
-    /// Override the endpoint name during SSL verification
+    /// Override the endpoint name during SSL verification: the name the server certificate is
+    /// verified against, and nothing else - requests keep the endpoint's `:authority`
     pub override_target: Option<Uri>,
     /// Timeout for establishing a connection to the server, defaults to 60s
     pub connect_timeout: Option<Duration>,
-    /// Timeout for each request, defaults to no timeout
+    /// Deadline of each call, counted from its start and streaming calls included, defaults to
+    /// no deadline
     pub timeout: Option<Duration>,
-    /// Rate limit for requests, defaults to no rate limit
+    /// Rate limit for requests; refused by [`ClientConfig::channel_config`]
     pub rate_limit: Option<(u64, Duration)>,
     /// TCP keepalive duration, defaults to no keepalive
     pub tcp_keepalive: Option<Duration>,
-    /// Interval between TCP keepalive probes, defaults to OS default
+    /// Interval between TCP keepalive probes, defaults to OS default; read only with
+    /// `tcp_keepalive`
     pub tcp_keepalive_interval: Option<Duration>,
-    /// Number of TCP keepalive retries, defaults to OS default
+    /// Number of TCP keepalive retries, defaults to OS default; read only with `tcp_keepalive`
     pub tcp_keepalive_retries: Option<u32>,
-    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false
+    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false; true is refused by
+    /// [`ClientConfig::channel_config`]
     pub tcp_nagle_algorithm: bool,
     /// HTTP/2 PING frame interval, defaults to no keepalive
     pub http2_keep_alive_interval: Option<Duration>,
-    /// HTTP/2 PING timeout, defaults to no timeout
+    /// HTTP/2 PING timeout, defaults to 20s
     pub http2_keep_alive_timeout: Option<Duration>,
     /// Send HTTP/2 keepalive PINGs even when idle, defaults to false
     pub http2_keep_alive_while_idle: bool,
-    /// HTTP/2 max header list size in bytes, defaults to no limit
+    /// HTTP/2 max header list size in bytes; refused by [`ClientConfig::channel_config`]
     pub http2_max_header_list_size: Option<u32>,
     /// User-Agent header value sent with each request
     pub user_agent: Option<HeaderValue>,
@@ -101,40 +108,42 @@ pub struct ClientConfigArgs {
     /// Allow unsafe connections to the endpoint (without SSL), defaults to false
     #[cfg_attr(feature = "serde", serde(default))]
     pub allow_unsafe_connection: bool,
-    /// Override the endpoint name during SSL verification
+    /// Override the endpoint name during SSL verification; requests keep the endpoint's authority
     #[cfg_attr(feature = "serde", serde(default))]
     pub override_target_name: String,
     /// Timeout for establishing a connection to the server, defaults to 60s
     #[cfg_attr(feature = "serde", serde(default))]
     pub connect_timeout: String,
-    /// Timeout for each request, defaults to no timeout
+    /// Deadline of each call, streaming calls included, defaults to no deadline
     #[cfg_attr(feature = "serde", serde(default))]
     pub timeout: String,
-    /// Rate limit for requests, defaults to no rate limit
+    /// Rate limit for requests; refused by [`ClientConfig::channel_config`]
     #[cfg_attr(feature = "serde", serde(default))]
     pub rate_limit: String,
     /// TCP keepalive duration (e.g. `30s`), defaults to no keepalive
     #[cfg_attr(feature = "serde", serde(default))]
     pub tcp_keepalive: String,
-    /// Interval between TCP keepalive probes (e.g. `5s`), defaults to OS default
+    /// Interval between TCP keepalive probes (e.g. `5s`), defaults to OS default; read only with
+    /// `tcp_keepalive`
     #[cfg_attr(feature = "serde", serde(default))]
     pub tcp_keepalive_interval: String,
-    /// Number of TCP keepalive retries, defaults to OS default
+    /// Number of TCP keepalive retries, defaults to OS default; read only with `tcp_keepalive`
     #[cfg_attr(feature = "serde", serde(default))]
     pub tcp_keepalive_retries: String,
-    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false
+    /// Enable Nagle's algorithm (disable TCP_NODELAY), defaults to false; true is refused by
+    /// [`ClientConfig::channel_config`]
     #[cfg_attr(feature = "serde", serde(default))]
     pub tcp_nagle_algorithm: bool,
     /// HTTP/2 PING frame interval (e.g. `20s`), defaults to no keepalive
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2_keep_alive_interval: String,
-    /// HTTP/2 PING timeout (e.g. `10s`), defaults to no timeout
+    /// HTTP/2 PING timeout (e.g. `10s`), defaults to 20s
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2_keep_alive_timeout: String,
     /// Send HTTP/2 keepalive PINGs even when idle, defaults to false
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2_keep_alive_while_idle: bool,
-    /// HTTP/2 max header list size in bytes, defaults to no limit
+    /// HTTP/2 max header list size in bytes; refused by [`ClientConfig::channel_config`]
     #[cfg_attr(feature = "serde", serde(default))]
     pub http2_max_header_list_size: String,
     /// User-Agent header value sent with each request
@@ -509,6 +518,73 @@ impl ClientConfig {
             user_agent,
         })
     }
+
+    /// The engine's channel configuration for these options.
+    ///
+    /// TLS options apply to an `https://` endpoint only; an `http://` one is plaintext whatever
+    /// they hold. Refused: what the engine has not got - a rate limit, a bound on the header list -
+    /// and Nagle's algorithm, which the engine always disables, so that none is read and then
+    /// ignored.
+    pub fn channel_config(self) -> Result<GrpcChannelConfig, ConfigError> {
+        if self.rate_limit.is_some() {
+            return NotBuiltSnafu {
+                name: "GrpcClient__RateLimit",
+            }
+            .fail();
+        }
+        if self.http2_max_header_list_size.is_some() {
+            return NotBuiltSnafu {
+                name: "GrpcClient__Http2MaxHeaderListSize",
+            }
+            .fail();
+        }
+        if self.tcp_nagle_algorithm {
+            return NotBuiltSnafu {
+                name: "GrpcClient__TcpNagleAlgorithm",
+            }
+            .fail();
+        }
+
+        let mut transport = TransportConfig::new(self.endpoint);
+        if let Some(timeout) = self.connect_timeout {
+            transport.connect_timeout = timeout;
+        }
+        if transport.endpoint.scheme() == Some(&hyper::http::uri::Scheme::HTTPS) {
+            // Accepting any server makes the roots moot, and the engine refuses the two together.
+            transport.tls.accept_any_server = self.allow_unsafe_connection;
+            if !self.allow_unsafe_connection {
+                transport.tls.roots = self.cacert;
+            }
+            transport.tls.identity = self
+                .identity
+                .map(|(chain, key)| ClientIdentity { chain, key });
+            transport.tls.server_name = self
+                .override_target
+                .as_ref()
+                .and_then(Uri::host)
+                .map(str::to_owned);
+        }
+        // The probes' interval and count tune a keepalive, and the engine refuses them without one.
+        if self.tcp_keepalive.is_some() {
+            transport.tcp.keepalive = self.tcp_keepalive;
+            transport.tcp.keepalive_interval = self.tcp_keepalive_interval;
+            transport.tcp.keepalive_retries = self.tcp_keepalive_retries;
+        }
+        transport.http2.keep_alive_interval = self.http2_keep_alive_interval;
+        if let Some(timeout) = self.http2_keep_alive_timeout {
+            transport.http2.keep_alive_timeout = timeout;
+        }
+        transport.http2.keep_alive_while_idle = self.http2_keep_alive_while_idle;
+
+        let mut config = GrpcChannelConfig::new(transport);
+        config.default_deadline = self.timeout;
+        // Text as `ClientConfigArgs` built it; a value built from bytes that are not UTF-8 is read
+        // as near as text can say it, rather than taking the process down.
+        config.user_agent = self
+            .user_agent
+            .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
+        Ok(config)
+    }
 }
 
 #[derive(Debug, Snafu)]
@@ -622,6 +698,13 @@ pub enum ConfigError {
     InvalidUserAgent {
         source: hyper::http::header::InvalidHeaderValue,
         value: String,
+        #[snafu(implicit)]
+        location: snafu::Location,
+    },
+    #[snafu(display("`{name}` is not supported by this client: unset it [{location}]"))]
+    #[non_exhaustive]
+    NotBuilt {
+        name: &'static str,
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -752,6 +835,116 @@ mod tests {
         .expect_err("an empty endpoint is not a URI");
 
         assert!(matches!(error, ConfigError::Uri { .. }), "{error:?}");
+    }
+
+    // --- what the engine's channel is given ---
+
+    #[test]
+    fn what_the_engine_has_not_got_is_refused_by_name() {
+        let refused = [
+            (
+                "GrpcClient__RateLimit",
+                ClientConfigArgs {
+                    rate_limit: String::from("100/1s"),
+                    ..args()
+                },
+            ),
+            (
+                "GrpcClient__Http2MaxHeaderListSize",
+                ClientConfigArgs {
+                    http2_max_header_list_size: String::from("16384"),
+                    ..args()
+                },
+            ),
+            (
+                "GrpcClient__TcpNagleAlgorithm",
+                ClientConfigArgs {
+                    tcp_nagle_algorithm: true,
+                    ..args()
+                },
+            ),
+        ];
+        for (name, args) in refused {
+            let config = ClientConfig::from_config_args(args).expect("a valid value");
+            let error = config
+                .channel_config()
+                .expect_err("not something the engine has");
+
+            assert!(matches!(error, ConfigError::NotBuilt { .. }), "{error:?}");
+            assert!(error.to_string().contains(name), "{error}");
+        }
+    }
+
+    #[test]
+    fn tls_options_reach_an_https_endpoint_only() {
+        let tls = |endpoint: &str| ClientConfigArgs {
+            endpoint: String::from(endpoint),
+            allow_unsafe_connection: true,
+            override_target_name: String::from("other:5001"),
+            ..args()
+        };
+
+        let plain = ClientConfig::from_config_args(tls("http://localhost:5001"))
+            .expect("valid")
+            .channel_config()
+            .expect("built");
+        assert!(!plain.transport.tls.accept_any_server);
+        assert_eq!(plain.transport.tls.server_name, None);
+
+        let secure = ClientConfig::from_config_args(tls("https://localhost:5001"))
+            .expect("valid")
+            .channel_config()
+            .expect("built");
+        assert!(secure.transport.tls.accept_any_server);
+        assert_eq!(secure.transport.tls.server_name.as_deref(), Some("other"));
+    }
+
+    #[tokio::test]
+    async fn keepalive_probes_with_no_keepalive_are_not_read() {
+        let config = ClientConfig::from_config_args(ClientConfigArgs {
+            tcp_keepalive_interval: String::from("5s"),
+            tcp_keepalive_retries: String::from("3"),
+            ..args()
+        })
+        .expect("valid")
+        .channel_config()
+        .expect("built");
+
+        assert_eq!(config.transport.tcp.keepalive_interval, None);
+        crate::grpc::GrpcChannel::new(config, tokio::runtime::Handle::current())
+            .expect("accepted by the engine");
+    }
+
+    #[tokio::test]
+    async fn accepting_any_server_takes_precedence_over_the_roots() {
+        let mut config = ClientConfig::from_config_args(ClientConfigArgs {
+            endpoint: String::from("https://localhost:5001"),
+            allow_unsafe_connection: true,
+            ..args()
+        })
+        .expect("valid");
+        config.cacert = vec![CertificateDer::from(vec![0u8])];
+
+        let config = config.channel_config().expect("built");
+        assert!(config.transport.tls.accept_any_server);
+        assert!(config.transport.tls.roots.is_empty());
+        crate::grpc::GrpcChannel::new(config, tokio::runtime::Handle::current())
+            .expect("accepted by the engine");
+    }
+
+    #[test]
+    fn the_request_timeout_is_the_channels_default_deadline() {
+        let config = ClientConfig::from_config_args(ClientConfigArgs {
+            timeout: String::from("300ms"),
+            user_agent: String::from("armonik-test"),
+            ..args()
+        })
+        .expect("valid")
+        .channel_config()
+        .expect("built");
+
+        assert_eq!(config.default_deadline, Some(Duration::from_millis(300)));
+        assert_eq!(config.user_agent.as_deref(), Some("armonik-test"));
     }
 
     // --- durations and numbers ---

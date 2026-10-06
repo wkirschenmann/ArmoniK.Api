@@ -179,6 +179,8 @@ fn h2_error(error: &hyper::Error) -> Option<&h2::Error> {
     None
 }
 
+impl std::error::Error for GrpcStatus {}
+
 impl std::fmt::Display for GrpcStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Debug, not Display: tonic's Display for a code is a sentence, and what a reader of a

@@ -7,19 +7,13 @@ use crate::Output;
 use super::GrpcCall;
 
 #[derive(Clone)]
-pub struct Worker<T> {
-    inner: v3::worker::worker_client::WorkerClient<T>,
+pub struct Worker {
+    inner: v3::worker::worker_client::WorkerClient,
 }
 
-impl<T> Worker<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Worker {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::worker::worker_client::WorkerClient::new(channel),
         }

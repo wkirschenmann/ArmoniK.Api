@@ -338,7 +338,7 @@ impl armonik::server::SubmitterService for Service {
 #[tokio::test]
 async fn get_service_configuration() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             called: called.clone(),
             ..Default::default()
@@ -360,7 +360,7 @@ async fn get_service_configuration() {
 #[tokio::test]
 async fn create_session() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("create-session-input")),
             called: called.clone(),
@@ -385,7 +385,7 @@ async fn create_session() {
 #[tokio::test]
 async fn cancel_session() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("cancel-session-input")),
             called: called.clone(),
@@ -405,7 +405,7 @@ async fn cancel_session() {
 #[tokio::test]
 async fn list_tasks() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("list-tasks-input")),
             called: called.clone(),
@@ -433,7 +433,7 @@ async fn list_tasks() {
 #[tokio::test]
 async fn list_sessions() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("list-sessions-input")),
             called: called.clone(),
@@ -461,7 +461,7 @@ async fn list_sessions() {
 #[tokio::test]
 async fn count_tasks() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("count-tasks-input")),
             called: called.clone(),
@@ -489,7 +489,7 @@ async fn count_tasks() {
 #[tokio::test]
 async fn try_get_task_output() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("try-get-task-output-input")),
             called: called.clone(),
@@ -512,7 +512,7 @@ async fn try_get_task_output() {
 #[tokio::test]
 async fn wait_for_availability() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("wait-for-availability-input")),
             called: called.clone(),
@@ -542,7 +542,7 @@ async fn wait_for_availability() {
 #[tokio::test]
 async fn wait_for_completion() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("wait-for-completion-input")),
             called: called.clone(),
@@ -576,7 +576,7 @@ async fn wait_for_completion() {
 #[tokio::test]
 async fn cancel_tasks() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("cancel-tasks-input")),
             called: called.clone(),
@@ -602,7 +602,7 @@ async fn cancel_tasks() {
 #[tokio::test]
 async fn task_status() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("task-status-input")),
             called: called.clone(),
@@ -624,7 +624,7 @@ async fn task_status() {
 #[tokio::test]
 async fn result_status() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("result-status-input")),
             called: called.clone(),
@@ -649,7 +649,7 @@ async fn result_status() {
 #[tokio::test]
 async fn try_get_result() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("try-get-result-input")),
             called: called.clone(),
@@ -672,7 +672,7 @@ async fn try_get_result() {
 #[tokio::test]
 async fn create_small_tasks() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("create-small-tasks-input")),
             called: called.clone(),
@@ -706,7 +706,7 @@ async fn create_small_tasks() {
 #[tokio::test]
 async fn create_large_tasks() {
     let called = Arc::new(Mutex::default());
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             expected: Some(String::from("create-large-tasks-input")),
             called: called.clone(),

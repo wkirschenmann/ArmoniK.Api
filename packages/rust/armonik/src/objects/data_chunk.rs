@@ -35,5 +35,3 @@ impl From<v3::DataChunk> for DataChunk {
         }
     }
 }
-
-super::impl_convert!(req DataChunk : v3::DataChunk);

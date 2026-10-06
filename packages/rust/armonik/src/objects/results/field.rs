@@ -72,5 +72,3 @@ impl From<v3::results::ResultField> for Field {
         }
     }
 }
-
-super::super::impl_convert!(req Field : v3::results::ResultField);

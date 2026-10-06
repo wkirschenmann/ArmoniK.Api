@@ -273,8 +273,7 @@ impl armonik::server::ResultsService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .list(
@@ -294,8 +293,7 @@ async fn list() {
 
 #[tokio::test]
 async fn get() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client.get("rpc-get-input").await.unwrap();
 
@@ -305,8 +303,7 @@ async fn get() {
 
 #[tokio::test]
 async fn get_owner_task_id() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .get_owner_task_id("session-id", ["rpc-get-owner-task-id-input"])
@@ -321,8 +318,7 @@ async fn get_owner_task_id() {
 
 #[tokio::test]
 async fn create_metadata() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .create_metadata(
@@ -340,8 +336,7 @@ async fn create_metadata() {
 
 #[tokio::test]
 async fn create() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .create(
@@ -360,8 +355,7 @@ async fn create() {
 
 #[tokio::test]
 async fn import() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .import("session-id", [("rpc-import-input", "opaque-id")])
@@ -377,8 +371,7 @@ async fn import() {
 
 #[tokio::test]
 async fn delete_data() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client
         .delete_data("session-id", ["rpc-delete-data-input"])
@@ -391,8 +384,7 @@ async fn delete_data() {
 
 #[tokio::test]
 async fn get_service_configuration() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().results_server()).into_results();
+    let mut client = common::client(Service::default().results_server()).into_results();
 
     let response = client.get_service_configuration().await.unwrap();
 
@@ -402,7 +394,7 @@ async fn get_service_configuration() {
 #[tokio::test]
 async fn download() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             dropped: cancellation_token.clone(),
             ..Default::default()
@@ -431,7 +423,7 @@ async fn download() {
 #[tokio::test]
 async fn upload() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             dropped: cancellation_token.clone(),
             ..Default::default()
@@ -459,12 +451,12 @@ async fn upload() {
 
 // Cancellations
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn get_wait() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
-            wait: Some(tokio::time::Duration::from_millis(10)),
+            wait: Some(tokio::time::Duration::from_secs(30)),
             dropped: cancellation_token.clone(),
             ..Default::default()
         }
@@ -473,7 +465,7 @@ async fn get_wait() {
     .into_results();
 
     if let Ok(response) = tokio::time::timeout(
-        tokio::time::Duration::from_micros(10),
+        tokio::time::Duration::from_millis(500),
         client.get("result-id"),
     )
     .await
@@ -482,7 +474,7 @@ async fn get_wait() {
     }
 
     if cancellation_token
-        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_millis(10)))
+        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_secs(5)))
         .await
         .is_some()
     {
@@ -490,13 +482,13 @@ async fn get_wait() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn download_wait_early() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             early: true,
-            wait: Some(tokio::time::Duration::from_millis(10)),
+            wait: Some(tokio::time::Duration::from_secs(30)),
             dropped: cancellation_token.clone(),
             ..Default::default()
         }
@@ -505,7 +497,7 @@ async fn download_wait_early() {
     .into_results();
 
     if tokio::time::timeout(
-        tokio::time::Duration::from_micros(10),
+        tokio::time::Duration::from_millis(500),
         client.download("session_id", "result_id"),
     )
     .await
@@ -515,7 +507,7 @@ async fn download_wait_early() {
     }
 
     if cancellation_token
-        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_millis(10)))
+        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_secs(5)))
         .await
         .is_some()
     {
@@ -523,12 +515,12 @@ async fn download_wait_early() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn download_wait_late() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
-            wait: Some(tokio::time::Duration::from_millis(10)),
+            wait: Some(tokio::time::Duration::from_secs(30)),
             dropped: cancellation_token.clone(),
             ..Default::default()
         }
@@ -539,7 +531,7 @@ async fn download_wait_late() {
     let mut stream = client.download("session_id", "result_id").await.unwrap();
 
     if let Ok(response) =
-        tokio::time::timeout(tokio::time::Duration::from_micros(10), stream.next()).await
+        tokio::time::timeout(tokio::time::Duration::from_millis(500), stream.next()).await
     {
         panic!("Expected a timeout, but got a response: {response:?}");
     }
@@ -547,7 +539,7 @@ async fn download_wait_late() {
     std::mem::drop(stream);
 
     if cancellation_token
-        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_millis(10)))
+        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_secs(5)))
         .await
         .is_some()
     {
@@ -555,13 +547,13 @@ async fn download_wait_late() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn upload_wait_early() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             early: true,
-            wait: Some(tokio::time::Duration::from_millis(10)),
+            wait: Some(tokio::time::Duration::from_secs(30)),
             dropped: cancellation_token.clone(),
             ..Default::default()
         }
@@ -577,13 +569,14 @@ async fn upload_wait_early() {
         }
     });
 
-    if let Ok(response) = tokio::time::timeout(tokio::time::Duration::from_micros(10), future).await
+    if let Ok(response) =
+        tokio::time::timeout(tokio::time::Duration::from_millis(500), future).await
     {
         panic!("Expected a timeout, but got a response: {response:?}");
     }
 
     if cancellation_token
-        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_millis(10)))
+        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_secs(5)))
         .await
         .is_some()
     {
@@ -591,12 +584,12 @@ async fn upload_wait_early() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn upload_wait_late() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
-            wait: Some(tokio::time::Duration::from_millis(10)),
+            wait: Some(tokio::time::Duration::from_secs(30)),
             dropped: cancellation_token.clone(),
             ..Default::default()
         }
@@ -614,13 +607,14 @@ async fn upload_wait_late() {
         },
     );
 
-    if let Ok(response) = tokio::time::timeout(tokio::time::Duration::from_micros(10), future).await
+    if let Ok(response) =
+        tokio::time::timeout(tokio::time::Duration::from_millis(500), future).await
     {
         panic!("Expected a timeout, but got a response: {response:?}");
     }
 
     if cancellation_token
-        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_millis(10)))
+        .run_until_cancelled(tokio::time::sleep(tokio::time::Duration::from_secs(5)))
         .await
         .is_some()
     {
@@ -632,7 +626,7 @@ async fn upload_wait_late() {
 
 #[tokio::test]
 async fn get_failure() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             failure: Some(tonic::Status::invalid_argument("rpc-get-error")),
             ..Default::default()
@@ -644,11 +638,11 @@ async fn get_failure() {
     match client.get("result-id").await {
         Ok(response) => panic!("Expected a failure, but got a response {response:?}"),
         Err(armonik::client::RequestError::Grpc { source, .. }) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-get-error");
+            assert_eq!(source.message, "rpc-get-error");
         }
         Err(err) => {
             panic!("Got an unexpected type of failure {err:?}")
@@ -658,7 +652,7 @@ async fn get_failure() {
 
 #[tokio::test]
 async fn download_failure_early() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             early: true,
             failure: Some(tonic::Status::invalid_argument("rpc-download-early-error")),
@@ -671,11 +665,11 @@ async fn download_failure_early() {
     match client.download("session-id", "result-id").await {
         Ok(_) => panic!("Expected a failure, but got a response stream"),
         Err(armonik::client::RequestError::Grpc { source, .. }) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-download-early-error");
+            assert_eq!(source.message, "rpc-download-early-error");
         }
         Err(err) => {
             panic!("Got an unexpected type of failure {err:?}")
@@ -685,7 +679,7 @@ async fn download_failure_early() {
 
 #[tokio::test]
 async fn download_failure_late() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             failure: Some(tonic::Status::invalid_argument("rpc-download-late-error")),
             ..Default::default()
@@ -699,11 +693,11 @@ async fn download_failure_late() {
     match stream.next().await {
         Some(Ok(response)) => panic!("Expected a failure, but got a response {response:?}"),
         Some(Err(armonik::client::RequestError::Grpc { source, .. })) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-download-late-error");
+            assert_eq!(source.message, "rpc-download-late-error");
         }
         Some(Err(err)) => {
             panic!("Got an unexpected type of failure {err:?}")
@@ -716,7 +710,7 @@ async fn download_failure_late() {
 
 #[tokio::test]
 async fn upload_failure_early() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             early: true,
             failure: Some(tonic::Status::invalid_argument("rpc-download-late-error")),
@@ -734,23 +728,106 @@ async fn upload_failure_early() {
         }
     });
 
-    match tokio::time::timeout(tokio::time::Duration::from_millis(10), future).await {
+    match tokio::time::timeout(tokio::time::Duration::from_secs(5), future).await {
         Ok(Ok(response)) => panic!("Expected a failure, but got a response {response:?}"),
         Ok(Err(armonik::client::RequestError::Grpc { source, .. })) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-download-late-error");
+            assert_eq!(source.message, "rpc-download-late-error");
         }
         Ok(Err(err)) => panic!("Got an unexpected type of failure {err:?}"),
         Err(err) => panic!("Expected a failure, but got a timeout {err:?}"),
     }
 }
 
+/// A call that ends while its request stream waits for an item lets the stream go, rather than
+/// holding it until an item that may never come.
+#[tokio::test]
+async fn upload_failure_early_lets_a_waiting_request_stream_go() {
+    let mut client = common::client(
+        Service {
+            early: true,
+            failure: Some(tonic::Status::invalid_argument("rpc-upload-early-error")),
+            ..Default::default()
+        }
+        .results_server(),
+    )
+    .into_results();
+
+    let dropped = tokio_util::sync::CancellationToken::new();
+    let outcome = client
+        .call(common::waiting_after(
+            results::upload::Request::Identifier {
+                session_id: String::from("session-id"),
+                result_id: String::from("result-id"),
+            },
+            &dropped,
+        ))
+        .await;
+
+    assert!(outcome.is_err(), "the server fails the call: {outcome:?}");
+    tokio::time::timeout(tokio::time::Duration::from_secs(5), dropped.cancelled())
+        .await
+        .expect("the request stream is dropped once the call is over");
+}
+
+/// A bidirectional call the server ends before its head fails at once, and lets its request
+/// stream go.
+#[tokio::test]
+async fn watch_results_refused_lets_a_waiting_request_stream_go() {
+    let channel = common::channel(Service::default().results_server());
+    let client = armonik::api::v3::results::results_client::ResultsClient::new(channel);
+
+    let dropped = tokio_util::sync::CancellationToken::new();
+    let outcome = client
+        .watch_results(common::waiting_after(
+            armonik::api::v3::results::WatchResultRequest::default(),
+            &dropped,
+        ))
+        .await;
+
+    let Err(status) = outcome else {
+        panic!("the mock refuses WatchResults");
+    };
+    assert_eq!(status.code, armonik::client::GrpcStatusCode::Unimplemented);
+    tokio::time::timeout(tokio::time::Duration::from_secs(5), dropped.cancelled())
+        .await
+        .expect("the request stream is dropped once the call is over");
+}
+
+/// A bidirectional response stream dropped mid-call lets its request stream go.
+#[tokio::test]
+async fn a_dropped_watch_results_stream_lets_a_waiting_request_stream_go() {
+    let channel = common::channel(common::OneAnswerThenWait);
+    let client = armonik::api::v3::results::results_client::ResultsClient::new(channel);
+
+    let dropped = tokio_util::sync::CancellationToken::new();
+    let mut answers = client
+        .watch_results(common::waiting_after(
+            armonik::api::v3::results::WatchResultRequest::default(),
+            &dropped,
+        ))
+        .await
+        .expect("the server answers")
+        .into_inner();
+    answers
+        .next()
+        .await
+        .expect("a message")
+        .expect("an empty one");
+    assert!(!dropped.is_cancelled(), "the call is still going");
+
+    drop(answers);
+    tokio::time::timeout(tokio::time::Duration::from_secs(5), dropped.cancelled())
+        .await
+        .expect("the request stream is dropped with the response stream");
+}
+
 #[tokio::test]
 async fn upload_failure_late() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             failure: Some(tonic::Status::invalid_argument("rpc-download-late-error")),
             ..Default::default()
@@ -770,14 +847,14 @@ async fn upload_failure_late() {
         yield results::upload::Request::DataChunk(Vec::new());
     });
 
-    match tokio::time::timeout(tokio::time::Duration::from_millis(10), future).await {
+    match tokio::time::timeout(tokio::time::Duration::from_secs(5), future).await {
         Ok(Ok(response)) => panic!("Expected a failure, but got a response {response:?}"),
         Ok(Err(armonik::client::RequestError::Grpc { source, .. })) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-download-late-error");
+            assert_eq!(source.message, "rpc-download-late-error");
         }
         Ok(Err(err)) => panic!("Got an unexpected type of failure {err:?}"),
         Err(err) => panic!("Expected a failure, but got a timeout {err:?}"),
@@ -786,7 +863,7 @@ async fn upload_failure_late() {
 
 #[tokio::test]
 async fn upload_failure_end() {
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             failure: Some(tonic::Status::invalid_argument("rpc-download-late-error")),
             ..Default::default()
@@ -801,11 +878,11 @@ async fn upload_failure_end() {
     {
         Ok(response) => panic!("Expected a failure, but got a response {response:?}"),
         Err(armonik::client::RequestError::Grpc { source, .. }) => {
-            if !matches!(source.code(), tonic::Code::InvalidArgument) {
+            if !matches!(source.code, tonic::Code::InvalidArgument) {
                 panic!("Expected an InvalidArgument error, but got {source:?}");
             }
 
-            assert_eq!(source.message(), "rpc-download-late-error");
+            assert_eq!(source.message, "rpc-download-late-error");
         }
         Err(err) => panic!("Got an unexpected type of failure {err:?}"),
     }

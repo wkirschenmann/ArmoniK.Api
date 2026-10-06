@@ -59,5 +59,3 @@ impl From<v3::partitions::PartitionField> for Field {
         }
     }
 }
-
-super::super::impl_convert!(req Field : v3::partitions::PartitionField);

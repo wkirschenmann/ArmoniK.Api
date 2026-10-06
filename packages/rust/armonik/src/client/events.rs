@@ -9,19 +9,13 @@ use super::GrpcCall;
 
 /// Service for authentication management.
 #[derive(Clone)]
-pub struct Events<T> {
-    inner: v3::events::events_client::EventsClient<T>,
+pub struct Events {
+    inner: v3::events::events_client::EventsClient,
 }
 
-impl<T> Events<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Events {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::events::events_client::EventsClient::new(channel),
         }
@@ -79,13 +73,7 @@ where
     }
 }
 
-impl<T> GrpcCall<subscribe::Request> for &'_ mut Events<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl GrpcCall<subscribe::Request> for &'_ mut Events {
     type Response =
         futures::stream::BoxStream<'static, Result<subscribe::Response, super::RequestError>>;
     type Error = super::RequestError;

@@ -52,7 +52,7 @@ impl armonik::server::EventsService for Service {
 #[tokio::test]
 async fn subscribe() {
     let cancellation_token = tokio_util::sync::CancellationToken::new();
-    let mut client = armonik::Client::with_channel(
+    let mut client = common::client(
         Service {
             failure: None,
             wait: None,

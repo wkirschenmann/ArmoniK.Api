@@ -20,8 +20,6 @@ impl From<v3::submitter::TaskFilter> for Request {
     }
 }
 
-super::super::impl_convert!(req Request : v3::submitter::TaskFilter);
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Response {

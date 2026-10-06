@@ -7,19 +7,13 @@ use super::GrpcCall;
 
 /// Service for authentication management.
 #[derive(Clone)]
-pub struct Auth<T> {
-    inner: v3::auth::authentication_client::AuthenticationClient<T>,
+pub struct Auth {
+    inner: v3::auth::authentication_client::AuthenticationClient,
 }
 
-impl<T> Auth<T>
-where
-    T: tonic::client::GrpcService<tonic::body::Body>,
-    T::Error: Into<tonic::codegen::StdError>,
-    T::ResponseBody: tonic::codegen::Body<Data = tonic::codegen::Bytes> + Send + 'static,
-    <T::ResponseBody as tonic::codegen::Body>::Error: Into<tonic::codegen::StdError> + Send,
-{
+impl Auth {
     /// Build a client from a gRPC channel
-    pub fn with_channel(channel: T) -> Self {
+    pub fn with_channel(channel: armonik_transport::grpc::GrpcChannel) -> Self {
         Self {
             inner: v3::auth::authentication_client::AuthenticationClient::new(channel),
         }

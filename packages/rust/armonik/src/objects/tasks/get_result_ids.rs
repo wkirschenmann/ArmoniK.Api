@@ -52,5 +52,3 @@ impl From<v3::tasks::GetResultIdsResponse> for Response {
         }
     }
 }
-
-super::super::impl_convert!(req Response : v3::tasks::GetResultIdsResponse);

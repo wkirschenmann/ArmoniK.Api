@@ -36,8 +36,7 @@ impl armonik::server::ApplicationsService for Service {
 
 #[tokio::test]
 async fn list() {
-    let mut client =
-        armonik::Client::with_channel(Service::default().applications_server()).into_applications();
+    let mut client = common::client(Service::default().applications_server()).into_applications();
 
     let response = client
         .list(
