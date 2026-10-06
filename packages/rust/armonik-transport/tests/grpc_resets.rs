@@ -19,6 +19,7 @@ const DATA: u8 = 0x0;
 const HEADERS: u8 = 0x1;
 const RST_STREAM: u8 = 0x3;
 const END_STREAM: u8 = 0x1;
+const CANCEL: u32 = 0x8;
 const PREFACE: usize = 24;
 
 /// What a client sent, frame by frame.
@@ -27,6 +28,7 @@ struct Sent {
     heads: AtomicUsize,
     half_closes: AtomicUsize,
     resets: AtomicUsize,
+    cancels: AtomicUsize,
 }
 
 /// A proxy in front of `upstream` that counts what its clients send: the HEADERS that open
@@ -83,6 +85,9 @@ impl Census {
                             }
                             RST_STREAM => {
                                 counted.resets.fetch_add(1, Ordering::SeqCst);
+                                if frame[9..13] == CANCEL.to_be_bytes() {
+                                    counted.cancels.fetch_add(1, Ordering::SeqCst);
+                                }
                             }
                             _ => {}
                         }
@@ -109,6 +114,10 @@ impl Census {
 
     fn resets(&self) -> usize {
         self.sent.resets.load(Ordering::SeqCst)
+    }
+
+    fn cancels(&self) -> usize {
+        self.sent.cancels.load(Ordering::SeqCst)
     }
 
     /// Until `heads` streams have been opened.
@@ -197,6 +206,63 @@ async fn a_cancelled_call_sends_one_reset() {
     assert_eq!(census.resets(), 10);
 }
 
+/// A call cancelled while its request is open is reset, never half-closed: a server that took an
+/// END_STREAM for the end of the request would take the messages before it for all of them.
+#[tokio::test]
+async fn a_call_cancelled_mid_request_is_reset_not_half_closed() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for opened in 1..=10 {
+        let (mut send, mut recv, control) = channel
+            .start_call(CallStartOptions::new(COLLECT))
+            .expect("the call starts")
+            .split();
+        send.send_message(Bytes::from_static(b"x"))
+            .await
+            .expect("the message is accepted");
+        census.opened(opened).await;
+        control.cancel();
+        ends_cancelled(&mut recv, "the cancelled call ends").await;
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 0);
+    assert_eq!(census.resets(), 10);
+    assert_eq!(census.cancels(), 10);
+}
+
+/// The same once the response is under way: the peer has answered, and the request is still open.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_cancelled_mid_request_after_an_answer_is_reset_not_half_closed() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for _ in 0..50 {
+        let (mut send, mut recv, control) = channel
+            .start_call(CallStartOptions::new(CHAT))
+            .expect("the call starts")
+            .split();
+        send.send_message(Bytes::from_static(b"x"))
+            .await
+            .expect("the message is accepted");
+        recv.recv_head().await.expect("the head");
+        match recv.next_message().await {
+            Ok(armonik_transport::grpc::RecvResult::Message(_)) => {}
+            other => panic!("an echo: {other:?}"),
+        }
+        control.cancel();
+        ends_cancelled(&mut recv, "the cancelled call ends").await;
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 0);
+    assert_eq!(census.resets(), 50);
+    assert_eq!(census.cancels(), 50);
+}
+
 #[tokio::test]
 async fn a_call_past_its_deadline_sends_one_reset() {
     let server = TestServer::start().await;
@@ -217,6 +283,60 @@ async fn a_call_past_its_deadline_sends_one_reset() {
     }
     settled().await;
     assert_eq!(census.resets(), 10);
+}
+
+/// A call the peer ended keeps its request's half-close when it is cancelled after, as a host
+/// releasing a finished call does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_cancelled_after_its_end_keeps_its_half_close() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for _ in 0..50 {
+        let (mut send, mut recv, control) = channel
+            .start_call(CallStartOptions::new(ANSWER_EARLY))
+            .expect("the call starts")
+            .split();
+        send.send_message(Bytes::from_static(b"x"))
+            .await
+            .expect("the message is accepted");
+        let (_, _, terminal) = read_to_terminal(&mut recv).await;
+        assert_eq!(terminal.code, GrpcStatusCode::Ok, "{terminal}");
+        control.cancel();
+        drop(recv);
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 50);
+    assert_eq!(census.resets(), 0);
+}
+
+/// A deadline stops a call as a cancel does: a request still open is reset, never half-closed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_past_its_deadline_mid_request_is_reset_not_half_closed() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for _ in 0..20 {
+        let mut options = CallStartOptions::new(CHAT);
+        options.deadline = Some(Deadline::Timeout(Duration::from_millis(200)));
+        let (mut send, mut recv, _control) = channel
+            .start_call(options)
+            .expect("the call starts")
+            .split();
+        send.send_message(Bytes::from_static(b"x"))
+            .await
+            .expect("the message is accepted");
+        let (_, _, status) = read_to_terminal(&mut recv).await;
+        assert_eq!(status.code, GrpcStatusCode::DeadlineExceeded, "{status}");
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 0);
+    assert_eq!(census.resets(), 20);
+    assert_eq!(census.cancels(), 20);
 }
 
 /// A call whose response is whole while its request is still open has its request half-closed

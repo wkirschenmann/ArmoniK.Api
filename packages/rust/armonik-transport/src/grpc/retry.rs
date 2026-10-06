@@ -346,6 +346,18 @@ pub(crate) struct AttemptMessages {
     attempt: u64,
 }
 
+impl AttemptMessages {
+    /// Whether the call was stopped this side while its request was open: read on every path
+    /// that ends the messages, a superseded attempt's included.
+    pub(crate) fn cut(&self) -> bool {
+        self.kept
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live
+            .cut()
+    }
+}
+
 impl Stream for AttemptMessages {
     type Item = Bytes;
 

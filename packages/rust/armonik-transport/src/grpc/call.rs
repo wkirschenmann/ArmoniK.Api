@@ -294,6 +294,10 @@ pub struct CallControl {
     /// call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body they
     /// feed is unfinished. This is what makes the stream go back.
     body_over: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    /// Set when the call is stopped this side - a cancel, a refusal, its deadline, its channel
+    /// closing - before anything lets go of the request, which then ends as a reset rather than
+    /// as a whole request.
+    pub(crate) cut: Arc<AtomicBool>,
     /// Why the call stopped when it is this side that refused what it was given, which is the
     /// status it ends with rather than `CANCELLED`.
     refused: Arc<OnceLock<GrpcStatus>>,
@@ -310,7 +314,24 @@ impl CallControl {
         self.refused.get().cloned()
     }
 
+    /// Stops the call. A call that already ended keeps its request's end as it was.
     pub fn cancel(&self) {
+        {
+            // Under the lock `finish` takes: a request whose call has finished is not cut after.
+            let pending = self
+                .body_over
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if pending.is_some() {
+                self.cut.store(true, Ordering::Release);
+            }
+        }
+        self.finish();
+    }
+
+    /// Ends the call once it has its status. A request still open ends whole, as it may once the
+    /// peer has answered; a call stopped this side was cut before.
+    pub(crate) fn finish(&self) {
         self.over.send_replace(true);
         if let Some(told) = self
             .body_over
@@ -328,6 +349,15 @@ pub(crate) struct RequestMessages {
     messages: mpsc::Receiver<FramedMessage>,
     over: oneshot::Receiver<()>,
     ended: bool,
+    cut: Arc<AtomicBool>,
+}
+
+impl RequestMessages {
+    /// Whether the call was stopped this side while its request was open, so that the request
+    /// must not end as if it were whole.
+    pub(crate) fn cut(&self) -> bool {
+        self.cut.load(Ordering::Acquire)
+    }
 }
 
 impl Stream for RequestMessages {
@@ -372,6 +402,7 @@ pub(crate) fn create_with(
         over: Arc::new(over_tx),
         body_over: Arc::new(Mutex::new(Some(body_over_tx))),
         refused: Arc::default(),
+        cut: Arc::default(),
     };
     let send = SendHalf {
         messages: message_tx,
@@ -380,17 +411,14 @@ pub(crate) fn create_with(
         control: control.clone(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
+    let messages = RequestMessages {
+        messages: message_rx,
+        over: body_over_rx,
+        ended: false,
+        cut: control.cut.clone(),
+    };
 
-    (
-        send,
-        control,
-        RequestMessages {
-            messages: message_rx,
-            over: body_over_rx,
-            ended: false,
-        },
-        driving,
-    )
+    (send, control, messages, driving)
 }
 
 /// A call that sends one request: where the request goes, the call's control, the slot its driver
@@ -404,6 +432,7 @@ pub(crate) fn create_one(
         over: Arc::new(over_tx),
         body_over: Arc::new(Mutex::new(None)),
         refused: Arc::default(),
+        cut: Arc::default(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
     (request, control, slot, driving)

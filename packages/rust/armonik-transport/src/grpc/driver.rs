@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -40,6 +41,7 @@ impl Driving<()> {
             stop: Stop {
                 over,
                 channel_closed,
+                cut: control.cut.clone(),
             },
             sink: (),
             control,
@@ -119,7 +121,7 @@ pub(crate) async fn drive<S: ResponseSink>(
 
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
-    control.cancel();
+    control.finish();
 
     // A head never given goes out with the end, empty: `TrailersOnly` if a response came,
     // `NoResponse` if none did.
@@ -137,17 +139,34 @@ pub(crate) async fn drive<S: ResponseSink>(
 struct Stop {
     over: watch::Receiver<bool>,
     channel_closed: watch::Receiver<bool>,
+    cut: Arc<AtomicBool>,
 }
 
 impl Stop {
+    /// Completes when the call is stopped this side, and marks it cut before the work it stops
+    /// lets go of the request.
     async fn stopped(&mut self) {
         let Self {
             over,
             channel_closed,
+            cut,
         } = self;
         tokio::select! {
             _ = over.wait_for(|over| *over) => {}
             _ = channel_closed.wait_for(|closed| *closed) => {}
+        }
+        cut.store(true, Ordering::Release);
+    }
+}
+
+/// Marks the call cut when dropped by a panic's unwinding, which stops the call this side as much
+/// as a cancel does.
+struct CutOnPanic(Arc<AtomicBool>);
+
+impl Drop for CutOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.store(true, Ordering::Release);
         }
     }
 }
@@ -239,15 +258,24 @@ async fn within_deadline<S: ResponseSink>(
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> GrpcStatus {
-    let Some(deadline) = outgoing.deadline else {
-        return run(inner, outgoing, stop, responding).await;
-    };
-    if deadline <= Instant::now() {
+    let deadline = outgoing.deadline;
+    if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
         return GrpcStatus::deadline_exceeded();
     }
-    tokio::time::timeout_at(deadline, run(inner, outgoing, stop, responding))
-        .await
-        .unwrap_or_else(|_| GrpcStatus::deadline_exceeded())
+    let cut = stop.cut.clone();
+    let run = run(inner, outgoing, stop, responding);
+    tokio::pin!(run);
+    match deadline {
+        None => run.await,
+        Some(deadline) => tokio::select! {
+            status = &mut run => status,
+            () = tokio::time::sleep_until(deadline) => {
+                // Marked while `run` still holds the request: dropping it lets the request go.
+                cut.store(true, Ordering::Release);
+                GrpcStatus::deadline_exceeded()
+            }
+        },
+    }
 }
 
 /// The header that tells the server how many attempts went before this one.
@@ -332,6 +360,9 @@ async fn run<S: ResponseSink>(
             None | Some(None) => return GrpcStatus::cancelled(),
         },
     };
+    // After the replay, so dropped before it: the call is marked cut before a panic's unwinding
+    // lets go of the request.
+    let _cut_on_panic = CutOnPanic(stop.cut.clone());
     let mut bound = policy
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();

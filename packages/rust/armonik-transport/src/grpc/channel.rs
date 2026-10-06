@@ -836,6 +836,7 @@ impl Body for FramedMessages {
             Some(message) => message,
             None => match ready!(Pin::new(&mut this.messages).poll_next(cx)) {
                 Some(message) => message,
+                None if this.messages.cut() => return Poll::Ready(Some(Err(cut_short()))),
                 None => return Poll::Ready(None),
             },
         };
@@ -865,6 +866,15 @@ impl Body for FramedMessages {
         let frame = gathered.map_or(first, BytesMut::freeze);
         Poll::Ready(Some(Ok(Frame::data(frame))))
     }
+}
+
+/// How a request the call's stop cut short ends: an error, which hyper sends as RST_STREAM with the
+/// reason of the `h2::Error` among its sources, rather than the body's end, which it sends as
+/// END_STREAM - a whole request to the peer.
+fn cut_short() -> tonic::Status {
+    let mut status = tonic::Status::cancelled("the call ended before its request did");
+    status.set_source(Arc::new(h2::Error::from(h2::Reason::CANCEL)));
+    status
 }
 
 /// A request's body, holding its call's claim on its session until hyper has sent it or let it
