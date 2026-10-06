@@ -9139,7 +9139,7 @@ LEMMA StatusReadyStable ==
               L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
               L0!IsTerminalCall, L0!StatusKinds, L0!EventKinds
         <5>11. CASE \E c \in CallIds : DeliverCancelled(c)
-          BY <1>1, <5>11, SMTT(45)
+          BY <1>1, <5>11, SMTT(90)
           DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost,
               HasFreeDeliverySlotForTerminal,
               L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,

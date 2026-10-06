@@ -238,7 +238,7 @@ LEMMA DeliverCancelledBridge ==
                   => ENABLED <<PassDeliverCancelled(cId)>>_vars)
 <1>1. ManagedTypeOK /\ ENABLED <<L1!DeliverCancelled(cId)>>_l1_vars
           => ENABLED <<PassDeliverCancelled(cId)>>_vars
-    BY ExpandENABLED, SMT
+    BY ExpandENABLED, SMTT(90)
     DEF PassDeliverCancelled, ManagedStutter, ManagedTypeOK,
        L1!DeliverCancelled, L1!L0!CallCancel, L1!L0!ChannelVars,
        L1!L0!HasStatus, L1!L0!IsActiveCall, L1!L0!RuntimeVars,
@@ -9030,7 +9030,7 @@ LEMMA ParsingSlotGrowsWithTheRing ==
     PROVE  ParsingReadOwnsItsSlot'
 <1>0. Len(Append(events_delivered[cId], evt))
           = Len(events_delivered[cId]) + 1
-    BY AppendProperties, Zenon
+    BY AppendProperties, SMT DEF L1!L0!EventKinds
 <1>1. RingOccupancy(cId)' = RingOccupancy(cId) + 1
     BY <1>0, SMT DEF RingOccupancy, RingHead, RingTail
 <1>2. \A c2 \in CallIds :
@@ -10768,7 +10768,7 @@ LEMMA PassesChannelFinishClosing ==
           BY <2>5, <2>6, SMT
       <2>8. /\ RingHead(c2) \in Nat /\ RingTail(c2) \in Nat
             /\ RingHead(c2)' \in Nat
-          BY <2>5, <2>6, SMT
+          BY <2>5, <2>6, SMTT(90)
              DEF L1!IndInv,
                 L1!TypeOK, L1!L0!TypeOK
       <2>9. QED
@@ -25578,7 +25578,7 @@ LEMMA MetadataLeadsStepsAtLevelZero ==
 <1>9. CASE \E ch2 \in ChannelIds : L1!L0!ChannelFinishClosing(ch2)
   <2>1. PICK ch2 \in ChannelIds : L1!L0!ChannelFinishClosing(ch2)
     BY <1>9
-  <2>2. QED BY <2>1, SMT DEF  L1!L0!ChannelFinishClosing, MetadataLeads,
+  <2>2. QED BY <2>1, SMTT(90) DEF  L1!L0!ChannelFinishClosing, MetadataLeads,
          L1!L0!TypeOK, L1!L0!HasStatus, L1!L0!StatusKinds,
          L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!CallsOf,
          L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
@@ -26627,7 +26627,7 @@ LEMMA PassthroughKeepsOneSend ==
                  PROVE  OneSendInFlight'
       BY <1>4
   <2>1. CASE (~IsSealing(c2) /\ L1!EmitWriteDone(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!EmitWriteDone, IsSealing, L1!vars,
+      BY <1>0, <2>0, <2>1, SMTT(90) DEF  L1!EmitWriteDone, IsSealing, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, OneSendInFlight,
          L1!HasNoSendInFlight, L1!IsWriteDoneCallbackRunning,
