@@ -261,8 +261,6 @@ HasAccountingRoomForSomeCharge(len) ==
     \E charge \in Sizes :
         CoversRequest(charge, len) /\ IsMemoryAvailable(charge)
 
-\* A message fits the buffer it was given.  Read at the commit, where the
-\* message appears - the lend saw only a length.
 \* The occurrence discipline, both directions.  A token names one occurrence:
 \* once globally within its direction, on whichever call committed it, and
 \* never in both directions - a received token cannot reappear in emission,
@@ -276,8 +274,12 @@ NeverReceived(msg) ==
     \A c \in CallIds :
         \A i \in DOMAIN received[c] : received[c][i] # msg
 
+\* A message fits the buffer it was given: the commit declares how many bytes
+\* the host wrote, the message's length, and that is at most what was lent.
+\* Read at the commit, where the message appears - the lend saw only a
+\* length.
 FitsInBuffer(msg, cId, b) ==
-    MessageLength[msg] = buffer_length[<<cId, b>>]
+    MessageLength[msg] <= buffer_length[<<cId, b>>]
 
 \* The buffers the budget is holding, as a set of pairs, and the charge of
 \* one.  Named so the sums below are folds over an atom.
