@@ -21,6 +21,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -64,6 +66,7 @@ public static class Program
     // What allocation counts on .NET Framework, which has no GC.GetTotalAllocatedBytes.
     AppDomain.MonitoringIsEnabled = true;
 #endif
+    Placement.Apply(Process.GetCurrentProcess());
     var transport = args[0];
     var busy      = args.Length == 2;
     using var server = Server.Start();
@@ -113,6 +116,8 @@ public static class Program
       var clock     = new Stopwatch();
       var allocated = Allocated();
       var poolItems = PoolItems();
+      var cpu       = Process.GetCurrentProcess()
+                             .TotalProcessorTime;
       for (var call = 0; call < MeasuredCalls; call++)
       {
         clock.Restart();
@@ -125,6 +130,8 @@ public static class Program
 
       var allocatedPerCall = (Allocated() - allocated) / (double)MeasuredCalls;
       var poolItemsPerCall = (PoolItems() - poolItems) / (double)MeasuredCalls;
+      var cpuPerCall = (Process.GetCurrentProcess()
+                               .TotalProcessorTime - cpu).TotalMilliseconds * 1000 / MeasuredCalls;
 
       Array.Sort(latencies);
 
@@ -150,8 +157,8 @@ public static class Program
       throughputs.Sort();
 
       var after = Footprint.Read();
-      var (streamedUpload, wholeUpload) = await Uploads(client)
-                                            .ConfigureAwait(false);
+      var uploads = await Uploads(client)
+                      .ConfigureAwait(false);
       var afterUploads = Footprint.Read();
 
       var line = string.Format(CultureInfo.InvariantCulture,
@@ -175,17 +182,20 @@ public static class Program
                                  : string.Format(CultureInfo.InvariantCulture,
                                                  " pool_items_call={0:F2}",
                                                  poolItemsPerCall),
-                               streamedUpload,
-                               wholeUpload);
+                               uploads.Streamed,
+                               uploads.Whole);
       // The load holds memory of its own, so a busy run's says as much about it as about the
       // transport.
       if (!busy)
       {
         line += string.Format(CultureInfo.InvariantCulture,
-                              " private_mib={0:F1} managed_mib={1:F1} private_after_uploads_mib={2:F1}",
+                              " cpu_us_call={3:F0} upload_stream_cpu_us_mib={4:F0} upload_unary_cpu_us_mib={5:F0} private_mib={0:F1} managed_mib={1:F1} private_after_uploads_mib={2:F1}",
                               (after.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024),
                               (after.ManagedBytes - before.ManagedBytes) / (1024.0 * 1024),
-                              (afterUploads.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024));
+                              (afterUploads.PrivateBytes - before.PrivateBytes) / (1024.0 * 1024),
+                              cpuPerCall,
+                              uploads.StreamedCpu,
+                              uploads.WholeCpu);
       }
 
       Console.WriteLine(line);
@@ -267,15 +277,21 @@ public static class Program
   }
 
   /// <summary>The median MiB per second of sending 150 MiB as a stream of chunks, and as one
-  /// message.</summary>
-  private static async Task<(double Streamed, double Whole)> Uploads(Echo.EchoClient client)
+  /// message, and the process's CPU microseconds per MiB over each one's runs.</summary>
+  private static async Task<(double Streamed, double Whole, double StreamedCpu, double WholeCpu)> Uploads(Echo.EchoClient client)
   {
     var clock = new Stopwatch();
-    var streamedUploads = new List<double>();
     var chunk = new Chunk
                 {
                   Data = Google.Protobuf.ByteString.CopyFrom(new byte[ChunkSize]),
                 };
+    var whole = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[UploadSize]),
+                };
+    var cpu = Process.GetCurrentProcess()
+                     .TotalProcessorTime;
+    var streamedUploads = new List<double>();
     for (var run = 0; run < StreamRuns; run++)
     {
       clock.Restart();
@@ -294,12 +310,9 @@ public static class Program
     }
 
     streamedUploads.Sort();
+    var streamedCpu = CpuPerMib(ref cpu);
 
     var wholeUploads = new List<double>();
-    var whole = new Chunk
-                {
-                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[UploadSize]),
-                };
     for (var run = 0; run < StreamRuns; run++)
     {
       clock.Restart();
@@ -310,8 +323,20 @@ public static class Program
     }
 
     wholeUploads.Sort();
+    var wholeCpu = CpuPerMib(ref cpu);
 
-    return (streamedUploads[streamedUploads.Count / 2], wholeUploads[wholeUploads.Count / 2]);
+    return (streamedUploads[streamedUploads.Count / 2], wholeUploads[wholeUploads.Count / 2], streamedCpu, wholeCpu);
+  }
+
+  /// <summary>The process's CPU microseconds per MiB of the uploads since <paramref name="since" />,
+  /// which then moves to now.</summary>
+  private static double CpuPerMib(ref TimeSpan since)
+  {
+    var now  = Process.GetCurrentProcess()
+                      .TotalProcessorTime;
+    var used = (now - since).TotalMilliseconds * 1000 / (StreamRuns * (double)UploadSize / (1024 * 1024));
+    since = now;
+    return used;
   }
 
   /// <summary>The MiB per second of an upload, from the bytes the server says it read.</summary>
@@ -346,13 +371,70 @@ public static class Program
   private static string Framework()
 #if NETFRAMEWORK
     => "net4.8";
-#elif NET11_0_OR_GREATER
+#else
+    => Version() + (RuntimeFeature.IsDynamicCodeCompiled
+                      ? ""
+                      : "-aot");
+
+  private static string Version()
+#if NET11_0_OR_GREATER
     => "net11.0";
 #elif NET10_0_OR_GREATER
     => "net10.0";
 #else
     => "net8.0";
 #endif
+#endif
+
+  /// <summary>Where the benchmark and its server run, from the environment.</summary>
+  /// <remarks>
+  ///   A hybrid processor's two kinds of core run a call at very different speeds, and a run the
+  ///   scheduler spreads over both measures where its threads landed. ARMONIK_BENCH_AFFINITY, a
+  ///   mask of logical processors in hexadecimal, holds both processes to them;
+  ///   ARMONIK_BENCH_PRIORITY, a <see cref="ProcessPriorityClass" /> name, sets both priorities,
+  ///   which a child does not inherit.
+  /// </remarks>
+  private static class Placement
+  {
+    internal static void Apply(Process process)
+    {
+      if (Environment.GetEnvironmentVariable("ARMONIK_BENCH_AFFINITY") is { Length: > 0 } mask)
+      {
+        var digits = mask.StartsWith("0x",
+                                     StringComparison.OrdinalIgnoreCase)
+                       ? mask.Substring(2)
+                       : mask;
+        if (!long.TryParse(digits,
+                           NumberStyles.HexNumber,
+                           CultureInfo.InvariantCulture,
+                           out var processors))
+        {
+          throw new ArgumentException($"ARMONIK_BENCH_AFFINITY is {mask}, not a mask of logical processors in hexadecimal");
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+          process.ProcessorAffinity = new IntPtr(processors);
+        }
+        else
+        {
+          throw new PlatformNotSupportedException("ARMONIK_BENCH_AFFINITY is set, and only Windows and Linux pin a process");
+        }
+      }
+
+      if (Environment.GetEnvironmentVariable("ARMONIK_BENCH_PRIORITY") is { Length: > 0 } priority)
+      {
+        if (!Enum.TryParse(priority,
+                           true,
+                           out ProcessPriorityClass priorityClass))
+        {
+          throw new ArgumentException($"ARMONIK_BENCH_PRIORITY is {priority}, not a ProcessPriorityClass name");
+        }
+
+        process.PriorityClass = priorityClass;
+      }
+    }
+  }
 
   /// <summary>What the process holds, after a full collection.</summary>
   private readonly struct Footprint
@@ -426,6 +508,7 @@ public static class Program
                                     UseShellExecute        = false,
                                     CreateNoWindow         = true,
                                   }) ?? throw new InvalidOperationException($"`dotnet {assembly}` did not start");
+      Placement.Apply(process);
 
       // A server that prints neither line in a minute is killed, which ends the read below.
       using var deadline = new Timer(_ => Kill(process),
