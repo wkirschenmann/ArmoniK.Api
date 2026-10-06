@@ -1239,7 +1239,8 @@ by hand, not in CI, where a shared runner would measure its neighbours.
 
 ### T6.8: Integration into `ArmoniK.Api.Client`
 
-**Prerequisite**: T3.5, T6.6
+**Prerequisite**: T3.5, T6.6, and T6.14, whose loader is what the binding hands a host instead of
+`IConfiguration`
 **Commit**: let a consumer choose the transport by configuration rather than by which factory it
 calls.
 
@@ -1279,6 +1280,8 @@ the decisions above are not rediscovered.
 **Deliverable**: a consumer switches transport by configuration.
 
 ### T6.9: Documentation and cleanup
+
+**When**: last, after everything else on this branch, on a new clean branch it produces.
 
 **Prerequisite**: T6.8
 **Commit**: README and migration guide. The #7xx stack discarded once nothing more is wanted from
@@ -1408,7 +1411,9 @@ lands.
 
 ### T6.12: Packaging in CI
 
-**Prerequisite**: T6.6
+**When**: after T6.9, on the clean branch T6.9 produces.
+
+**Prerequisite**: T6.6, T6.9
 **Commit**: the CI half of T6.6 - the matrix derived from `RustTargets.props`, the hosted arm64
 and macOS runners, the armv7 and musl cross builds, and a pack of every engine whose list of
 runtime identifiers is checked.
@@ -1442,25 +1447,86 @@ code's to make:
 **Deliverable**: a package that works on every runtime identifier it claims, built and checked by
 CI.
 
+### T6.13: A stream's messages leave framed in place
+
+**Prerequisite**: none
+**Commit**: the engine accepts a message whose five bytes of frame prefix are reserved in front of
+it, writes the prefix there, and sends the buffer below tonic's encoder, as a one-request call's
+body already is. The replay keeps the same buffer. The FFI lends five bytes more than asked and
+hands the host the address past them, so the ABI does not move and the .NET binding gains it
+without a change. A caller with a plain `Bytes` still has it framed by a copy.
+
+**Deliverable**: no copy of a sent message on any cardinality, the replay unchanged, and the
+benchmark's streamed upload measured before and after, throughput and CPU per MiB.
+
+### T6.14: One configuration loader, every host
+
+**Prerequisite**: T7.1, whose `ClientConfig` it replaces
+**Commit**: the loader, as `configuration-loading.md` describes it. The engine reads its
+configuration from the sources the host lists - files in JSON, YAML or TOML, the environment
+under a prefix, and documents the host writes - in its own Rust, behind `ak_runtime_create_from`
+and in the `armonik` crate alike. The .NET binding takes no `IConfiguration`: it exposes
+`LoadConfigFromFiles`, `LoadConfigFromEnvironment`, `LoadConfigFromCommandLine` and
+`LoadConfigFromObject`, each adding a source, the command line parsed in .NET's idiom inside the
+binding.
+
+**Deliverable**: the same sources give the same options, or the same refusal, through the Rust
+loader and through the ABI, one set of fixtures driving both.
+
+### T6.15: The options a gRPC client is expected to have
+
+**Prerequisite**: T6.14, so that each arrives with its loading
+**Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
+outnumber successes; compression, `grpc-encoding: gzip`; wait-for-ready, a call that waits for a
+connection rather than failing UNAVAILABLE; `RateLimit`; `Http2MaxHeaderListSize`, whose bound
+keeps a request out of nginx's header limits. `TcpNagleAlgorithm` is refused: the engine always
+disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
+
+**Deliverable**: each option read, applied, and tested where its effect is observable.
+
+### T6.16: The host's buffers, several at once and resizable
+
+**Prerequisite**: none
+**Commit**: an ABI operation that resizes a lent buffer, keeping what the host has written, its
+charge admitted again against the ceiling; the formal model follows, level 1 first. The .NET
+binding uses a send window above one, and the window's effect is benchmarked: four is expected to
+beat one.
+
+**Deliverable**: a host that finds its buffer too small asks for another size without giving
+the message up, and the window's default is set by a measurement.
+
 ---
 
 ## Phase 7 — Rust ArmoniK Client on armonik-transport
 
-### T7.1: Adapt the Rust ArmoniK client to use the `grpc` module
+### T7.1: The Rust ArmoniK client over the `grpc` module
 
-**To revisit before it starts** (2026-09-28): design.md decides that the client drives the
-engine's HTTP/2 service directly, so the adapter the commit line below describes is not the plan.
-What that decision means for the Rust client code on Florian's branch is to be analysed first.
+**Decided (2026-10-06)**, reversing architecture.md's choice of 2026-09-28: the client calls
+`GrpcChannel` at the message level, as the FFI does, and tonic's stubs are not in its path. The
+adapter between tonic's HTTP bodies and the engine's messages was the alternative; it keeps the
+stubs and their `GrpcService` generics, at the price of the gRPC framing taken apart and put back
+together in it, and of a second copy of every received message, the stub's decoder after the
+engine's.
 
-**Prerequisite**: T1.1, T2.3 (functional Rust channel with all 4 cardinalities)
-**Commit**: Replace the direct Tonic dependency in the Rust ArmoniK client with an adapter
-that consumes `armonik-transport`'s `grpc` module. The generated Tonic stubs work via a
-`Channel` adapter
-that delegates to `GrpcChannel`. The Rust client and the .NET binding share the same native
-gRPC engine.
+**Prerequisite**: T6.13, so that a stream's messages leave framed in place from the start
+**Commit**:
 
-**Deliverable**: Rust ArmoniK client tests pass using `armonik-transport` instead of
-Tonic directly. Same functional behavior.
+- Four helpers over `GrpcChannel` - unary, server streaming, client streaming, bidirectional -
+  each encoding with prost into a buffer with the frame prefix's headroom, sized by
+  `encoded_len`, and decoding what the engine delivers. The codec is prost's, fixed: another is
+  chosen at the generator, as tonic-build's `codec_path` chooses tonic's.
+- A generator that reads the descriptor set prost-build writes and emits, for each service the
+  client calls, a client over `GrpcChannel` whose methods call those helpers. prost-build still
+  generates the messages; the servers the worker serves stay tonic's. The generator reads the
+  descriptor rather than plugging into prost-build's `ServiceGenerator`, so that it outlives a
+  move to another protobuf crate: only the paths of the message types it names would change.
+- The client's public surface follows: its error carries the engine's status rather than
+  `tonic::Status`, and `Client` is no longer generic over `GrpcService`.
+
+**Later, for measurement only**: the same helpers driven through the C ABI from Rust, behind a
+cargo feature, to measure what the FFI costs with no .NET in the measurement.
+
+**Deliverable**: the Rust ArmoniK client's tests pass against the mock server on the engine.
 
 This is also where the crate stops carrying two disjoint stacks. Until here the Rust client
 compiles fifteen mandatory dependencies where it compiled eight - `h2`, `http`, `http-body-util`,
@@ -1471,11 +1537,11 @@ a feature position nothing exercises rots before then.
 
 **And the client offers what it means to.** `pub use armonik_transport as transport` makes the
 whole engine part of the Rust client's public API; it gives way to the items the client offers.
-And the client's configuration converts into the engine's: `TransportConfig` carries an endpoint
-and a connect timeout, and nothing converts into it. What becomes of an option the engine has not
-got by then is settled here - `RateLimit`, which no task builds, and whichever of
-`TcpNagleAlgorithm` and `Http2MaxHeaderListSize` T4.1's units leave out: each is built, or
-refused by the client, and none is read and ignored.
+Its configuration stays `ClientConfig::from_env` until T6.14, mapped onto the engine's options;
+the tonic channel `connect` builds from it goes with the stubs. The mapping refuses what the
+engine has not got - `RateLimit` and `Http2MaxHeaderListSize` until T6.15 builds them,
+`TcpNagleAlgorithm` for good - so that none is read and ignored. T6.14 then replaces
+`ClientConfig` and its `GrpcClient__*` names with the loader's, with no alias.
 
 ---
 
@@ -1626,7 +1692,9 @@ T1.1 ─────────────→ T1.2 ←────────
         T4.1 → T4.2 → T4.3     T5.1 → T5.2, T5.3      T6.1, T6.5, T6.6 → T6.7 → T6.8 → T6.9
           └──→ T4.4                                     │
                                                   T6.2 → T6.3 → T6.4
-                                                  T6.6 → T6.12   (last, with the team)
+                                                  T6.6 → T6.9 → T6.12   (last, with the team)
+
+T6.13 → T7.1 → T6.14 → T6.8          T6.14 → T6.15          T6.16
 ```
 
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
@@ -1651,7 +1719,6 @@ it is the one task of phase 3 that runs in parallel with T3.4 and T3.5.
 - **T6.6** (packaging) can start as soon as T4.1, since what it packages is the engine
 - **T6.2** (deadline) stands on T1.1 and T4.0: nothing about a timer waits on the option surface,
   but the field it adds waits on the struct being able to grow
-- **Phase 7 comes after 3, 4, 5 and 6.** T7.1's declared prerequisites, T1.1 and T2.3, are met,
-  so it could start at any time; it does not, by decision. Adapting the Rust client to a surface
-  those phases are still moving would mean adapting it twice, and a client that could not offer
-  TLS would be adapted before it was useful - the engine speaks in the clear until T4.1.
+- **Phase 7 is next, from 2026-10-06**: phases 3 to 5 are done, and phase 6 keeps T6.8, T6.9,
+  T6.12 and the new T6.13 to T6.16. The order: T6.13, T7.1, T6.14, T6.8, then T6.15 and T6.16;
+  T6.9 last of all, and T6.12 after it.

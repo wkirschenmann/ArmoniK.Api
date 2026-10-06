@@ -352,12 +352,11 @@ develop the two crates independently.
 4. The channel does not reinterpret transport options (no double endpoint/TLS resolution).
 5. The contract is tested: an incompatible change in the connector breaks an upstream test.
 6. The Rust ArmoniK client (`armonik::Client`) uses `armonik-transport`'s `grpc` module as its
-   transport, with its generated Tonic stubs driving the engine's HTTP/2 service directly
-   (architecture.md, "Consumption by the Rust ArmoniK client"), and so shares the gRPC engine
-   the FFI exposes to bindings.
+   transport, through clients generated from the protos that call `GrpcChannel` at the message
+   level (architecture.md, "Consumption by the Rust ArmoniK client"), and so shares the gRPC
+   engine the FFI exposes to bindings, by the same path.
 
-**Status**: 6 is not met, and is deferred by decision to T7.1: adapting the client to a surface
-three phases are still moving would mean adapting it twice.
+**Status**: 6 is not met; T7.1 builds it, after T6.13.
 
 ---
 

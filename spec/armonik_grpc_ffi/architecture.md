@@ -34,40 +34,22 @@ The one adapter that remains is `Spawner`, which puts the handle in the shape
 
 ### Consumption by the Rust ArmoniK client
 
-The Rust ArmoniK client (`armonik::Client<T>`) uses the `grpc` module via an adapter
-compatible with the generated Tonic stubs. `tonic::transport::Channel` is a concrete type
-and cannot be implemented; the trait a generated stub actually requires is `GrpcService`,
-which any `tower::Service<http::Request<Body>>` satisfies. That is the boundary:
+The Rust ArmoniK client calls `GrpcChannel` at the message level, as the FFI does, through
+clients generated from the protos (decided 2026-10-06, T7.1). The engine keeps tonic's client
+inside it, over an HTTP/2 service of the channel's own; the ArmoniK client does not go through
+tonic's stubs. A Rust host and a C host therefore take the same path through the engine - retry,
+deadline, pool, flow control - and a received message is copied once, by the engine's decoder.
 
-```rust
-/// Adapter that allows Tonic stubs to consume a GrpcChannel.
-pub struct TonicAdapter {
-    channel: GrpcChannel,
-}
-
-impl tower::Service<http::Request<BoxBody>> for TonicAdapter {
-    type Response = http::Response<BoxBody>;
-    type Error = tonic::Status;
-    type Future = ...;
-}
-```
-
-A `tower::Service` speaks HTTP bodies; `GrpcChannel` speaks messages. An adapter between the
-two is not thin: it has to take the request body apart into messages and put the response
-messages back together as a body, including trailers, compression flags and the length-prefixed
-framing - a second implementation of the gRPC wire format layered on the first. The middle is
-where the framing gets implemented twice, and there are two coherent answers either side of it:
-
-- the Rust engine exposes an HTTP/2 service that Tonic consumes directly, and the
-  message-level API is what the FFI is built on;
-- or the ArmoniK Rust clients use message-level stubs generated against `GrpcChannel`, and
-  Tonic is not in the picture at all.
-
-**Decided (2026-09-28): the first**, and the engine already has its shape - tonic's client over an
-HTTP/2 service of the channel's own. What it means for the Rust client work already under way
-elsewhere is analysed when T7.1 starts. The .NET binding is unaffected either way: it consumes the
-message-level API through the FFI, and both paths share the same engine - retry, deadline, pool,
-flow control.
+The alternative was tonic's generated stubs over an adapter. `tonic::transport::Channel` is a
+concrete type and cannot be implemented, but the trait a stub requires is `GrpcService`, which any
+`tower::Service<http::Request<Body>>` satisfies, so an adapter from HTTP bodies to `GrpcChannel`
+could stand in for it. It is not thin: it takes the request body apart into messages and puts the
+response messages back together as a body - trailers, compression flags, the length-prefixed
+framing - a second implementation of the gRPC wire format over the first, and a second copy of
+every received message, by the stub's decoder after the engine's. On 2026-09-28 the choice was the
+other coherent answer, the stubs driving the engine's HTTP/2 service directly; it is reversed,
+because the engine's retry, deadline and cancellation sit above that service, where stubs on it
+would not reach them.
 
 ## Layer 3 — `armonik-transport-ffi`
 
