@@ -1029,7 +1029,7 @@ pub struct Http2Options {
 
     /// How long a connection stays open with no call on it before it is closed, the next call
     /// dialling a new one. Each connection has its own. A call holds its connection to the end of
-    /// its response, and of its request too when SimultaneousCallsPerConnection is set.
+    /// its response and of its request.
     ///
     /// Defaults to none: an idle connection stays open.
     #[cfg_attr(
@@ -1042,13 +1042,13 @@ pub struct Http2Options {
     )]
     pub idle_timeout_seconds: Option<Seconds>,
 
-    /// How many calls one connection carries at once. A call that finds every connection full
-    /// opens another, as many as the calls in flight need, and each closes on its own idle
-    /// timeout when IdleTimeoutSeconds is set. At 1, calls follow one another on a connection but
-    /// never share it, so that a GOAWAY a server sends because of one call - nginx's
-    /// ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    /// How many calls one connection carries at once, never more than its server allows. A call
+    /// that finds every connection full opens another, as many as the calls in flight need, and
+    /// each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
+    /// another on a connection but never share it, so that a GOAWAY a server sends because of one
+    /// call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
     ///
-    /// Defaults to none: one connection carries every call.
+    /// Defaults to none: a connection carries as many calls as its server allows.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")

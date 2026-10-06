@@ -1618,7 +1618,7 @@ public sealed class Http2Options
   /// <summary>
   ///   How long a connection stays open with no call on it before it is closed, the next call
   ///   dialling a new one. Each connection has its own. A call holds its connection to the end of
-  ///   its response, and of its request too when SimultaneousCallsPerConnection is set.
+  ///   its response and of its request.
   /// </summary>
   /// <remarks>Defaults to none: an idle connection stays open.</remarks>
   [JsonPropertyName("IdleTimeoutSeconds")]
@@ -1626,13 +1626,13 @@ public sealed class Http2Options
   public double? IdleTimeoutSeconds { get; set; }
 
   /// <summary>
-  ///   How many calls one connection carries at once. A call that finds every connection full
-  ///   opens another, as many as the calls in flight need, and each closes on its own idle
-  ///   timeout when IdleTimeoutSeconds is set. At 1, calls follow one another on a connection but
-  ///   never share it, so that a GOAWAY a server sends because of one call - nginx's
-  ///   ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  ///   How many calls one connection carries at once, never more than its server allows. A call
+  ///   that finds every connection full opens another, as many as the calls in flight need, and
+  ///   each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
+  ///   another on a connection but never share it, so that a GOAWAY a server sends because of one
+  ///   call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
   /// </summary>
-  /// <remarks>Defaults to none: one connection carries every call.</remarks>
+  /// <remarks>Defaults to none: a connection carries as many calls as its server allows.</remarks>
   [JsonPropertyName("SimultaneousCallsPerConnection")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? SimultaneousCallsPerConnection { get; set; }

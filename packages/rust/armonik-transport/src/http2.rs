@@ -267,8 +267,8 @@ pub struct Http2Config {
     /// How long a session stays open with no call on it before the channel closes it; none
     /// keeps it open.
     pub idle_timeout: Option<Duration>,
-    /// How many calls one session carries at once, a call that finds every session full opening
-    /// another; none has one session carry every call. At least 1.
+    /// How many calls one session carries at once, below what its server allows, a call that
+    /// finds every session full opening another; none leaves only the server's bound. At least 1.
     pub simultaneous_calls_per_connection: Option<usize>,
     /// How many bytes a write to the connection may gather while the work already ready adds to
     /// it; 0 writes at once.

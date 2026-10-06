@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, PoisonError};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, PoisonError, TryLockError};
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -336,7 +337,8 @@ pub(crate) struct Inner {
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
-    /// How many calls one session carries at once; `usize::MAX` when one session carries all.
+    /// How many calls one session carries at once, below what its server allows; `usize::MAX`
+    /// when only the server bounds them.
     calls_per_session: usize,
     sessions: std::sync::Mutex<Sessions>,
     closed: watch::Sender<bool>,
@@ -353,6 +355,12 @@ struct Sessions {
 struct Session {
     id: u64,
     sender: SendRequest<tonic::body::Body>,
+    /// How many streams its server lets it open at once, asked of the connection each time:
+    /// hyper takes SETTINGS in on a task of its own and wakes nothing here. Without waiting,
+    /// because the task that drives the connection holds it while it polls, and a poll can let go
+    /// of a call's claim, which takes the lock the asker holds; a connection busy polling gives
+    /// its last answer.
+    streams: Box<dyn Fn() -> usize + Send + Sync>,
     /// The calls it carries.
     calls: usize,
     /// When it last carried no call.
@@ -375,8 +383,8 @@ struct Dial {
     outcome: broadcast::Sender<Result<(), ChannelError>>,
 }
 
-/// A call's claim on its session: from the request's dispatch to the end of its response, and,
-/// when sessions carry a limited number of calls, to the end of its request too.
+/// A call's claim on its session: from the request's dispatch to the end of its response and of
+/// its request.
 ///
 /// The last claim on a session let go starts its idle timer, if the channel has one and it is not
 /// already running; the session is closed once it has been idle for the timeout.
@@ -469,6 +477,13 @@ impl Inner {
     /// A session with room for one more call, and the call's claim on it, dialling one if none
     /// has room.
     ///
+    /// A session has room below both `calls_per_session` and the streams its server allows. The
+    /// server tells the second once the session is open, h2 assuming 100 until then, so the calls
+    /// placed on it before may go past it. The server refuses those it sees: a refused call whose
+    /// request is still held whole goes again once, where there is room, and ends UNAVAILABLE
+    /// otherwise. One that h2 has not sent when the limit arrives waits in h2 for a stream of the
+    /// session to end.
+    ///
     /// The session taken is the fullest that has room, then the one idle most recently, so that
     /// the others go idle and close. With none, a caller joins a dial in flight that has room for
     /// it, or starts one - and starting one means spawning it, not running it here. Going away
@@ -489,7 +504,12 @@ impl Inner {
                 let roomy = sessions
                     .open
                     .iter_mut()
-                    .filter(|session| session.calls < self.calls_per_session)
+                    // At least one: a server that allows none for now has a call wait in h2 rather
+                    // than the channel dial for good.
+                    .filter(|session| {
+                        session.calls < self.calls_per_session
+                            && session.calls < (session.streams)().max(1)
+                    })
                     .max_by_key(|session| (session.calls, session.idle_since));
                 if let Some(session) = roomy {
                     session.calls += 1;
@@ -589,8 +609,23 @@ impl Inner {
         }
 
         let endpoint = safe_endpoint(&self.endpoint);
+        let last = AtomicUsize::new(connection.current_max_send_streams());
+        let connection = Arc::new(std::sync::Mutex::new(Some(Box::pin(connection))));
+        let driven = Driven(Arc::clone(&connection));
         self.spawner.spawn(async move {
-            if let Err(error) = connection.await {
+            let ended = std::future::poll_fn(|cx| {
+                match driven
+                    .0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_mut()
+                {
+                    Some(connection) => connection.as_mut().poll(cx),
+                    None => Poll::Ready(Ok(())),
+                }
+            })
+            .await;
+            if let Err(error) = ended {
                 tracing::debug!(%endpoint, %error, "the HTTP/2 session ended");
             }
         });
@@ -599,6 +634,19 @@ impl Inner {
         sessions.open.push(Session {
             id,
             sender,
+            streams: Box::new(move || {
+                let connection = match connection.try_lock() {
+                    Ok(connection) => connection,
+                    Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+                    Err(TryLockError::WouldBlock) => return last.load(Ordering::Relaxed),
+                };
+                let Some(connection) = connection.as_ref() else {
+                    return last.load(Ordering::Relaxed);
+                };
+                let streams = connection.current_max_send_streams();
+                last.store(streams, Ordering::Relaxed);
+                streams
+            }),
             calls: 0,
             idle_since: since,
             timing: self.idle_timeout.is_some(),
@@ -642,6 +690,21 @@ impl Inner {
             since,
             idle_timeout,
         ));
+    }
+}
+
+/// A session's connection as the task that drives it holds it, shared with the session that asks
+/// it how many streams its server allows.
+///
+/// The connection goes with the task, however the task ends - done, panicking, or dropped by a
+/// runtime shutting down: until hyper's half of it goes, the session's sender does not read as
+/// closed, and a call would be placed on a connection nobody drives. Never with the session,
+/// whose removal holds the sessions' lock that a call's claim let go there would take again.
+struct Driven<C>(Arc<std::sync::Mutex<Option<C>>>);
+
+impl<C> Drop for Driven<C> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
     }
 }
 
@@ -704,20 +767,12 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 }
                 error => worded(GrpcStatus::unreachable(error)),
             })?;
-            // A session that carries a limited number of calls counts one until hyper is done
-            // with its request too: a call whose response ends first keeps its request open until
-            // the driver half-closes it, and the next call would otherwise overlap it.
-            let request = if inner.calls_per_session == usize::MAX {
-                request
-            } else {
-                let lease = lease.clone();
-                request.map(|body| {
-                    tonic::body::Body::new(LeasedBody {
-                        body,
-                        _lease: lease,
-                    })
-                })
-            };
+            // A call counts on its session until hyper is done with its request too: a call whose
+            // response ends first keeps its request open, and its stream, until the driver
+            // half-closes it, and the next call would otherwise overlap it.
+            let held = lease.clone();
+            let request =
+                request.map(|body| tonic::body::Body::new(LeasedBody { body, _lease: held }));
             let mut response = sender.send_request(request).await.map_err(|error| {
                 let mut status = worded(GrpcStatus::request_lost(&error));
                 if let Some(unprocessed) = Unprocessed::of(&error) {

@@ -1,5 +1,6 @@
 //! Calls per connection: a channel opens as many connections as its calls in flight need when
-//! each carries a limited number, and one for all of them otherwise.
+//! each carries a limited number, by its option or by its server, and one for all of them
+//! otherwise.
 
 mod common;
 
@@ -98,6 +99,74 @@ async fn at_one_call_per_connection_each_call_in_flight_has_its_own_and_then_len
         4,
         "a call followed another on a free connection"
     );
+}
+
+/// A server that allows two streams at once: a third call takes another connection instead of
+/// waiting for one of the two to end.
+#[tokio::test]
+async fn a_connection_carries_no_more_calls_than_its_server_allows() {
+    let server = TestServer::allowing(2).await;
+    let channel = pooled(&server.endpoint, None, None);
+
+    let _calls = [
+        chatting(&channel).await,
+        chatting(&channel).await,
+        tokio::time::timeout(Duration::from_secs(10), chatting(&channel))
+            .await
+            .expect("the third call waited for one of the two to end"),
+    ];
+    assert_eq!(server.connections(), 2);
+}
+
+/// A server that allows no stream for now: once it has said so, a call waits on its connection
+/// rather than the channel dialling another, and another, for it.
+#[tokio::test]
+async fn a_server_that_allows_no_stream_is_not_dialled_again_and_again() {
+    let server = TestServer::allowing(0).await;
+    let channel = pooled(&server.endpoint, None, None);
+
+    // Refused, sent before the server's SETTINGS were in, and ended once they are.
+    let (_, _, status) = tokio::time::timeout(
+        Duration::from_secs(10),
+        unary(
+            &channel,
+            CallStartOptions::new(ECHO),
+            Bytes::from_static(b"hello"),
+        ),
+    )
+    .await
+    .expect("the first call waited, its stream held back after the server's SETTINGS");
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+
+    let waited = tokio::time::timeout(Duration::from_millis(500), echo(&channel)).await;
+    assert!(waited.is_err(), "the call ended, where it had no stream");
+    assert_eq!(server.connections(), 1);
+}
+
+/// A server that closes a connection gracefully after two calls: a third call takes another
+/// connection, and the two it took still answer.
+#[tokio::test]
+async fn a_call_after_a_graceful_goaway_takes_another_connection() {
+    let server = TestServer::closing_after(2).await;
+    let channel = pooled(&server.endpoint, None, None);
+
+    let mut calls = vec![chatting(&channel).await, chatting(&channel).await];
+    calls.push(
+        tokio::time::timeout(Duration::from_secs(10), chatting(&channel))
+            .await
+            .expect("the third call went to the connection the server is closing"),
+    );
+    assert_eq!(server.connections(), 2);
+
+    for (send, recv, _) in &mut calls {
+        send.send_message(Bytes::from_static(b"y"))
+            .await
+            .expect("the message is accepted");
+        assert!(matches!(
+            recv.next_message().await,
+            Ok(RecvResult::Message(_))
+        ));
+    }
 }
 
 #[tokio::test]

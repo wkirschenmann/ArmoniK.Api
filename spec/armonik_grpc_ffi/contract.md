@@ -95,8 +95,9 @@ pub struct Http2Config {
     /// session full opens another, as many as the calls in flight need,
     /// taking the fullest with room first. A call counts from its dispatch to
     /// the end of its response and of its request, so that calls follow one
-    /// another on a session but never share it beyond the limit. None has
-    /// one session carry every call.
+    /// another on a session but never share it beyond the limit. A session
+    /// never carries more than its server's SETTINGS_MAX_CONCURRENT_STREAMS
+    /// either, which is the only bound when this is none.
     pub simultaneous_calls_per_connection: Option<usize>,
     /// How many bytes a write to the connection may gather while the work
     /// already ready adds to it; 0 writes at once.
@@ -113,7 +114,7 @@ pub struct Http2Config {
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,
     // server pushes. It is not a cap on outgoing calls; simultaneous_calls_per_connection
-    // bounds those per session.
+    // and the server's own SETTINGS_MAX_CONCURRENT_STREAMS bound those per session.
 }
 
 pub struct ProxyConfig {

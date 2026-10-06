@@ -716,6 +716,21 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start() -> Self {
+        Self::serving(None, None).await
+    }
+
+    /// One whose SETTINGS let a connection open at most `streams` streams at once.
+    pub async fn allowing(streams: u32) -> Self {
+        Self::serving(Some(streams), None).await
+    }
+
+    /// One that closes a connection gracefully once it has taken `requests`, as nginx's
+    /// `keepalive_requests` does: a GOAWAY, the streams it took answered to their end.
+    pub async fn closing_after(requests: usize) -> Self {
+        Self::serving(None, Some(requests)).await
+    }
+
+    async fn serving(streams: Option<u32>, requests: Option<usize>) -> Self {
         let (listener, endpoint) = loopback().await;
         let connections = Arc::new(AtomicUsize::new(0));
 
@@ -728,12 +743,28 @@ impl TestServer {
                 serving.fetch_add(1, Ordering::SeqCst);
                 let serving = serving.clone();
                 tokio::spawn(async move {
-                    let service = hyper::service::service_fn(|request| async {
-                        Ok::<_, Infallible>(answer(request).await)
+                    let taken = AtomicUsize::new(0);
+                    let enough = tokio::sync::Notify::new();
+                    let service = hyper::service::service_fn(|request| {
+                        if Some(taken.fetch_add(1, Ordering::SeqCst) + 1) == requests {
+                            enough.notify_one();
+                        }
+                        async { Ok::<_, Infallible>(answer(request).await) }
                     });
-                    let _ = hyper::server::conn::http2::Builder::new(HyperTokio::new())
-                        .serve_connection(TokioIo::new(stream), service)
-                        .await;
+                    let mut builder = hyper::server::conn::http2::Builder::new(HyperTokio::new());
+                    // Only when asked: none would lift hyper's own limit.
+                    if let Some(streams) = streams {
+                        builder.max_concurrent_streams(streams);
+                    }
+                    let mut connection =
+                        std::pin::pin!(builder.serve_connection(TokioIo::new(stream), service));
+                    tokio::select! {
+                        _ = connection.as_mut() => {}
+                        _ = enough.notified() => {
+                            connection.as_mut().graceful_shutdown();
+                            let _ = connection.await;
+                        }
+                    }
                     serving.fetch_sub(1, Ordering::SeqCst);
                 });
             }
