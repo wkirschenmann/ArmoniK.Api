@@ -334,8 +334,8 @@ pub struct ak_call_start_options {
     pub struct_size: u32,
     /// Zero, the one revision of this record there is.
     pub version: u32,
-    /// AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE and AK_CALL_ONE_REQUEST, any of them or none. Any
-    /// other flag is refused rather than ignored.
+    /// AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE, AK_CALL_ONE_REQUEST and AK_CALL_WAIT_FOR_READY,
+    /// any of them or none. Any other flag is refused rather than ignored.
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
@@ -369,6 +369,15 @@ pub const AK_CALL_ONE_RESPONSE: u32 = 2;
 /// is accepted and the call ends DEADLINE_EXCEEDED, and a call never committed ends at its
 /// cancellation.
 pub const AK_CALL_ONE_REQUEST: u32 = 4;
+
+/// In ak_call_start_options.flags: the call waits for the channel to open a connection rather than
+/// end UNAVAILABLE when it cannot reach its server, as gRPC's wait-for-ready has it. The channel
+/// dials again, backing off as gRPC's connection backoff does, and the call goes out on the first
+/// connection it opens. The wait ends at the call's deadline (DEADLINE_EXCEEDED), on its
+/// cancellation, or when its channel is released; otherwise it lasts as long as the server stays
+/// out of reach. A call that reached a connection is not helped: what breaks it after that ends it
+/// as it ends any other.
+pub const AK_CALL_WAIT_FOR_READY: u32 = 8;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -453,7 +462,8 @@ unsafe impl Record for ak_runtime_config {
 // SAFETY: integers, and views whose null pointer and zero length are an empty slice.
 unsafe impl Record for ak_call_start_options {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, timeout_ns);
-    const FLAGS: u32 = AK_CALL_HAS_DEADLINE | AK_CALL_ONE_RESPONSE | AK_CALL_ONE_REQUEST;
+    const FLAGS: u32 =
+        AK_CALL_HAS_DEADLINE | AK_CALL_ONE_RESPONSE | AK_CALL_ONE_REQUEST | AK_CALL_WAIT_FOR_READY;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[(
         AK_CALL_HAS_DEADLINE,
         std::mem::offset_of!(Self, timeout_ns) + std::mem::size_of::<u64>(),

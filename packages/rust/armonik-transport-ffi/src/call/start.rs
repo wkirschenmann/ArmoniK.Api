@@ -14,6 +14,7 @@ use crate::tables;
 pub(crate) struct Shape {
     pub(crate) one_request: bool,
     pub(crate) one_response: bool,
+    pub(crate) wait_for_ready: bool,
 }
 
 /// The channel's count, given back unless the call that took it is started.
@@ -49,6 +50,7 @@ pub(crate) fn start_on(
     let Shape {
         one_request,
         one_response,
+        wait_for_ready,
     } = shape;
     channel.join()?;
     let joined = Joined(Some(channel));
@@ -59,6 +61,7 @@ pub(crate) fn start_on(
     options.deadline = deadline;
     options.read_gate = Some(Arc::clone(&turn) as _);
     options.one_response = one_response;
+    options.wait_for_ready = wait_for_ready;
 
     let prepared = if one_request {
         channel
