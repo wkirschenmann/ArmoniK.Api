@@ -1,0 +1,6 @@
+info event, 2 fields + message, delivered live                 0.00 allocations,      0.0 bytes per iteration
+info event, a Display field (%) and a Debug field (?)          3.00 allocations,     66.0 bytes per iteration
+debug event below the filter                                   0.00 allocations,      0.0 bytes per iteration
+kept event while loading (OwnedRecord)                         7.00 allocations,    433.6 bytes per iteration
+span: built, entered, closed, one attribute                    4.00 allocations,    240.0 bytes per iteration
+span with a child, four attributes in all                      9.90 allocations,    590.1 bytes per iteration

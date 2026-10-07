@@ -1,0 +1,11 @@
+1 thread:  single-writer Counter (load+store)                  min   4.34  median   4.69  max   4.92 ns/op (slowest thread)
+1 thread:  Shared (fetch_add)                                  min  15.46  median  20.73  max  31.22 ns/op (slowest thread)
+4 threads: one Shared counter, all threads (contended)         min 137.92  median 173.10  max 188.41 ns/op (slowest thread)
+4 threads: one Shared per thread, padded (own channel)         min  25.30  median  28.01  max  45.52 ns/op (slowest thread)
+4 threads: one Counter per thread, padded (own channel)        min   4.10  median   4.35  max   4.75 ns/op (slowest thread)
+4 threads: adjacent AtomicU64s, unpadded (false sharing)       min 279.94  median 345.22  max 359.93 ns/op (slowest thread)
+
+read of     1 channels: min     0.10  median     0.20  max    12.20 us   (channels_open=1)
+read of    10 channels: min     0.40  median     0.60  max     1.40 us   (channels_open=10)
+read of   100 channels: min     3.50  median     3.80  max    23.20 us   (channels_open=100)
+read of  1000 channels: min    30.00  median    37.80  max   238.20 us   (channels_open=1000)

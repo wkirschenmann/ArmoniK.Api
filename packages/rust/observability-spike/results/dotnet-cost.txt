@@ -1,0 +1,53 @@
+.NET 8.0.19 Native threads=1 events/thread=500000 | native-side ns/event (callback included): min 717 median 865 max 925 | written 0 dropped 0 of 2520000 | drained in 55 ms
+.NET Framework 4.8.9345.0 Native threads=1 events/thread=500000 | native-side ns/event (callback included): min 575 median 895 max 3825 | written 0 dropped 0 of 2520000 | drained in 7 ms
+.NET 8.0.19 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 974 median 1138 max 1187 | written 0 dropped 0 of 2520000 | drained in 42 ms
+.NET Framework 4.8.9345.0 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 1001 median 1240 max 1273 | written 0 dropped 0 of 2520000 | drained in 5 ms
+.NET 8.0.19 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 2768 median 3636 max 4568 | written 2520000 dropped 0 of 2520000 | drained in 447 ms
+.NET Framework 4.8.9345.0 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 4053 median 4359 max 5001 | written 2520000 dropped 0 of 2520000 | drained in 1894 ms
+.NET 8.0.19 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 1869 median 2088 max 3328 | written 2520000 dropped 0 of 2520000 | drained in 77 ms
+.NET Framework 4.8.9345.0 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 3107 median 3240 max 3336 | written 2520000 dropped 0 of 2520000 | drained in 13 ms
+.NET 8.0.19 Native threads=4 events/thread=500000 | native-side ns/event (callback included): min 503 median 574 max 621 | written 0 dropped 0 of 10020000 | drained in 24 ms
+.NET Framework 4.8.9345.0 Native threads=4 events/thread=500000 | native-side ns/event (callback included): min 396 median 516 max 561 | written 0 dropped 0 of 10020000 | drained in 4 ms
+.NET 8.0.19 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 476 median 531 max 613 | written 0 dropped 0 of 10020000 | drained in 32 ms
+.NET Framework 4.8.9345.0 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 462 median 536 max 568 | written 0 dropped 0 of 10020000 | drained in 0 ms
+.NET 8.0.19 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 803 median 922 max 2348 | written 3466033 dropped 6553967 of 10020000 | drained in 1978 ms
+.NET Framework 4.8.9345.0 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 811 median 1135 max 1876 | written 3245434 dropped 6774566 of 10020000 | drained in 2983 ms
+.NET 8.0.19 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 2382 median 2841 max 3296 | written 10020000 dropped 0 of 10020000 | drained in 93 ms
+.NET Framework 4.8.9345.0 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 2780 median 3062 max 3297 | written 10020000 dropped 0 of 10020000 | drained in 0 ms
+.NET 8.0.19 Native threads=1 events/thread=500000 | native-side ns/event (callback included): min 812 median 818 max 987 | written 0 dropped 0 of 2520000 | drained in 25 ms
+.NET Framework 4.8.9345.0 Native threads=1 events/thread=500000 | native-side ns/event (callback included): min 735 median 852 max 2270 | written 0 dropped 0 of 2520000 | drained in 1 ms
+.NET 8.0.19 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 484 median 608 max 1818 | written 0 dropped 0 of 2520000 | drained in 29 ms
+.NET Framework 4.8.9345.0 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 582 median 633 max 1252 | written 0 dropped 0 of 2520000 | drained in 0 ms
+.NET 8.0.19 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 1997 median 3010 max 4718 | written 2520000 dropped 0 of 2520000 | drained in 776 ms
+.NET Framework 4.8.9345.0 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 4081 median 5974 max 6709 | written 2520000 dropped 0 of 2520000 | drained in 3406 ms
+.NET 8.0.19 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 2099 median 2692 max 7295 | written 2520000 dropped 0 of 2520000 | drained in 29 ms
+.NET Framework 4.8.9345.0 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 3292 median 3909 max 4422 | written 2520000 dropped 0 of 2520000 | drained in 11 ms
+.NET 8.0.19 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 475 median 516 max 795 | written 0 dropped 0 of 10020000 | drained in 38 ms
+.NET Framework 4.8.9345.0 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 518 median 534 max 560 | written 0 dropped 0 of 10020000 | drained in 0 ms
+.NET 8.0.19 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 732 median 913 max 2333 | written 3220371 dropped 6799629 of 10020000 | drained in 2101 ms
+.NET Framework 4.8.9345.0 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 920 median 1080 max 4299 | written 2874671 dropped 7145329 of 10020000 | drained in 2454 ms
+.NET 8.0.19 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 1174 median 1928 max 2621 | written 10020000 dropped 0 of 10020000 | drained in 24 ms
+.NET Framework 4.8.9345.0 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 2833 median 3102 max 3692 | written 10020000 dropped 0 of 10020000 | drained in 4 ms
+.NET Framework 4.8.9345.0 Native threads=1 events/thread=500000 | native-side ns/event (callback included): min 504 median 1279 max 1434 | written 0 dropped 0 of 2520000 | drained in 1 ms
+.NET 8.0.19 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 1767 median 1917 max 2220 | written 0 dropped 0 of 2520000 | drained in 90 ms
+.NET Framework 4.8.9345.0 Noop   threads=1 events/thread=500000 | native-side ns/event (callback included): min 1302 median 1583 max 1873 | written 0 dropped 0 of 2520000 | drained in 0 ms
+.NET 8.0.19 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 3802 median 4872 max 8827 | written 2520000 dropped 0 of 2520000 | drained in 1222 ms
+.NET Framework 4.8.9345.0 Blob   threads=1 events/thread=500000 | native-side ns/event (callback included): min 2875 median 4483 max 8294 | written 2520000 dropped 0 of 2520000 | drained in 2274 ms
+.NET 8.0.19 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 2394 median 3561 max 6349 | written 2520000 dropped 0 of 2520000 | drained in 21 ms
+.NET Framework 4.8.9345.0 Decode threads=1 events/thread=500000 | native-side ns/event (callback included): min 2903 median 3608 max 5870 | written 2520000 dropped 0 of 2520000 | drained in 15 ms
+.NET 8.0.19 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 336 median 351 max 376 | written 0 dropped 0 of 10020000 | drained in 32 ms
+.NET Framework 4.8.9345.0 Noop   threads=4 events/thread=500000 | native-side ns/event (callback included): min 343 median 398 max 424 | written 0 dropped 0 of 10020000 | drained in 0 ms
+.NET 8.0.19 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 625 median 812 max 1259 | written 3495697 dropped 6524303 of 10020000 | drained in 2181 ms
+.NET Framework 4.8.9345.0 Blob   threads=4 events/thread=500000 | native-side ns/event (callback included): min 538 median 579 max 1453 | written 3078003 dropped 6941997 of 10020000 | drained in 1548 ms
+.NET 8.0.19 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 846 median 1061 max 1345 | written 10020000 dropped 0 of 10020000 | drained in 22 ms
+.NET Framework 4.8.9345.0 Decode threads=4 events/thread=500000 | native-side ns/event (callback included): min 1109 median 1150 max 1258 | written 10020000 dropped 0 of 10020000 | drained in 0 ms
+  armonik.engine.dials = 3
+  armonik.engine.retries = 0
+  armonik.engine.calls_in_flight = 2
+  armonik.engine.channels_open = 1
+.NET 8.0.19 metrics: 3.23 us per collection of 4 instruments, 2 native reads in 20000 collections
+  armonik.engine.dials = 3
+  armonik.engine.retries = 0
+  armonik.engine.calls_in_flight = 2
+  armonik.engine.channels_open = 1
+.NET Framework 4.8.9345.0 metrics: 1.80 us per collection of 4 instruments, 1 native reads in 20000 collections

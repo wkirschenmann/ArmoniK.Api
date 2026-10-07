@@ -4,6 +4,7 @@
 pub mod bulk;
 pub mod config_log;
 pub mod fast_filter;
+pub mod ffi;
 pub mod fronts;
 pub mod obs;
 pub mod record;

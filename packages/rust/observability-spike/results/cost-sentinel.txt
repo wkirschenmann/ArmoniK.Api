@@ -1,0 +1,4 @@
+﻿bare     filters=info         global=-      emit=debug | ns/event net of loop: min    3.37  median    6.04  max    9.63 | delivered 0
+bare     filters=info         global=-      emit=info  | ns/event net of loop: min  420.61  median  753.63  max  912.99 | delivered 150001000
+bare     filters=info+info    global=-      emit=debug | ns/event net of loop: min    2.34  median    4.04  max   12.80 | delivered 0
+bare     filters=info         global=-      emit=info  | ns/event net of loop: min  623.37  median  824.19  max 1502.71 | delivered 150001000

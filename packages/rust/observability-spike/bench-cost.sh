@@ -3,7 +3,7 @@
 # Usage: sh bench-cost.sh <front> [extra env, e.g. SENTINEL=1]
 EXE="$(dirname "$0")/../target/release/examples/cost.exe"
 FRONT="$1"
-run() { "$EXE" "$FRONT" "$@"; }
+run() { "$EXE" "$FRONT" "$@" 10000000 15; }
 
 run - - debug              # no dispatcher at all
 run - info debug           # a process-wide subscriber alone, the event below its filter

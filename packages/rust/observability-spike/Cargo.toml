@@ -7,6 +7,10 @@ publish = false
 rust-version.workspace = true
 version.workspace = true
 
+[lib]
+# The cdylib is what the .NET prototype loads.
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
 armonik-transport = { path = "../armonik-transport", features = ["serde", "schema"] }
 arc-swap = "1"

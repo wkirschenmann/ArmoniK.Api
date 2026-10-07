@@ -1,0 +1,10 @@
+none: info_span! built and dropped                         min     6.61  median     7.03  max     7.68 ns
+off: info_span! built and dropped                          min     5.43  median     6.46  max    10.45 ns
+off2: info_span! built and dropped                         min    20.94  median    25.27  max    33.16 ns
+flag: flag-checked, flag off                               min     3.21  median     3.63  max     3.97 ns
+on: span built, entered, exited, closed -> callback        min  1726.76  median  2359.34  max  2887.99 ns
+delivered 7000000
+on3: two spans, 4 attributes, child -> 2 callbacks         min  3491.08  median  4642.14  max  5114.45 ns
+delivered 14000000
+poll bare:             min   0.00 median   0.00 max   0.00 ns/poll
+poll with_subscriber:  min 104.18 median 111.82 max 160.77 ns/poll

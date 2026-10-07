@@ -12,6 +12,7 @@
 use std::ffi::c_void;
 use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::future::Future;
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 

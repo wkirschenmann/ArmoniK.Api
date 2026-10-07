@@ -1,0 +1,12 @@
+layered  dispatchers= 1 callsites=    0 | set_filter us: min      0.7  median      1.7  p95      3.7  max     27.4
+         parse: strict+Targets 1.94 us, EnvFilter 4.34 us
+layered  dispatchers= 1 callsites=  256 | set_filter us: min     22.8  median     26.6  p95     38.8  max     52.2
+         parse: strict+Targets 1.79 us, EnvFilter 3.22 us
+layered  dispatchers= 1 callsites= 4352 | set_filter us: min    358.6  median    416.5  p95    577.1  max    665.2
+         parse: strict+Targets 0.99 us, EnvFilter 3.28 us
+layered  dispatchers= 2 callsites= 4352 | set_filter us: min    534.9  median    694.5  p95    945.9  max   1292.3
+         parse: strict+Targets 2.00 us, EnvFilter 3.51 us
+layered  dispatchers= 8 callsites= 4352 | set_filter us: min   1643.5  median   2118.5  p95   2745.7  max   3169.7
+         parse: strict+Targets 1.08 us, EnvFilter 3.34 us
+envg     dispatchers= 2 callsites= 4352 | set_filter us: min    776.6  median    889.3  p95   1210.0  max   1594.0
+         parse: strict+Targets 1.02 us, EnvFilter 1.79 us
