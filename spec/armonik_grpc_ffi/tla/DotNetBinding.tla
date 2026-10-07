@@ -198,10 +198,10 @@ Init == L1!Init /\ ManagedInit
 (***************************************************************************)
 
 \* NativeRuntime.Create: the caller's own step, the shared RuntimeState's
-\* root and ak_runtime_create in one.  No channel is involved - a runtime
-\* is asked for by name, not derived from the first channel that wants
-\* one - and the engine refuses a second while this one lives, which is
-\* the absent guard.
+\* root and ak_runtime_create_from, or ak_runtime_create, in one.  No
+\* channel is involved - a runtime is asked for by name, not derived from
+\* the first channel that wants one - and the engine refuses a second
+\* while this one lives, which is the absent guard.
 CreateRuntime(rtId) ==
     /\ runtime_dispose_state = "absent"
     /\ L1!RuntimeCreate(rtId)

@@ -1248,9 +1248,11 @@ ChannelOptions.g.cs      <- committed; the build compares it with what the schem
     │                       renders, and never rewrites it
     │ ChannelOptions.Encode()
     ▼
-UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument
-    │ serde_json into ChannelOptions, every bound checked again; each unit's
-    │ conversion, in armonik-transport, reads the certificate files it names
+UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument,
+    │ or, empty, the Endpoint of the runtime's options
+    │ the configuration loader into ChannelOptions, a key no option declares
+    │ logged and ignored; ChannelSettings checks every bound again, and each
+    │ unit's conversion, in armonik-transport, reads the certificate files it names
     ▼
 GrpcChannelConfig and TransportConfig, the engine's own
 ```
@@ -1270,7 +1272,10 @@ the shape every option takes, and gives the reasons:
 - a default is stated in its option's description and nowhere else in the schema: applying it
   is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
-- `additionalProperties: false` everywhere, so an unknown option is refused rather than ignored;
+- `additionalProperties: false` everywhere, which tells whoever edits a document what the engine
+  does not declare; the engine ignores such a key rather than refusing it, and logs it with its
+  source and path, so that a misspelled key does not give the defaults unsaid
+  (configuration-loading.md);
 - options that exclude one another are one Rust enum, which the schema renders as a `oneOf` of
   objects of one key: the key names the alternative and holds what it carries, `true` for
   nothing - `"Server": {"CaPem": "ca.pem"}`, `"Proxy": {"None": true}`. In C# a choice is an
@@ -1284,10 +1289,11 @@ the shape every option takes, and gives the reasons:
   engine - and within a layer, an option acting on what it sends sits under `Send`, one acting on
   what it receives under `Receive`.
 
-A configuration section reaches the options through the generated `Bind`, which matches each key
-without case, as a configuration does, and refuses one nothing declares by its path - not through
-`ConfigurationBinder`, which cannot make an abstract record and would have to guess which
-alternative a section names.
+The binding takes no `IConfiguration`: the engine reads files and the environment itself, under the
+prefix `GrpcClient` by default, and the binding hands it a command line as pairs of a key's path and
+a text value, and an object set in code as a document, through `NativeConfiguration`'s loads
+(configuration-loading.md). A runtime created from a `NativeConfiguration` gives its channels no
+delivery window the binding can see, so a channel sends its own, or `DefaultDeliveryCredits`.
 
 A binding may narrow what the schema admits, and cannot widen it: the engine checks every bound
 again. The schema states what the engine can honour, and a binding that sizes something of its
