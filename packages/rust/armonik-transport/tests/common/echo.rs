@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::future::Future;
+use std::io::Write;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use armonik_transport::http2::TransportConfig;
 use armonik_transport::reexports::hyper;
 use armonik_transport::reexports::hyper_util::rt::{TokioExecutor as HyperTokio, TokioIo};
 use armonik_transport::reexports::tonic::body::Body as TonicBody;
+use armonik_transport::reexports::tonic::codec::CompressionEncoding;
 use armonik_transport::reexports::tonic::metadata::{MetadataMap, MetadataValue as TonicValue};
 use armonik_transport::reexports::tonic::{Code, Request, Response, Status, Streaming};
 use bytes::Bytes;
@@ -44,6 +46,12 @@ pub const FLAKY_COLLECT: &str = "/armonik_transport.test.Echo/FlakyCollect";
 /// A bidi stream that fails as [`FLAKY_COLLECT`] does, answering the first message before it
 /// fails when `x-answer-first` is set, and past its failures chats as [`CHAT`].
 pub const FLAKY_CHAT: &str = "/armonik_transport.test.Echo/FlakyChat";
+/// Echoes through tonic, which inflates a request compressed with gzip and compresses its answer
+/// when the request accepts it.
+pub const ECHO_GZIP: &str = "/armonik_transport.test.Echo/EchoGzip";
+/// Reads the request whole and answers one message that says how it arrived: its `grpc-encoding`,
+/// and the flag and length on the wire of each message.
+pub const FRAMES: &str = "/armonik_transport.test.Echo/Frames";
 
 /// The `grpc-previous-rpc-attempts` each attempt of a key's flaky calls carried, in order.
 static FLAKY_SEEN: std::sync::Mutex<std::collections::BTreeMap<String, Vec<Option<String>>>> =
@@ -379,6 +387,20 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
             .expect("a response");
     }
 
+    if path == ECHO_GZIP {
+        return Grpc::new(BytesCodec)
+            .accept_compressed(CompressionEncoding::Gzip)
+            .send_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+            .unary(&mut Handler(echo), request.map(TonicBody::new))
+            .await;
+    }
+
+    if path == FRAMES {
+        return frames(request).await;
+    }
+
     if path == CHAT {
         return Grpc::new(BytesCodec)
             .max_decoding_message_size(usize::MAX)
@@ -439,6 +461,47 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
         .await
 }
 
+async fn frames(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> {
+    let encoding = header_of(request.headers(), "grpc-encoding").unwrap_or_else(|| "none".into());
+    let mut body = request.into_body();
+    let mut received = Vec::new();
+    while let Some(Ok(frame)) = std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
+    {
+        if let Some(data) = frame.data_ref() {
+            received.extend_from_slice(data);
+        }
+    }
+
+    let mut seen = Vec::new();
+    let mut rest = &received[..];
+    while rest.len() >= 5 {
+        let len = u32::from_be_bytes(rest[1..5].try_into().expect("four bytes")) as usize;
+        seen.push(format!("{}:{len}", rest[0]));
+        rest = &rest[(5 + len).min(rest.len())..];
+    }
+
+    let said = format!("encoding={encoding} frames={}", seen.join(","));
+    grpc_head()
+        .body(TonicBody::new(Canned {
+            frames: vec![
+                Frame::data(grpc_message(0, said.as_bytes())),
+                trailers(&[("grpc-status", "0")]),
+            ]
+            .into_iter(),
+            then_fails: false,
+            paced: false,
+            gave_way: false,
+        }))
+        .expect("a response")
+}
+
+/// A message compressed with gzip, framed as such.
+pub fn gzipped_message(payload: &[u8]) -> Bytes {
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(payload).expect("into a vector");
+    grpc_message(1, &encoder.finish().expect("a gzip stream"))
+}
+
 /// Fails with `x-fail-code` (UNAVAILABLE by default) - in the head, or after one when
 /// `x-fail-after-head` is set - with `x-pushback` as `grpc-retry-pushback-ms` when given, until
 /// the key has failed `x-fail-times` times; then answers as [`ECHO`].
@@ -447,6 +510,7 @@ async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> 
     let code = header("x-fail-code").unwrap_or_else(|| "14".to_owned());
     if !flaky_fails(request.headers()) {
         return armonik_transport::reexports::tonic::server::Grpc::new(BytesCodec)
+            .accept_compressed(CompressionEncoding::Gzip)
             .unary(&mut Handler(echo), request.map(TonicBody::new))
             .await;
     }
@@ -569,6 +633,7 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 "content-type",
                 "te",
                 "grpc-accept-encoding",
+                "grpc-encoding",
                 "user-agent",
                 "grpc-timeout",
                 "content-length",
@@ -630,6 +695,59 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             grpc_head(),
             vec![
                 Frame::data(grpc_message(1, b"squeezed")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        // Answers in the encodings of the compression document: a message compressed, one left as
+        // it is under the encoding the head names, one in an encoding nobody asked for, and ones
+        // that cannot be inflated or inflate to more than a limit.
+        "GzipReply" => (
+            grpc_head().header("grpc-encoding", "gzip"),
+            vec![
+                Frame::data(gzipped_message(&b"squeezed ".repeat(100))),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        "GzipReplyLeftPlain" => (
+            grpc_head().header("grpc-encoding", "gzip"),
+            vec![
+                Frame::data(grpc_message(0, b"plain")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        "BrotliReply" => (
+            grpc_head().header("grpc-encoding", "br"),
+            vec![
+                Frame::data(grpc_message(1, b"squeezed")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        "BrotliReplyLeftPlain" => (
+            grpc_head().header("grpc-encoding", "br"),
+            vec![
+                Frame::data(grpc_message(0, b"plain")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        "GzipTrailersOnlyUnavailable" => (
+            grpc_head()
+                .header("grpc-encoding", "gzip")
+                .header("grpc-status", "14")
+                .header("grpc-message", "try%20again"),
+            vec![],
+        ),
+        "GzipReplyThatDoesNotInflate" => (
+            grpc_head().header("grpc-encoding", "gzip"),
+            vec![
+                Frame::data(grpc_message(1, b"not a gzip stream")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
+        // Eight MiB of zeros, a few KiB on the wire.
+        "GzipReplyOfEightMiB" => (
+            grpc_head().header("grpc-encoding", "gzip"),
+            vec![
+                Frame::data(gzipped_message(&vec![0; 8 * 1024 * 1024])),
                 trailers(&[("grpc-status", "0")]),
             ],
         ),

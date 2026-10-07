@@ -1770,6 +1770,25 @@ pub struct GrpcOptions {
     pub host: HostOptions,
 }
 
+/// How the messages of a call are compressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum MessageEncoding {
+    /// RFC 1952 gzip.
+    Gzip,
+}
+
+impl MessageEncoding {
+    /// The engine's encoding of the same name.
+    pub fn encoding(self) -> crate::grpc::Encoding {
+        match self {
+            Self::Gzip => crate::grpc::Encoding::Gzip,
+        }
+    }
+}
+
 /// What a call sends to the server.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1789,6 +1808,21 @@ pub struct GrpcSendOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_message_size: Option<i32>,
+
+    /// The encoding the messages of a call are compressed with, which the call states as
+    /// `grpc-encoding`. A message that would not be smaller compressed is sent as it is, and
+    /// `MaxMessageSize` is checked on a message before it is compressed.
+    ///
+    /// The server has to accept the encoding: one that does not ends the call `UNIMPLEMENTED`,
+    /// and there is no fallback to sending the messages as they are.
+    ///
+    /// Defaults to none, the messages going out as they are.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
+    pub compression: Option<MessageEncoding>,
 }
 
 /// What a call accepts from the server.
@@ -1810,6 +1844,19 @@ pub struct GrpcReceiveOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_message_size: Option<i32>,
+
+    /// The encoding besides `identity` that this client accepts for the messages of an answer,
+    /// which it states as `grpc-accept-encoding`. A server may then compress what it sends, and
+    /// `MaxMessageSize` bounds a message once it is decompressed. A message compressed in any other
+    /// encoding ends its call `INTERNAL`.
+    ///
+    /// Defaults to none, only `identity` being accepted.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
+    pub compression: Option<MessageEncoding>,
 }
 
 /// What crosses between the host and the engine on each call, one way and the other.
@@ -1930,6 +1977,7 @@ over_values!(
     Password,
     Chosen,
     StoreLocation,
+    MessageEncoding,
     CredentialedUrl,
 );
 
@@ -2192,8 +2240,14 @@ over_fields!(GrpcOptions {
     receive,
     host,
 });
-over_fields!(GrpcSendOptions { max_message_size });
-over_fields!(GrpcReceiveOptions { max_message_size });
+over_fields!(GrpcSendOptions {
+    max_message_size,
+    compression,
+});
+over_fields!(GrpcReceiveOptions {
+    max_message_size,
+    compression,
+});
 over_fields!(HostOptions { send, receive });
 over_fields!(HostSendOptions { window });
 over_fields!(HostReceiveOptions {
@@ -3261,6 +3315,35 @@ mod tests {
                 ..Http2FixedWindows::default()
             }))
         );
+    }
+
+    /// The two directions are stated apart, an encoding that is not named is refused, and a
+    /// direction left out is the default's.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn compression_is_stated_per_direction() {
+        let read = |json: &str| serde_json::from_str::<ChannelOptions>(json);
+
+        let sending = read(r#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("gzip is named");
+        assert_eq!(sending.grpc.send.compression, Some(MessageEncoding::Gzip));
+        assert_eq!(sending.grpc.receive.compression, None);
+        assert_eq!(
+            MessageEncoding::Gzip.encoding(),
+            crate::grpc::Encoding::Gzip
+        );
+
+        for refused in [
+            r#"{"Grpc":{"Send":{"Compression":"Brotli"}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":"gzip"}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":["Gzip"]}}}"#,
+        ] {
+            assert!(read(refused).is_err(), "{refused}");
+        }
+
+        let defaults = read(r#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#).expect("gzip");
+        let merged = sending.over(&defaults);
+        assert_eq!(merged.grpc.send.compression, Some(MessageEncoding::Gzip));
+        assert_eq!(merged.grpc.receive.compression, Some(MessageEncoding::Gzip));
     }
 
     /// The adaptive windows are an alternative to the fixed ones: either, stated over the other,

@@ -12,7 +12,9 @@ use hyper::Uri;
 
 use crate::grpc::{GrpcChannelConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
-use crate::options::{ChannelOptions, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW};
+use crate::options::{
+    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+};
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
 // the head and the message of a unary call each take one, and a stream has the rest.
@@ -183,6 +185,8 @@ impl ChannelSettings {
         if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
+        config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
+        config.accept_encoding = grpc.receive.compression.map(MessageEncoding::encoding);
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }

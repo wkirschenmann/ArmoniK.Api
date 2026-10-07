@@ -25,6 +25,7 @@ use super::backoff::Backoff;
 use super::call::{
     self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
 };
+use super::compression::Encoding;
 use super::contained::contained;
 use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
@@ -36,8 +37,8 @@ use crate::utils::safe_endpoint;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
 
-/// Advertised as the only encoding because this engine decompresses nothing: a peer that reads
-/// `grpc-accept-encoding` then sends what can be read rather than a body that cannot.
+/// What `grpc-accept-encoding` says when the channel accepts no compressed message: a peer that
+/// reads it then sends what can be read rather than a body that cannot.
 const ACCEPTED_ENCODING: &str = "identity";
 
 const DEFAULT_MAX_RECV_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
@@ -61,6 +62,13 @@ pub struct GrpcChannelConfig {
     /// When a failed call is sent again. With none, a call keeps no copy, so only one its peer
     /// never processed, and that had sent nothing, goes again.
     pub retry: Option<RetryConfig>,
+    /// The encoding a call's messages are compressed with, named in `grpc-encoding`. None sends
+    /// them as they are. A message that gains nothing from it goes uncompressed, flagged so.
+    pub send_encoding: Option<Encoding>,
+    /// The encoding besides identity the channel accepts in an answer, which it advertises in
+    /// `grpc-accept-encoding`. None accepts none: a message compressed in any other encoding ends
+    /// its call `INTERNAL`.
+    pub accept_encoding: Option<Encoding>,
 }
 
 impl GrpcChannelConfig {
@@ -74,6 +82,8 @@ impl GrpcChannelConfig {
             delivery_coalescing: DEFAULT_DELIVERY_COALESCING,
             default_deadline: None,
             retry: None,
+            send_encoding: None,
+            accept_encoding: None,
         }
     }
 }
@@ -150,6 +160,8 @@ impl GrpcChannel {
                 delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
                 retry: config.retry,
+                send_encoding: config.send_encoding,
+                accept_encoding: config.accept_encoding,
                 replay,
                 idle_timeout,
                 max_header_list_size,
@@ -172,6 +184,7 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
+        let grpc_call = grpc_call.compressing(self.inner.send_encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -200,6 +213,7 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
+        let send = send.compressing(self.inner.send_encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -321,13 +335,23 @@ impl std::fmt::Debug for GrpcChannel {
 }
 
 /// What the engine adds to every request, beside the `te` and `content-type` tonic's client writes.
-fn engine_headers(user_agent: &HeaderValue) -> HeaderMap {
-    let mut headers = HeaderMap::with_capacity(2);
+fn engine_headers(
+    user_agent: &HeaderValue,
+    send: Option<Encoding>,
+    accept: Option<Encoding>,
+) -> HeaderMap {
+    let mut headers = HeaderMap::with_capacity(3);
     headers.insert(USER_AGENT, user_agent.clone());
     headers.insert(
         HeaderName::from_static("grpc-accept-encoding"),
-        HeaderValue::from_static(ACCEPTED_ENCODING),
+        HeaderValue::from_static(accept.map_or(ACCEPTED_ENCODING, Encoding::accepted)),
     );
+    if let Some(encoding) = send {
+        headers.insert(
+            HeaderName::from_static("grpc-encoding"),
+            HeaderValue::from_static(encoding.name()),
+        );
+    }
     headers
 }
 
@@ -342,6 +366,8 @@ pub(crate) struct Inner {
     pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
     pub(crate) retry: Option<RetryConfig>,
+    pub(crate) send_encoding: Option<Encoding>,
+    accept_encoding: Option<Encoding>,
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
@@ -480,7 +506,7 @@ impl Inner {
         wait_for_ready: bool,
         body: RequestBody,
     ) -> tonic::client::Grpc<Http2> {
-        tonic::client::Grpc::with_origin(
+        let client = tonic::client::Grpc::with_origin(
             Http2 {
                 inner: Arc::clone(self),
                 answered,
@@ -490,7 +516,11 @@ impl Inner {
             },
             self.endpoint.clone(),
         )
-        .max_decoding_message_size(addressable(self.max_recv_message_size))
+        .max_decoding_message_size(addressable(self.max_recv_message_size));
+        match self.accept_encoding {
+            Some(encoding) => client.accept_compressed(encoding.for_tonic()),
+            None => client,
+        }
     }
 
     /// The sessions, locked. Never held across an await.
@@ -816,9 +846,11 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             None => {}
         }
         Box::pin(async move {
-            request
-                .headers_mut()
-                .extend(engine_headers(&inner.user_agent));
+            request.headers_mut().extend(engine_headers(
+                &inner.user_agent,
+                inner.send_encoding,
+                inner.accept_encoding,
+            ));
 
             // Before a connection is taken or dialled: the server's own refusal of a header list
             // can end every call on its connection, where this one ends this call alone.
@@ -868,6 +900,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             }
             response.headers_mut().remove(GRPC_STATUS_DETAILS);
             refuse_what_is_not_grpc(&response)?;
+            forget_an_encoding_not_accepted(&mut response, inner.accept_encoding);
             let response = refuse_a_message_behind_a_stated_status(response, &answered).await?;
 
             Ok(response.map(|body| ResponseBody::new(body, lease, one_response, answered)))
@@ -1185,6 +1218,26 @@ fn refuse_what_is_not_grpc(response: &http::Response<Incoming>) -> Result<(), to
     Ok(())
 }
 
+/// The `grpc-encoding` of an answer in an encoding the channel does not accept, taken off its head.
+///
+/// The compression document faults a message compressed in an encoding the client lacks, `INTERNAL`,
+/// and not a head that names one: an error status or plain messages under it are still the call's.
+/// tonic reads the head and answers `UNIMPLEMENTED`, the code of a peer that does not know an
+/// encoding this side sent, for any it is not enabled for. Without the header, tonic refuses a
+/// compressed message `INTERNAL` and passes the rest.
+fn forget_an_encoding_not_accepted(
+    response: &mut http::Response<Incoming>,
+    accepted: Option<Encoding>,
+) {
+    let Some(stated) = response.headers().get("grpc-encoding") else {
+        return;
+    };
+    if stated == "identity" || accepted.is_some_and(|encoding| stated == encoding.name()) {
+        return;
+    }
+    response.headers_mut().remove("grpc-encoding");
+}
+
 /// A status in the head, held to the Trailers-Only shape: nothing may follow it.
 ///
 /// tonic takes any status in the head for Trailers-Only and ends the call on it without reading
@@ -1405,8 +1458,12 @@ mod tests {
     fn every_header_on_the_wire_that_the_caller_did_not_write_is_one_it_may_not_set() {
         use http::header::{CONTENT_TYPE, TE};
 
-        let engine = engine_headers(&HeaderValue::from_static("test"));
-        assert_eq!(engine.len(), 2, "the set grew or shrank: {engine:?}");
+        let engine = engine_headers(
+            &HeaderValue::from_static("test"),
+            Some(Encoding::Gzip),
+            Some(Encoding::Gzip),
+        );
+        assert_eq!(engine.len(), 3, "the set grew or shrank: {engine:?}");
 
         for name in engine.keys().chain([&TE, &CONTENT_TYPE]) {
             let refused = super::super::Metadata::new().append_ascii(name.as_str(), "mine");

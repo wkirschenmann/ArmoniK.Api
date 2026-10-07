@@ -9,6 +9,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
 use tonic::codegen::tokio_stream::Stream;
 
+use super::compression::{compressed, Encoding};
 use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
@@ -185,6 +186,11 @@ pub struct GrpcCall {
 }
 
 impl GrpcCall {
+    pub(crate) fn compressing(mut self, encoding: Option<Encoding>) -> Self {
+        self.send = self.send.compressing(encoding);
+        self
+    }
+
     pub fn split(self) -> (SendHalf, RecvHalf, CallControl) {
         (self.send, self.recv, self.control)
     }
@@ -195,6 +201,9 @@ pub struct SendHalf {
     messages: mpsc::Sender<FramedMessage>,
     over: watch::Receiver<bool>,
     max_message_size: Option<usize>,
+    /// What the messages are compressed with once they have passed the size limit, which is on a
+    /// message as its caller wrote it.
+    encoding: Option<Encoding>,
     control: CallControl,
 }
 
@@ -204,14 +213,28 @@ impl SendHalf {
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
         self.admit(message.len())?;
         let framed = FramedMessage::copy_of(&message).expect("a length a four-byte prefix carries");
-        self.queue(framed).await
+        self.compress_and_queue(framed).await
     }
 
     /// Queues `message` as it is framed. A call that may be retried keeps it for a replay,
     /// charging its length to the replay's budget: a buffer larger than its message stays alive
-    /// whole while the budget counts the message.
+    /// whole while the budget counts the message. On a channel that compresses, the replay keeps
+    /// the message compressed and the budget counts that length.
     pub async fn send_framed(&mut self, message: FramedMessage) -> Result<(), CallError> {
         self.admit(message.len())?;
+        self.compress_and_queue(message).await
+    }
+
+    pub(crate) fn compressing(mut self, encoding: Option<Encoding>) -> Self {
+        self.encoding = encoding;
+        self
+    }
+
+    async fn compress_and_queue(&mut self, message: FramedMessage) -> Result<(), CallError> {
+        let message = match self.encoding {
+            Some(encoding) => compressed(encoding, message).await,
+            None => message,
+        };
         self.queue(message).await
     }
 
@@ -445,6 +468,7 @@ pub(crate) fn create_with(
         messages: message_tx,
         over: over_rx.clone(),
         max_message_size,
+        encoding: None,
         control: control.clone(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());

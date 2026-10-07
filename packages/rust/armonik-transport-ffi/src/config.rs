@@ -233,6 +233,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use armonik_transport::grpc::Encoding;
     use armonik_transport::grpc::GrpcChannelConfig;
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
     use armonik_transport::options::LARGEST_WINDOW;
@@ -703,6 +704,22 @@ mod tests {
             config_of(br#"{"Grpc":{"Send":{"MaxMessageSize":7}}}"#).max_send_message_size,
             Some(7)
         );
+    }
+
+    #[test]
+    fn compression_reaches_the_channel_per_direction() {
+        let none = config_of(b"{}");
+        assert_eq!((none.send_encoding, none.accept_encoding), (None, None));
+
+        let sends = config_of(br#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#);
+        assert_eq!(sends.send_encoding, Some(Encoding::Gzip));
+        assert_eq!(sends.accept_encoding, None);
+
+        let accepts = config_of(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#);
+        assert_eq!(accepts.send_encoding, None);
+        assert_eq!(accepts.accept_encoding, Some(Encoding::Gzip));
+
+        assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Zstd"}}}"#).is_err());
     }
 
     #[test]

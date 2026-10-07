@@ -1536,7 +1536,7 @@ the shape the model carries (`OneRequestCalls` and `OneResponseCalls`), `options
 modelled, and the engine's connection establishment is outside it. A call that waits for good is
 one the network never serves, which the model's "network progresses" assumption on the terminal
 already excludes.
-Retry throttling, compression and `RateLimit` remain.
+Retry throttling and `RateLimit` remain.
 
 **`Http2MaxHeaderListSize`: done in the engine, decided 2026-10-07.** It is
 `Http2.Send.MaxHeaderListSize`, none by default, an `int` of at least 1. It bounds the headers
@@ -1565,6 +1565,14 @@ sent too large header field", and nginx closes the connection, ending the call b
 - The `armonik` client reads it through the loader like any other option, as
   `Http2.Send.MaxHeaderListSize`; unlike tonic's setting of that name, it bounds the request's
   headers, not the response's.
+
+**Compression: done in the engine.** `Grpc.Send.Compression` and `Grpc.Receive.Compression`,
+gzip, per channel and per direction, both off by default; decisions.md says why. A message the engine
+compresses is flagged as such, one that would not shrink goes out flagged uncompressed under the
+same `grpc-encoding`, and the replay buffers hold what is sent. The send limit is on the message
+before it is compressed; the receive limit bounds the frame as it arrives and the message once
+tonic's decoder has inflated it. Tested against tonic's server, canned answers and
+grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0.
 
 ### T6.16: The host's buffers, several at once and resizable
 

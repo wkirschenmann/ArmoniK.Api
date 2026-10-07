@@ -508,7 +508,6 @@ The following items are explicitly excluded from this version:
   pipeline sees of the engine is T10.1 to T10.3's, observability.md)
 - Hedging
 - Generic load balancing and service config
-- Configurable gRPC compression
 - Generic interceptors
 - gRPC-Web
 - Bindings Java, Python, C++

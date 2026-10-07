@@ -11,13 +11,20 @@ pub const FRAME_PREFIX: usize = 5;
 #[derive(Debug)]
 pub struct FramedMessage(Bytes);
 
+/// The compression flag of a message its peer inflates.
+const COMPRESSED: u8 = 1;
+
 /// Writes the prefix of the message that starts at `headroom` into the bytes just before it, and
 /// says where it starts; None when the headroom has no room for it, the buffer no message, or the
 /// message no four-byte length carries.
 fn prefixed(buffer: &mut [u8], headroom: usize) -> Option<usize> {
+    prefixed_flagged(buffer, headroom, 0)
+}
+
+fn prefixed_flagged(buffer: &mut [u8], headroom: usize, flag: u8) -> Option<usize> {
     let at = headroom.checked_sub(FRAME_PREFIX)?;
     let len = u32::try_from(buffer.len().checked_sub(headroom)?).ok()?;
-    buffer[at] = 0;
+    buffer[at] = flag;
     buffer[at + 1..headroom].copy_from_slice(&len.to_be_bytes());
     Some(at)
 }
@@ -52,6 +59,13 @@ impl FramedMessage {
         Some(Self(bytes))
     }
 
+    /// `buffer` holds a message already compressed after [`FRAME_PREFIX`] bytes kept for the
+    /// prefix, which this writes with the compressed flag set.
+    pub(crate) fn compressed_in_place(mut buffer: Vec<u8>) -> Option<Self> {
+        prefixed_flagged(&mut buffer, FRAME_PREFIX, COMPRESSED)?;
+        Some(Self(Bytes::from(buffer)))
+    }
+
     /// A message the caller holds elsewhere, framed by a copy.
     pub fn copy_of(message: &[u8]) -> Option<Self> {
         let mut buffer = vec![0; FRAME_PREFIX + message.len()];
@@ -71,6 +85,11 @@ impl FramedMessage {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The message's bytes, the prefix left out.
+    pub(crate) fn payload(&self) -> &[u8] {
+        &self.0[FRAME_PREFIX..]
     }
 
     pub(crate) fn body(&self) -> Bytes {
