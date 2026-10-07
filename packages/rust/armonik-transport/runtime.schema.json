@@ -586,9 +586,9 @@
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
           "$ref": "#/$defs/RetryOptions"
         },
-        "RateLimit": {
-          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
-          "$ref": "#/$defs/RateLimitOptions"
+        "Rate": {
+          "description": "How fast the channel starts calls.\n\nDefaults to `{}`, which sets no limit: requests start as they are made.",
+          "$ref": "#/$defs/RateOptions"
         },
         "Send": {
           "description": "What a call sends to the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -642,6 +642,17 @@
           "type": "integer",
           "format": "int32",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RateOptions": {
+      "description": "How fast a channel starts calls.",
+      "type": "object",
+      "properties": {
+        "Limit": {
+          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
+          "$ref": "#/$defs/RateLimitOptions"
         }
       },
       "additionalProperties": false

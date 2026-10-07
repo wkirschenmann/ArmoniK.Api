@@ -694,26 +694,26 @@ mod tests {
     fn the_rate_limit_reaches_the_engine_and_a_limit_that_starts_nothing_is_refused() {
         assert_eq!(config_of(b"{}").rate_limit, None);
         assert_eq!(
-            config_of(br#"{"Grpc":{"RateLimit":{"Calls":100,"PerSeconds":0.25}}}"#).rate_limit,
+            config_of(br#"{"Grpc":{"Rate":{"Limit":{"Calls":100,"PerSeconds":0.25}}}}"#).rate_limit,
             Some(RateLimitConfig::new(100, Duration::from_millis(250)))
         );
 
         for (document, key) in [
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":0,"PerSeconds":1}}}"#[..],
-                "Grpc.RateLimit.Calls",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":1}}}}"#[..],
+                "Grpc.Rate.Limit.Calls",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":1,"PerSeconds":0}}}"#[..],
-                "Grpc.RateLimit.PerSeconds",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1,"PerSeconds":0}}}}"#[..],
+                "Grpc.Rate.Limit.PerSeconds",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":1}}}"#[..],
-                "Grpc.RateLimit.PerSeconds",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1}}}}"#[..],
+                "Grpc.Rate.Limit.PerSeconds",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"PerSeconds":1}}}"#[..],
-                "Grpc.RateLimit.Calls",
+                &br#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#[..],
+                "Grpc.Rate.Limit.Calls",
             ),
         ] {
             let refused = parse(document).err().expect("refused").to_string();

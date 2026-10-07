@@ -158,14 +158,17 @@ public class ChannelOptionsTests
                            {
                              Grpc = new GrpcOptions
                                     {
-                                      RateLimit = new RateLimitOptions
-                                                  {
-                                                    Calls      = 100,
-                                                    PerSeconds = 0.25,
-                                                  },
+                                      Rate = new RateOptions
+                                             {
+                                               Limit = new RateLimitOptions
+                                                       {
+                                                         Calls      = 100,
+                                                         PerSeconds = 0.25,
+                                                       },
+                                             },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""RateLimit"":{""Calls"":100,""PerSeconds"":0.25}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Rate"":{""Limit"":{""Calls"":100,""PerSeconds"":0.25}}}}"));
 
   /// <summary>A rate limit that starts no request is refused before it is sent.</summary>
   [TestCase(0,
@@ -183,11 +186,14 @@ public class ChannelOptionsTests
                          {
                            Grpc = new GrpcOptions
                                   {
-                                    RateLimit = new RateLimitOptions
-                                                {
-                                                  Calls      = calls,
-                                                  PerSeconds = perSeconds,
-                                                },
+                                    Rate = new RateOptions
+                                           {
+                                             Limit = new RateLimitOptions
+                                                     {
+                                                       Calls      = calls,
+                                                       PerSeconds = perSeconds,
+                                                     },
+                                           },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()

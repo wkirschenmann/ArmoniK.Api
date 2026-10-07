@@ -1477,9 +1477,9 @@ public sealed class GrpcOptions
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
-    RateLimit = other.RateLimit is null
-                  ? null
-                  : new RateLimitOptions(other.RateLimit);
+    Rate = other.Rate is null
+             ? null
+             : new RateOptions(other.Rate);
     Send = other.Send is null
              ? null
              : new GrpcSendOptions(other.Send);
@@ -1522,11 +1522,11 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
-  /// <summary>How many requests the channel starts in a window of time.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
-  [JsonPropertyName("RateLimit")]
+  /// <summary>How fast the channel starts calls.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets no limit: requests start as they are made.</remarks>
+  [JsonPropertyName("Rate")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RateLimitOptions? RateLimit { get; set; }
+  public RateOptions? Rate { get; set; }
 
   /// <summary>What a call sends to the server.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1565,7 +1565,7 @@ public sealed class GrpcOptions
     }
 
     Retry?.Validate();
-    RateLimit?.Validate();
+    Rate?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
@@ -1690,6 +1690,43 @@ public sealed class RetryOptions
                                             channelReplayBytes,
                                             "ChannelReplayBytes has to be at least 0.");
     }
+  }
+}
+
+/// <summary>How fast a channel starts calls.</summary>
+public sealed class RateOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public RateOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public RateOptions(RateOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Limit = other.Limit is null
+              ? null
+              : new RateLimitOptions(other.Limit);
+  }
+
+  /// <summary>How many requests the channel starts in a window of time.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
+  [JsonPropertyName("Limit")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RateLimitOptions? Limit { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    Limit?.Validate();
   }
 }
 

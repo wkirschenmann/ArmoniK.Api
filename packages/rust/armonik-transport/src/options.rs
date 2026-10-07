@@ -1217,6 +1217,20 @@ impl RetryOptions {
     }
 }
 
+/// How fast a channel starts calls.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct RateOptions {
+    /// How many requests the channel starts in a window of time.
+    ///
+    /// Defaults to `{}`, which sets none: requests start as they are made.
+    #[serde(default)]
+    pub limit: RateLimitOptions,
+}
+
 /// How many requests a channel starts in a window of time.
 ///
 /// Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
@@ -1696,11 +1710,11 @@ pub struct GrpcOptions {
     #[serde(default)]
     pub retry: RetryOptions,
 
-    /// How many requests the channel starts in a window of time.
+    /// How fast the channel starts calls.
     ///
-    /// Defaults to `{}`, which sets none: requests start as they are made.
+    /// Defaults to `{}`, which sets no limit: requests start as they are made.
     #[serde(default)]
-    pub rate_limit: RateLimitOptions,
+    pub rate: RateOptions,
 
     /// What a call sends to the server.
     ///
@@ -2171,7 +2185,7 @@ over_fields!(GrpcOptions {
     user_agent,
     default_deadline_seconds,
     retry,
-    rate_limit,
+    rate,
     send,
     receive,
     host,
@@ -2228,6 +2242,7 @@ over_fields!(RetryOptions {
     call_replay_bytes,
     channel_replay_bytes,
 });
+over_fields!(RateOptions { limit });
 over_fields!(RateLimitOptions { calls, per_seconds });
 over_fields!(PemCertificate { certificate, key });
 
@@ -3120,9 +3135,11 @@ mod tests {
     fn a_rate_limit_is_merged_over_the_default_one_option_at_a_time() {
         let defaults = ChannelOptions {
             grpc: GrpcOptions {
-                rate_limit: RateLimitOptions {
-                    calls: Some(100),
-                    per_seconds: Some(Seconds(1.0)),
+                rate: RateOptions {
+                    limit: RateLimitOptions {
+                        calls: Some(100),
+                        per_seconds: Some(Seconds(1.0)),
+                    },
                 },
                 ..GrpcOptions::default()
             },
@@ -3130,9 +3147,11 @@ mod tests {
         };
         let stated = ChannelOptions {
             grpc: GrpcOptions {
-                rate_limit: RateLimitOptions {
-                    calls: Some(5),
-                    per_seconds: None,
+                rate: RateOptions {
+                    limit: RateLimitOptions {
+                        calls: Some(5),
+                        per_seconds: None,
+                    },
                 },
                 ..GrpcOptions::default()
             },
@@ -3140,7 +3159,7 @@ mod tests {
         };
 
         assert_eq!(
-            stated.over(&defaults).grpc.rate_limit,
+            stated.over(&defaults).grpc.rate.limit,
             RateLimitOptions {
                 calls: Some(5),
                 per_seconds: Some(Seconds(1.0)),

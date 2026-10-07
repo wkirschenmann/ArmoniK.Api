@@ -129,9 +129,10 @@ impl ChannelSettings {
             .to_config()
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
         let rate_limit = grpc
-            .rate_limit
+            .rate
+            .limit
             .to_config()
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.RateLimit")))?;
+            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Rate.Limit")))?;
 
         Ok(Self {
             options,

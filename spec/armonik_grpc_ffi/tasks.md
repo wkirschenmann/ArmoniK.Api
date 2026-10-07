@@ -1551,7 +1551,7 @@ sent, was closed on 2026-10-07 by T6.8: the binding reads the effective window b
 **Prerequisite**: T6.14, so that each arrives with its loading
 **Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
 outnumber successes; compression, `grpc-encoding` in gzip, deflate or zstd; wait-for-ready, a
-call that waits for a connection rather than failing UNAVAILABLE; `RateLimit`. `TcpNagleAlgorithm`
+call that waits for a connection rather than failing UNAVAILABLE; `Rate.Limit`. `TcpNagleAlgorithm`
 is refused: the engine always disables Nagle's algorithm. Hedging and client-side load balancing
 are not wanted.
 
@@ -1616,7 +1616,7 @@ linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to
 server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
 is not learned from, so every call toward it ends UNIMPLEMENTED.
 
-**`RateLimit`: done in the engine.** It is `Grpc.RateLimit`, `Calls` and `PerSeconds`, read
+**`Rate.Limit`: done in the engine.** It is `Grpc.Rate.Limit`, `Calls` and `PerSeconds`, read
 into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any
 other option: `Calls` requests start in a window of
 `PerSeconds`, and a call's first attempt over the limit waits for the next window, as tower's
@@ -1695,7 +1695,7 @@ a feature position nothing exercises rots before then.
 whole engine part of the Rust client's public API; it gives way to the items the client offers.
 Its configuration stays `ClientConfig::from_env` until T6.14, mapped onto the engine's options;
 the tonic channel `connect` builds from it goes with the stubs. The mapping refuses what the
-engine has not got - `RateLimit` and `Http2MaxHeaderListSize` until T6.15 builds them,
+engine has not got - `Rate.Limit` and `Http2MaxHeaderListSize` until T6.15 builds them,
 `TcpNagleAlgorithm` for good - so that none is read and ignored. T6.14 then replaces
 `ClientConfig` and its `GrpcClient__*` names with the loader's, with no alias.
 
