@@ -14,7 +14,7 @@
   {
     "name": "a later source wins over an earlier one, option by option",
     "files": {
-      "base.json": "{\"GrpcClient\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}},\"Logging\":{\"Level\":\"Debug\"}}"
+      "base.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}}}},\"Logging\":{\"Level\":\"Debug\"}}"
     },
     "sources": [
       { "file": "base.json" },
@@ -31,8 +31,8 @@
   {
     "name": "YAML and TOML are read as JSON is",
     "files": {
-      "base.yaml": "GrpcClient:\n  Endpoint: https://yaml.test:2\n  MemoryCeiling: 1024\n  ChannelDefaults:\n    Transport:\n      Tls:\n        Server:\n          Unverified: true\n",
-      "over.toml": "[GrpcClient]\nMemoryHardCeiling = 2048\n\n[GrpcClient.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
+      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            Server:\n              Unverified: true\n",
+      "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
     },
     "sources": [
       { "file": "base.yaml" },
@@ -89,7 +89,7 @@
   {
     "name": "a file of another format is refused",
     "files": {
-      "settings.ini": "[GrpcClient]\nEndpoint = http://ini.test:5\n"
+      "settings.ini": "[ArmoniK.Client.Grpc]\nEndpoint = http://ini.test:5\n"
     },
     "sources": [
       { "file": "settings.ini" }
@@ -99,7 +99,7 @@
   {
     "name": "a file that does not parse is refused with its line",
     "files": {
-      "broken.json": "{\n  \"GrpcClient\": {\n    \"Endpoint\": ,\n  }\n}\n"
+      "broken.json": "{\n  \"ArmoniK\": {\"Client\": {\"Grpc\": {\n    \"Endpoint\": ,\n  }}}\n}\n"
     },
     "sources": [
       { "file": "broken.json" }
@@ -109,12 +109,63 @@
   {
     "name": "a prefix's section that is not an object is refused",
     "files": {
-      "scalar.yaml": "GrpcClient: 7\n"
+      "scalar.yaml": "ArmoniK:\n  Client:\n    Grpc: 7\n"
     },
     "sources": [
       { "file": "scalar.yaml" }
     ],
-    "refused": { "source": "scalar.yaml", "says": "GrpcClient is not an object" }
+    "refused": { "source": "scalar.yaml", "says": "ArmoniK__Client__Grpc is not an object" }
+  },
+  {
+    "name": "a section on the way to the prefix's that is not an object is refused",
+    "files": {
+      "parent.yaml": "ArmoniK: 7\n"
+    },
+    "sources": [
+      { "file": "parent.yaml" }
+    ],
+    "refused": { "source": "parent.yaml", "says": "its section ArmoniK is not an object" }
+  },
+  {
+    "name": "a file whose sections stop short of the prefix's contributes nothing",
+    "files": {
+      "short.json": "{\"ArmoniK\":{\"Other\":{\"MemoryCeiling\":3}}}"
+    },
+    "sources": [
+      { "file": "short.json" },
+      { "document": { "MemoryCeiling": 4 } }
+    ],
+    "options": { "MemoryCeiling": 4 }
+  },
+  {
+    "name": "a prefix of several parts is nested sections in a file and the start of a variable's name",
+    "prefix": "Outer__Inner",
+    "files": {
+      "nested.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":9}}}"
+    },
+    "environment": {
+      "OUTER__INNER__Endpoint": "http://nested.test:8"
+    },
+    "sources": [
+      { "file": "nested.json" },
+      { "environment": true }
+    ],
+    "options": { "Endpoint": "http://nested.test:8", "MemoryCeiling": 9 }
+  },
+  {
+    "name": "a prefix is also read as .NET writes a section's path",
+    "prefix": "Outer:Inner",
+    "files": {
+      "colon.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":11}}}"
+    },
+    "environment": {
+      "Outer__Inner__Endpoint": "http://colon.test:9"
+    },
+    "sources": [
+      { "file": "colon.json" },
+      { "environment": true }
+    ],
+    "options": { "Endpoint": "http://colon.test:9", "MemoryCeiling": 11 }
   },
   {
     "name": "the environment is read under its prefix, its names without case, its values by their key's type",
@@ -252,7 +303,7 @@
   {
     "name": "a file that starts with a byte order mark is read as one without",
     "files": {
-      "marked.json": "\ufeff{\"GrpcClient\":{\"MemoryCeiling\":7}}"
+      "marked.json": "\ufeff{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":7}}}}"
     },
     "sources": [
       { "file": "marked.json" }
@@ -262,7 +313,7 @@
   {
     "name": "a key a YAML file states twice is refused",
     "files": {
-      "twice.yaml": "GrpcClient:\n  MemoryCeiling: 1\n  MemoryCeiling: 2\n"
+      "twice.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      MemoryCeiling: 1\n      MemoryCeiling: 2\n"
     },
     "sources": [
       { "file": "twice.yaml" }
@@ -272,7 +323,7 @@
   {
     "name": "a YAML file of more than one document is refused",
     "files": {
-      "two.yaml": "Other: 1\n---\nGrpcClient:\n  MemoryCeiling: 1\n"
+      "two.yaml": "Other: 1\n---\nArmoniK:\n  Client:\n    Grpc:\n      MemoryCeiling: 1\n"
     },
     "sources": [
       { "file": "two.yaml" }

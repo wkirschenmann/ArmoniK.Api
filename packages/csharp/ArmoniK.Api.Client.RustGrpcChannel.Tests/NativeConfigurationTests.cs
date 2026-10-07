@@ -75,8 +75,8 @@ public class NativeConfigurationTests : EchoServerFixture
   public Task AFileStatesTheRuntimesOptionsUnderThePrefix()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromFiles(File("appsettings.json",
                                                                                            "{ \"Logging\": { \"LogLevel\": { \"Default\": \"Debug\" } }, " +
-                                                                                           $"\"GrpcClient\": {{ \"Endpoint\": \"{Endpoint}\", " +
-                                                                                           "\"ChannelDefaults\": { \"Grpc\": { \"UserAgent\": \"from-a-file\" } } } }")));
+                                                                                           $"\"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpoint\": \"{Endpoint}\", " +
+                                                                                           "\"ChannelDefaults\": { \"Grpc\": { \"UserAgent\": \"from-a-file\" } } } } } }")));
 
   /// <summary>YAML is read as JSON is, under a prefix the constructor names.</summary>
   [Test]
@@ -89,9 +89,9 @@ public class NativeConfigurationTests : EchoServerFixture
   public Task ACommandLineIsReadUnderThePrefix()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                                            {
-                                                                                             $"--GrpcClient:Endpoint={Endpoint}",
-                                                                                             "--GrpcClient:ChannelDefaults:Transport:ConnectTimeoutSeconds=2.5",
-                                                                                             "--GrpcClient:ChannelDefaults:Transport:Proxy:None=true",
+                                                                                             $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
+                                                                                             "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:ConnectTimeoutSeconds=2.5",
+                                                                                             "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy:None=true",
                                                                                            }));
 
   /// <summary>With no prefix, a file's options are the whole file, and a command line's its whole tree.</summary>
@@ -108,7 +108,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public Task AnOptionalFileThatExistsIsRead()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromOptionalFiles(File("present.json",
-                                                                                                  $"{{ \"GrpcClient\": {{ \"Endpoint\": \"{Endpoint}\" }} }}")));
+                                                                                                  $"{{ \"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpoint\": \"{Endpoint}\" }} }} }} }}")));
 
   /// <summary>Nothing null is taken as a source.</summary>
   [Test]
@@ -134,7 +134,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public Task ALaterSourceWinsOverAnEarlierOne()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromFiles(File("stale.json",
-                                                                                          "{ \"GrpcClient\": { \"Endpoint\": \"http://127.0.0.1:1\" } }"))
+                                                                                          "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"Endpoint\": \"http://127.0.0.1:1\" } } } }"))
                                                                 .LoadConfigFromOptionalFiles(Path.Combine(directory_,
                                                                                                           "absent.json"))
                                                                 .LoadConfigFromObject(new RuntimeOptions
@@ -161,12 +161,31 @@ public class NativeConfigurationTests : EchoServerFixture
     }
   }
 
+  /// <summary>The default prefix is the client's, <c>ArmoniK__Client__Grpc</c>, in the environment.</summary>
+  [Test]
+  public async Task TheEnvironmentIsReadUnderTheDefaultPrefix()
+  {
+    const string name = "ArmoniK__Client__Grpc__Endpoint";
+    Environment.SetEnvironmentVariable(name,
+                                       Endpoint);
+    try
+    {
+      await CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromEnvironment())
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+  }
+
   /// <summary>What the engine refuses in a source is refused when the runtime is created, by the source and the key, the value unquoted.</summary>
   [Test]
   public void AValueNotOfItsTypeIsRefusedAtTheCreateAndNotQuoted()
     => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                                                                              {
-                                                                                                                               "--GrpcClient:MemoryCeiling=a-great-deal",
+                                                                                                                               "--ArmoniK:Client:Grpc:MemoryCeiling=a-great-deal",
                                                                                                                              })))
                                  .ConfigureAwait(false),
                    Throws.InstanceOf<InvalidOperationException>()

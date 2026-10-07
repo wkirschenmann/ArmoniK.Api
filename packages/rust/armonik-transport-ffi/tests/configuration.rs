@@ -201,7 +201,7 @@ fn a_malformed_structure_is_refused_before_any_source_is_read() {
         (
             "a prefix beside AK_CONFIG_NO_PREFIX",
             vec![absent],
-            b"GrpcClient",
+            b"ArmoniK__Client__Grpc",
             AK_CONFIG_NO_PREFIX,
         ),
         ("a flag no one defines", vec![absent], b"", 2),

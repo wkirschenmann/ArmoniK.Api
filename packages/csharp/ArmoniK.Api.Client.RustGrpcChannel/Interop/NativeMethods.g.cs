@@ -582,8 +582,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         public ak_config_source* sources;
         /// <summary>
         ///  The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
-        ///  the configuration is read from. Empty is `GrpcClient`; with AK_CONFIG_NO_PREFIX it has to be
-        ///  empty.
+        ///  the configuration is read from. Empty is `ArmoniK__Client__Grpc`; with AK_CONFIG_NO_PREFIX it
+        ///  has to be empty.
         /// </summary>
         public ak_bytes_in prefix;
     }

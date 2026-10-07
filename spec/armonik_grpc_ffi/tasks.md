@@ -1512,12 +1512,13 @@ are mandatory dependencies, since every host reads the vocabulary through the lo
 alike; `ak_runtime_create_from` reads an `ak_config`; the .NET binding has `NativeConfiguration`,
 with `LoadConfigFromOptionalFiles` beside the four loads for a file the host marks optional, and its
 options generator renders no `Bind`; the `armonik` client loads the runtime's document,
-`ClientConfig` gone. 28 fixtures drive the loader and the ABI. Three points the documents left open
-were settled as the code has them: a file's section is found by the prefix as written, where the
-environment matches it without case; a `Document` is also `Default`, what a configuration with no
-source loads; and a YAML file of more than one document is refused. One is open: a `ChannelDefaults`
-delivery window stated in any source of a `NativeConfiguration` reaches no channel of the .NET
-binding, which sizes its rings from the window it sends.
+`ClientConfig` gone. 32 fixtures drive the loader and the ABI. Three points the documents left open
+were settled as the code has them: a file's section is found by the prefix as written, a path whose
+parts walk the nested sections, where the environment matches it without case; a `Document` is also
+`Default`, what a configuration with no source loads; and a YAML file of more than one document is
+refused. One is open: a `ChannelDefaults` delivery window stated in any source of a
+`NativeConfiguration` reaches no channel of the .NET binding, which sizes its rings from the window
+it sends.
 
 ### T6.15: The options a gRPC client is expected to have
 
