@@ -94,6 +94,11 @@ pub struct CallStartOptions {
     /// before anything decodes it, and the read after the message asks the gate for its turn
     /// alone.
     pub one_response: bool,
+    /// The call waits for the channel to open a connection rather than fail `UNAVAILABLE` when a
+    /// dial fails, as gRPC's wait-for-ready has it. The wait is the call's own to end: its
+    /// deadline, a cancel, or the channel closing. A call that reached a connection is not
+    /// helped: what breaks it after that ends it as it does any other.
+    pub wait_for_ready: bool,
 }
 
 impl CallStartOptions {
@@ -104,6 +109,7 @@ impl CallStartOptions {
             deadline: None,
             read_gate: None,
             one_response: false,
+            wait_for_ready: false,
         }
     }
 }

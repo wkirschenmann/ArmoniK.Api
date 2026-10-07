@@ -1,6 +1,6 @@
 use snafu::Snafu;
 
-use crate::http2::TransportError;
+use crate::http2::{TransportError, TransportErrorKind};
 use crate::options::LARGEST_WINDOW;
 
 use super::metadata::MetadataError;
@@ -50,6 +50,18 @@ pub enum ChannelError {
     InvalidMetadata { source: MetadataError },
 }
 
+impl ChannelError {
+    /// Whether a later dial may succeed where this one failed: the peer or the network is out of
+    /// reach, or a handshake fails, which a server that is restarted or reconfigured cures. A
+    /// closed channel, the engine's panic and a configuration no dial can satisfy are not.
+    pub(crate) fn is_connection_failure(&self) -> bool {
+        match self {
+            Self::Transport { source } => source.kind() != TransportErrorKind::Configuration,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Snafu)]
 #[non_exhaustive]
 pub enum CallError {
@@ -64,4 +76,51 @@ pub enum CallError {
     Ended,
     #[snafu(display("the task driving the call ended without a terminal status"))]
     Aborted,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transport(source: TransportError) -> ChannelError {
+        ChannelError::Transport { source }
+    }
+
+    #[test]
+    fn a_dial_that_a_later_dial_may_cure_is_a_connection_failure() {
+        let endpoint = "http://h:1".to_owned();
+        let cause = "no".to_owned();
+        for source in [
+            TransportError::Connect {
+                endpoint: endpoint.clone(),
+                cause: cause.clone(),
+            },
+            TransportError::TlsHandshake {
+                endpoint: endpoint.clone(),
+                cause: cause.clone(),
+            },
+            TransportError::Timeout {
+                endpoint,
+                after: std::time::Duration::from_secs(1),
+            },
+        ] {
+            assert!(
+                transport(source.clone()).is_connection_failure(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_closed_channel_a_panic_and_a_configuration_are_not() {
+        assert!(!ChannelError::Closed.is_connection_failure());
+        assert!(!ChannelError::DialPanicked {
+            endpoint: "http://h:1".to_owned()
+        }
+        .is_connection_failure());
+        assert!(!transport(TransportError::Configuration {
+            message: "no".to_owned()
+        })
+        .is_connection_failure());
+    }
 }

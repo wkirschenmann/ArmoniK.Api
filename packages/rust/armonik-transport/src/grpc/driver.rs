@@ -81,6 +81,7 @@ pub(crate) struct Outgoing {
     pub(crate) deadline: Option<Instant>,
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
+    pub(crate) wait_for_ready: bool,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -329,6 +330,7 @@ async fn run<S: ResponseSink>(
         deadline,
         read_gate,
         one_response,
+        wait_for_ready,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -386,6 +388,7 @@ async fn run<S: ResponseSink>(
             deadline,
             read_gate.as_deref(),
             one_response,
+            wait_for_ready,
             &replay,
             stop,
             responding,
@@ -479,6 +482,7 @@ async fn attempt<S: ResponseSink>(
     deadline: Option<Instant>,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
+    wait_for_ready: bool,
     replay: &Sent,
     stop: &mut Stop,
     responding: &mut Responding<S>,
@@ -501,7 +505,12 @@ async fn attempt<S: ResponseSink>(
 
     // Each attempt's own: whether a response came is the last attempt's to say.
     responding.answered = Answered::default();
-    let mut client = inner.client(responding.answered.clone(), one_response, body);
+    let mut client = inner.client(
+        responding.answered.clone(),
+        one_response,
+        wait_for_ready,
+        body,
+    );
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {
