@@ -105,6 +105,35 @@ public class UnaryTests : EchoServerFixture
     }
   }
 
+  /// <summary>A channel opened on an empty endpoint reaches the Endpoint of the runtime's options.</summary>
+  [Test]
+  public async Task AChannelWithNoEndpointReachesTheRuntimes()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new RuntimeOptions
+                                                                {
+                                                                  Endpoint = Endpoint,
+                                                                }))
+                    .ConfigureAwait(false);
+    await using var channel = runtime.Channel(string.Empty);
+
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "the runtime's",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+
+    Assert.That(reply.Text,
+                Is.EqualTo("the runtime's"));
+  }
+
+  /// <summary>And is refused where the runtime's options name none.</summary>
+  [Test]
+  public void AChannelWithNoEndpointIsRefusedWhereTheRuntimeNamesNone()
+    => Assert.That(() => Runtime.Channel(string.Empty),
+                   Throws.InstanceOf<ArgumentException>()
+                         .With.Message.Contains("Endpoint"));
+
   /// <summary>Opening a channel writes nothing to the options it was given.</summary>
   /// <remarks>
   ///   The factory resolves the delivery window into what it sends. Resolved into the caller's

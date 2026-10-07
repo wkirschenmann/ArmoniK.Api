@@ -1,12 +1,18 @@
 use std::fmt;
 use std::time::Duration;
 
+use armonik_transport::configuration::{ConfigRefusal as LoadRefusal, Configuration};
 use armonik_transport::grpc::{GrpcChannelConfig, RetryConfig};
 use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use armonik_transport::options::{
-    ChannelOptions, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+    ChannelOptions, OptionRefusal, ProxyOptions, RuntimeOptions, Seconds, LARGEST_WINDOW,
 };
 use armonik_transport::reexports::http::Uri;
+
+use crate::abi::{
+    ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status, AK_CONFIG_NO_PREFIX,
+};
+use crate::refusal::Refusal;
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
 // the head and the message of a unary call each take one, and a stream has the rest.
@@ -83,9 +89,16 @@ impl ChannelSettings {
 /// Why a document was refused, named by the key it was refused over.
 #[derive(Debug)]
 pub(crate) enum ConfigRefusal {
-    /// Not a document of this vocabulary: not JSON, a key it does not have, or a value of the
-    /// wrong type, with the path of the key it was refused at.
-    Document(serde_path_to_error::Error<serde_json::Error>),
+    /// A source the loader refused: a file that is missing or does not parse, a text that is not
+    /// JSON, or a value of the wrong type, with the path of the key it was refused at.
+    Loaded(LoadRefusal),
+    /// A document whose bytes are not UTF-8, the only encoding the ABI takes JSON in.
+    NotUtf8,
+    /// A memory ceiling of zero, which a configuration has no reason to write: it leaves the
+    /// option out for the default.
+    ZeroCeiling { key: &'static str },
+    /// An Endpoint that names nothing a channel could reach.
+    Endpoint { why: &'static str },
     /// A window outside what the schema admits.
     Window { key: &'static str, value: i32 },
     /// A message size limit that admits only empty messages.
@@ -108,15 +121,10 @@ pub(crate) enum ConfigRefusal {
 impl fmt::Display for ConfigRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            // The path is `.` for the document itself, which a syntax error is refused at.
-            Self::Document(error) => match error.path().to_string().as_str() {
-                "." => write!(
-                    f,
-                    "the configuration document is refused: {}",
-                    error.inner()
-                ),
-                path => write!(f, "{path} is refused: {}", error.inner()),
-            },
+            Self::Loaded(refused) => refused.fmt(f),
+            Self::NotUtf8 => f.write_str("the configuration document is not UTF-8"),
+            Self::ZeroCeiling { key } => write!(f, "{key} is 0, and has to be at least 1"),
+            Self::Endpoint { why } => write!(f, "Endpoint {why}"),
             Self::Window { key, value } => write!(
                 f,
                 "{key} is {value}, and has to be between 1 and {LARGEST_WINDOW}"
@@ -145,16 +153,9 @@ impl fmt::Display for ConfigRefusal {
     }
 }
 
-impl std::error::Error for ConfigRefusal {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        // Not the refusal Defaults and Merged wrap: their text says it already, and a source is
-        // said again after it.
-        match self {
-            Self::Document(error) => Some(error.inner()),
-            _ => None,
-        }
-    }
-}
+// No source: the text of every variant says its cause already, and a source is said again after
+// it.
+impl std::error::Error for ConfigRefusal {}
 
 /// Reads a runtime's channel defaults: a channel document, refused as a channel's own is, and
 /// kept as the options each channel's own are merged over. Empty is none.
@@ -162,11 +163,129 @@ pub(crate) fn defaults(json: &[u8]) -> Result<Option<ChannelOptions>, ConfigRefu
     if json.is_empty() {
         return Ok(None);
     }
-    let refused = |refused| ConfigRefusal::Defaults(Box::new(refused));
-    let options = read(json).map_err(refused)?;
-    settle(options.clone()).map_err(refused)?;
+    let options = read(json).map_err(|refused| ConfigRefusal::Defaults(Box::new(refused)))?;
+    admit_defaults(&options)?;
     Ok(Some(options))
 }
+
+/// Refuses channel defaults a channel's own document would be refused for.
+fn admit_defaults(options: &ChannelOptions) -> Result<(), ConfigRefusal> {
+    settle(options.clone())
+        .map(drop)
+        .map_err(|refused| ConfigRefusal::Defaults(Box::new(refused)))
+}
+
+/// Loads a runtime's options from the sources a host listed, and refuses what the runtime could
+/// not be created with: a zero ceiling, an endpoint that is not a URI, channel defaults a channel
+/// would be refused for.
+pub(crate) fn runtime(configuration: &Configuration) -> Result<RuntimeOptions, ConfigRefusal> {
+    let options: RuntimeOptions = configuration.load().map_err(ConfigRefusal::Loaded)?;
+    for (key, ceiling) in [
+        ("MemoryCeiling", options.memory_ceiling),
+        ("MemoryHardCeiling", options.memory_hard_ceiling),
+    ] {
+        if ceiling == Some(0) {
+            return Err(ConfigRefusal::ZeroCeiling { key });
+        }
+    }
+    // Not quoted: a URI may carry credentials in its userinfo.
+    match options.endpoint.as_deref() {
+        Some("") => {
+            return Err(ConfigRefusal::Endpoint {
+                why: "is empty, and has to name the server, as http://host:port",
+            })
+        }
+        Some(endpoint) if endpoint.parse::<Uri>().is_err() => {
+            return Err(ConfigRefusal::Endpoint {
+                why: "is not a URI such as http://host:port or https://host:port",
+            })
+        }
+        _ => {}
+    }
+    if let Some(defaults) = &options.channel_defaults {
+        admit_defaults(defaults)?;
+    }
+    Ok(options)
+}
+
+/// The configuration a host's `ak_config` lists, every field of it checked: what is malformed is
+/// refused here, and no source is read before the load.
+///
+/// # Safety
+///
+/// `config.sources` must point at `config.source_count` sources unless that is zero, and every
+/// byte view at its length.
+pub(crate) unsafe fn sources(config: &ak_config) -> Result<Configuration, Refusal> {
+    let prefix = text(unsafe { config.prefix.as_slice() })?;
+    let mut configuration = match (config.flags & AK_CONFIG_NO_PREFIX != 0, prefix) {
+        (true, "") => Configuration::with_prefix(""),
+        (true, _) => return Err(PREFIX_BESIDE_NONE),
+        (false, "") => Configuration::new(),
+        (false, prefix) => Configuration::with_prefix(prefix),
+    };
+    let sources: &[ak_config_source] = match (config.source_count, config.sources.is_null()) {
+        (0, _) => &[],
+        (_, true) => return Err(crate::NULL_ARGUMENT),
+        (count, false) => unsafe { std::slice::from_raw_parts(config.sources, count as usize) },
+    };
+    for source in sources {
+        if source.reserved != 0 {
+            return Err(SOURCE_RESERVED_SET);
+        }
+        let value = text(unsafe { source.value.as_slice() })?;
+        configuration = match source.kind {
+            kind if kind == ak_source_kind::AK_SOURCE_FILE as u32 => configuration.file(value),
+            kind if kind == ak_source_kind::AK_SOURCE_OPTIONAL_FILE as u32 => {
+                configuration.optional_file(value)
+            }
+            kind if kind == ak_source_kind::AK_SOURCE_ENVIRONMENT as u32 => {
+                if !value.is_empty() {
+                    return Err(ENVIRONMENT_VALUE);
+                }
+                configuration.environment()
+            }
+            kind if kind == ak_source_kind::AK_SOURCE_DOCUMENT as u32 => {
+                configuration.document(value)
+            }
+            kind if kind == ak_source_kind::AK_SOURCE_PAIRS as u32 => {
+                configuration.pairs_json(value)
+            }
+            _ => return Err(UNKNOWN_KIND),
+        };
+    }
+    Ok(configuration)
+}
+
+/// A byte view of `ak_config` as the text it has to be.
+fn text(bytes: Option<&[u8]>) -> Result<&str, Refusal> {
+    std::str::from_utf8(bytes.ok_or(crate::NULL_SLICE)?).map_err(|_| NOT_UTF8)
+}
+
+const PREFIX_BESIDE_NONE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the configuration names a prefix and AK_CONFIG_NO_PREFIX at once",
+);
+const SOURCE_RESERVED_SET: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "a source's reserved field is not zero",
+);
+const UNKNOWN_KIND: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "a source's kind is not one ak_source_kind defines",
+);
+const ENVIRONMENT_VALUE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "an environment source carries a value, where it takes none",
+);
+const NOT_UTF8: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the prefix or a source's value is not UTF-8",
+);
 
 /// Reads a channel's document over the runtime's defaults, as `ChannelOptions::over` merges
 /// them. A refusal the channel's document earns alone is the one reported, in its own terms;
@@ -194,9 +313,14 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
     settle(read(json)?)
 }
 
+/// A channel document, through the loader a runtime's configuration goes through, so that a key
+/// it does not declare is logged as one in any other source is.
 fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
-    serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_slice(json))
-        .map_err(ConfigRefusal::Document)
+    let json = std::str::from_utf8(json).map_err(|_| ConfigRefusal::NotUtf8)?;
+    Configuration::with_prefix("")
+        .document(json)
+        .load()
+        .map_err(ConfigRefusal::Loaded)
 }
 
 /// Settles the options, refusing exactly what the schema refuses, and saying over which key.
@@ -313,6 +437,50 @@ mod tests {
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
         let settings = parse(json).expect("valid");
         settings.into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
+    }
+
+    /// Every option of the runtime's schema but the endpoint is a field of `ak_runtime_config`,
+    /// so that `ak_runtime_create` takes what `ak_runtime_create_from` loads; the endpoint is what
+    /// a channel names itself there.
+    #[test]
+    fn every_runtime_option_but_the_endpoint_is_a_field_of_the_config() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&armonik_transport::options::runtime_schema())
+                .expect("the schema is a document");
+        let mut names: Vec<_> = schema["properties"]
+            .as_object()
+            .expect("the schema has properties")
+            .keys()
+            .cloned()
+            .collect();
+        names.sort();
+
+        let config = crate::abi::ak_runtime_config {
+            struct_size: 0,
+            version: 0,
+            flags: 0,
+            reserved: 0,
+            memory_ceiling: 0,
+            memory_hard_ceiling: 0,
+            channel_defaults_json: crate::abi::ak_bytes_in {
+                ptr: std::ptr::null(),
+                len: 0,
+            },
+        };
+        let _ = (
+            config.memory_ceiling,
+            config.memory_hard_ceiling,
+            config.channel_defaults_json,
+        );
+        assert_eq!(
+            names,
+            [
+                "ChannelDefaults",
+                "Endpoint",
+                "MemoryCeiling",
+                "MemoryHardCeiling"
+            ]
+        );
     }
 
     /// A default is stated in words, in its option's description, and applied here. This is
@@ -747,9 +915,13 @@ mod tests {
         assert_eq!(config.max_sends_in_flight, MAX_SENDS_IN_FLIGHT as usize);
     }
 
+    /// The loader logs it, as it logs one from any source; the channel is the one its other options
+    /// make.
     #[test]
-    fn an_option_spelled_wrong_is_refused_rather_than_ignored() {
-        assert!(parse(br#"{"UserAgnt":"typo"}"#).is_err());
+    fn an_option_spelled_wrong_is_ignored_rather_than_refused() {
+        let settings = parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
+            .expect("an unknown key is no refusal");
+        assert_eq!(settings.delivery_credits(), 2);
     }
 
     #[test]
@@ -814,7 +986,6 @@ mod tests {
     #[test]
     fn a_refusal_names_the_key_it_was_refused_over() {
         for (document, key) in [
-            (&br#"{"UserAgnt":"typo"}"#[..], "UserAgnt"),
             (
                 &br#"{"Grpc":{"Host":{"Receive":{"Window":"2"}}}}"#[..],
                 "Grpc.Host.Receive.Window",
@@ -979,7 +1150,6 @@ mod tests {
         assert!(defaults(b"").expect("empty is none").is_none());
         for document in [
             &br#"{"Grpc":{"Host":{"Receive":{"Window":0}}}}"#[..],
-            &br#"{"NoSuchOption":1}"#[..],
             &b"not json"[..],
         ] {
             let Err(refused) = defaults(document) else {

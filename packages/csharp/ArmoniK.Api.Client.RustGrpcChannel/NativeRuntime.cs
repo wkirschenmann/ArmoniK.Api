@@ -49,6 +49,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   // alive as the reference kept to it.
   private static readonly unsafe NativeMethods.ak_runtime_create_callback_delegate Trampoline = OnEvent;
 
+  // The same function, as the type the configuration's entry point declares.
+  private static readonly unsafe NativeMethods.ak_runtime_create_from_callback_delegate TrampolineFrom = OnEvent;
+
   private GCHandle self_;
   private readonly ulong handle_;
 
@@ -76,44 +79,33 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
-  private NativeRuntime(ulong           memoryCeiling,
-                        ulong           memoryHardCeiling,
-                        ChannelOptions? channelDefaults)
+  /// <summary>What asks the engine for a runtime, handed the context its callbacks carry.</summary>
+  private unsafe delegate ak_status Creating(void*     context,
+                                            ulong*    created,
+                                            ak_error* error);
+
+  private unsafe NativeRuntime(ChannelOptions? channelDefaults,
+                               Creating        create)
   {
     channelDefaults_ = channelDefaults is null
                          ? null
                          : new ChannelOptions(channelDefaults);
-    var defaults = channelDefaults_?.Encode() ?? Array.Empty<byte>();
 
     self_ = GCHandle.Alloc(this);
 
-    unsafe
+    ak_status status;
+    ak_error  error = default;
+    fixed (ulong* created = &handle_)
     {
-      ak_status status;
-      ak_error  error = default;
-      fixed (byte* defaultsPinned = defaults)
-      fixed (ulong* created = &handle_)
-      {
-        var config = new ak_runtime_config
-                     {
-                       struct_size           = (uint)Marshal.SizeOf<ak_runtime_config>(),
-                       memory_ceiling        = memoryCeiling,
-                       memory_hard_ceiling   = memoryHardCeiling,
-                       channel_defaults_json = ak_bytes_in.Borrow(defaultsPinned,
-                                                                  defaults.Length),
-                     };
-        status = NativeMethods.ak_runtime_create(&config,
-                                                 Trampoline,
-                                                 (void*)GCHandle.ToIntPtr(self_),
-                                                 created,
-                                                 &error);
-      }
+      status = create((void*)GCHandle.ToIntPtr(self_),
+                      created,
+                      &error);
+    }
 
-      if (status != ak_status.AK_STATUS_OK)
-      {
-        self_.Free();
-        throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
-      }
+    if (status != ak_status.AK_STATUS_OK)
+    {
+      self_.Free();
+      throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
     }
   }
 
@@ -156,15 +148,68 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
   /// </exception>
-  public static NativeRuntime Create(ulong memoryCeiling     = 0,
-                                     ulong memoryHardCeiling = 0)
-    => Create(memoryCeiling,
-              memoryHardCeiling,
-              null);
+  public static unsafe NativeRuntime Create(ulong memoryCeiling     = 0,
+                                            ulong memoryHardCeiling = 0)
+  {
+    RefuseAnotherAbi();
 
-  private static NativeRuntime Create(ulong           memoryCeiling,
-                                      ulong           memoryHardCeiling,
-                                      ChannelOptions? channelDefaults)
+    return new NativeRuntime(null,
+                             (context,
+                              created,
+                              error) =>
+                             {
+                               var config = new ak_runtime_config
+                                            {
+                                              struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
+                                              memory_ceiling      = memoryCeiling,
+                                              memory_hard_ceiling = memoryHardCeiling,
+                                            };
+                               return NativeMethods.ak_runtime_create(&config,
+                                                                      Trampoline,
+                                                                      context,
+                                                                      created,
+                                                                      error);
+                             });
+  }
+
+  /// <summary>Starts the engine from one document of its options.</summary>
+  /// <param name="document">The options, as the engine reads them.</param>
+  /// <param name="channelDefaults">The channel defaults the document states.</param>
+  private static unsafe NativeRuntime Create(byte[]          document,
+                                             ChannelOptions? channelDefaults)
+  {
+    RefuseAnotherAbi();
+
+    return new NativeRuntime(channelDefaults,
+                             (context,
+                              created,
+                              error) =>
+                             {
+                               fixed (byte* pinned = document)
+                               {
+                                 var source = new ak_config_source
+                                              {
+                                                kind = (uint)ak_source_kind.AK_SOURCE_DOCUMENT,
+                                                value = ak_bytes_in.Borrow(pinned,
+                                                                           document.Length),
+                                              };
+                                 var config = new ak_config
+                                              {
+                                                struct_size  = (uint)Marshal.SizeOf<ak_config>(),
+                                                source_count = 1,
+                                                sources      = &source,
+                                              };
+                                 return NativeMethods.ak_runtime_create_from(&config,
+                                                                             TrampolineFrom,
+                                                                             context,
+                                                                             created,
+                                                                             error);
+                               }
+                             });
+  }
+
+  /// <summary>Refuses a library this binding does not speak to, before anything is asked of it.</summary>
+  private static void RefuseAnotherAbi()
   {
     int found;
     try
@@ -180,10 +225,6 @@ public sealed class NativeRuntime : IAsyncDisposable
     {
       throw new InvalidOperationException($"the native library speaks ABI {found}, this binding speaks {NativeMethods.AK_ABI_VERSION}");
     }
-
-    return new NativeRuntime(memoryCeiling,
-                             memoryHardCeiling,
-                             channelDefaults);
   }
 
   /// <summary>The section a runtime's options are read from when a caller names none.</summary>
@@ -240,13 +281,9 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new ArgumentNullException(nameof(options));
     }
 
-    // Zero is the ABI's spelling of the default and Validate refuses it, so an option left out is
-    // the only way to ask for the default.
-    options.Validate();
     RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window);
 
-    return Create((ulong)(options.MemoryCeiling ?? 0),
-                  (ulong)(options.MemoryHardCeiling ?? 0),
+    return Create(options.Encode(),
                   options.ChannelDefaults);
   }
 
@@ -264,9 +301,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
   ///   configured. <see cref="Channel(string)" /> is how to ask for the defaults.
   ///
-  ///   The same argument one level down is what binds the section strictly. The engine refuses an
-  ///   option it does not know in the document it is handed, so a key dropped here would be the
-  ///   one door of the two that answers a misspelling with a working channel.
+  ///   The same argument one level down is what binds the section strictly: a key dropped here
+  ///   would answer a misspelling with a working channel, and nothing would say so.
   /// </remarks>
   public NativeChannel Channel(string endpoint,
                                IConfiguration configuration,
@@ -303,7 +339,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   }
 
   /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
   /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
@@ -312,7 +348,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                new ChannelOptions());
 
   /// <summary>Opens a channel with a delivery window, and the runtime's channel defaults elsewhere.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <param name="deliveryCredits">How many of a call's payloads the host may hold at once, the terminal status aside.</param>
   /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
@@ -336,7 +372,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                });
 
   /// <summary>Opens a channel this runtime serves, and keeps it until it is disposed.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <param name="options">What the channel is opened with, read once and never written to.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>

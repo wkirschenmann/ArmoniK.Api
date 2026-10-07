@@ -67,6 +67,17 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_hard_ceiling;
     let _: fn(&ak_runtime_config) -> &ak_bytes_in = |config| &config.channel_defaults_json;
 
+    let _: fn(&ak_config) -> &u32 = |config| &config.struct_size;
+    let _: fn(&ak_config) -> &u32 = |config| &config.version;
+    let _: fn(&ak_config) -> &u32 = |config| &config.flags;
+    let _: fn(&ak_config) -> &u32 = |config| &config.source_count;
+    let _: fn(&ak_config) -> &*const ak_config_source = |config| &config.sources;
+    let _: fn(&ak_config) -> &ak_bytes_in = |config| &config.prefix;
+
+    let _: fn(&ak_config_source) -> &u32 = |source| &source.kind;
+    let _: fn(&ak_config_source) -> &u32 = |source| &source.reserved;
+    let _: fn(&ak_config_source) -> &ak_bytes_in = |source| &source.value;
+
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.struct_size;
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.version;
     let _: fn(&ak_call_start_options) -> &u32 = |options| &options.flags;
@@ -96,6 +107,7 @@ fn every_enum_the_abi_crosses_is_an_int() {
     assert_eq!(size_of::<ak_channel_state>(), 4);
     assert_eq!(size_of::<ak_head_origin>(), 4);
     assert_eq!(size_of::<ak_error_kind>(), 4);
+    assert_eq!(size_of::<ak_source_kind>(), 4);
 }
 
 #[test]
@@ -117,6 +129,24 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_call_start_options, metadata), 16 + 2 * PTR);
     assert_eq!(offset_of!(ak_call_start_options, timeout_ns), 16 + 4 * PTR);
     assert_eq!(size_of::<ak_call_start_options>(), 16 + 4 * PTR + 8);
+
+    // The same head, but for its fourth field, which counts the sources.
+    assert_eq!(offset_of!(ak_config, struct_size), 0);
+    assert_eq!(offset_of!(ak_config, version), 4);
+    assert_eq!(offset_of!(ak_config, flags), 8);
+    assert_eq!(offset_of!(ak_config, source_count), 12);
+    assert_eq!(offset_of!(ak_config, sources), 16);
+    assert_eq!(offset_of!(ak_config, prefix), 16 + PTR);
+    assert_eq!(size_of::<ak_config>(), 16 + 3 * PTR);
+}
+
+#[test]
+fn a_source_is_its_kind_and_a_borrowed_view() {
+    assert_eq!(offset_of!(ak_config_source, kind), 0);
+    assert_eq!(offset_of!(ak_config_source, reserved), 4);
+    assert_eq!(offset_of!(ak_config_source, value), 8);
+    assert_eq!(size_of::<ak_config_source>(), 8 + 2 * PTR);
+    assert_eq!(align_of::<ak_config_source>(), PTR);
 }
 
 #[test]
@@ -346,6 +376,20 @@ fn every_enum_value_is_the_one_the_header_gives_it() {
             ak_error_kind::AK_ERROR_CANCELLED as i32,
         ),
         ("AK_ERROR_USAGE", ak_error_kind::AK_ERROR_USAGE as i32),
+        ("AK_SOURCE_FILE", ak_source_kind::AK_SOURCE_FILE as i32),
+        (
+            "AK_SOURCE_OPTIONAL_FILE",
+            ak_source_kind::AK_SOURCE_OPTIONAL_FILE as i32,
+        ),
+        (
+            "AK_SOURCE_ENVIRONMENT",
+            ak_source_kind::AK_SOURCE_ENVIRONMENT as i32,
+        ),
+        (
+            "AK_SOURCE_DOCUMENT",
+            ak_source_kind::AK_SOURCE_DOCUMENT as i32,
+        ),
+        ("AK_SOURCE_PAIRS", ak_source_kind::AK_SOURCE_PAIRS as i32),
     ];
 
     let declared = header_constants(&header());
@@ -400,6 +444,13 @@ fn every_entry_point_has_the_signature_the_header_declares() {
         *mut ak_handle,
         *mut ak_error,
     ) -> ak_status = ak_runtime_create;
+    let _: unsafe extern "C" fn(
+        *const ak_config,
+        ak_callback,
+        *mut c_void,
+        *mut ak_handle,
+        *mut ak_error,
+    ) -> ak_status = ak_runtime_create_from;
     let _: extern "C" fn(ak_handle) -> ak_runtime_state = ak_runtime_status;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_runtime_begin_shutdown;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_runtime_destroy;
@@ -445,6 +496,10 @@ fn every_entry_point_the_header_declares_is_exported() {
 
     let exported: &[(&str, *const ())] = &[
         ("ak_runtime_create", ak_runtime_create as *const ()),
+        (
+            "ak_runtime_create_from",
+            ak_runtime_create_from as *const (),
+        ),
         ("ak_runtime_status", ak_runtime_status as *const ()),
         (
             "ak_runtime_begin_shutdown",
@@ -512,6 +567,16 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
             "ak_runtime_create",
             &[
                 "const ak_runtime_config *",
+                "ak_callback",
+                "void *",
+                "ak_handle *",
+                "ak_error *",
+            ],
+        ),
+        (
+            "ak_runtime_create_from",
+            &[
+                "const ak_config *",
                 "ak_callback",
                 "void *",
                 "ak_handle *",

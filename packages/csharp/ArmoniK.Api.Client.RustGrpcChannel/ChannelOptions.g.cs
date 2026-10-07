@@ -151,9 +151,8 @@ public sealed class ChannelOptions
 
 /// <summary>What the transport does, beyond reaching the endpoint it was given.</summary>
 /// <remarks>
-///   The endpoint is not here: it is the one value a channel cannot be created without, so it is
-///   passed when the channel is opened rather than set as an option that happens to be mandatory.
-///   Every option has a default, so naming none of them is a valid configuration.
+///   The endpoint is not here: a channel is opened on its own, or on the Endpoint of its runtime's
+///   options. Every option has a default, so naming none of them is a valid configuration.
 /// </remarks>
 public sealed class TransportOptions
 {

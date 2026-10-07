@@ -82,7 +82,7 @@ public class OptionVocabularyTests
   /// <summary>A `GrpcClient` option this engine answers with something that is not an option.</summary>
   private static readonly IReadOnlyDictionary<string, string> Elsewhere = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                           {
-                                                                            ["Endpoint"] = "the endpoint crosses the ABI as `ak_channel_create`'s own argument, which is what lets every option have a default",
+                                                                            ["Endpoint"] = "a channel's endpoint is `ak_channel_create`'s own argument, or the runtime's Endpoint when that is empty",
                                                                             ["HttpMessageHandler"] = "grpc-dotnet chooses a handler, and this engine is the handler",
                                                                             ["ReusePorts"] = "a socket option of grpc-dotnet's handler, which this engine does not use",
                                                                           };

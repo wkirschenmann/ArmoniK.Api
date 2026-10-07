@@ -71,8 +71,9 @@ fn native_methods() -> String {
         std::process::id()
     ));
     builder
-        // Named by no signature, and read from the event's status code.
-        .always_included_types(["ak_head_origin"])
+        // Named by no signature: the first read from the event's status code, the second written
+        // into a source's kind.
+        .always_included_types(["ak_head_origin", "ak_source_kind"])
         // A delegate, which the marshaller turns into a pointer on every framework the binding
         // targets. A C# function pointer's target has to be UnmanagedCallersOnly, which
         // netstandard2.0 does not have.

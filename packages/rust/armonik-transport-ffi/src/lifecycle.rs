@@ -1,5 +1,8 @@
 use std::sync::{Arc, Weak};
 
+use armonik_transport::configuration::Configuration;
+use armonik_transport::options::RuntimeOptions;
+
 use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
 use crate::channel::AkChannel;
 use crate::host::Host;
@@ -16,8 +19,27 @@ pub(crate) fn create_runtime(
 ) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
     // After the claim, so a second runtime is refused as one whatever its defaults say.
-    let channel_defaults = crate::config::defaults(channel_defaults).map_err(Refusal::config)?;
-    let runtime = AkRuntime::new(memory_ceiling, memory_hard_ceiling, channel_defaults, host)?;
+    let mut options = RuntimeOptions::default();
+    options.memory_ceiling = (memory_ceiling != 0).then_some(memory_ceiling);
+    options.memory_hard_ceiling = (memory_hard_ceiling != 0).then_some(memory_hard_ceiling);
+    options.channel_defaults =
+        crate::config::defaults(channel_defaults).map_err(Refusal::config)?;
+    start(claim, options, host)
+}
+
+pub(crate) fn create_runtime_from(
+    configuration: &Configuration,
+    host: Host,
+) -> Result<ak_handle, Refusal> {
+    let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
+    // After the claim, as ak_runtime_create reads its defaults after it: a second runtime is
+    // refused as one, and its sources are not read.
+    let options = crate::config::runtime(configuration).map_err(Refusal::config)?;
+    start(claim, options, host)
+}
+
+fn start(claim: Claim, options: RuntimeOptions, host: Host) -> Result<ak_handle, Refusal> {
+    let runtime = AkRuntime::new(options, host)?;
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;

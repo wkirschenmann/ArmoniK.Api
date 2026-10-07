@@ -68,7 +68,7 @@
          slashes, because a backslash is an ordinary filename character on Linux. -->
     <OptionsSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport/options.schema.json'))</OptionsSchema>
     <GeneratedOptions>$(MSBuildThisFileDirectory)ChannelOptions.g.cs</GeneratedOptions>
-    <RuntimeSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport-ffi/runtime.schema.json'))</RuntimeSchema>
+    <RuntimeSchema>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../rust/armonik-transport/runtime.schema.json'))</RuntimeSchema>
     <GeneratedRuntimeOptions>$(MSBuildThisFileDirectory)RuntimeOptions.g.cs</GeneratedRuntimeOptions>
   </PropertyGroup>
 
@@ -90,12 +90,12 @@
     </Exec>
     <Error Condition="'$(OptionsCheckExitCode)' != '0'"
            Text="ChannelOptions.g.cs is not what $(OptionsSchema) renders (exit $(OptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/options.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/ChannelOptions.g.cs`." />
-    <Exec Command="dotnet exec &quot;@(OptionsGeneratorTool)&quot; --schema &quot;$(RuntimeSchema)&quot; --output &quot;$(GeneratedRuntimeOptions)&quot; --no-document --reuse &quot;$(OptionsSchema)&quot; --check"
+    <Exec Command="dotnet exec &quot;@(OptionsGeneratorTool)&quot; --schema &quot;$(RuntimeSchema)&quot; --output &quot;$(GeneratedRuntimeOptions)&quot; --reuse &quot;$(OptionsSchema)&quot; --check"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="RuntimeOptionsCheckExitCode" />
     </Exec>
     <Error Condition="'$(RuntimeOptionsCheckExitCode)' != '0'"
-           Text="RuntimeOptions.g.cs is not what $(RuntimeSchema) renders (exit $(RuntimeOptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport-ffi/runtime.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/RuntimeOptions.g.cs --no-document --reuse packages/rust/armonik-transport/options.schema.json`." />
+           Text="RuntimeOptions.g.cs is not what $(RuntimeSchema) renders (exit $(RuntimeOptionsCheckExitCode)). Write it again with `dotnet run --project packages/csharp/ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator -- --schema packages/rust/armonik-transport/runtime.schema.json --output packages/csharp/ArmoniK.Api.Client.RustGrpcChannel/RuntimeOptions.g.cs --reuse packages/rust/armonik-transport/options.schema.json`." />
     <Touch Files="$(IntermediateOutputPath)options-checked.stamp" AlwaysCreate="true" />
     <!-- Or `dotnet clean` leaves the stamp and the next build skips the check. -->
     <ItemGroup>

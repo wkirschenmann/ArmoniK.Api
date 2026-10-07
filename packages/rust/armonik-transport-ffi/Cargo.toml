@@ -15,32 +15,17 @@ name = "armonik_transport_ffi"
 
 [dependencies]
 # By path: this crate is never published, and the two move together.
-# `serde` for the options type the channel document is read into: the vocabulary is declared
-# once, beside the engine that honours it, and this crate reads rather than restates it.
-armonik-transport = { path = "../armonik-transport", features = ["serde"] }
+# The configuration loader and the options types it reads: the vocabulary is declared once,
+# beside the engine that honours it, and this crate reads rather than restates it.
+armonik-transport = { path = "../armonik-transport", features = ["configuration"] }
 bytes.workspace = true
-# `float_roundtrip`, so a number reads back as the double the host wrote: the default parse may
-# land an ulp away, and at a bound an ulp is a refusal. .NET Framework writes 1e-9 with
-# seventeen digits.
-serde_json = { workspace = true, features = ["float_roundtrip"] }
-# The key a refused document was refused over, which serde's own error names only for an
-# unknown one and not for a value of the wrong type.
-serde_path_to_error.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
-schemars = { workspace = true, optional = true }
 
 [features]
 # Points where a test holds a host thread inside a downcall, counts of the channels' threads and
 # of the arenas lends allocate, and the transport's own hooks. Off unless a test asks for it; no
 # shipped build enables it.
 test-hooks = ["armonik-transport/test-hooks"]
-# A JSON schema of the runtime options, for generating an options class in another language.
-schema = ["dep:schemars", "armonik-transport/schema"]
-
-# The schema is what the options type exists to produce, so an example prints it.
-[[example]]
-name = "runtime_schema"
-required-features = ["schema"]
 
 # Skipped without the feature: run it with `--features test-hooks`, or `--all-features`.
 [[test]]
@@ -63,10 +48,14 @@ required-features = ["test-hooks"]
 name = "deliveries"
 required-features = ["test-hooks"]
 
+[[test]]
+name = "configuration"
+required-features = ["test-hooks"]
+
 [dev-dependencies]
 # The same crate again, with the schema turned on: one test reads the bounds the schema states
 # and drives `config::parse` at each of them, which is what keeps the reader's copy honest.
-armonik-transport = { path = "../armonik-transport", features = ["serde", "schema"] }
+armonik-transport = { path = "../armonik-transport", features = ["configuration", "schema"] }
 # The tests include armonik-transport's gRPC fixture by path, and its server-streaming service
 # answers with a `Stream`.
 futures.workspace = true
@@ -77,3 +66,5 @@ hyper = { workspace = true, features = ["server", "http2"] }
 http.workspace = true
 # The certificate and key files a TLS document names, made for the run.
 rcgen = { workspace = true, features = ["crypto", "pem", "ring"] }
+# The schemas the tests read bounds and defaults from.
+serde_json.workspace = true

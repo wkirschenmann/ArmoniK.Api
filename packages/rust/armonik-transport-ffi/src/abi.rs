@@ -299,6 +299,70 @@ pub struct ak_runtime_config {
     pub channel_defaults_json: ak_bytes_in,
 }
 
+/// Where a source of ak_config is read from, in ak_config_source.kind.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ak_source_kind {
+    /// value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
+    /// .toml - its document the section the prefix names, or the whole file with
+    /// AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+    AK_SOURCE_FILE = 1,
+    /// value: the file's path, read as AK_SOURCE_FILE's, except that a file that does not exist
+    /// contributes nothing.
+    AK_SOURCE_OPTIONAL_FILE = 2,
+    /// value: empty. The variables whose name starts with the prefix and `__`, the rest of the
+    /// name the key's path, its parts joined by `__` and compared without case, and the value text
+    /// read by its key's type. Read once, by ak_runtime_create_from. Refused with
+    /// AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+    AK_SOURCE_ENVIRONMENT = 3,
+    /// value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+    AK_SOURCE_DOCUMENT = 4,
+    /// value: a JSON object whose names are keys' paths, their parts joined by `__` under no
+    /// prefix, and whose values are text, read as the environment's are.
+    AK_SOURCE_PAIRS = 5,
+}
+
+/// One source of a configuration.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_config_source {
+    /// An ak_source_kind; another is AK_STATUS_INVALID_ARG.
+    pub kind: u32,
+    /// Zero; another is AK_STATUS_INVALID_ARG.
+    pub reserved: u32,
+    /// What the kind says, UTF-8; one that is not is AK_STATUS_INVALID_ARG.
+    pub value: ak_bytes_in,
+}
+
+/// In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
+pub const AK_CONFIG_NO_PREFIX: u32 = 1;
+
+/// Where a runtime's configuration comes from: sources, read in order when the runtime is created,
+/// a later one over an earlier one option by option. A key the vocabulary does not declare is
+/// ignored rather than refused; a value that does not fit its key is refused, with its source and
+/// its path, and never quoted.
+///
+/// Versioned as the options structs are, but for its fourth field, which is source_count rather
+/// than reserved.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_config {
+    pub struct_size: u32,
+    /// Zero, the one revision of this record there is.
+    pub version: u32,
+    /// AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+    pub flags: u32,
+    /// How many sources `sources` points at.
+    pub source_count: u32,
+    /// The sources, in order, a later one over an earlier one. May be NULL when source_count is
+    /// zero.
+    pub sources: *const ak_config_source,
+    /// The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
+    /// the configuration is read from. Empty is `GrpcClient`; with AK_CONFIG_NO_PREFIX it has to be
+    /// empty.
+    pub prefix: ak_bytes_in,
+}
+
 /// How far along a channel's closing is. A handle this library no longer knows reads as NONE,
 /// which is also what an unopened one reads as: neither names a channel.
 #[repr(i32)]
@@ -441,6 +505,8 @@ pub(crate) unsafe trait Record: Copy {
     const FLAGS: u32;
     /// Each flag that reads a field, and the size a record has to reach to hold that field.
     const FLAG_FIELDS: &'static [(u32, usize)];
+    /// Whether the fourth field of its head is `reserved`, refused unless zero, or one of its own.
+    const RESERVED: bool = true;
 }
 
 // SAFETY: integers, and a view whose null pointer and zero length are an empty slice.
@@ -448,6 +514,15 @@ unsafe impl Record for ak_runtime_config {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, memory_hard_ceiling);
     const FLAGS: u32 = 0;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
+}
+
+// SAFETY: integers, a pointer read only with the count beside it, and a view whose null pointer
+// and zero length are an empty slice.
+unsafe impl Record for ak_config {
+    const FIRST_SIZE: usize = std::mem::size_of::<Self>();
+    const FLAGS: u32 = AK_CONFIG_NO_PREFIX;
+    const FLAG_FIELDS: &'static [(u32, usize)] = &[];
+    const RESERVED: bool = false;
 }
 
 // SAFETY: integers, and views whose null pointer and zero length are an empty slice.
@@ -484,7 +559,7 @@ pub(crate) unsafe fn read_versioned<T: Record>(at: *const T) -> Result<T, Refusa
     match head {
         RecordHead { version: 1.., .. } => return Err(UNKNOWN_VERSION),
         RecordHead { flags, .. } if flags & !T::FLAGS != 0 => return Err(UNKNOWN_FLAG),
-        RecordHead { reserved: 1.., .. } => return Err(RESERVED_SET),
+        RecordHead { reserved: 1.., .. } if T::RESERVED => return Err(RESERVED_SET),
         // A flag whose field the host's record does not reach would read that field as zero.
         RecordHead { flags, .. }
             if T::FLAG_FIELDS

@@ -5,10 +5,13 @@
 //! [`options::ChannelOptions`] document, where the schema states each setting's bounds and the
 //! generated .NET class its spelling. The Rust client configures it with a [`ClientConfig`], read
 //! from the `GrpcClient__*` environment, through [`ClientConfig::channel_config`], which refuses a
-//! setting the engine has not got rather than drop it.
+//! setting the engine has not got rather than drop it. `configuration::Configuration`, under the
+//! `configuration` feature, loads the options from files, the environment and documents.
 
 mod coalesce;
 mod config;
+#[cfg(feature = "configuration")]
+pub mod configuration;
 mod connector;
 pub mod grpc;
 #[cfg(feature = "test-hooks")]

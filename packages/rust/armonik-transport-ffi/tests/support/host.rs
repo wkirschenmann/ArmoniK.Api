@@ -40,6 +40,44 @@ impl Connected {
     }
 }
 
+/// What an entry point refused, and what its `ak_error` said.
+#[derive(Debug)]
+pub struct Refused {
+    pub status: ak_status,
+    pub kind: ak_error_kind,
+    pub detail: String,
+}
+
+impl Refused {
+    /// The refusal `error` holds, its detail given back.
+    fn taken(status: ak_status, error: ak_error) -> Self {
+        let detail = if error.detail.ptr.is_null() {
+            String::new()
+        } else {
+            let bytes = unsafe { std::slice::from_raw_parts(error.detail.ptr, error.detail.len) };
+            String::from_utf8_lossy(bytes).into_owned()
+        };
+        unsafe { ak_error_release(error.detail) };
+        Self {
+            status,
+            kind: error.kind,
+            detail,
+        }
+    }
+}
+
+/// An `ak_error` for an entry point to write into.
+fn unwritten() -> ak_error {
+    ak_error {
+        kind: ak_error_kind::AK_ERROR_NONE,
+        detail: ak_bytes {
+            ptr: std::ptr::null(),
+            len: 0,
+            owner: std::ptr::null_mut(),
+        },
+    }
+}
+
 pub struct Host {
     pub runtime: ak_handle,
     /// Shared with the runtime, which holds a reference of its own as its callback context and
@@ -109,8 +147,65 @@ impl Host {
         }
     }
 
+    /// A runtime created from the sources `config` lists, or what `ak_runtime_create_from`
+    /// refused.
+    pub fn from_config(config: &ak_config) -> Result<Self, Refused> {
+        let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
+        let recorder = Arc::new(Recorder::default());
+        let lent = Arc::into_raw(Arc::clone(&recorder));
+        let mut runtime = AK_HANDLE_NONE;
+        let mut error = unwritten();
+        let status = unsafe {
+            ak_runtime_create_from(
+                config,
+                Some(on_event),
+                lent as *mut c_void,
+                &mut runtime,
+                &mut error,
+            )
+        };
+        if status != ak_status::AK_STATUS_OK {
+            // No runtime, so no callback, and the reference it would have held is this one's.
+            drop(unsafe { Arc::from_raw(lent) });
+            assert_eq!(runtime, AK_HANDLE_NONE, "a refusal made a runtime");
+            return Err(Refused::taken(status, error));
+        }
+        recorder.watch_runtime(runtime);
+
+        Ok(Self {
+            runtime,
+            recorder,
+            _turn: turn,
+        })
+    }
+
     pub fn connected() -> Connected {
         Connected::with_ceiling(0)
+    }
+
+    /// A channel on `endpoint`, or what `ak_channel_create` refused.
+    pub fn try_channel(&self, endpoint: &str, json: &str) -> Result<ak_handle, Refused> {
+        let mut channel = AK_HANDLE_NONE;
+        let mut error = unwritten();
+        let status = unsafe {
+            ak_channel_create(
+                self.runtime,
+                ak_bytes_in {
+                    ptr: endpoint.as_ptr(),
+                    len: endpoint.len(),
+                },
+                ak_bytes_in {
+                    ptr: json.as_ptr(),
+                    len: json.len(),
+                },
+                &mut channel,
+                &mut error,
+            )
+        };
+        match status {
+            ak_status::AK_STATUS_OK => Ok(channel),
+            refused => Err(Refused::taken(refused, error)),
+        }
     }
 
     pub fn channel(&self, endpoint: &str) -> ak_handle {

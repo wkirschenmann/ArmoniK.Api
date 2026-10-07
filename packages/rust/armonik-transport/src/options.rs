@@ -5,6 +5,11 @@
 //! and every constraint that can be said here is said here rather than only in the code that
 //! enforces it. What a type cannot say - that an endpoint names a scheme this engine speaks -
 //! the transport says, by option name.
+//!
+//! A key no type declares is read past rather than refused, so that the `configuration` loader logs
+//! it and goes on; the schema still states `additionalProperties: false`, which tells whoever edits
+//! a document what the engine will log. An alternative - how the server is verified, who the client
+//! is, which proxy - reads a key that names none of its variants the same way, as no alternative.
 
 use std::time::Duration;
 
@@ -60,16 +65,13 @@ impl TryFrom<Seconds> for Duration {
 
 /// What the transport does, beyond reaching the endpoint it was given.
 ///
-/// The endpoint is not here: it is the one value a channel cannot be created without, so it is
-/// passed when the channel is opened rather than set as an option that happens to be mandatory.
-/// Every option has a default, so naming none of them is a valid configuration.
+/// The endpoint is not here: a channel is opened on its own, or on the Endpoint of its runtime's
+/// options. Every option has a default, so naming none of them is a valid configuration.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TransportOptions {
     /// How long a dial may take before it is given up on.
@@ -106,7 +108,11 @@ pub struct TransportOptions {
     /// its own.
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
+        serde(
+            default,
+            deserialize_with = "alternative::optional",
+            skip_serializing_if = "Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ProxyOptions"))]
     pub proxy: Option<ProxyOptions>,
@@ -209,11 +215,9 @@ impl Default for ProxyOptions {
 /// The credentials the system's proxy is authenticated to with, by `Basic`.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct ProxyCredentials {
     /// The username, which `Basic` forbids a `:` in.
@@ -243,11 +247,9 @@ pub struct ProxyCredentials {
 /// A proxy named by its address.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct ProxyUrl {
     /// The proxy's `http://` URL, with no path and no `user:password@`; `http://` is assumed when
@@ -502,11 +504,9 @@ const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication c
 /// path that names nothing usable is refused then, by its option's name.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TlsOptions {
     /// How the server certificate is verified.
@@ -514,7 +514,11 @@ pub struct TlsOptions {
     /// Defaults to the system's roots.
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
+        serde(
+            default,
+            deserialize_with = "alternative::optional",
+            skip_serializing_if = "Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ServerVerification"))]
     pub server: Option<ServerVerification>,
@@ -524,7 +528,11 @@ pub struct TlsOptions {
     /// Defaults to none.
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
+        serde(
+            default,
+            deserialize_with = "alternative::optional",
+            skip_serializing_if = "Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ClientCertificate"))]
     pub client: Option<ClientCertificate>,
@@ -583,11 +591,9 @@ pub enum ClientCertificate {
 /// A client certificate and its key, from PEM files.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct PemCertificate {
     /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
@@ -622,11 +628,9 @@ impl PemCertificate {
 /// A client certificate and its key, from a PKCS#12 bundle.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct P12Certificate {
     /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
@@ -654,11 +658,9 @@ impl P12Certificate {
 /// A certificate of a Windows certificate store.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct StoreCertificate {
     /// Where the store is.
@@ -680,6 +682,7 @@ pub struct StoreCertificate {
     pub name: Option<String>,
 
     /// How the certificate is found in the store.
+    #[cfg_attr(feature = "serde", serde(deserialize_with = "alternative::required"))]
     pub find: StoreSearch,
 }
 
@@ -938,11 +941,9 @@ impl std::fmt::Debug for Password {
 /// Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TcpKeepaliveOptions {
     /// How long the connection may be idle before the first probe, from a second to 32767, the
@@ -986,11 +987,9 @@ pub struct TcpKeepaliveOptions {
 /// it lets the peer send ahead of what is read.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2Options {
     /// How often a PING is sent to the peer. Defaults to none sent.
@@ -1067,7 +1066,11 @@ pub struct Http2Options {
     /// Defaults to `{"Fixed": {}}`: windows of 2 MiB per call and 5 MiB for the connection.
     #[cfg_attr(
         feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
+        serde(
+            default,
+            deserialize_with = "alternative::optional",
+            skip_serializing_if = "Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "schema", schemars(with = "Http2ReceiveOptions"))]
     pub receive: Option<Http2ReceiveOptions>,
@@ -1076,11 +1079,9 @@ pub struct Http2Options {
 /// What an HTTP/2 session sends.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2SendOptions {
     /// How many bytes a write to the connection may gather before it goes. A write waits while
@@ -1147,11 +1148,9 @@ pub enum Http2ReceiveOptions {
 /// HTTP/2 flow-control windows of fixed sizes.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2FixedWindows {
     /// How many bytes of one call the peer may send ahead of what is read.
@@ -1183,11 +1182,9 @@ pub struct Http2FixedWindows {
 /// the reader and what the call sent is still kept for the replay.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct RetryOptions {
     /// Attempts in all, the first included; 1 retries nothing. A call its peer never processed
@@ -1661,11 +1658,9 @@ impl Http2Options {
 /// What a caller may set on one channel.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct ChannelOptions {
     /// What the transport does, beyond reaching the endpoint.
@@ -1692,11 +1687,9 @@ pub struct ChannelOptions {
 /// the host and the engine.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcOptions {
     /// What this client calls itself in `user-agent`.
@@ -1756,11 +1749,9 @@ pub struct GrpcOptions {
 /// What a call sends to the server.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcSendOptions {
     /// The largest message this client will send, in bytes. A larger one ends its call
@@ -1779,11 +1770,9 @@ pub struct GrpcSendOptions {
 /// What a call accepts from the server.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcReceiveOptions {
     /// The largest message this client will accept, in bytes.
@@ -1802,11 +1791,9 @@ pub struct GrpcReceiveOptions {
 /// What crosses between the host and the engine on each call, one way and the other.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct HostOptions {
     /// What the host sends.
@@ -1825,11 +1812,9 @@ pub struct HostOptions {
 /// What a call's host sends: the messages it hands the engine.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct HostSendOptions {
     /// How many messages a call may have sent and unacquitted at once.
@@ -1849,11 +1834,9 @@ pub struct HostSendOptions {
 /// What the engine delivers to a call's host: its payloads and its status.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(rename_all = "PascalCase", deny_unknown_fields)
-)]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct HostReceiveOptions {
     /// How many of a call's payloads the host may hold at once, delivered and not yet given back.
@@ -1916,6 +1899,7 @@ macro_rules! over_values {
 over_values!(
     String,
     i32,
+    u64,
     f64,
     bool,
     Seconds,
@@ -1927,7 +1911,8 @@ over_values!(
 
 /// `Over` for an enum whose every variant carries one value: the same variant merges what the two
 /// carry, and another is taken whole. Every variant is listed and matched without `_`, so a
-/// variant the enum gains and this does not list fails to compile.
+/// variant the enum gains and this does not list fails to compile - and so is the list of names
+/// [`alternative`] reads a key against.
 macro_rules! over_variants {
     ($type:ident { $($variant:ident),+ $(,)? }) => {
         impl Over for $type {
@@ -1940,7 +1925,194 @@ macro_rules! over_variants {
                 }
             }
         }
+
+        #[cfg(feature = "serde")]
+        impl alternative::Alternative for $type {
+            const NAME: &'static str = stringify!($type);
+            const VARIANTS: &'static [&'static str] = &[$(stringify!($variant)),+];
+        }
     };
+}
+
+/// How an alternative is read: an object whose one key names a variant and holds what it carries.
+///
+/// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
+/// read past instead, as a struct reads past a key it does not declare, so that the configuration
+/// loader logs it; the alternative is then none, and keeps what an earlier source gave it.
+#[cfg(feature = "serde")]
+mod alternative {
+    use std::marker::PhantomData;
+
+    use serde::de::{
+        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
+        IntoDeserializer, MapAccess, VariantAccess, Visitor,
+    };
+
+    /// An enum read as an alternative, by the names of its variants.
+    pub(super) trait Alternative: DeserializeOwned {
+        const NAME: &'static str;
+        const VARIANTS: &'static [&'static str];
+    }
+
+    /// An alternative that may be left out, and is none when its key names no variant.
+    pub(super) fn optional<'de, D: Deserializer<'de>, T: Alternative>(
+        deserializer: D,
+    ) -> Result<Option<T>, D::Error> {
+        deserializer.deserialize_option(Optional(PhantomData))
+    }
+
+    /// An alternative a document has to state, refused when its key names no variant.
+    pub(super) fn required<'de, D: Deserializer<'de>, T: Alternative>(
+        deserializer: D,
+    ) -> Result<T, D::Error> {
+        deserializer
+            .deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))?
+            .ok_or_else(|| {
+                de::Error::custom(format_args!(
+                    "it names none of {}, and one is needed",
+                    T::VARIANTS.join(", ")
+                ))
+            })
+    }
+
+    struct Optional<T>(PhantomData<T>);
+
+    impl<'de, T: Alternative> Visitor<'de> for Optional<T> {
+        type Value = Option<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "one of {}", T::VARIANTS.join(", "))
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Option<T>, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Option<T>, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Option<T>, D::Error> {
+            // As a struct whose fields are the variants, so that a reader matching keys to fields
+            // matches these too.
+            deserializer.deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))
+        }
+    }
+
+    /// The variant an object's keys name, if one does; two are refused.
+    struct Chosen<T>(PhantomData<T>);
+
+    impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
+        type Value = Option<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "an object naming one of {}", T::VARIANTS.join(", "))
+        }
+
+        fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
+            let mut chosen = None;
+            while let Some(key) = map.next_key::<String>()? {
+                if !T::VARIANTS.contains(&key.as_str()) {
+                    map.next_value::<IgnoredAny>()?;
+                    continue;
+                }
+                if chosen.is_some() {
+                    return Err(de::Error::custom(
+                        "it names two alternatives, of which one is chosen at a time",
+                    ));
+                }
+                chosen = Some(map.next_value_seed(Named::<T> {
+                    name: key,
+                    kind: PhantomData,
+                })?);
+            }
+            Ok(chosen)
+        }
+    }
+
+    /// The variant `name`, read from the value its key holds.
+    struct Named<T> {
+        name: String,
+        kind: PhantomData<T>,
+    }
+
+    impl<'de, T: Alternative> DeserializeSeed<'de> for Named<T> {
+        type Value = T;
+
+        fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<T, D::Error> {
+            T::deserialize(OneVariant {
+                name: self.name,
+                value: deserializer,
+            })
+        }
+    }
+
+    /// An enum of one variant whose value is `value`, which the derived reader takes as it takes
+    /// any enum.
+    struct OneVariant<D> {
+        name: String,
+        value: D,
+    }
+
+    impl<'de, D: Deserializer<'de>> Deserializer<'de> for OneVariant<D> {
+        type Error = D::Error;
+
+        fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
+            visitor.visit_enum(self)
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf
+            option unit unit_struct newtype_struct seq tuple tuple_struct map struct enum
+            identifier ignored_any
+        }
+    }
+
+    impl<'de, D: Deserializer<'de>> EnumAccess<'de> for OneVariant<D> {
+        type Error = D::Error;
+        type Variant = Content<D>;
+
+        fn variant_seed<V: DeserializeSeed<'de>>(
+            self,
+            seed: V,
+        ) -> Result<(V::Value, Content<D>), D::Error> {
+            let name = seed.deserialize(self.name.into_deserializer())?;
+            Ok((name, Content(self.value)))
+        }
+    }
+
+    struct Content<D>(D);
+
+    impl<'de, D: Deserializer<'de>> VariantAccess<'de> for Content<D> {
+        type Error = D::Error;
+
+        fn unit_variant(self) -> Result<(), D::Error> {
+            <() as de::Deserialize>::deserialize(self.0)
+        }
+
+        fn newtype_variant_seed<T: DeserializeSeed<'de>>(
+            self,
+            seed: T,
+        ) -> Result<T::Value, D::Error> {
+            seed.deserialize(self.0)
+        }
+
+        fn tuple_variant<V: Visitor<'de>>(
+            self,
+            len: usize,
+            visitor: V,
+        ) -> Result<V::Value, D::Error> {
+            self.0.deserialize_tuple(len, visitor)
+        }
+
+        fn struct_variant<V: Visitor<'de>>(
+            self,
+            fields: &'static [&'static str],
+            visitor: V,
+        ) -> Result<V::Value, D::Error> {
+            self.0.deserialize_struct("", fields, visitor)
+        }
+    }
 }
 
 over_variants!(ServerVerification {
@@ -2126,6 +2298,99 @@ impl ChannelOptions {
     }
 }
 
+/// What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
+/// channel takes where its own state none.
+#[derive(Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct RuntimeOptions {
+    /// The server, as `http://host:port` in the clear or `https://host:port` over TLS, that a
+    /// channel created with no endpoint of its own reaches.
+    ///
+    /// Defaults to none: every channel then names its own.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    pub endpoint: Option<String>,
+
+    /// The bytes the runtime holds before work waits, counting the buffers lent to send and the
+    /// messages received until the host gives them back: a call stops reading, and a send waits
+    /// for room.
+    ///
+    /// Defaults to 4294967295, four gigabytes, or half the address space where that is smaller;
+    /// a larger value is that too.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub memory_ceiling: Option<u64>,
+
+    /// The bytes past which the runtime stops: a received message that would take the count past
+    /// them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may
+    /// pass it together, by a message each, and this bounds them. At least MemoryCeiling, or
+    /// MemoryCeiling's default when that is left out.
+    ///
+    /// Defaults to a quarter above MemoryCeiling.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub memory_hard_ceiling: Option<u64>,
+
+    /// Channel options every channel of the runtime takes where its own options state none: the
+    /// two are merged option by option, a struct's options within it, and the channel's win; an
+    /// alternative - how the server is verified, who the client is, which proxy - merges its fields
+    /// over the same alternative and is taken whole over another.
+    ///
+    /// Defaults to none.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "ChannelOptions"))]
+    pub channel_defaults: Option<ChannelOptions>,
+}
+
+/// The endpoint is printed elided, since it may carry a password.
+impl std::fmt::Debug for RuntimeOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeOptions")
+            .field("endpoint", &self.endpoint.as_deref().map(elided))
+            .field("memory_ceiling", &self.memory_ceiling)
+            .field("memory_hard_ceiling", &self.memory_hard_ceiling)
+            .field("channel_defaults", &self.channel_defaults)
+            .finish()
+    }
+}
+
+over_fields!(RuntimeOptions {
+    endpoint,
+    memory_ceiling,
+    memory_hard_ceiling,
+    channel_defaults,
+});
+
+#[cfg(feature = "configuration")]
+impl crate::configuration::Document for ChannelOptions {
+    fn over(self, earlier: Self) -> Self {
+        Over::over(self, &earlier)
+    }
+}
+
+#[cfg(feature = "configuration")]
+impl crate::configuration::Document for RuntimeOptions {
+    fn over(self, earlier: Self) -> Self {
+        Over::over(self, &earlier)
+    }
+}
+
 /// The schema of [`ChannelOptions`], as the committed file holds it.
 ///
 /// Rendered here rather than by whoever asks, so the file, the test that checks it and any
@@ -2135,6 +2400,18 @@ impl ChannelOptions {
 /// is the reader's, and a `default` keyword is one a validator or a generator could act on.
 #[cfg(feature = "schema")]
 pub fn schema() -> String {
+    rendered::<ChannelOptions>()
+}
+
+/// The schema of [`RuntimeOptions`], as the committed `runtime.schema.json` holds it, rendered as
+/// [`schema`] renders the channel's.
+#[cfg(feature = "schema")]
+pub fn runtime_schema() -> String {
+    rendered::<RuntimeOptions>()
+}
+
+#[cfg(feature = "schema")]
+fn rendered<T: schemars::JsonSchema>() -> String {
     let schema = schemars::generate::SchemaSettings::default()
         .with_transform(schemars::transform::RecursiveTransform(
             |schema: &mut schemars::Schema| {
@@ -2142,7 +2419,7 @@ pub fn schema() -> String {
             },
         ))
         .into_generator()
-        .into_root_schema_for::<ChannelOptions>();
+        .into_root_schema_for::<T>();
     let mut rendered = serde_json::to_string_pretty(&schema).expect("a schema renders");
     rendered.push('\n');
     rendered
@@ -3185,6 +3462,21 @@ mod tests {
         );
     }
 
+    /// The runtime's schema is what generates its C# class, kept as the channel's is.
+    #[cfg(feature = "schema")]
+    #[test]
+    fn the_committed_runtime_schema_is_the_one_the_types_describe() {
+        let committed = include_str!("../runtime.schema.json").replace("\r\n", "\n");
+
+        assert_eq!(
+            committed,
+            runtime_schema(),
+            "the options changed and the schema did not; write it again with\n  \
+             cargo run -p armonik-transport --features schema --example runtime_schema -- \
+             packages/rust/armonik-transport/runtime.schema.json"
+        );
+    }
+
     /// Every option the schema declares is one `serde` reads, under the name the schema spells,
     /// and so is every alternative of each `oneOf`. A document holds one alternative per choice,
     /// so one is written per index, and the index picks the alternatives of nested choices digit by
@@ -3193,24 +3485,81 @@ mod tests {
     ///
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
-    /// name they stopped agreeing on would be an option the generated C# sets, the schema admits,
-    /// and `deny_unknown_fields` refuses at the far end of the ABI.
-    #[cfg(all(feature = "schema", feature = "serde"))]
+    /// name they stopped agreeing on would be an option the generated C# sets and the schema
+    /// admits, which the loader reads past: nothing would refuse it, so what this asserts is that
+    /// nothing is logged as unknown.
+    #[cfg(all(feature = "schema", feature = "configuration"))]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
-        let schema: serde_json::Value =
-            serde_json::from_str(&schema()).expect("the schema is a document");
+        fn read_all<D: crate::configuration::Document + std::fmt::Debug>(rendered: &str) {
+            let schema: serde_json::Value =
+                serde_json::from_str(rendered).expect("the schema is a document");
 
-        for alternative in 0..9 {
-            let document = a_value_for(&schema, &schema, alternative);
+            for alternative in 0..9 {
+                let document = a_value_for(&schema, &schema, alternative);
+                let logged = Logged::default();
+                let subscriber = tracing_subscriber::fmt()
+                    .with_writer(logged.clone())
+                    .with_ansi(false)
+                    .finish();
 
-            let read = serde_json::from_value::<ChannelOptions>(document.clone());
+                let read = tracing::subscriber::with_default(subscriber, || {
+                    crate::configuration::Configuration::with_prefix("")
+                        .document(document.to_string())
+                        .load::<D>()
+                });
 
-            assert!(
-                read.is_ok(),
-                "the schema declares {document}, which serde refuses: {}",
-                read.unwrap_err()
-            );
+                assert!(
+                    read.is_ok(),
+                    "the schema declares {document}, which the loader refuses: {}",
+                    read.unwrap_err()
+                );
+                let said = logged.said();
+                assert!(
+                    said.is_empty(),
+                    "the schema declares {document}, which serde reads past: {said}"
+                );
+            }
+        }
+
+        read_all::<ChannelOptions>(&schema());
+        read_all::<RuntimeOptions>(&runtime_schema());
+    }
+
+    /// What a subscriber writes, kept to be read back.
+    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[derive(Clone, Default)]
+    struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    #[cfg(all(feature = "schema", feature = "configuration"))]
+    impl Logged {
+        fn said(&self) -> String {
+            let written = self.0.lock().unwrap_or_else(|held| held.into_inner());
+            String::from_utf8_lossy(&written).into_owned()
+        }
+    }
+
+    #[cfg(all(feature = "schema", feature = "configuration"))]
+    impl std::io::Write for Logged {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(|held| held.into_inner())
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(all(feature = "schema", feature = "configuration"))]
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self {
+            self.clone()
         }
     }
 
@@ -3218,9 +3567,9 @@ mod tests {
     /// takes the alternative `alternative` picks in the base of its alternatives' count, and hands
     /// what is left of the index to the choices that alternative holds.
     ///
-    /// Values rather than a name list, because `deny_unknown_fields` refuses a name and the type
-    /// refuses a value, and only a document carrying both exercises the two.
-    #[cfg(all(feature = "schema", feature = "serde"))]
+    /// Values rather than a name list, because an unknown name is logged and a value of the wrong
+    /// type refused, and only a document carrying both exercises the two.
+    #[cfg(all(feature = "schema", feature = "configuration"))]
     fn a_value_for(
         node: &serde_json::Value,
         root: &serde_json::Value,

@@ -25,13 +25,24 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using Microsoft.Extensions.Configuration;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>What a caller may set on the runtime.</summary>
+// Rooted at RuntimeOptions, which reaches every group of the vocabulary, so the whole graph is
+// serialized without reflection - which is what lets a trimmed or native-AOT host use this.
+[JsonSerializable(typeof(RuntimeOptions))]
+internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
+{
+}
+
+/// <summary>
+///   What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
+///   channel takes where its own state none.
+/// </summary>
 public sealed class RuntimeOptions
 {
   /// <summary>Options nobody has set.</summary>
@@ -49,12 +60,22 @@ public sealed class RuntimeOptions
       throw new ArgumentNullException(nameof(other));
     }
 
+    Endpoint = other.Endpoint;
     MemoryCeiling = other.MemoryCeiling;
     MemoryHardCeiling = other.MemoryHardCeiling;
     ChannelDefaults = other.ChannelDefaults is null
                         ? null
                         : new ChannelOptions(other.ChannelDefaults);
   }
+
+  /// <summary>
+  ///   The server, as <c>http://host:port</c> in the clear or <c>https://host:port</c> over TLS, that a
+  ///   channel created with no endpoint of its own reaches.
+  /// </summary>
+  /// <remarks>Defaults to none: every channel then names its own.</remarks>
+  [JsonPropertyName("Endpoint")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Endpoint { get; set; }
 
   /// <summary>
   ///   The bytes the runtime holds before work waits, counting the buffers lent to send and the
@@ -95,6 +116,13 @@ public sealed class RuntimeOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
+    if (Endpoint is string endpoint && endpoint.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Endpoint),
+                                            endpoint,
+                                            "Endpoint has to be at least 1 character long.");
+    }
+
     if (MemoryCeiling is long memoryCeiling && memoryCeiling < 1)
     {
       throw new ArgumentOutOfRangeException(nameof(MemoryCeiling),
@@ -123,7 +151,12 @@ public sealed class RuntimeOptions
     foreach (var entry in RuntimeOptionsConfiguration.Entries(section))
     {
       if (RuntimeOptionsConfiguration.Is(entry,
-                                         "MemoryCeiling"))
+                                         "Endpoint"))
+      {
+        bound.Endpoint = RuntimeOptionsConfiguration.Text(entry);
+      }
+      else if (RuntimeOptionsConfiguration.Is(entry,
+                                              "MemoryCeiling"))
       {
         bound.MemoryCeiling = RuntimeOptionsConfiguration.Int64(entry);
       }
@@ -145,6 +178,21 @@ public sealed class RuntimeOptions
     }
 
     return bound;
+  }
+
+  /// <summary>The document the engine reads, as UTF-8.</summary>
+  /// <returns>The options as JSON, without the ones left unset.</returns>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its bounds.</exception>
+  /// <remarks>
+  ///   Checked before it is written, not after it is refused: the engine answers a bad
+  ///   document with a status naming neither the option nor the bound.
+  /// </remarks>
+  internal byte[] Encode()
+  {
+    Validate();
+
+    return JsonSerializer.SerializeToUtf8Bytes(this,
+                                               RuntimeOptionsJsonContext.Default.RuntimeOptions);
   }
 }
 

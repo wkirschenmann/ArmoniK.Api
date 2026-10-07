@@ -342,8 +342,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                  option.Description);
 
         // The name is spelled rather than left to the serializer's policy: this document is a
-        // contract with the engine, which refuses an option it does not know rather than
-        // ignoring it, and a policy set elsewhere would be enough to break it.
+        // contract with the engine, which reads past an option it does not know, and a policy
+        // set elsewhere would be enough to turn every option into one.
         Lines(source,
               $$"""
                 [JsonPropertyName("{{option.Name}}")]
@@ -377,7 +377,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     // A configuration's keys are read here rather than by `ConfigurationBinder`, which cannot make
     // a choice: its type is abstract, and which record to make is what the section's one key says.
-    // Every key is matched, so a misspelt one is refused as the engine refuses it in a document.
+    // Every key is matched, so a misspelt one is refused: a section read here has no log to say
+    // that a key was dropped.
     private static void AppendBindGroup(IndentedTextWriter source,
                                         OptionGroup group,
                                         string reading)

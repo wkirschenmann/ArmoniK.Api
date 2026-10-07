@@ -64,8 +64,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
     // Resolved by the runtime, so this and the engine size from one number.
     deliveryCredits_ = options.Grpc!.Host!.Receive!.Window!.Value;
 
-    // The endpoint is its own argument and never an option: it is the one value a channel cannot
-    // be created without, so every option of the document has a default and `{}` would do.
+    // Its own argument rather than an option, and empty for the Endpoint of the runtime's
+    // options, which the engine reads; `Target` is then empty too.
     var named = Encoding.UTF8.GetBytes(endpoint);
     var json = options.Encode();
 
