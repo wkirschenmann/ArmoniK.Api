@@ -483,6 +483,16 @@ async fn attempt<S: ResponseSink>(
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> Ended {
+    // Before the timeout is read off the deadline, so that `grpc-timeout` states what is left
+    // after the wait. A retry waits here too, and a window that ends past the deadline ends the call
+    // DEADLINE_EXCEEDED, unlike a backoff, which would give back what the attempt failed with:
+    // the wait is on this channel and not on the server's answer.
+    if let Some(limiter) = &inner.rate_limit {
+        if until_stopped(stop, limiter.admit()).await.is_none() {
+            return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid);
+        }
+    }
+
     // tonic encodes no message: the body is the engine's, framed already, put below tonic's
     // client by the channel's own service.
     let mut request = tonic::Request::new(tonic::codegen::tokio_stream::empty::<Bytes>());

@@ -28,6 +28,7 @@ use super::contained::contained;
 use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
+use super::rate_limit::{RateLimitConfig, RateLimiter};
 use super::request::OneRequest;
 use super::retry::{AttemptMessages, ChannelReplay, RequestBody, RetryConfig};
 use super::status::{GrpcStatus, GrpcStatusCode, Unprocessed};
@@ -60,6 +61,9 @@ pub struct GrpcChannelConfig {
     /// When a failed call is sent again. With none, a call keeps no copy, so only one its peer
     /// never processed, and that had sent nothing, goes again.
     pub retry: Option<RetryConfig>,
+    /// How many requests the channel starts in a window of time; a request over it waits for the
+    /// next window. With none, requests start as they are made.
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 impl GrpcChannelConfig {
@@ -73,6 +77,7 @@ impl GrpcChannelConfig {
             delivery_coalescing: DEFAULT_DELIVERY_COALESCING,
             default_deadline: None,
             retry: None,
+            rate_limit: None,
         }
     }
 }
@@ -111,6 +116,9 @@ impl GrpcChannel {
         if let Some(retry) = &config.retry {
             retry.admissible()?;
         }
+        if let Some(rate_limit) = &config.rate_limit {
+            rate_limit.admissible()?;
+        }
         let replay = Arc::new(ChannelReplay::new(
             config
                 .retry
@@ -148,6 +156,7 @@ impl GrpcChannel {
                 delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
                 retry: config.retry,
+                rate_limit: config.rate_limit.map(RateLimiter::new),
                 replay,
                 idle_timeout,
                 calls_per_session,
@@ -335,6 +344,8 @@ pub(crate) struct Inner {
     pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
     pub(crate) retry: Option<RetryConfig>,
+    /// The turns the channel's requests take, when it has a rate limit.
+    pub(crate) rate_limit: Option<RateLimiter>,
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
