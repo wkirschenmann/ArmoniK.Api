@@ -1497,6 +1497,16 @@ keeps a request out of nginx's header limits. `TcpNagleAlgorithm` is refused: th
 disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
+**Status**: wait-for-ready done, per call (decisions.md has its shape). `CallStartOptions` has
+`wait_for_ready`, `AK_CALL_WAIT_FOR_READY` carries it across the ABI, and the .NET binding sets it
+from `CallOptions.IsWaitForReady`. A waiting call is not told of a failed dial: the channel's
+connection backoff, a module of its own, holds the next dial off, and the calls waiting share it.
+Tested in Rust against a server that comes up after the call started, and through the C ABI and
+the .NET binding on every framework. The formal model needs no change: the flag is not part of the shape the model carries
+(`OneRequestCalls` and `OneResponseCalls`), `options` is not modelled, and the engine's connection
+establishment is outside it. A call that waits for good is one the network never serves, which
+the model's "network progresses" assumption on the terminal already excludes.
+Retry throttling, compression, `RateLimit` and `Http2MaxHeaderListSize` remain.
 
 ### T6.16: The host's buffers, several at once and resizable
 

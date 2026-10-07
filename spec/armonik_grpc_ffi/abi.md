@@ -178,6 +178,18 @@ runtime is charged for it, and the status after the message is read past the run
 memory threshold: a host may hold the message until the status is in, as the .NET binding's reader
 does.
 
+`AK_CALL_WAIT_FOR_READY` declares that the call waits for the channel to open a connection rather
+than end `UNAVAILABLE` when it cannot reach its server, as gRPC's wait-for-ready has it and
+`CallOptions.WithWaitForReady` sets it. It reads no field, so the record keeps its layout, and a
+host built before the flag simply never sets it. The channel dials again, backing off as gRPC's
+connection backoff does, and the call goes out on the first connection it opens. The wait ends
+at the call's deadline (`DEADLINE_EXCEEDED`), on its cancellation, or when its channel is
+released; otherwise it lasts as long as the server stays out of reach, so a call that must not
+wait for good states a deadline - a failure that persists, such as a certificate the server does
+not present, is waited out too. The flag does not help a call that reached a connection: what
+breaks it after that ends it as it ends any other. `AK_ABI_VERSION` stays 1: the flag is additive,
+and a library that predates it refuses it as an unknown flag.
+
 A record this library fills, `ak_error` among them, has a fixed layout instead: `ak_abi_version()`
 is the agreement, and the two sides agree at load time or they do not run.
 
