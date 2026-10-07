@@ -1470,6 +1470,24 @@ code's to make:
 - whether `publish.yml` publishes `ArmoniK.Api.Client.RustGrpcChannel`, which it does not today:
   a new package on NuGet.
 
+What `publish.yml` lacks for the C# packages, `ArmoniK.Api.Client` referencing the binding (T6.8),
+which is T6.12's to supply. Its `csharp` job runs on every pull request and every push to main as
+well as on a release, so until then the `ArmoniK.Api.Client` pre-releases it pushes depend on a
+package no job publishes, and a consumer restoring one fails:
+
+- the SDKs: its `csharp` job installs .NET 6.x alone, where the binding targets net10.0 (an SDK 10
+  to restore and build it) and builds its options with a net8.0 tool, run by `dotnet exec` (an 8.x
+  runtime);
+- the engine: a Rust toolchain with the target of every runtime identifier, each cross toolchain
+  `ring` needs, and `-p:NativeEngineRids` naming them, since the build builds the host's engine
+  alone by default and a package packs only the engines that were built;
+- the package: `ArmoniK.Api.Client.RustGrpcChannel.csproj` is not in the job's matrix, and the
+  `ArmoniK.Api.Client` package depends on it at the same version, so it has to be pushed first or
+  the restore of a consumer fails until the index has it; the matrix legs run in parallel, and a
+  release cannot be fixed by pushing the version again;
+- the time: pre-release legs are capped at 10 minutes, which a cargo build of eleven targets does
+  not fit in.
+
 **Deliverable**: a package that works on every runtime identifier it claims, built and checked by
 CI.
 

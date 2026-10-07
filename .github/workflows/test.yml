@@ -18,34 +18,34 @@ jobs:
       matrix:
         language:
           - lang: C#
-            cmd: dotnet test -f net4.7 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net4.7 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: ''
             env: {}
           - lang: C#
-            cmd: dotnet test -f net4.7 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net4.7 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: ''
             env:
               GrpcClient__HttpMessageHandler: GrpcWebHandler
           - lang: C#
-            cmd: dotnet test -f net4.8 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net4.8 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: ''
             env: {}
           - lang: C#
-            cmd: dotnet test -f net4.8 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net4.8 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: ''
             env:
               GrpcClient__HttpMessageHandler: GrpcWebHandler
           - lang: C#
-            cmd: dotnet test -f net6.0 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net6.0 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: 6.0
             env: {}
           - lang: C#
-            cmd: dotnet test -f net8.0 --logger "trx;LogFileName=test-results.trx"
+            cmd: dotnet test -f net8.0 -p:SkipNativeEngine=true --logger "trx;LogFileName=test-results.trx"
             dir: csharp/ArmoniK.Api.Client.Test
             dotnet: 8.0
             env: {}
@@ -114,12 +114,18 @@ jobs:
         run: |
           certutil -addstore -f "ROOT" server2-ca.pem
 
+      # ArmoniK.Api.Client references the native binding, which targets net10.0 and builds its
+      # options with a net8.0 tool: both SDKs are needed to restore and build it, the runtimes of
+      # 6.x and 8.x to run the tests and the tool. The connectivity tests do not use the native
+      # transport, so they skip the engine (SkipNativeEngine) and need no Rust toolchain; the
+      # RustGrpcChannel job below builds and tests it.
       - name: Install .NET Core
         uses: actions/setup-dotnet@3951f0dfe7a07e2313ec93c75700083e2005cbab # v4
         with:
           dotnet-version: |
             6.x
             8.x
+            10.x
 
       - name: Print language
         run: |
