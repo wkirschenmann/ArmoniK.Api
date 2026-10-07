@@ -275,6 +275,22 @@ public class AbiLayoutTests
                                      Is.EqualTo(1));
                        });
 
+  /// <summary>A host built against an older header sets only the bits it knew, so a bit keeps its
+  /// value.</summary>
+  [Test]
+  public void TheCallStartFlagsAreOneBitEachAndKeepTheirValues()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(NativeMethods.AK_CALL_HAS_DEADLINE,
+                                     Is.EqualTo(1u));
+                         Assert.That(NativeMethods.AK_CALL_ONE_RESPONSE,
+                                     Is.EqualTo(2u));
+                         Assert.That(NativeMethods.AK_CALL_ONE_REQUEST,
+                                     Is.EqualTo(4u));
+                         Assert.That(NativeMethods.AK_CALL_WAIT_FOR_READY,
+                                     Is.EqualTo(8u));
+                       });
+
   /// <summary>The version this binding was written against, as a literal.</summary>
   /// <remarks>Not a check against the header - both are rendered from the same Rust constant, and
   /// this compares that constant to the number it is. What it catches is the constant being

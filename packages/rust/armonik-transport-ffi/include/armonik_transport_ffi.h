@@ -87,6 +87,17 @@
  */
 #define AK_CALL_ONE_REQUEST 4
 
+/**
+ * In ak_call_start_options.flags: the call waits for the channel to open a connection rather than
+ * end UNAVAILABLE when it cannot reach its server, as gRPC's wait-for-ready has it. The channel
+ * dials again, backing off as gRPC's connection backoff does, and the call goes out on the first
+ * connection it opens. The wait ends at the call's deadline (DEADLINE_EXCEEDED), on its
+ * cancellation, or when its channel is released; otherwise it lasts as long as the server stays
+ * out of reach. A call that reached a connection is not helped: what breaks it after that ends it
+ * as it ends any other.
+ */
+#define AK_CALL_WAIT_FOR_READY 8
+
 #define AK_ABI_VERSION 1
 
 /**
@@ -640,8 +651,8 @@ typedef struct {
      */
     uint32_t version;
     /**
-     * AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE and AK_CALL_ONE_REQUEST, any of them or none. Any
-     * other flag is refused rather than ignored.
+     * AK_CALL_HAS_DEADLINE, AK_CALL_ONE_RESPONSE, AK_CALL_ONE_REQUEST and AK_CALL_WAIT_FOR_READY,
+     * any of them or none. Any other flag is refused rather than ignored.
      */
     uint32_t flags;
     /**

@@ -749,8 +749,28 @@ impl TestServer {
         Self::serving(None, Some(requests)).await
     }
 
+    /// A server listening at `endpoint`, such as the address `closed_port` returned.
+    pub async fn start_at(endpoint: &str) -> Self {
+        let address = endpoint
+            .strip_prefix("http://")
+            .expect("an http endpoint of an address");
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .expect("bind the address the endpoint names");
+        Self::serving_on(listener, endpoint.to_owned(), None, None)
+    }
+
     async fn serving(streams: Option<u32>, requests: Option<usize>) -> Self {
         let (listener, endpoint) = loopback().await;
+        Self::serving_on(listener, endpoint, streams, requests)
+    }
+
+    fn serving_on(
+        listener: tokio::net::TcpListener,
+        endpoint: String,
+        streams: Option<u32>,
+        requests: Option<usize>,
+    ) -> Self {
         let connections = Arc::new(AtomicUsize::new(0));
 
         let accepted = connections.clone();

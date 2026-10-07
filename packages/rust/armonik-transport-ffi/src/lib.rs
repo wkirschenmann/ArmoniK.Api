@@ -426,6 +426,7 @@ pub unsafe extern "C" fn ak_call_start(
         });
         let one_request = options.flags & AK_CALL_ONE_REQUEST != 0;
         let one_response = options.flags & AK_CALL_ONE_RESPONSE != 0;
+        let wait_for_ready = options.flags & AK_CALL_WAIT_FOR_READY != 0;
 
         unsafe {
             hand_over(
@@ -439,6 +440,7 @@ pub unsafe extern "C" fn ak_call_start(
                     call::Shape {
                         one_request,
                         one_response,
+                        wait_for_ready,
                     },
                     HostPtr(call_ctx),
                 ),

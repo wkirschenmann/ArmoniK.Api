@@ -1356,4 +1356,5 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 
 **The `CallInvoker` mapping owes `CallOptions` in full**: per-call credentials, host override,
 write options and method type; the deadline, the cancellation token and the request metadata are
-carried. The table above maps the five call shapes and stops there.
+carried, and so is wait-for-ready (`CallOptions.IsWaitForReady`). The table above maps the five
+call shapes and stops there.

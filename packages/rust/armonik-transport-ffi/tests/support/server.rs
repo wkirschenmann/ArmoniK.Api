@@ -21,6 +21,18 @@ pub struct TestServer {
 
 impl TestServer {
     pub fn start() -> Self {
+        Self::listening_at("127.0.0.1:0")
+    }
+
+    /// One that listens at the address of `endpoint`, where nothing listens.
+    pub fn start_at(endpoint: &str) -> Self {
+        let address = endpoint
+            .strip_prefix("http://")
+            .expect("an http endpoint of an address");
+        Self::listening_at(address)
+    }
+
+    fn listening_at(address: &str) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -28,7 +40,7 @@ impl TestServer {
             .expect("a runtime for the test server");
 
         let listener = runtime.block_on(async {
-            tokio::net::TcpListener::bind("127.0.0.1:0")
+            tokio::net::TcpListener::bind(address)
                 .await
                 .expect("bind the test server")
         });

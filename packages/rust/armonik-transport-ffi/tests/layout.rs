@@ -149,6 +149,15 @@ fn a_source_is_its_kind_and_a_borrowed_view() {
     assert_eq!(align_of::<ak_config_source>(), PTR);
 }
 
+/// A host built against an older header sets only the bits it knew, so a bit keeps its value.
+#[test]
+fn the_call_start_flags_are_one_bit_each_and_keep_their_values() {
+    assert_eq!(AK_CALL_HAS_DEADLINE, 1);
+    assert_eq!(AK_CALL_ONE_RESPONSE, 2);
+    assert_eq!(AK_CALL_ONE_REQUEST, 4);
+    assert_eq!(AK_CALL_WAIT_FOR_READY, 8);
+}
+
 #[test]
 fn an_error_carries_its_detail_inline() {
     assert_eq!(size_of::<ak_error>(), 4 * PTR);

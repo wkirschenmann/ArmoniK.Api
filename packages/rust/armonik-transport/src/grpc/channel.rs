@@ -21,6 +21,7 @@ use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
+use super::backoff::Backoff;
 use super::call::{
     self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
 };
@@ -154,13 +155,14 @@ impl GrpcChannel {
                 max_header_list_size,
                 calls_per_session,
                 sessions: std::sync::Mutex::new(Sessions::default()),
+                opened: watch::channel(0).0,
                 closed: watch::channel(false).0,
             }),
         })
     }
 
     pub async fn connect(&self) -> Result<(), ChannelError> {
-        self.inner.sender().await.map(|_| ())
+        self.inner.sender(false).await.map(|_| ())
     }
 
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
@@ -177,6 +179,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            wait_for_ready: options.wait_for_ready,
         };
         self.inner
             .spawner
@@ -204,6 +207,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            wait_for_ready: options.wait_for_ready,
         };
         Ok((
             send,
@@ -232,6 +236,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            wait_for_ready: options.wait_for_ready,
         };
         Ok((
             request,
@@ -346,6 +351,8 @@ pub(crate) struct Inner {
     /// when only the server bounds them.
     calls_per_session: usize,
     sessions: std::sync::Mutex<Sessions>,
+    /// How many sessions the channel has opened, for a call waiting out a backoff to notice one.
+    opened: watch::Sender<u64>,
     closed: watch::Sender<bool>,
 }
 
@@ -355,6 +362,8 @@ struct Sessions {
     next: u64,
     open: Vec<Session>,
     dials: Vec<Dial>,
+    /// When the channel dials again, after a dial failed.
+    backoff: Backoff,
 }
 
 struct Session {
@@ -372,6 +381,14 @@ struct Session {
     idle_since: tokio::time::Instant,
     /// Whether its idle timer is running.
     timing: bool,
+}
+
+/// What a caller looking for a session waits on.
+enum Waiting {
+    /// A dial's outcome.
+    Dial(broadcast::Receiver<Result<(), ChannelError>>),
+    /// The time the channel may dial again, or a session opened before it.
+    Backoff(tokio::time::Instant, watch::Receiver<u64>),
 }
 
 /// A dial in flight, how many calls wait on it, and how its outcome reaches them.
@@ -460,6 +477,7 @@ impl Inner {
         self: &Arc<Self>,
         answered: Answered,
         one_response: bool,
+        wait_for_ready: bool,
         body: RequestBody,
     ) -> tonic::client::Grpc<Http2> {
         tonic::client::Grpc::with_origin(
@@ -467,6 +485,7 @@ impl Inner {
                 inner: Arc::clone(self),
                 answered,
                 one_response,
+                wait_for_ready,
                 body: Some(body),
             },
             self.endpoint.clone(),
@@ -495,11 +514,17 @@ impl Inner {
     /// then detaches this caller from the dial instead of cancelling it for everyone waiting. A
     /// dial that ends opens a session its callers then take like any other, so one that finds it
     /// full by then looks again.
+    ///
+    /// A caller that waits for the channel to be ready is not told of a failed dial: it waits for
+    /// the channel's backoff to pass, which a session opened meanwhile cuts short, and dials
+    /// again. It ends with the call that holds it, or with the channel closing; a dial that no
+    /// later dial could answer still ends it.
     async fn sender(
         self: &Arc<Self>,
+        wait_for_ready: bool,
     ) -> Result<(SendRequest<tonic::body::Body>, Lease), ChannelError> {
         loop {
-            let mut waiting = {
+            let waiting = {
                 let mut sessions = self.sessions();
                 if *self.closed.borrow() {
                     return Err(ChannelError::Closed);
@@ -528,6 +553,7 @@ impl Inner {
                 }
 
                 let calls_per_session = self.calls_per_session;
+                let now = tokio::time::Instant::now();
                 match sessions
                     .dials
                     .iter_mut()
@@ -535,34 +561,51 @@ impl Inner {
                 {
                     Some(dial) => {
                         dial.waiting += 1;
-                        dial.outcome.subscribe()
+                        Waiting::Dial(dial.outcome.subscribe())
                     }
-                    None => {
-                        // One, because one outcome is sent and every waiter subscribed before it
-                        // was.
-                        let (outcome, waiting) = broadcast::channel(1);
-                        let id = sessions.next;
-                        sessions.next += 1;
-                        sessions.dials.push(Dial {
-                            id,
-                            waiting: 1,
-                            outcome,
-                        });
-                        let inner = Arc::clone(self);
-                        self.spawner.spawn(async move { inner.dial(id).await });
-                        waiting
-                    }
+                    // Subscribed under the lock a session is added under, so one opened after this
+                    // is seen.
+                    None => match wait_for_ready
+                        .then(|| sessions.backoff.pending(now))
+                        .flatten()
+                    {
+                        Some(until) => Waiting::Backoff(until, self.opened.subscribe()),
+                        None => {
+                            // One, because one outcome is sent and every waiter subscribed before
+                            // it was.
+                            let (outcome, waiting) = broadcast::channel(1);
+                            let id = sessions.next;
+                            sessions.next += 1;
+                            sessions.dials.push(Dial {
+                                id,
+                                waiting: 1,
+                                outcome,
+                            });
+                            let inner = Arc::clone(self);
+                            self.spawner.spawn(async move { inner.dial(id).await });
+                            Waiting::Dial(waiting)
+                        }
+                    },
                 }
             };
 
             // The lock is released, so the dial is free to take it when it is done. A caller
             // dropped here drops only its receiver.
-            match waiting.recv().await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => return Err(error),
-                // The dial task went away without an outcome, which happens when the runtime it
-                // was spawned on is shutting down.
-                Err(_) => return Err(ChannelError::Closed),
+            match waiting {
+                Waiting::Dial(mut outcome) => match outcome.recv().await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) if wait_for_ready && error.is_connection_failure() => {}
+                    Ok(Err(error)) => return Err(error),
+                    // The dial task went away without an outcome, which happens when the runtime
+                    // it was spawned on is shutting down.
+                    Err(_) => return Err(ChannelError::Closed),
+                },
+                Waiting::Backoff(until, mut opened) => {
+                    tokio::select! {
+                        () = tokio::time::sleep_until(until) => {}
+                        _ = opened.changed() => {}
+                    }
+                }
             }
         }
     }
@@ -601,7 +644,12 @@ impl Inner {
 
         let (sender, connection) = match dialled {
             Some(Ok(session)) => session,
-            Some(Err(error)) => return told(Err(ChannelError::from(error))),
+            Some(Err(error)) => {
+                // A call that waits is never told a failed dial, so this is the only trace of it.
+                tracing::debug!(endpoint = %safe_endpoint(&self.endpoint), %error, "a dial failed");
+                sessions.backoff.failed(tokio::time::Instant::now());
+                return told(Err(ChannelError::from(error)));
+            }
             None => {
                 return told(Err(ChannelError::DialPanicked {
                     endpoint: safe_endpoint(&self.endpoint),
@@ -656,6 +704,8 @@ impl Inner {
             idle_since: since,
             timing: self.idle_timeout.is_some(),
         });
+        sessions.backoff.succeeded();
+        self.opened.send_modify(|opened| *opened += 1);
         drop(sessions);
         if let Some(idle_timeout) = self.idle_timeout {
             self.spawner.spawn(close_when_idle(
@@ -721,6 +771,7 @@ pub(crate) struct Http2 {
     inner: Arc<Inner>,
     answered: Answered,
     one_response: bool,
+    wait_for_ready: bool,
     /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
     /// from an empty stream of messages. Taken by the one request tonic's client sends.
     body: Option<RequestBody>,
@@ -754,6 +805,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
         let one_response = self.one_response;
+        let wait_for_ready = self.wait_for_ready;
         match self.body.take() {
             Some(RequestBody::Framed(body)) => {
                 *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body));
@@ -783,15 +835,19 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 }
             }
 
-            let (mut sender, lease) = inner.sender().await.map_err(|error| match error {
-                ChannelError::Closed => worded(GrpcStatus::cancelled()),
-                // A fault on this side, as the driver's own panic is, and not a peer out of
-                // reach: UNAVAILABLE would tell a caller the connection or the server failed.
-                ChannelError::DialPanicked { .. } => {
-                    worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
-                }
-                error => worded(GrpcStatus::unreachable(error)),
-            })?;
+            let (mut sender, lease) =
+                inner
+                    .sender(wait_for_ready)
+                    .await
+                    .map_err(|error| match error {
+                        ChannelError::Closed => worded(GrpcStatus::cancelled()),
+                        // A fault on this side, as the driver's own panic is, and not a peer out of
+                        // reach: UNAVAILABLE would tell a caller the connection or the server failed.
+                        ChannelError::DialPanicked { .. } => {
+                            worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
+                        }
+                        error => worded(GrpcStatus::unreachable(error)),
+                    })?;
             // A call counts on its session until hyper is done with its request too: a call whose
             // response ends first keeps its request open, and its stream, until the driver
             // half-closes it, and the next call would otherwise overlap it.
