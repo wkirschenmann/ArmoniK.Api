@@ -630,7 +630,7 @@ fn read<D: serde::de::DeserializeOwned>(
         ignored: &ignored,
     });
     for key in ignored.into_inner() {
-        tracing::warn!(
+        tracing::info!(
             source = %source,
             key = %key,
             "the configuration names a key the engine does not know, which is ignored"
