@@ -72,7 +72,12 @@ impl ChannelSettings {
             config.max_recv_message_size = max as usize;
         }
         config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
-        config.accept_encoding = grpc.receive.compression.map(MessageEncoding::encoding);
+        config.accept_encodings = grpc
+            .receive
+            .compression
+            .map(MessageEncoding::encoding)
+            .into_iter()
+            .collect();
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }
@@ -740,15 +745,15 @@ mod tests {
     #[test]
     fn compression_reaches_the_channel_per_direction() {
         let none = config_of(b"{}");
-        assert_eq!((none.send_encoding, none.accept_encoding), (None, None));
+        assert_eq!((none.send_encoding, none.accept_encodings), (None, vec![]));
 
         let sends = config_of(br#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#);
         assert_eq!(sends.send_encoding, Some(Encoding::Gzip));
-        assert_eq!(sends.accept_encoding, None);
+        assert_eq!(sends.accept_encodings, vec![]);
 
         let accepts = config_of(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#);
         assert_eq!(accepts.send_encoding, None);
-        assert_eq!(accepts.accept_encoding, Some(Encoding::Gzip));
+        assert_eq!(accepts.accept_encodings, vec![Encoding::Gzip]);
 
         assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Zstd"}}}"#).is_err());
     }

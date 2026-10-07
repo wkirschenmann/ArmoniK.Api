@@ -74,3 +74,5 @@ tracing-futures = "0.2"
 tracing-subscriber = "0.3"
 windows-sys = "0.61"
 x509-parser = "0.18"
+# The encoder of the zstd encoding, at the version tonic's decoder uses.
+zstd = { version = "0.13", default-features = false }

@@ -42,9 +42,9 @@ pub const FLAKY_COLLECT: &str = "/armonik_transport.test.Echo/FlakyCollect";
 /// A bidi stream that fails as [`FLAKY_COLLECT`] does, answering the first message before it
 /// fails when `x-answer-first` is set, and past its failures chats as [`CHAT`].
 pub const FLAKY_CHAT: &str = "/armonik_transport.test.Echo/FlakyChat";
-/// Echoes through tonic, which inflates a request compressed with gzip and compresses its answer
-/// when the request accepts it.
-pub const ECHO_GZIP: &str = "/armonik_transport.test.Echo/EchoGzip";
+/// Echoes through tonic, which inflates a request compressed with gzip, deflate or zstd and
+/// compresses its answer in the first of those the request's `grpc-accept-encoding` lists.
+pub const ECHO_COMPRESSED: &str = "/armonik_transport.test.Echo/EchoCompressed";
 /// Reads the request whole and answers one message that says how it arrived: its `grpc-encoding`,
 /// and the flag and length on the wire of each message.
 pub const FRAMES: &str = "/armonik_transport.test.Echo/Frames";
@@ -368,10 +368,14 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
             .expect("a response");
     }
 
-    if path == ECHO_GZIP {
+    if path == ECHO_COMPRESSED {
         return Grpc::new(BytesCodec)
             .accept_compressed(CompressionEncoding::Gzip)
+            .accept_compressed(CompressionEncoding::Deflate)
+            .accept_compressed(CompressionEncoding::Zstd)
             .send_compressed(CompressionEncoding::Gzip)
+            .send_compressed(CompressionEncoding::Deflate)
+            .send_compressed(CompressionEncoding::Zstd)
             .max_decoding_message_size(usize::MAX)
             .max_encoding_message_size(usize::MAX)
             .unary(&mut Handler(echo), request.map(TonicBody::new))
@@ -476,11 +480,25 @@ async fn frames(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
         .expect("a response")
 }
 
-/// A message compressed with gzip, framed as such.
-pub fn gzipped_message(payload: &[u8]) -> Bytes {
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder.write_all(payload).expect("into a vector");
-    grpc_message(1, &encoder.finish().expect("a gzip stream"))
+/// A message compressed in the encoding `name`, framed as such. The encoders are the libraries'
+/// own, not the engine's, so a reply built here is what another implementation would send.
+pub fn compressed_message(name: &str, payload: &[u8]) -> Bytes {
+    let level = flate2::Compression::default();
+    let squeezed = match name {
+        "gzip" => {
+            let mut encoder = flate2::write::GzEncoder::new(Vec::new(), level);
+            encoder.write_all(payload).expect("into a vector");
+            encoder.finish().expect("a gzip stream")
+        }
+        "deflate" => {
+            let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), level);
+            encoder.write_all(payload).expect("into a vector");
+            encoder.finish().expect("a zlib stream")
+        }
+        "zstd" => zstd::stream::encode_all(payload, 0).expect("a zstd frame"),
+        other => panic!("no encoder for {other}"),
+    };
+    grpc_message(1, &squeezed)
 }
 
 /// Fails with `x-fail-code` (UNAVAILABLE by default) - in the head, or after one when
@@ -492,6 +510,8 @@ async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> 
     if !flaky_fails(request.headers()) {
         return armonik_transport::reexports::tonic::server::Grpc::new(BytesCodec)
             .accept_compressed(CompressionEncoding::Gzip)
+            .accept_compressed(CompressionEncoding::Deflate)
+            .accept_compressed(CompressionEncoding::Zstd)
             .unary(&mut Handler(echo), request.map(TonicBody::new))
             .await;
     }
@@ -679,16 +699,9 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 trailers(&[("grpc-status", "0")]),
             ],
         ),
-        // Answers in the encodings of the compression document: a message compressed, one left as
-        // it is under the encoding the head names, one in an encoding nobody asked for, and ones
-        // that cannot be inflated or inflate to more than a limit.
-        "GzipReply" => (
-            grpc_head().header("grpc-encoding", "gzip"),
-            vec![
-                Frame::data(gzipped_message(&b"squeezed ".repeat(100))),
-                trailers(&[("grpc-status", "0")]),
-            ],
-        ),
+        // Answers in the encodings of the compression document: a message left as it is under
+        // the encoding the head names, one in an encoding nobody asked for, and, further down, a
+        // message compressed, ones that cannot be inflated or inflate to more than a limit.
         "GzipReplyLeftPlain" => (
             grpc_head().header("grpc-encoding", "gzip"),
             vec![
@@ -717,21 +730,39 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 .header("grpc-message", "try%20again"),
             vec![],
         ),
-        "GzipReplyThatDoesNotInflate" => (
-            grpc_head().header("grpc-encoding", "gzip"),
-            vec![
-                Frame::data(grpc_message(1, b"not a gzip stream")),
-                trailers(&[("grpc-status", "0")]),
-            ],
-        ),
-        // Eight MiB of zeros, a few KiB on the wire.
-        "GzipReplyOfEightMiB" => (
-            grpc_head().header("grpc-encoding", "gzip"),
-            vec![
-                Frame::data(gzipped_message(&vec![0; 8 * 1024 * 1024])),
-                trailers(&[("grpc-status", "0")]),
-            ],
-        ),
+        // The same, in any of the encodings the engine knows: `ReplyIn:<name>` answers a message
+        // compressed in it, `ReplyThatDoesNotInflate:<name>` bytes of no such stream, and
+        // `ReplyOfEightMiB:<name>` eight MiB of zeros.
+        case if case.starts_with("ReplyIn:") => {
+            let name = &case["ReplyIn:".len()..];
+            (
+                grpc_head().header("grpc-encoding", name),
+                vec![
+                    Frame::data(compressed_message(name, &b"squeezed ".repeat(100))),
+                    trailers(&[("grpc-status", "0")]),
+                ],
+            )
+        }
+        case if case.starts_with("ReplyThatDoesNotInflate:") => {
+            let name = &case["ReplyThatDoesNotInflate:".len()..];
+            (
+                grpc_head().header("grpc-encoding", name),
+                vec![
+                    Frame::data(grpc_message(1, b"not a stream of the encoding")),
+                    trailers(&[("grpc-status", "0")]),
+                ],
+            )
+        }
+        case if case.starts_with("ReplyOfEightMiB:") => {
+            let name = &case["ReplyOfEightMiB:".len()..];
+            (
+                grpc_head().header("grpc-encoding", name),
+                vec![
+                    Frame::data(compressed_message(name, &vec![0; 8 * 1024 * 1024])),
+                    trailers(&[("grpc-status", "0")]),
+                ],
+            )
+        }
         "HeadThenError" => (
             grpc_head().header("x-head", "present"),
             vec![
