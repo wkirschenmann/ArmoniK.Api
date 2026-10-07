@@ -1,6 +1,6 @@
 # Retry admission: one health estimate for the rate limit, the retries and the backoffs
 
-Status: proposal, 2026-10-07; the answers to section 8 of the same day are recorded there. Research
+Status: proposal, 2026-10-07; the answers to section 8 are recorded there, and Q4 is open. Research
 only; nothing here binds the code until the open questions are decided. The rate limiter it builds
 on is merged on `wk/feat/phase1` (`90249e09b`, from `wk/feat/option-rate-limit`, tip `2ae62df47`),
 and "the branch" below means that code.
@@ -802,7 +802,7 @@ alternative whole.
 | `Grpc.Rate.Adaptive.On.WindowSeconds` (`W`) | seconds | 30 | below 0.012 (a slot of under a millisecond) or above 3,600 |
 | `Grpc.Rate.Adaptive.On.FloorPerSecond` | number | 0.5 | not finite, not above 0 (a floor of 0 stops the probing) or above 1,000,000 |
 | `Grpc.Retry.MaxAttempts` | int | 5 | below 1 (as built) |
-| `Grpc.Retry.Codes` | `GoogleRpc`, `GrpcClient` or `List` | `GoogleRpc`, recommended (Q5, open) | `List` empty, naming `OK`, or naming a name that is not a status code |
+| `Grpc.Retry.Codes` | `GoogleRpc`, `GrpcClient` or `List` | `GoogleRpc` (Q5) | `List` empty, naming `OK`, or naming a name that is not a status code |
 
 **`Grpc.Retry.Codes`** selects which statuses a call is tried again for, as an enum, so that a
 preset and an explicit list exclude one another and nothing needs combining. `{"GoogleRpc": true}`
@@ -851,9 +851,9 @@ Proposals, each against the document it touches.
    (section 5). contract.md's "not specified yet" sentence on the throttle is replaced by 4.2 and
    4.3.
 4. **Requirement 3.1** ("calls that fail with `UNAVAILABLE`, `ABORTED` or `UNKNOWN` are retried")
-   gains two: not while the channel is unhealthy, and the default codes are those of the
-   `Grpc.Retry.Codes` default (Q5), with `GrpcClient`'s and the `armonik` crate's translations
-   stating the `GrpcClient` preset.
+   gains two: not while the channel is unhealthy, and the default codes are `UNAVAILABLE` alone, the
+   `GoogleRpc` default of `Grpc.Retry.Codes` (Q5), with `GrpcClient`'s and the `armonik` crate's
+   translations stating the `GrpcClient` preset.
 5. **`RetryConfig` keeps `max_attempts` and its default of 5**; the estimate is a new config beside
    it. Its retryable codes follow Q5: with a `GoogleRpc` default, `RetryConfig::default` and
    `RetryOptions::default().to_config()`, which options.rs tests equal, both carry `UNAVAILABLE`
@@ -901,23 +901,34 @@ in 4.2: refusals of load reject, application statuses (`ABORTED` and `UNKNOWN` i
 deadlines, cancels, GOAWAY-ended streams and the engine's own statuses are neutral. The blind spot
 is a slow server that answers late. The plumbing (7.7) is a prerequisite of the estimate.
 
-**Q5. An option selects the retryable codes. Decided; its default is open.** What the standards say:
-A6 sets no default list and requires one (`retryableStatusCodes` is non-empty); the grpc.io example
-retries `UNAVAILABLE` alone. `google.rpc.Code` advises `UNAVAILABLE` where the client can retry just
-the failing call, `ABORTED` where the client should retry at a higher level (a failed sequencer
-check or a transaction abort, which means starting the unit of work again, not repeating the call),
-and describes `UNKNOWN` as a status from an error space this address space does not know.
-`GrpcClient` and requirement 3 retry all three. The option is `Grpc.Retry.Codes`, an enum of two
-presets, `GoogleRpc` and `GrpcClient`, and an explicit `List` (section 6); the `GrpcClient`
-translation of T6.8 picks `GrpcClient`. Open: the engine's default. Recommendation: `GoogleRpc`.
-Compatibility of ArmoniK.Api.Client is carried by the translation, which states `GrpcClient`, so it
-does not need the engine's default to match; the default then serves the hosts that state nothing,
-for which the standard is the right behaviour and a poison call, the failure the per-call ceiling
-alone bounds and the estimate does not see, is not made by default. Against: requirement 3.1 and
-`RetryConfig::default` list three codes, so the default changes the contract text and the equality
-options.rs tests between `RetryOptions::default().to_config()` and `RetryConfig::default()`, and a
-Rust host that reads no `GrpcClient` configuration changes behaviour; the validation plan's last
-scenario counts the codes that end calls to show whether `ABORTED` and `UNKNOWN` matter in practice.
+**Q5. An option selects the retryable codes, and the engine's default is `GoogleRpc`. Decided.**
+What the standards say: A6 sets no default list and requires one (`retryableStatusCodes` is
+non-empty); the grpc.io example retries `UNAVAILABLE` alone. `google.rpc.Code` advises `UNAVAILABLE`
+where the client can retry just the failing call, `ABORTED` where the client should retry at a
+higher level (a failed sequencer check or a transaction abort, which means starting the unit of work
+again, not repeating the call), and describes `UNKNOWN` as a status from an error space this address
+space does not know. `GrpcClient` and requirement 3 retry all three. The option is
+`Grpc.Retry.Codes`, an enum of two presets, `GoogleRpc` and `GrpcClient`, and an explicit `List`
+(section 6). The default is `GoogleRpc`, `UNAVAILABLE` alone: the standard is the right behaviour
+for a host that states nothing, and a poison call, the failure the per-call ceiling alone bounds and
+the estimate does not see, is not made by default. Compatibility of ArmoniK.Api.Client is carried by
+the `GrpcClient` translation of T6.8, and by the `armonik` crate's reading of the `GrpcClient`
+configuration, which state the `GrpcClient` preset.
+
+Work this leaves for the build task:
+- requirement 3.1 and its default configuration (requirements.md) say `UNAVAILABLE` alone by
+  default, and name the `GrpcClient` preset for the three codes;
+- `RetryConfig::default` carries `UNAVAILABLE` alone, and the engine's tests that rely on the three
+  codes state the `GrpcClient` preset;
+- the equality that options.rs tests between `RetryOptions::default().to_config()` and
+  `RetryConfig::default()` holds with the new default;
+- tasks.md's status of T6.3, on the `Retry` option unit, which says its defaults are `GrpcClient`'s
+  and grpc-dotnet's with the three codes, and contract.md's sentence that the policy is the
+  channel's as `GrpcClient` configures it, name the preset and the new default;
+- the translations state `GrpcClient` where a host's own default must be kept: T6.8's, and the
+  `armonik` crate's mapping of `GrpcClient__*`;
+- the validation plan's last scenario counts the codes that end calls in a real deployment, to show
+  whether `ABORTED` and `UNKNOWN` matter in practice.
 
 **Q6. The reserve is a constant, half the bucket. Decided.**
 
@@ -1095,7 +1106,7 @@ a real deployment after, and each scenario names what would show a default wrong
    trips, the failed calls, the retries and requests sent, and the time to reopen. A default is kept
    unless a neighbouring value is better on one metric and no worse on the others.
 8. **Which codes end calls.** In the real deployment, count the statuses that end calls and the
-   attempts that are retried, by code, to settle Q5.
+   attempts that are retried, by code, to confirm Q5.
 
 ## 10. Not proposed
 
