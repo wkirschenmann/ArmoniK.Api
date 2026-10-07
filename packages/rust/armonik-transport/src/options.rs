@@ -13,7 +13,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
-use crate::grpc::RetryConfig;
+use crate::grpc::{RateLimitConfig, RetryConfig};
 use crate::http2::{
     ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
     TlsConfig, LARGEST_FRAMES_PER_WRITE,
@@ -1323,6 +1323,77 @@ impl RetryOptions {
     }
 }
 
+/// How many requests a channel starts in a window of time.
+///
+/// Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
+/// because the server sees each as a request; a streaming call counts once, when it starts. The
+/// first request opens a window of `PerSeconds`, and `Calls` of them start in it. The next request
+/// waits until the window ends, and is the one that opens the next. A request over the limit waits
+/// and is not refused: a call whose deadline passes while it waits ends `DEADLINE_EXCEEDED`, and
+/// one cancelled ends `CANCELLED`, neither having sent anything. Requests start in the order they
+/// reach the limit, and the limit is the channel's, shared by every connection it opens.
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(rename_all = "PascalCase", deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub struct RateLimitOptions {
+    /// The requests that start in one window.
+    ///
+    /// Refused without `PerSeconds`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub calls: Option<i32>,
+
+    /// How long a window lasts.
+    ///
+    /// Refused without `Calls`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub per_seconds: Option<Seconds>,
+}
+
+impl RateLimitOptions {
+    /// The limit these options name, none when they name none.
+    pub fn to_config(&self) -> Result<Option<RateLimitConfig>, OptionRefusal> {
+        let calls = match self.calls {
+            None => None,
+            Some(calls) if calls < 1 => {
+                return Err(OptionRefusal::new(
+                    "Calls",
+                    format!("{calls} has to be at least 1"),
+                ))
+            }
+            Some(calls) => Some(calls as usize),
+        };
+        let per = duration("PerSeconds", self.per_seconds, 1e-9, None)?;
+        match (calls, per) {
+            (Some(calls), Some(per)) => Ok(Some(RateLimitConfig::new(calls, per))),
+            (None, None) => Ok(None),
+            (Some(_), None) => Err(OptionRefusal::new(
+                "PerSeconds",
+                "it is needed with Calls, which counts requests in a window of it",
+            )),
+            (None, Some(_)) => Err(OptionRefusal::new(
+                "Calls",
+                "it is needed with PerSeconds, the window it counts requests in",
+            )),
+        }
+    }
+}
+
 /// An option refused, named by its path from the unit that read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionRefusal {
@@ -1734,6 +1805,12 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "serde", serde(default))]
     pub retry: RetryOptions,
 
+    /// How many requests the channel starts in a window of time.
+    ///
+    /// Defaults to `{}`, which sets none: requests start as they are made.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub rate_limit: RateLimitOptions,
+
     /// What a call sends to the server.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
@@ -1992,6 +2069,7 @@ over_fields!(GrpcOptions {
     user_agent,
     default_deadline_seconds,
     retry,
+    rate_limit,
     send,
     receive,
     host,
@@ -2041,6 +2119,7 @@ over_fields!(RetryOptions {
     call_replay_bytes,
     channel_replay_bytes,
 });
+over_fields!(RateLimitOptions { calls, per_seconds });
 over_fields!(PemCertificate { certificate, key });
 
 /// A username and its password are one credential: stating either states it, and nothing of the
@@ -2782,6 +2861,93 @@ mod tests {
             let refused = options.to_config().expect_err(key);
             assert_eq!(refused.key(), key, "{refused}");
         }
+    }
+
+    #[test]
+    fn the_rate_limit_options_become_the_limit_and_one_half_stated_is_refused() {
+        assert_eq!(RateLimitOptions::default().to_config().expect("none"), None);
+        assert_eq!(
+            RateLimitOptions {
+                calls: Some(100),
+                per_seconds: Some(Seconds(0.5)),
+            }
+            .to_config()
+            .expect("admissible"),
+            Some(RateLimitConfig::new(100, Duration::from_millis(500)))
+        );
+
+        for (options, key) in [
+            (
+                RateLimitOptions {
+                    calls: Some(0),
+                    per_seconds: Some(Seconds(1.0)),
+                },
+                "Calls",
+            ),
+            (
+                RateLimitOptions {
+                    calls: Some(1),
+                    per_seconds: Some(Seconds(0.0)),
+                },
+                "PerSeconds",
+            ),
+            (
+                RateLimitOptions {
+                    calls: Some(1),
+                    per_seconds: Some(Seconds(1e300)),
+                },
+                "PerSeconds",
+            ),
+            (
+                RateLimitOptions {
+                    calls: Some(5),
+                    per_seconds: None,
+                },
+                "PerSeconds",
+            ),
+            (
+                RateLimitOptions {
+                    calls: None,
+                    per_seconds: Some(Seconds(1.0)),
+                },
+                "Calls",
+            ),
+        ] {
+            let refused = options.to_config().expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_rate_limit_is_merged_over_the_default_one_option_at_a_time() {
+        let defaults = ChannelOptions {
+            grpc: GrpcOptions {
+                rate_limit: RateLimitOptions {
+                    calls: Some(100),
+                    per_seconds: Some(Seconds(1.0)),
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let stated = ChannelOptions {
+            grpc: GrpcOptions {
+                rate_limit: RateLimitOptions {
+                    calls: Some(5),
+                    per_seconds: None,
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+
+        assert_eq!(
+            stated.over(&defaults).grpc.rate_limit,
+            RateLimitOptions {
+                calls: Some(5),
+                per_seconds: Some(Seconds(1.0)),
+            }
+        );
     }
 
     #[test]

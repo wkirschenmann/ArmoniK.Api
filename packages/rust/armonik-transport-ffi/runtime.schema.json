@@ -575,6 +575,10 @@
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
           "$ref": "#/$defs/RetryOptions"
         },
+        "RateLimit": {
+          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
+          "$ref": "#/$defs/RateLimitOptions"
+        },
         "Send": {
           "description": "What a call sends to the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
           "$ref": "#/$defs/GrpcSendOptions"
@@ -627,6 +631,24 @@
           "type": "integer",
           "format": "int32",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RateLimitOptions": {
+      "description": "How many requests a channel starts in a window of time.\n\nOff unless both options are set. A request is an attempt, the first of a call or a retry of it,\nbecause the server sees each as a request; a streaming call counts once, when it starts. The\nfirst request opens a window of `PerSeconds`, and `Calls` of them start in it. The next request\nwaits until the window ends, and is the one that opens the next. A request over the limit waits\nand is not refused: a call whose deadline passes while it waits ends `DEADLINE_EXCEEDED`, and\none cancelled ends `CANCELLED`, neither having sent anything. Requests start in the order they\nreach the limit, and the limit is the channel's, shared by every connection it opens.",
+      "type": "object",
+      "properties": {
+        "Calls": {
+          "description": "The requests that start in one window.\n\nRefused without `PerSeconds`.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
+        },
+        "PerSeconds": {
+          "description": "How long a window lasts.\n\nRefused without `Calls`.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
         }
       },
       "additionalProperties": false

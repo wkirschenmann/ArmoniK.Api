@@ -99,6 +99,8 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Send.MaxMessageSize"] = "grpc-dotnet's MaxSendMessageSize, which GrpcClient does not set",
                                                                        ["Grpc.Receive.MaxMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
+                                                                       ["Grpc.RateLimit.Calls"] = "grpc-dotnet has no rate limit, and GrpcClient__RateLimit is read by the Rust client alone",
+                                                                       ["Grpc.RateLimit.PerSeconds"] = "grpc-dotnet has no rate limit, and GrpcClient__RateLimit is read by the Rust client alone",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
                                                                        ["Transport.Tls.Client.P12.Password"] = "GrpcClient opens its bundle with no password",
