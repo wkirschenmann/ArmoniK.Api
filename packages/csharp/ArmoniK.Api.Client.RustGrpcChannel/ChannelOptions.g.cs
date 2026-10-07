@@ -1476,6 +1476,9 @@ public sealed class GrpcOptions
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
+    RateLimit = other.RateLimit is null
+                  ? null
+                  : new RateLimitOptions(other.RateLimit);
     Send = other.Send is null
              ? null
              : new GrpcSendOptions(other.Send);
@@ -1518,6 +1521,12 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
+  /// <summary>How many requests the channel starts in a window of time.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
+  [JsonPropertyName("RateLimit")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RateLimitOptions? RateLimit { get; set; }
+
   /// <summary>What a call sends to the server.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("Send")]
@@ -1555,6 +1564,7 @@ public sealed class GrpcOptions
     }
 
     Retry?.Validate();
+    RateLimit?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
@@ -1678,6 +1688,76 @@ public sealed class RetryOptions
       throw new ArgumentOutOfRangeException(nameof(ChannelReplayBytes),
                                             channelReplayBytes,
                                             "ChannelReplayBytes has to be at least 0.");
+    }
+  }
+}
+
+/// <summary>How many requests a channel starts in a window of time.</summary>
+/// <remarks>
+///   Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
+///   because the server sees each as a request; a streaming call counts once, when it starts. The
+///   first request opens a window of <c>PerSeconds</c>, and <c>Calls</c> of them start in it; the first request
+///   after the window ends opens the next. Windows are fixed, so up to twice <c>Calls</c> requests can
+///   start within <c>PerSeconds</c> across a boundary, the last of one window and the first of the next.
+///   A call's first attempt over the limit waits for the next window and is not refused: a call whose
+///   deadline passes while it waits ends <c>DEADLINE_EXCEEDED</c>, and one cancelled ends <c>CANCELLED</c>,
+///   neither having sent anything. Requests start in the order they reach the limit, and the limit
+///   is the channel's, shared by every connection it opens. A retry the retry policy chooses does
+///   not wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is
+///   skipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when
+///   the attempts are spent the call ends with the status of the last attempt sent. A resend of a
+///   request its peer never processed is no retry of the policy's, and waits its turn like a first
+///   attempt.
+/// </remarks>
+public sealed class RateLimitOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public RateLimitOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public RateLimitOptions(RateLimitOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Calls = other.Calls;
+    PerSeconds = other.PerSeconds;
+  }
+
+  /// <summary>The requests that start in one window.</summary>
+  /// <remarks>Refused without <c>PerSeconds</c>.</remarks>
+  [JsonPropertyName("Calls")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? Calls { get; set; }
+
+  /// <summary>How long a window lasts.</summary>
+  /// <remarks>Refused without <c>Calls</c>.</remarks>
+  [JsonPropertyName("PerSeconds")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public double? PerSeconds { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (Calls is int calls && calls < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Calls),
+                                            calls,
+                                            "Calls has to be at least 1.");
+    }
+
+    if (PerSeconds is double perSeconds && (perSeconds < 1E-09 || perSeconds >= 1.8446744073709552E+19 || double.IsNaN(perSeconds) || double.IsInfinity(perSeconds)))
+    {
+      throw new ArgumentOutOfRangeException(nameof(PerSeconds),
+                                            perSeconds,
+                                            "PerSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
   }
 }

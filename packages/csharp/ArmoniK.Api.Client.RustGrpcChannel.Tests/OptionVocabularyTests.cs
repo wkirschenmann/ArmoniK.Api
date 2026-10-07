@@ -99,6 +99,8 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Send.Compression"] = "grpc-dotnet compresses a call whose metadata asks for it, and GrpcClient asks for none",
                                                                        ["Grpc.Receive.Compression"] = "grpc-dotnet's CompressionProviders, which GrpcClient does not set",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
+                                                                       ["Grpc.RateLimit.Calls"] = "grpc-dotnet has no rate limit",
+                                                                       ["Grpc.RateLimit.PerSeconds"] = "grpc-dotnet has no rate limit",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
                                                                        ["Transport.Tls.Client.P12.Password"] = "GrpcClient opens its bundle with no password",

@@ -512,6 +512,5 @@ The following items are explicitly excluded from this version:
 - gRPC-Web
 - Bindings Java, Python, C++
 - A public connectivity-state API
-- Publicly configurable rate limiting
 - A retry policy per method name or per call: V1 has the channel's default only, and a per-call
   override and per-method configuration come right after it

@@ -151,6 +151,48 @@ public class ChannelOptionsTests
                    Throws.TypeOf<ArgumentOutOfRangeException>()
                          .With.Message.Contains("ConnectTimeoutSeconds"));
 
+  /// <summary>A rate limit is two options of one group, written under the channel's calls.</summary>
+  [Test]
+  public void ARateLimitIsAGroupOfTwoOptions()
+    => Assert.That(Encoded(new ChannelOptions
+                           {
+                             Grpc = new GrpcOptions
+                                    {
+                                      RateLimit = new RateLimitOptions
+                                                  {
+                                                    Calls      = 100,
+                                                    PerSeconds = 0.25,
+                                                  },
+                                    },
+                           }),
+                   Is.EqualTo(@"{""Grpc"":{""RateLimit"":{""Calls"":100,""PerSeconds"":0.25}}}"));
+
+  /// <summary>A rate limit that starts no request is refused before it is sent.</summary>
+  [TestCase(0,
+            1.0,
+            "Calls has to be at least 1",
+            TestName = "{m}(no calls)")]
+  [TestCase(1,
+            0.0,
+            "PerSeconds has to be at least 1E-09",
+            TestName = "{m}(a window that is over as it opens)")]
+  public void ARateLimitThatStartsNoRequestIsRefusedBeforeItIsSent(int    calls,
+                                                                   double perSeconds,
+                                                                   string reason)
+    => Assert.That(() => new ChannelOptions
+                         {
+                           Grpc = new GrpcOptions
+                                  {
+                                    RateLimit = new RateLimitOptions
+                                                {
+                                                  Calls      = calls,
+                                                  PerSeconds = perSeconds,
+                                                },
+                                  },
+                         }.Encode(),
+                   Throws.TypeOf<ArgumentOutOfRangeException>()
+                         .With.Message.Contains(reason));
+
   /// <summary>The size the schema refuses, refused here with the reason.</summary>
   /// <remarks>
   ///   Zero is a channel that can receive no message at all, and the schema's `minimum` says so.

@@ -234,7 +234,7 @@ mod tests {
 
     use super::*;
     use armonik_transport::grpc::Encoding;
-    use armonik_transport::grpc::GrpcChannelConfig;
+    use armonik_transport::grpc::{GrpcChannelConfig, RateLimitConfig};
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
     use armonik_transport::options::LARGEST_WINDOW;
 
@@ -688,6 +688,50 @@ mod tests {
             .expect("admissible")
             .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
         assert!(config.transport.tls.accept_any_server);
+    }
+
+    #[test]
+    fn the_rate_limit_reaches_the_engine_and_a_limit_that_starts_nothing_is_refused() {
+        assert_eq!(config_of(b"{}").rate_limit, None);
+        assert_eq!(
+            config_of(br#"{"Grpc":{"RateLimit":{"Calls":100,"PerSeconds":0.25}}}"#).rate_limit,
+            Some(RateLimitConfig::new(100, Duration::from_millis(250)))
+        );
+
+        for (document, key) in [
+            (
+                &br#"{"Grpc":{"RateLimit":{"Calls":0,"PerSeconds":1}}}"#[..],
+                "Grpc.RateLimit.Calls",
+            ),
+            (
+                &br#"{"Grpc":{"RateLimit":{"Calls":1,"PerSeconds":0}}}"#[..],
+                "Grpc.RateLimit.PerSeconds",
+            ),
+            (
+                &br#"{"Grpc":{"RateLimit":{"Calls":1}}}"#[..],
+                "Grpc.RateLimit.PerSeconds",
+            ),
+            (
+                &br#"{"Grpc":{"RateLimit":{"PerSeconds":1}}}"#[..],
+                "Grpc.RateLimit.Calls",
+            ),
+        ] {
+            let refused = parse(document).err().expect("refused").to_string();
+            assert!(refused.starts_with(key), "{refused}");
+        }
+
+        // The bounds the schema states are the ones refused above.
+        let schema: serde_json::Value = serde_json::from_str(&armonik_transport::options::schema())
+            .expect("the schema renders as JSON");
+        let minimum = |option: &str| {
+            schema
+                .pointer(&format!(
+                    "/$defs/RateLimitOptions/properties/{option}/minimum"
+                ))
+                .and_then(serde_json::Value::as_f64)
+        };
+        assert_eq!(minimum("Calls"), Some(1.0));
+        assert_eq!(minimum("PerSeconds"), Some(1e-9));
     }
 
     #[test]

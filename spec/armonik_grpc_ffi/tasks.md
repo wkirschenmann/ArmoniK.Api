@@ -1536,7 +1536,7 @@ the shape the model carries (`OneRequestCalls` and `OneResponseCalls`), `options
 modelled, and the engine's connection establishment is outside it. A call that waits for good is
 one the network never serves, which the model's "network progresses" assumption on the terminal
 already excludes.
-Retry throttling and `RateLimit` remain.
+Retry throttling remains.
 
 **`Http2MaxHeaderListSize`: done in the engine, decided 2026-10-07.** It is
 `Http2.Send.MaxHeaderListSize`, none by default, an `int` of at least 1. It bounds the headers
@@ -1573,6 +1573,23 @@ same `grpc-encoding`, and the replay buffers hold what is sent. The send limit i
 before it is compressed; the receive limit bounds the frame as it arrives and the message once
 tonic's decoder has inflated it. Tested against tonic's server, canned answers and
 grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0.
+
+**`RateLimit`: done in the engine.** It is `Grpc.RateLimit`, `Calls` and `PerSeconds`, read
+into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any
+other option: `Calls` requests start in a window of
+`PerSeconds`, and a call's first attempt over the limit waits for the next window, as tower's
+`RateLimit` has it. A request is an attempt, so a retry counts and a stream counts once; waiting
+calls are let through in order; a waiting call ends `DEADLINE_EXCEEDED` at its deadline and
+`CANCELLED` when cancelled or when its channel closes, and holds no turn. A retry the policy
+chooses does not wait: with no turn free it is skipped and goes to its next backoff, and skipped
+attempts count toward `maxAttempts`, so that a saturated limit slows retries and the call ends,
+when the attempts are spent, with the status of the last attempt sent. That is interim, until the
+retry budget, a global mechanism A6's retry throttle belongs to, which is to make a refused retry
+end the call. A transparent resend waits its turn, as A6's exemption from throttling is read.
+The windows are fixed, so up to twice `Calls`
+requests can start within `PerSeconds` across a boundary. The reasons are in decisions.md.
+`tests/grpc_rate_limit.rs` covers each of these but the boundary burst, and `UnaryTests` a
+deadline and a cancel ending a waiting call through the binding.
 
 ### T6.16: The host's buffers, several at once and resizable
 

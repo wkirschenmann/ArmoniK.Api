@@ -176,6 +176,11 @@ pub struct TransportError {
 pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub retry: Option<RetryConfig>,
+    /// How many requests start in a window of time, a retry's included; a
+    /// request over it waits for the next window, except a retry the policy
+    /// chose, which is skipped to its next backoff and counts as an attempt.
+    /// None starts them as made.
+    pub rate_limit: Option<RateLimitConfig>,
     pub default_deadline: Option<Duration>,
     pub user_agent: Option<String>,
     /// The largest message the engine reassembles, refused on the length the
@@ -205,6 +210,16 @@ pub struct GrpcChannelConfig {
 /// A message encoding; gzip is the only one.
 #[non_exhaustive]
 pub enum Encoding { Gzip }
+
+/// At most `calls` requests start in a window of `per`; a request over it
+/// waits for the next window, except a retry the policy chose, which is
+/// skipped. The windows are fixed, so up to twice `calls` can start within `per`
+/// across a boundary. Refused when the channel is created if `calls` is 0 or
+/// `per` is zero.
+pub struct RateLimitConfig {
+    pub calls: usize,
+    pub per: Duration,
+}
 
 pub struct RetryConfig {
     pub max_attempts: u32,          // total (initial + retries)

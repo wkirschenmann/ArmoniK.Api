@@ -393,31 +393,60 @@ async fn run<S: ResponseSink>(
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();
     let mut previous = 0u32;
+    // Retries skipped for want of a turn: they count in `previous` but were never sent.
+    let mut skipped = 0u32;
     let mut unsent_again = false;
     let mut refused_again = false;
+    // What the previous attempt failed with, while the attempt about to start is the policy's retry.
+    let mut retry_of: Option<GrpcStatus> = None;
     loop {
-        let mut headers = metadata.clone();
-        if previous > 0 {
-            headers.insert(PREVIOUS_ATTEMPTS, previous.into());
-        }
+        // Before the attempt reads what is left of the deadline, so that `grpc-timeout` states what
+        // remains after the wait. A retry the policy chose takes a turn only if one is free, and
+        // otherwise is skipped: it counts as an attempt that failed as the last one did, and the
+        // call goes on to its next backoff. A first attempt, and a resend of a request its peer
+        // never processed, wait their turn; a call whose deadline passes while it waits ends
+        // DEADLINE_EXCEEDED.
+        let skip = match (&inner.rate_limit, retry_of.take()) {
+            (Some(limiter), Some(failed)) => (!limiter.try_admit()).then_some(failed),
+            (Some(limiter), None) => {
+                if until_stopped(stop, limiter.admit()).await.is_none() {
+                    return GrpcStatus::cancelled();
+                }
+                None
+            }
+            (None, _) => None,
+        };
         let Ended {
             status,
             pushback,
             unprocessed,
-        } = attempt(
-            inner,
-            path.clone(),
-            headers,
-            replay.attempt(),
-            deadline,
-            read_gate.as_deref(),
-            one_response,
-            wait_for_ready,
-            &replay,
-            stop,
-            responding,
-        )
-        .await;
+        } = match skip {
+            Some(failed) => {
+                skipped += 1;
+                Ended::with(failed, Pushback::Unsaid)
+            }
+            None => {
+                // Only attempts that went out are previous ones: a skip sent nothing.
+                let mut headers = metadata.clone();
+                if previous > skipped {
+                    headers.insert(PREVIOUS_ATTEMPTS, (previous - skipped).into());
+                }
+                attempt(
+                    inner,
+                    path.clone(),
+                    headers,
+                    replay.attempt(),
+                    deadline,
+                    read_gate.as_deref(),
+                    one_response,
+                    wait_for_ready,
+                    &replay,
+                    stop,
+                    responding,
+                )
+                .await
+            }
+        };
         // gRFC A6's transparent retry: a request the peer's application never saw goes again at
         // once, whatever the policy, and counts as no attempt. Once a call for each way of not
         // being seen, so that a GOAWAY and the request it leaves unsent are both covered, and a
@@ -475,6 +504,7 @@ async fn run<S: ResponseSink>(
         {
             return GrpcStatus::cancelled();
         }
+        retry_of = Some(status);
     }
 }
 

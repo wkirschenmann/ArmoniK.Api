@@ -31,6 +31,8 @@ pub enum GrpcChannelConfigError {
     InvalidUserAgent { value: String },
     #[snafu(display("the retry policy is refused: {why}"))]
     Retry { why: String },
+    #[snafu(display("the rate limit is refused: {why}"))]
+    RateLimit { why: String },
     #[snafu(display("{source}"), context(false))]
     Transport { source: TransportError },
 }

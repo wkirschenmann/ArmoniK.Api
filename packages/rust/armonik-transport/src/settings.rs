@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use hyper::Uri;
 
-use crate::grpc::{GrpcChannelConfig, RetryConfig};
+use crate::grpc::{GrpcChannelConfig, RateLimitConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
     ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
@@ -35,6 +35,7 @@ pub struct ChannelSettings {
     http2: Http2Config,
     proxy: ProxyConfig,
     retry: RetryConfig,
+    rate_limit: Option<RateLimitConfig>,
 }
 
 impl ChannelSettings {
@@ -127,6 +128,10 @@ impl ChannelSettings {
             .retry
             .to_config()
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
+        let rate_limit = grpc
+            .rate_limit
+            .to_config()
+            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.RateLimit")))?;
 
         Ok(Self {
             options,
@@ -137,6 +142,7 @@ impl ChannelSettings {
             http2,
             proxy,
             retry,
+            rate_limit,
         })
     }
 
@@ -192,6 +198,7 @@ impl ChannelSettings {
         }
         config.default_deadline = self.default_deadline;
         config.retry = Some(self.retry);
+        config.rate_limit = self.rate_limit;
         config
     }
 }

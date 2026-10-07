@@ -391,6 +391,68 @@ public class UnaryTests : EchoServerFixture
                 Is.EqualTo(StatusCode.DeadlineExceeded));
   }
 
+  /// <summary>A request over the rate limit waits for the next window, and a call that stops waiting ends as
+  /// any call stopped does.</summary>
+  /// <remarks>The window is a minute, so no test waits for one: the second call is the one over the limit.</remarks>
+  [Test]
+  public async Task ACallOverTheRateLimitWaitsAndEndsAtItsDeadlineOrItsCancellation()
+  {
+    await using var channel = Runtime.Channel(Endpoint,
+                                              new ChannelOptions
+                                              {
+                                                Grpc = new GrpcOptions
+                                                       {
+                                                         RateLimit = new RateLimitOptions
+                                                                     {
+                                                                       Calls      = 1,
+                                                                       PerSeconds = 60,
+                                                                     },
+                                                       },
+                                              });
+    var client = Client(channel);
+
+    var first = await client.SayAsync(new EchoRequest
+                                      {
+                                        Text = "first",
+                                      })
+                            .ResponseAsync.ConfigureAwait(false);
+    Assert.That(first.Text,
+                Is.EqualTo("first"));
+
+    using var late = client.SayAsync(new EchoRequest
+                                     {
+                                       Text = "late",
+                                     },
+                                     deadline: DateTime.UtcNow.AddMilliseconds(300));
+    await EndsWithin(late.ResponseAsync)
+      .ConfigureAwait(false);
+    var timedOut = Assert.ThrowsAsync<RpcException>(async () => await late.ResponseAsync.ConfigureAwait(false));
+    Assert.That(timedOut!.StatusCode,
+                Is.EqualTo(StatusCode.DeadlineExceeded));
+
+    using var cancel = new CancellationTokenSource();
+    using var waiting = client.SayAsync(new EchoRequest
+                                        {
+                                          Text = "waiting",
+                                        },
+                                        cancellationToken: cancel.Token);
+    await Task.Delay(200)
+              .ConfigureAwait(false);
+    cancel.Cancel();
+    await EndsWithin(waiting.ResponseAsync)
+      .ConfigureAwait(false);
+    var cancelled = Assert.ThrowsAsync<RpcException>(async () => await waiting.ResponseAsync.ConfigureAwait(false));
+    Assert.That(cancelled!.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+  }
+
+  private static async Task EndsWithin(Task call)
+    => Assert.That(await Task.WhenAny(call,
+                                      Task.Delay(TimeSpan.FromSeconds(30)))
+                             .ConfigureAwait(false),
+                   Is.SameAs(call),
+                   "the call ended");
+
   [Test]
   public async Task ADeadlineAlreadyPassedEndsTheCallDeadlineExceeded()
   {
