@@ -23,15 +23,22 @@
 #nullable enable
 
 using System;
-using System.Globalization;
-using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-
-using Microsoft.Extensions.Configuration;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>What a caller may set on the runtime.</summary>
+// Rooted at RuntimeOptions, which reaches every group of the vocabulary, so the whole graph is
+// serialized without reflection - which is what lets a trimmed or native-AOT host use this.
+[JsonSerializable(typeof(RuntimeOptions))]
+internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
+{
+}
+
+/// <summary>
+///   What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
+///   channel takes where its own state none.
+/// </summary>
 public sealed class RuntimeOptions
 {
   /// <summary>Options nobody has set.</summary>
@@ -49,12 +56,22 @@ public sealed class RuntimeOptions
       throw new ArgumentNullException(nameof(other));
     }
 
+    Endpoint = other.Endpoint;
     MemoryCeiling = other.MemoryCeiling;
     MemoryHardCeiling = other.MemoryHardCeiling;
     ChannelDefaults = other.ChannelDefaults is null
                         ? null
                         : new ChannelOptions(other.ChannelDefaults);
   }
+
+  /// <summary>
+  ///   The server, as <c>http://host:port</c> in the clear or <c>https://host:port</c> over TLS, that a
+  ///   channel created with no endpoint of its own reaches.
+  /// </summary>
+  /// <remarks>Defaults to none: every channel then names its own.</remarks>
+  [JsonPropertyName("Endpoint")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Endpoint { get; set; }
 
   /// <summary>
   ///   The bytes the runtime holds before work waits, counting the buffers lent to send and the
@@ -95,6 +112,13 @@ public sealed class RuntimeOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
+    if (Endpoint is string endpoint && endpoint.Length < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(Endpoint),
+                                            endpoint,
+                                            "Endpoint has to be at least 1 character long.");
+    }
+
     if (MemoryCeiling is long memoryCeiling && memoryCeiling < 1)
     {
       throw new ArgumentOutOfRangeException(nameof(MemoryCeiling),
@@ -112,94 +136,18 @@ public sealed class RuntimeOptions
     ChannelDefaults?.Validate();
   }
 
-  /// <summary>The options <paramref name="section" /> states, each key matched to one without case.</summary>
-  /// <param name="section">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref="InvalidOperationException">A key names no option, or holds what its option does not admit.</exception>
-  internal static RuntimeOptions Bind(IConfigurationSection section)
+  /// <summary>The document the engine reads, as UTF-8.</summary>
+  /// <returns>The options as JSON, without the ones left unset.</returns>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its bounds.</exception>
+  /// <remarks>
+  ///   Checked before it is written, not after it is refused: the engine answers a bad
+  ///   document with a status naming neither the option nor the bound.
+  /// </remarks>
+  internal byte[] Encode()
   {
-    var bound = new RuntimeOptions();
+    Validate();
 
-    foreach (var entry in RuntimeOptionsConfiguration.Entries(section))
-    {
-      if (RuntimeOptionsConfiguration.Is(entry,
-                                         "MemoryCeiling"))
-      {
-        bound.MemoryCeiling = RuntimeOptionsConfiguration.Int64(entry);
-      }
-      else if (RuntimeOptionsConfiguration.Is(entry,
-                                              "MemoryHardCeiling"))
-      {
-        bound.MemoryHardCeiling = RuntimeOptionsConfiguration.Int64(entry);
-      }
-      else if (RuntimeOptionsConfiguration.Is(entry,
-                                              "ChannelDefaults"))
-      {
-        bound.ChannelDefaults = RuntimeOptionsConfiguration.Holds(entry) ? ChannelOptions.Bind(entry) : null;
-      }
-      else
-      {
-        throw RuntimeOptionsConfiguration.Unknown(entry,
-                                                  "RuntimeOptions");
-      }
-    }
-
-    return bound;
+    return JsonSerializer.SerializeToUtf8Bytes(this,
+                                               RuntimeOptionsJsonContext.Default.RuntimeOptions);
   }
-}
-
-/// <summary>How the text of a configuration becomes the options above, and why it may not.</summary>
-internal static class RuntimeOptionsConfiguration
-{
-  /// <summary>Whether <paramref name="section" /> is the key <paramref name="name" />, without case.</summary>
-  internal static bool Is(IConfigurationSection section,
-                          string                name)
-    => string.Equals(section.Key,
-                     name,
-                     StringComparison.OrdinalIgnoreCase);
-
-  /// <summary>The keys of a section that holds options, a key set to null left out as unset.</summary>
-  /// <exception cref="InvalidOperationException">It holds a value instead.</exception>
-  internal static IConfigurationSection[] Entries(IConfigurationSection section)
-    => string.IsNullOrEmpty(section.Value)
-         ? section.GetChildren()
-                  .Where(entry => entry.Value is not null || entry.GetChildren()
-                                                                  .Any())
-                  .ToArray()
-         : throw new InvalidOperationException($"{section.Path} holds a value, and it names options.");
-
-  /// <summary>Whether a key names anything, an empty one leaving its group or choice unset.</summary>
-  internal static bool Holds(IConfigurationSection section)
-    => !string.IsNullOrEmpty(section.Value) || section.GetChildren()
-                                                      .Any();
-
-  /// <summary>The text of a key that holds a value.</summary>
-  /// <exception cref="InvalidOperationException">It holds options instead.</exception>
-  internal static string Text(IConfigurationSection section)
-    => section.Value ?? throw new InvalidOperationException($"{section.Path} holds options, and it names a value.");
-
-  /// <summary>An integer, or none where the text is empty.</summary>
-  internal static long? Int64(IConfigurationSection section)
-  {
-    var text = Text(section);
-
-    return text.Length == 0
-             ? null
-             : long.TryParse(text,
-                             NumberStyles.Integer,
-                             CultureInfo.InvariantCulture,
-                             out var value)
-               ? value
-               : throw Unreadable(section,
-                                  "an integer");
-  }
-
-  /// <summary>A key nothing declares, refused by its path.</summary>
-  internal static InvalidOperationException Unknown(IConfigurationSection section,
-                                                    string                owner)
-    => new($"{section.Path} names nothing {owner} declares.");
-
-  private static InvalidOperationException Unreadable(IConfigurationSection section,
-                                                      string                what)
-    => new($"{section.Path} has to be {what}.");
 }

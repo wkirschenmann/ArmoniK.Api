@@ -58,6 +58,11 @@
 #include <stdint.h>
 
 /**
+ * In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
+ */
+#define AK_CONFIG_NO_PREFIX 1
+
+/**
  * In ak_call_start_options.flags: timeout_ns states the call's deadline.
  */
 #define AK_CALL_HAS_DEADLINE 1
@@ -374,6 +379,50 @@ typedef int32_t ak_head_origin;
 #endif // __cplusplus
 
 /**
+ * Where a source of ak_config is read from, in ak_config_source.kind.
+ */
+enum ak_source_kind
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+  : int32_t
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+ {
+    /**
+     * value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
+     * .toml - its document the section the prefix names, or the whole file with
+     * AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+     */
+    AK_SOURCE_FILE = 1,
+    /**
+     * value: the file's path, read as AK_SOURCE_FILE's, except that a file that does not exist
+     * contributes nothing.
+     */
+    AK_SOURCE_OPTIONAL_FILE = 2,
+    /**
+     * value: empty. The variables whose name starts with the prefix and `__`, the rest of the
+     * name the key's path, its parts joined by `__` and compared without case, and the value text
+     * read by its key's type. Read once, by ak_runtime_create_from. Refused with
+     * AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+     */
+    AK_SOURCE_ENVIRONMENT = 3,
+    /**
+     * value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+     */
+    AK_SOURCE_DOCUMENT = 4,
+    /**
+     * value: a JSON object whose names are keys' paths, their parts joined by `__` under no
+     * prefix, and whose values are text, read as the environment's are.
+     */
+    AK_SOURCE_PAIRS = 5,
+};
+#ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum ak_source_kind ak_source_kind;
+#else
+typedef int32_t ak_source_kind;
+#endif // __STDC_VERSION__ >= 202311L
+#endif // __cplusplus
+
+/**
  * Bytes the host lends this library for the duration of one downcall.
  */
 typedef struct {
@@ -511,6 +560,60 @@ typedef struct {
     ak_bytes detail;
 } ak_error;
 
+/**
+ * One source of a configuration.
+ */
+typedef struct {
+    /**
+     * An ak_source_kind; another is AK_STATUS_INVALID_ARG.
+     */
+    uint32_t kind;
+    /**
+     * Zero; another is AK_STATUS_INVALID_ARG.
+     */
+    uint32_t reserved;
+    /**
+     * What the kind says, UTF-8; one that is not is AK_STATUS_INVALID_ARG.
+     */
+    ak_bytes_in value;
+} ak_config_source;
+
+/**
+ * Where a runtime's configuration comes from: sources, read in order when the runtime is created,
+ * a later one over an earlier one option by option. A key the vocabulary does not declare is
+ * ignored rather than refused; a value that does not fit its key is refused, with its source and
+ * its path, and never quoted.
+ *
+ * Versioned as the options structs are, but for its fourth field, which is source_count rather
+ * than reserved.
+ */
+typedef struct {
+    uint32_t struct_size;
+    /**
+     * Zero, the one revision of this record there is.
+     */
+    uint32_t version;
+    /**
+     * AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+     */
+    uint32_t flags;
+    /**
+     * How many sources `sources` points at.
+     */
+    uint32_t source_count;
+    /**
+     * The sources, in order, a later one over an earlier one. May be NULL when source_count is
+     * zero.
+     */
+    const ak_config_source *sources;
+    /**
+     * The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
+     * the configuration is read from. Empty is `GrpcClient`; with AK_CONFIG_NO_PREFIX it has to be
+     * empty.
+     */
+    ak_bytes_in prefix;
+} ak_config;
+
 typedef struct {
     /**
      * The buffers lent and the messages received and not yet given back, atomic snapshot. Past
@@ -620,6 +723,33 @@ ak_status ak_runtime_create(const ak_runtime_config *config,
                             ak_error *out_error);
 
 /**
+ * Creates a runtime, as ak_runtime_create does, from the sources `config` lists: read in order,
+ * a later one over an earlier one option by option, into the vocabulary of runtime.schema.json -
+ * the endpoint, the memory ceilings, and the channel defaults every channel's own document is
+ * merged over.
+ *
+ * What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
+ * does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
+ * view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+ * that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
+ * never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
+ * an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
+ * for.
+ *
+ * # Safety
+ *
+ * `config` and `out` must be valid for their types, `config.sources` must point at
+ * `source_count` sources unless that is zero, and every byte view at its length. `callback` must
+ * stay callable with `runtime_ctx` until the runtime's last event.
+ * `out_error` must be null or writable for an `ak_error`.
+ */
+ak_status ak_runtime_create_from(const ak_config *config,
+                                 ak_callback callback,
+                                 void *runtime_ctx,
+                                 ak_handle *out,
+                                 ak_error *out_error);
+
+/**
  * The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
  * inside a callback.
  */
@@ -668,13 +798,13 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out, ak_er
  * shutting down is AK_STATUS_INVALID_STATE.
  *
  * The endpoint is its own argument, as UTF-8 - "http://host:port" in the clear, or
- * "https://host:port" over TLS. It is the one value a channel cannot be created without, so it is
- * not an option that happens to be mandatory: every option of the document has a default, and
+ * "https://host:port" over TLS. An empty one is the Endpoint of the runtime's configuration, and
+ * is AK_STATUS_INVALID_ARG when that names none. Every option of the document has a default, and
  * `{}` is a valid configuration.
  *
- * The document is structured and typed, and a JSON schema states it: objects nest, a number is a
- * number and not a string spelled like one, and an option spelled wrong is refused rather than
- * ignored. That schema, `options.schema.json`, names each option with its type and, where it has
+ * The document is structured and typed, and a JSON schema states it: objects nest, and a number is
+ * a number and not a string spelled like one. A key no option declares is ignored rather than
+ * refused. That schema, `options.schema.json`, names each option with its type and, where it has
  * them, its range and default.
  *
  * The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call

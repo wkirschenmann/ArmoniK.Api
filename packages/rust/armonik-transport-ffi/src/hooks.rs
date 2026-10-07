@@ -14,6 +14,15 @@ static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREADS: AtomicUsize = AtomicUsize::new(0);
 static NEW_ARENAS: AtomicUsize = AtomicUsize::new(0);
 
+/// The options a runtime was created with, as its configuration loaded them.
+pub fn runtime_options(
+    runtime: crate::abi::ak_handle,
+) -> Option<armonik_transport::options::RuntimeOptions> {
+    crate::tables::runtimes()
+        .get(runtime)
+        .map(|found| found.options().clone())
+}
+
 /// How many arenas lends have allocated rather than taken from a channel's spares.
 pub fn new_arenas() -> usize {
     NEW_ARENAS.load(Ordering::SeqCst)

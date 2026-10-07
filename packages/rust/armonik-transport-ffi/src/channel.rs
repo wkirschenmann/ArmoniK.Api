@@ -215,10 +215,12 @@ pub(crate) fn create(
     json: &[u8],
 ) -> Result<ak_handle, Refusal> {
     // The endpoint is not echoed: a URI may carry credentials in its userinfo.
-    let endpoint = std::str::from_utf8(endpoint)
-        .map_err(|_| ENDPOINT_NOT_UTF8)?
-        .parse()
-        .map_err(|_| ENDPOINT_NOT_A_URI)?;
+    let endpoint = match endpoint {
+        [] => owner.options().endpoint.as_deref().ok_or(NO_ENDPOINT)?,
+        given => std::str::from_utf8(given).map_err(|_| ENDPOINT_NOT_UTF8)?,
+    }
+    .parse()
+    .map_err(|_| ENDPOINT_NOT_A_URI)?;
     let settings = config::parse_over(owner.channel_defaults(), json).map_err(Refusal::config)?;
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
@@ -262,6 +264,11 @@ pub(crate) fn create(
 /// for a few calls in a row, or at once, to lend again what the last ones gave back.
 const SPARES_PER_SEND: usize = 4;
 
+const NO_ENDPOINT: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_CONFIG,
+    "the endpoint is empty, and the runtime's configuration names no Endpoint",
+);
 const ENDPOINT_NOT_UTF8: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_CONFIG,

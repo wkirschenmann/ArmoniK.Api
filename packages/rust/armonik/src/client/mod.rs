@@ -5,9 +5,13 @@ use snafu::{ResultExt, Snafu};
 // Re-exported here, so a caller reaches them through the client rather than through the transport
 // crate.
 #[cfg(feature = "_gen-client")]
+pub use armonik_transport::configuration::{ConfigRefusal, Configuration};
+#[cfg(feature = "_gen-client")]
 pub use armonik_transport::grpc::{GrpcChannel, GrpcStatus, GrpcStatusCode};
 #[cfg(feature = "_gen-client")]
-pub use armonik_transport::{ClientConfig, ClientConfigArgs, ConfigError, ReadEnvError};
+pub use armonik_transport::options::{self, RuntimeOptions};
+#[cfg(feature = "_gen-client")]
+pub use armonik_transport::settings::SettingRefusal;
 
 #[cfg(feature = "_gen-client")]
 pub mod rpc;
@@ -75,7 +79,17 @@ pub struct Client {
 pub enum ConnectionError {
     #[snafu(display("the client's configuration is refused"))]
     #[non_exhaustive]
-    Config { source: ConfigError },
+    Config { source: ConfigRefusal },
+    #[snafu(display("the client's configuration names no Endpoint"))]
+    #[non_exhaustive]
+    NoEndpoint {},
+    // The endpoint is not quoted: a URI may carry credentials in its userinfo.
+    #[snafu(display("the client's Endpoint is not a URI such as http://host:port"))]
+    #[non_exhaustive]
+    Endpoint {},
+    #[snafu(display("the client's channel defaults are refused"))]
+    #[non_exhaustive]
+    Options { source: SettingRefusal },
     #[snafu(display("the channel's configuration is refused"))]
     #[non_exhaustive]
     Channel {
@@ -89,29 +103,52 @@ pub enum ConnectionError {
 }
 
 impl Client {
-    /// Create a new client using the configuration from the environment variables
+    /// Create a new client configured by the environment: the `GrpcClient__*` variables, read as
+    /// [`Configuration::environment`] reads them. `GrpcClient__Endpoint` is required.
     pub async fn new() -> Result<Self, ConnectionError> {
-        Self::with_config(ClientConfig::from_env().context(ConfigSnafu {})?).await
+        Self::with_configuration(&Configuration::new().environment()).await
     }
 
-    /// Create a new client with the specified client configuration, connected once it returns.
+    /// Create a new client configured by the sources `configuration` lists, connected once it
+    /// returns.
+    pub async fn with_configuration(
+        configuration: &Configuration,
+    ) -> Result<Self, ConnectionError> {
+        Self::with_options(configuration.load().context(ConfigSnafu {})?).await
+    }
+
+    /// Create a new client to the options' `Endpoint`, its channel configured by their
+    /// `ChannelDefaults`, connected once it returns whatever `Transport.ConnectEagerly` says. The
+    /// memory ceilings and `Grpc.Host.Receive.Window`, which bound what a host binding holds, have
+    /// no effect here; the window is still refused outside the bounds the schema gives it.
     ///
     /// The client's connections run on the tokio runtime current here, which must outlive it.
-    pub async fn with_config(config: ClientConfig) -> Result<Self, ConnectionError> {
-        // Rendered rather than printed: `endpoint` is a public field, so a config built by hand
-        // never met the check that refuses `user:password@`, and this span is a log line.
-        let endpoint = armonik_transport::safe_endpoint(&config.endpoint);
+    pub async fn with_options(options: RuntimeOptions) -> Result<Self, ConnectionError> {
+        let endpoint: armonik_transport::reexports::http::Uri = options
+            .endpoint
+            .as_deref()
+            .ok_or(NoEndpointSnafu {}.build())?
+            .parse()
+            .map_err(|_| EndpointSnafu {}.build())?;
+        let settings = armonik_transport::settings::ChannelSettings::settle(
+            options.channel_defaults.unwrap_or_default(),
+        )
+        .context(OptionsSnafu {})?;
+
+        // Rendered rather than printed: the endpoint may carry `user:password@`, which the
+        // channel refuses after this span is made, and the span is a log line.
+        let span_endpoint = armonik_transport::safe_endpoint(&endpoint);
         tracing_futures::Instrument::instrument(
             async move {
                 let channel = GrpcChannel::new(
-                    config.channel_config().context(ConfigSnafu {})?,
+                    settings.into_channel_config(endpoint),
                     tokio::runtime::Handle::current(),
                 )
                 .context(ChannelSnafu {})?;
                 channel.connect().await.context(ConnectSnafu {})?;
                 Ok(Self::with_channel(channel))
             },
-            tracing::debug_span!("Client", endpoint),
+            tracing::debug_span!("Client", endpoint = span_endpoint),
         )
         .await
     }
@@ -123,23 +160,32 @@ impl Client {
         use http_body_util::BodyExt;
         use hyper_util::rt::TokioExecutor;
 
-        let mut config = ClientConfig::from_env().unwrap();
+        let options: RuntimeOptions = Configuration::new()
+            .environment()
+            .load()
+            .expect("the environment's configuration");
+        let mut endpoint = options.endpoint.expect("an Endpoint");
 
         match std::env::var("Http__Endpoint") {
-            Ok(value) if !value.is_empty() => {
-                config.endpoint = hyper::Uri::try_from(value).expect("HTTP endpoint");
-            }
+            Ok(value) if !value.is_empty() => endpoint = value,
             Ok(_) | Err(std::env::VarError::NotPresent) => {}
             Err(std::env::VarError::NotUnicode(value)) => {
                 panic!("{value:?} is not a valid unicode string")
             }
         }
+        let endpoint: hyper::Uri = endpoint.parse().expect("HTTP endpoint");
 
-        let request = hyper::Request::get(format!("{}calls.json", config.endpoint))
+        let request = hyper::Request::get(format!("{endpoint}calls.json"))
             .body(http_body_util::Empty::<&[u8]>::new())
             .expect("Request");
 
-        let https = armonik_transport::https_connector(config)
+        let transport = armonik_transport::settings::ChannelSettings::settle(
+            options.channel_defaults.unwrap_or_default(),
+        )
+        .expect("the channel defaults")
+        .into_channel_config(endpoint)
+        .transport;
+        let https = armonik_transport::https_connector(transport)
             .await
             .expect("Build connection information");
 
@@ -380,15 +426,61 @@ mod tests {
     use std::io::Write;
     use std::sync::{Arc, Mutex};
 
-    use armonik_transport::ClientConfig;
-
+    use super::{options::ChannelOptions, Configuration, ConnectionError, RuntimeOptions};
     use crate::Client;
+
+    #[tokio::test]
+    async fn a_client_with_no_endpoint_is_refused() {
+        let refused = Client::with_configuration(&Configuration::new().document("{}"))
+            .await
+            .err();
+        assert!(
+            matches!(refused, Some(ConnectionError::NoEndpoint { .. })),
+            "{refused:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_whose_configuration_is_refused_is_refused() {
+        let refused =
+            Client::with_configuration(&Configuration::new().document(r#"{"Endpoint": 1}"#))
+                .await
+                .err();
+        assert!(
+            matches!(refused, Some(ConnectionError::Config { .. })),
+            "{refused:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_whose_endpoint_is_no_uri_is_refused() {
+        let mut options = RuntimeOptions::default();
+        options.endpoint = Some("http://[".to_owned());
+        let refused = Client::with_options(options).await.err();
+        assert!(
+            matches!(refused, Some(ConnectionError::Endpoint { .. })),
+            "{refused:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_whose_channel_defaults_are_refused_is_refused() {
+        let mut defaults = ChannelOptions::default();
+        defaults.grpc.host.receive.window = Some(0);
+        let mut options = RuntimeOptions::default();
+        options.endpoint = Some("http://127.0.0.1:1".to_owned());
+        options.channel_defaults = Some(defaults);
+        let refused = Client::with_options(options).await.err();
+        assert!(
+            matches!(refused, Some(ConnectionError::Options { .. })),
+            "{refused:?}"
+        );
+    }
 
     /// What the span records, on the one path that reaches it with a password.
     ///
-    /// `ClientConfig::endpoint` is a public field, so a config built here rather than read from
-    /// the environment never met the check that refuses userinfo. The connection is expected to
-    /// fail - the span is created before the dial and is what this reads.
+    /// The span is made before the channel refuses the endpoint's userinfo, so it is what this
+    /// reads; the client is refused.
     #[tokio::test]
     async fn the_client_span_renders_the_endpoint_rather_than_printing_it() {
         #[derive(Clone, Default)]
@@ -420,13 +512,12 @@ mod tests {
             .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NEW)
             .finish();
 
-        let mut config = ClientConfig::default();
-        config.endpoint = hyper::Uri::try_from("http://alice:s3cret@127.0.0.1:1").expect("a uri");
-        config.allow_unsafe_connection = true;
+        let mut options = RuntimeOptions::default();
+        options.endpoint = Some("http://alice:s3cret@127.0.0.1:1".to_owned());
 
         {
             let _guard = tracing::subscriber::set_default(subscriber);
-            let _ = Client::with_config(config).await;
+            let _ = Client::with_options(options).await;
         }
 
         let said = String::from_utf8(captured.0.lock().expect("the buffer").clone())

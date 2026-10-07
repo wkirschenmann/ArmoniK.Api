@@ -18,10 +18,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
-using Microsoft.Extensions.Configuration;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Calls;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
@@ -48,6 +47,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   // The engine holds this pointer for as long as the runtime lives, and a delegate is only as
   // alive as the reference kept to it.
   private static readonly unsafe NativeMethods.ak_runtime_create_callback_delegate Trampoline = OnEvent;
+
+  // The same function, as the type the configuration's entry point declares.
+  private static readonly unsafe NativeMethods.ak_runtime_create_from_callback_delegate TrampolineFrom = OnEvent;
 
   private GCHandle self_;
   private readonly ulong handle_;
@@ -76,44 +78,33 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
-  private NativeRuntime(ulong           memoryCeiling,
-                        ulong           memoryHardCeiling,
-                        ChannelOptions? channelDefaults)
+  /// <summary>What asks the engine for a runtime, handed the context its callbacks carry.</summary>
+  private unsafe delegate ak_status Creating(void*     context,
+                                            ulong*    created,
+                                            ak_error* error);
+
+  private unsafe NativeRuntime(ChannelOptions? channelDefaults,
+                               Creating        create)
   {
     channelDefaults_ = channelDefaults is null
                          ? null
                          : new ChannelOptions(channelDefaults);
-    var defaults = channelDefaults_?.Encode() ?? Array.Empty<byte>();
 
     self_ = GCHandle.Alloc(this);
 
-    unsafe
+    ak_status status;
+    ak_error  error = default;
+    fixed (ulong* created = &handle_)
     {
-      ak_status status;
-      ak_error  error = default;
-      fixed (byte* defaultsPinned = defaults)
-      fixed (ulong* created = &handle_)
-      {
-        var config = new ak_runtime_config
-                     {
-                       struct_size           = (uint)Marshal.SizeOf<ak_runtime_config>(),
-                       memory_ceiling        = memoryCeiling,
-                       memory_hard_ceiling   = memoryHardCeiling,
-                       channel_defaults_json = ak_bytes_in.Borrow(defaultsPinned,
-                                                                  defaults.Length),
-                     };
-        status = NativeMethods.ak_runtime_create(&config,
-                                                 Trampoline,
-                                                 (void*)GCHandle.ToIntPtr(self_),
-                                                 created,
-                                                 &error);
-      }
+      status = create((void*)GCHandle.ToIntPtr(self_),
+                      created,
+                      &error);
+    }
 
-      if (status != ak_status.AK_STATUS_OK)
-      {
-        self_.Free();
-        throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
-      }
+    if (status != ak_status.AK_STATUS_OK)
+    {
+      self_.Free();
+      throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
     }
   }
 
@@ -137,9 +128,6 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// </remarks>
   public const int DefaultDeliveryCredits = 4;
 
-  /// <summary>The section a channel's options are read from when a caller names none.</summary>
-  public const string SettingSection = "RustGrpcChannel";
-
   /// <summary>Starts the engine, which the caller owns until it disposes it.</summary>
   /// <param name="memoryCeiling">
   ///   The bytes of messages, sent and received, it holds before work waits: a call stops reading
@@ -156,15 +144,124 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
   /// </exception>
-  public static NativeRuntime Create(ulong memoryCeiling     = 0,
-                                     ulong memoryHardCeiling = 0)
-    => Create(memoryCeiling,
-              memoryHardCeiling,
-              null);
+  public static unsafe NativeRuntime Create(ulong memoryCeiling     = 0,
+                                            ulong memoryHardCeiling = 0)
+  {
+    RefuseAnotherAbi();
 
-  private static NativeRuntime Create(ulong           memoryCeiling,
-                                      ulong           memoryHardCeiling,
-                                      ChannelOptions? channelDefaults)
+    return new NativeRuntime(null,
+                             (context,
+                              created,
+                              error) =>
+                             {
+                               var config = new ak_runtime_config
+                                            {
+                                              struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
+                                              memory_ceiling      = memoryCeiling,
+                                              memory_hard_ceiling = memoryHardCeiling,
+                                            };
+                               return NativeMethods.ak_runtime_create(&config,
+                                                                      Trampoline,
+                                                                      context,
+                                                                      created,
+                                                                      error);
+                             });
+  }
+
+  /// <summary>Starts the engine with the options its configuration's sources state, read by the engine now.</summary>
+  /// <param name="configuration">Where the options are read from, in order.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
+  /// <exception cref="InvalidOperationException">
+  ///   A source is refused - a file that does not exist or does not parse, a value that does not
+  ///   fit its key, the environment with no prefix - the message naming the source and the key's
+  ///   path, or the engine refused as <see cref="Create(ulong,ulong)" /> does.
+  /// </exception>
+  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <remarks>
+  ///   The sources are read by the engine, so a channel's delivery window is never one they state:
+  ///   a channel sizes its rings from the window it sends, its own options' or
+  ///   <see cref="DefaultDeliveryCredits" />.
+  /// </remarks>
+  public static NativeRuntime Create(NativeConfiguration configuration)
+  {
+    if (configuration is null)
+    {
+      throw new ArgumentNullException(nameof(configuration));
+    }
+
+    return Create(configuration.Prefix,
+                  configuration.Sources,
+                  null);
+  }
+
+  /// <summary>Starts the engine from the sources it reads, in order, under <paramref name="prefix" />.</summary>
+  /// <param name="prefix">The sources' prefix, empty for none.</param>
+  /// <param name="sources">Each source's kind and value.</param>
+  /// <param name="channelDefaults">The channel defaults the sources state, when the caller knows them.</param>
+  private static unsafe NativeRuntime Create(string                                             prefix,
+                                             IReadOnlyList<(ak_source_kind Kind, byte[] Value)> sources,
+                                             ChannelOptions?                                    channelDefaults)
+  {
+    RefuseAnotherAbi();
+
+    // One array for the prefix and every source's value, so that one pin covers them all.
+    var named  = Encoding.UTF8.GetBytes(prefix);
+    var values = new byte[named.Length + sources.Sum(source => source.Value.Length)];
+    var starts = new int[sources.Count];
+    named.CopyTo(values,
+                 0);
+    var at = named.Length;
+    for (var index = 0; index < sources.Count; index++)
+    {
+      starts[index] = at;
+      sources[index]
+        .Value.CopyTo(values,
+                      at);
+      at += sources[index].Value.Length;
+    }
+
+    var listed = new ak_config_source[sources.Count];
+
+    return new NativeRuntime(channelDefaults,
+                             (context,
+                              created,
+                              error) =>
+                             {
+                               fixed (byte* pinned = values)
+                               fixed (ak_config_source* first = listed)
+                               {
+                                 for (var index = 0; index < listed.Length; index++)
+                                 {
+                                   listed[index] = new ak_config_source
+                                                   {
+                                                     kind = (uint)sources[index].Kind,
+                                                     value = ak_bytes_in.Borrow(pinned + starts[index],
+                                                                                sources[index].Value.Length),
+                                                   };
+                                 }
+
+                                 var config = new ak_config
+                                              {
+                                                struct_size = (uint)Marshal.SizeOf<ak_config>(),
+                                                flags = named.Length == 0
+                                                          ? NativeMethods.AK_CONFIG_NO_PREFIX
+                                                          : 0,
+                                                source_count = (uint)listed.Length,
+                                                sources      = first,
+                                                prefix = ak_bytes_in.Borrow(pinned,
+                                                                            named.Length),
+                                              };
+                                 return NativeMethods.ak_runtime_create_from(&config,
+                                                                             TrampolineFrom,
+                                                                             context,
+                                                                             created,
+                                                                             error);
+                               }
+                             });
+  }
+
+  /// <summary>Refuses a library this binding does not speak to, before anything is asked of it.</summary>
+  private static void RefuseAnotherAbi()
   {
     int found;
     try
@@ -180,51 +277,6 @@ public sealed class NativeRuntime : IAsyncDisposable
     {
       throw new InvalidOperationException($"the native library speaks ABI {found}, this binding speaks {NativeMethods.AK_ABI_VERSION}");
     }
-
-    return new NativeRuntime(memoryCeiling,
-                             memoryHardCeiling,
-                             channelDefaults);
-  }
-
-  /// <summary>The section a runtime's options are read from when a caller names none.</summary>
-  public const string RuntimeSettingSection = "RustGrpcRuntime";
-
-  /// <summary>Starts the engine with the options a configuration carries.</summary>
-  /// <param name="configuration">What the options are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An option in the section is outside its stated bounds.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, the section holds a key no option matches, or the
-  ///   engine refused as <see cref="Create(ulong,ulong)" /> does.
-  /// </exception>
-  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
-  public static NativeRuntime Create(IConfiguration configuration,
-                                     string         key = RuntimeSettingSection)
-    => Create(RuntimeOptionsFrom(configuration,
-                                 key));
-
-  /// <summary>The runtime options a configuration's section carries, bound strictly.</summary>
-  /// <param name="configuration">What they are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  public static RuntimeOptions RuntimeOptionsFrom(IConfiguration configuration,
-                                                  string         key = RuntimeSettingSection)
-  {
-    if (configuration is null)
-    {
-      throw new ArgumentNullException(nameof(configuration));
-    }
-
-    var section = configuration.GetRequiredSection(key);
-
-    return section.GetChildren()
-                  .Any()
-             ? RuntimeOptions.Bind(section)
-             : throw new InvalidOperationException($"{key} carries no options");
   }
 
   /// <summary>Starts the engine with the options given, each one left out taking its default.</summary>
@@ -240,70 +292,16 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new ArgumentNullException(nameof(options));
     }
 
-    // Zero is the ABI's spelling of the default and Validate refuses it, so an option left out is
-    // the only way to ask for the default.
-    options.Validate();
     RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window);
 
-    return Create((ulong)(options.MemoryCeiling ?? 0),
-                  (ulong)(options.MemoryHardCeiling ?? 0),
+    var configuration = new NativeConfiguration().LoadConfigFromObject(options);
+    return Create(configuration.Prefix,
+                  configuration.Sources,
                   options.ChannelDefaults);
   }
 
-  /// <summary>Opens a channel with the options a configuration carries.</summary>
-  /// <param name="endpoint">Where the channel connects, as the engine's own argument.</param>
-  /// <param name="configuration">What the options are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
-  /// <remarks>
-  ///   Required rather than optional: a caller who names a section meant to configure this, and a
-  ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
-  ///   configured. <see cref="Channel(string)" /> is how to ask for the defaults.
-  ///
-  ///   The same argument one level down is what binds the section strictly. The engine refuses an
-  ///   option it does not know in the document it is handed, so a key dropped here would be the
-  ///   one door of the two that answers a misspelling with a working channel.
-  /// </remarks>
-  public NativeChannel Channel(string endpoint,
-                               IConfiguration configuration,
-                               string key = SettingSection)
-  {
-    return Channel(endpoint,
-                   OptionsFrom(configuration,
-                               key));
-  }
-
-  /// <summary>The options a configuration's section carries, bound strictly.</summary>
-  /// <param name="configuration">What they are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  /// <remarks>Its own method because reading a document reaches nothing native: a caller may
-  /// check what a configuration says without an engine, and a test may too.</remarks>
-  public static ChannelOptions OptionsFrom(IConfiguration configuration,
-                                           string key = SettingSection)
-  {
-    if (configuration is null)
-    {
-      throw new ArgumentNullException(nameof(configuration));
-    }
-
-    var section = configuration.GetRequiredSection(key);
-
-    return section.GetChildren()
-                  .Any()
-             ? ChannelOptions.Bind(section)
-             : throw new InvalidOperationException($"{key} carries no options");
-  }
-
   /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
   /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
@@ -312,7 +310,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                new ChannelOptions());
 
   /// <summary>Opens a channel with a delivery window, and the runtime's channel defaults elsewhere.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <param name="deliveryCredits">How many of a call's payloads the host may hold at once, the terminal status aside.</param>
   /// <exception cref="ArgumentOutOfRangeException">The window is outside what is admitted.</exception>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
@@ -336,7 +334,7 @@ public sealed class NativeRuntime : IAsyncDisposable
                });
 
   /// <summary>Opens a channel this runtime serves, and keeps it until it is disposed.</summary>
-  /// <param name="endpoint">Where the channel connects.</param>
+  /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <param name="options">What the channel is opened with, read once and never written to.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>

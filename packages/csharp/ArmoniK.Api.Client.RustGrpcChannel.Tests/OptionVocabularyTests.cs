@@ -16,10 +16,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 
 using NUnit.Framework;
 
@@ -82,7 +80,7 @@ public class OptionVocabularyTests
   /// <summary>A `GrpcClient` option this engine answers with something that is not an option.</summary>
   private static readonly IReadOnlyDictionary<string, string> Elsewhere = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                           {
-                                                                            ["Endpoint"] = "the endpoint crosses the ABI as `ak_channel_create`'s own argument, which is what lets every option have a default",
+                                                                            ["Endpoint"] = "a channel's endpoint is `ak_channel_create`'s own argument, or the runtime's Endpoint when that is empty",
                                                                             ["HttpMessageHandler"] = "grpc-dotnet chooses a handler, and this engine is the handler",
                                                                             ["ReusePorts"] = "a socket option of grpc-dotnet's handler, which this engine does not use",
                                                                           };
@@ -127,84 +125,6 @@ public class OptionVocabularyTests
                                                                        ["Http2.Send.StreamBufferSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.FramesPerWrite"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };
-
-  /// <summary>A `GrpcClient__` name the Rust reader knows and the .NET options do not declare.</summary>
-  /// <remarks>
-  ///   Three readers share the `GrpcClient__` namespace, not two: `Options.GrpcClient` here,
-  ///   `ClientConfigArgs::from_env` in the Rust client, and this channel's schema. The two
-  ///   vocabularies below are pinned rather than reconciled - which spelling wins is #736's to
-  ///   decide - so what this catches is a name moving on one side alone. An unknown option is
-  ///   ignored rather than refused, so drift here fails late and silently everywhere else.
-  /// </remarks>
-  private static readonly IReadOnlyDictionary<string, string> RustOnly = new Dictionary<string, string>(StringComparer.Ordinal)
-                                                                        {
-                                                                          ["ConnectTimeout"] = "no .NET counterpart: grpc-dotnet leaves the dial to its handler",
-                                                                          ["Timeout"] = "the .NET option is spelled RequestTimeout",
-                                                                          ["RateLimit"] = "no .NET counterpart",
-                                                                          ["TcpKeepalive"] = "the .NET option is spelled KeepAliveTime",
-                                                                          ["TcpKeepaliveInterval"] = "the .NET option is spelled KeepAliveTimeInterval",
-                                                                          ["TcpKeepaliveRetries"] = "no .NET counterpart",
-                                                                          ["TcpNagleAlgorithm"] = "no .NET counterpart",
-                                                                          ["Http2KeepAliveInterval"] = "no .NET counterpart: the handler owns HTTP/2 there",
-                                                                          ["Http2KeepAliveTimeout"] = "no .NET counterpart: the handler owns HTTP/2 there",
-                                                                          ["Http2KeepAliveWhileIdle"] = "no .NET counterpart: the handler owns HTTP/2 there",
-                                                                          ["Http2MaxHeaderListSize"] = "no .NET counterpart: the handler owns HTTP/2 there",
-                                                                          ["UserAgent"] = "no .NET counterpart: grpc-dotnet writes its own",
-                                                                        };
-
-  /// <summary>The two readers of `GrpcClient__` differ exactly where they are known to.</summary>
-  [Test]
-  public void TheRustReaderAndTheDotNetOptionsDifferWhereTheyAreKnownTo()
-  {
-    var rust = NamesTheRustReaderKnows();
-    var declared = new HashSet<string>(Settable(typeof(Options.GrpcClient))
-                                         .Select(property => property.Name),
-                                       StringComparer.Ordinal);
-
-    Assert.Multiple(() =>
-                    {
-                      Assert.That(rust,
-                                  Is.Not.Empty,
-                                  "the Rust reader's names were not found: the path or the call shape changed");
-                      Assert.That(rust.Where(name => !declared.Contains(name) && !RustOnly.ContainsKey(name)),
-                                  Is.Empty,
-                                  "a GrpcClient__ name the Rust client reads that .NET neither declares nor excuses");
-                      Assert.That(RustOnly.Keys.Where(name => !rust.Contains(name)),
-                                  Is.Empty,
-                                  "an entry here for a GrpcClient__ name the Rust client no longer reads");
-                      Assert.That(RustOnly.Keys.Where(declared.Contains),
-                                  Is.Empty,
-                                  "a name excused as Rust-only that .NET does declare");
-                    });
-  }
-
-  /// <summary>The `GrpcClient__` names `ClientConfigArgs::from_env` reads, from its source.</summary>
-  /// <remarks>Read rather than mirrored, because a list kept here is the drift it exists to
-  /// catch. The calls are the truth: a name reaches the reader through one of them or not at
-  /// all.</remarks>
-  private static IReadOnlyCollection<string> NamesTheRustReaderKnows()
-  {
-    var recorded = typeof(OptionVocabularyTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-                                                .FirstOrDefault(metadata => metadata.Key == "RustClientConfig")
-                                                ?.Value;
-    Assert.That(recorded,
-                Is.Not.Null.And.Not.Empty,
-                "the build recorded no RustClientConfig");
-
-    var source = Path.GetFullPath(recorded!);
-    Assert.That(File.Exists(source),
-                Is.True,
-                $"the Rust client's config is not where the build said: {source}");
-
-    // Cast first: on .NET Framework a `MatchCollection` is only the non-generic `IEnumerable`, so
-    // `Select` does not reach it and this half of the suite is the one nothing else compiles.
-    return Regex.Matches(File.ReadAllText(source),
-                         @"read_env(?:_bool)?\(""GrpcClient__(?<name>[A-Za-z0-9]+)""")
-                .Cast<Match>()
-                .Select(match => match.Groups["name"].Value)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-  }
 
   /// <summary>No option is classified twice, which a union of the sets would forgive.</summary>
   /// <remarks>

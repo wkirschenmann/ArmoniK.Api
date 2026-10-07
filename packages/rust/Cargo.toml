@@ -32,7 +32,6 @@ eyre = "0.6"
 futures = "0.3"
 http = "1"
 http-body-util = "0.1"
-humantime = "2.3.0"
 # The version hyper resolves to. Direct, because a stream reset carries its reason in an
 # `h2::Error` that hyper passes through as its own error's source and does not re-export: reading
 # it means naming the type, and naming it means the same crate instance hyper linked. Cargo
@@ -58,12 +57,12 @@ secrecy = "0.10"
 # the `serde` feature would not compile.
 serde = { version = "1.0", features = ["derive", "std"], default-features = false }
 serde_json = "1"
-serde_path_to_error = "0.1"
 serial_test = "3.5"
 snafu = "0.9"
 tokio = { version = "1.52", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false }
 tokio-util = "0.7"
+toml = { version = "0.9", default-features = false }
 tonic = { version = "0.14", default-features = false }
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
@@ -73,3 +72,4 @@ tracing-futures = "0.2"
 tracing-subscriber = "0.3"
 windows-sys = "0.61"
 x509-parser = "0.18"
+yaml-rust2 = { version = "0.11", default-features = false }

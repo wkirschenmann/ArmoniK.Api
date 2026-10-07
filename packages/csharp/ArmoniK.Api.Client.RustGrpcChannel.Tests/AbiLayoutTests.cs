@@ -87,6 +87,7 @@ public class AbiLayoutTests
                                                     typeof(ak_host_debt),
                                                     typeof(ak_channel_state),
                                                     typeof(ak_head_origin),
+                                                    typeof(ak_source_kind),
                                                   })
                          {
                            Assert.That(Enum.GetUnderlyingType(crossing),
@@ -132,6 +133,36 @@ public class AbiLayoutTests
                                      Is.EqualTo(16 + 2 * Ptr));
                          Assert.That(Offset<ak_call_start_options>("timeout_ns"),
                                      Is.EqualTo(16 + 4 * Ptr));
+                       });
+
+  /// <summary>The same head, but for its fourth field, which counts the sources.</summary>
+  [Test]
+  public void AConfigurationListsItsSourcesAfterTheHead()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Marshal.SizeOf<ak_config>(),
+                                     Is.EqualTo(16 + 3 * Ptr));
+                         Assert.That(Offset<ak_config>("struct_size"),
+                                     Is.EqualTo(0));
+                         Assert.That(Offset<ak_config>("version"),
+                                     Is.EqualTo(4));
+                         Assert.That(Offset<ak_config>("flags"),
+                                     Is.EqualTo(8));
+                         Assert.That(Offset<ak_config>("source_count"),
+                                     Is.EqualTo(12));
+                         Assert.That(Offset<ak_config>("sources"),
+                                     Is.EqualTo(16));
+                         Assert.That(Offset<ak_config>("prefix"),
+                                     Is.EqualTo(16 + Ptr));
+
+                         Assert.That(Marshal.SizeOf<ak_config_source>(),
+                                     Is.EqualTo(8 + 2 * Ptr));
+                         Assert.That(Offset<ak_config_source>("kind"),
+                                     Is.EqualTo(0));
+                         Assert.That(Offset<ak_config_source>("reserved"),
+                                     Is.EqualTo(4));
+                         Assert.That(Offset<ak_config_source>("value"),
+                                     Is.EqualTo(8));
                        });
 
   [Test]
@@ -229,6 +260,19 @@ public class AbiLayoutTests
                                      Is.EqualTo(1));
                          Assert.That((int)ak_head_origin.AK_HEAD_NO_RESPONSE,
                                      Is.EqualTo(2));
+
+                         Assert.That((int)ak_source_kind.AK_SOURCE_FILE,
+                                     Is.EqualTo(1));
+                         Assert.That((int)ak_source_kind.AK_SOURCE_OPTIONAL_FILE,
+                                     Is.EqualTo(2));
+                         Assert.That((int)ak_source_kind.AK_SOURCE_ENVIRONMENT,
+                                     Is.EqualTo(3));
+                         Assert.That((int)ak_source_kind.AK_SOURCE_DOCUMENT,
+                                     Is.EqualTo(4));
+                         Assert.That((int)ak_source_kind.AK_SOURCE_PAIRS,
+                                     Is.EqualTo(5));
+                         Assert.That(NativeMethods.AK_CONFIG_NO_PREFIX,
+                                     Is.EqualTo(1));
                        });
 
   /// <summary>The version this binding was written against, as a literal.</summary>

@@ -71,4 +71,4 @@ header = """
 
 [export]
 # Named by no signature, or only through the callback, and part of the contract all the same.
-include = ["ak_event", "ak_event_kind", "ak_head_origin", "ak_host_debt"]
+include = ["ak_event", "ak_event_kind", "ak_head_origin", "ak_host_debt", "ak_source_kind"]

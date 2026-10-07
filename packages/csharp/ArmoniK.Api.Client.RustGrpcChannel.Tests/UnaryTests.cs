@@ -28,8 +28,6 @@ using Google.Protobuf;
 
 using Grpc.Core;
 
-using Microsoft.Extensions.Configuration;
-
 using NUnit.Framework;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
@@ -49,41 +47,40 @@ public class UnaryTests : EchoServerFixture
   /// admitted to read below the first takes at most one reply past it, so none reaches this.</summary>
   private const ulong HardCeiling = Ceiling + 16 * 100_000;
 
-  /// <summary>Every option set in a configuration, and a call over the channel it opens.</summary>
+  /// <summary>Every option set in the environment, and a call over a channel that takes them as its defaults.</summary>
   /// <remarks>
-  ///   The whole path: an environment variable, the generated binding and options, the JSON, and
-  ///   the engine reading it. `ChannelOptionsTests` stops at the document; only a served call says
-  ///   the engine accepted it. The timeout carries a fraction, which a culture's decimal comma or an
-  ///   integer reading would break, and the proxy is an alternative, which only its key names.
+  ///   The whole path: environment variables the engine reads, the runtime's channel defaults, and
+  ///   a channel opened on the runtime's Endpoint. Only a served call says the engine accepted
+  ///   them. The timeout carries a fraction, which a culture's decimal comma or an integer reading
+  ///   would break, and the proxy is an alternative, which only its key names.
   /// </remarks>
   [Test]
   public async Task EveryOptionSetOnlyInTheEnvironmentReachesTheEngine()
   {
-    const string prefix = "AKRUSTUNARY_";
+    const string prefix = "AKRUSTUNARY";
 
     var variables = new[]
                     {
-                      ("Grpc__Host__Receive__Window", "1"),
-                      ("Grpc__Receive__MaxMessageSize", "65536"),
-                      ("Grpc__Host__Send__Window", "2"),
-                      ("Transport__ConnectTimeoutSeconds", "2.5"),
-                      ("Transport__Proxy__None", "true"),
-                      ("Grpc__UserAgent", "unary-tests"),
+                      ("Endpoint", Endpoint),
+                      ("ChannelDefaults__Grpc__Receive__MaxMessageSize", "65536"),
+                      ("ChannelDefaults__Grpc__Host__Send__Window", "2"),
+                      ("ChannelDefaults__Transport__ConnectTimeoutSeconds", "2.5"),
+                      ("ChannelDefaults__Transport__Proxy__None", "true"),
+                      ("ChannelDefaults__Grpc__UserAgent", "unary-tests"),
                     };
 
     foreach (var (name, value) in variables)
     {
-      Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__" + name,
+      Environment.SetEnvironmentVariable(prefix + "__" + name,
                                          value);
     }
 
     try
     {
-      var configuration = new ConfigurationBuilder().AddEnvironmentVariables(prefix)
-                                                    .Build();
+      var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(prefix).LoadConfigFromEnvironment()))
+                      .ConfigureAwait(false);
 
-      await using var channel = Runtime.Channel(Endpoint,
-                                                configuration);
+      await using var channel = runtime.Channel(string.Empty);
 
       var reply = await Client(channel)
                         .SayAsync(new EchoRequest
@@ -99,11 +96,40 @@ public class UnaryTests : EchoServerFixture
     {
       foreach (var (name, _) in variables)
       {
-        Environment.SetEnvironmentVariable(prefix + "RustGrpcChannel__" + name,
+        Environment.SetEnvironmentVariable(prefix + "__" + name,
                                            null);
       }
     }
   }
+
+  /// <summary>A channel opened on an empty endpoint reaches the Endpoint of the runtime's options.</summary>
+  [Test]
+  public async Task AChannelWithNoEndpointReachesTheRuntimes()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new RuntimeOptions
+                                                                {
+                                                                  Endpoint = Endpoint,
+                                                                }))
+                    .ConfigureAwait(false);
+    await using var channel = runtime.Channel(string.Empty);
+
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "the runtime's",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+
+    Assert.That(reply.Text,
+                Is.EqualTo("the runtime's"));
+  }
+
+  /// <summary>And is refused where the runtime's options name none.</summary>
+  [Test]
+  public void AChannelWithNoEndpointIsRefusedWhereTheRuntimeNamesNone()
+    => Assert.That(() => Runtime.Channel(string.Empty),
+                   Throws.InstanceOf<ArgumentException>()
+                         .With.Message.Contains("Endpoint"));
 
   /// <summary>Opening a channel writes nothing to the options it was given.</summary>
   /// <remarks>
@@ -143,17 +169,6 @@ public class UnaryTests : EchoServerFixture
     Assert.That(channel.NativeState,
                 Is.EqualTo(ak_channel_state.AK_CHANNEL_OPEN));
   }
-
-  /// <summary>A configuration with no section for this is refused, not defaulted.</summary>
-  /// <remarks>
-  ///   A misspelled section name would otherwise be a channel nobody configured, opened on the
-  ///   engine's defaults and behaving almost right. `Channel(endpoint)` is how to ask for those.
-  /// </remarks>
-  [Test]
-  public void AConfigurationWithNoSectionForThisIsRefused()
-    => Assert.That(() => Runtime.Channel(Endpoint,
-                                         new ConfigurationBuilder().Build()),
-                   Throws.TypeOf<InvalidOperationException>());
 
   /// <summary>Every reply, and every call disposed even if one of them throws.</summary>
   private static async Task<EchoReply[]> RepliesOf(AsyncUnaryCall<EchoReply>[] calls)

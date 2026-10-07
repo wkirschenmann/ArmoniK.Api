@@ -1,9 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every\nchannel takes where its own state none.",
   "type": "object",
   "properties": {
+    "Endpoint": {
+      "description": "The server, as `http://host:port` in the clear or `https://host:port` over TLS, that a\nchannel created with no endpoint of its own reaches.\n\nDefaults to none: every channel then names its own.",
+      "type": "string",
+      "minLength": 1
+    },
     "MemoryCeiling": {
       "description": "The bytes the runtime holds before work waits, counting the buffers lent to send and the\nmessages received until the host gives them back: a call stops reading, and a send waits\nfor room.\n\nDefaults to 4294967295, four gigabytes, or half the address space where that is smaller;\na larger value is that too.",
       "type": "integer",
@@ -43,7 +48,7 @@
       "additionalProperties": false
     },
     "TransportOptions": {
-      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: it is the one value a channel cannot be created without, so it is\npassed when the channel is opened rather than set as an option that happens to be mandatory.\nEvery option has a default, so naming none of them is a valid configuration.",
+      "description": "What the transport does, beyond reaching the endpoint it was given.\n\nThe endpoint is not here: a channel is opened on its own, or on the Endpoint of its runtime's\noptions. Every option has a default, so naming none of them is a valid configuration.",
       "type": "object",
       "properties": {
         "ConnectTimeoutSeconds": {
@@ -567,7 +572,7 @@
           "minLength": 1
         },
         "DefaultDeadlineSeconds": {
-          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. A call's own deadline takes its place, and a call that\nstates none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
+          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not\nonly the wait for the response's head. A call's own deadline takes its place, and a call\nthat states none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         },

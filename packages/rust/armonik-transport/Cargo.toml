@@ -10,11 +10,20 @@ rust-version.workspace = true
 version.workspace = true
 # The schema is committed rather than generated, and a test reads it with `include_str!`, so an
 # archive without it is one whose own tests do not compile.
-include = ["**/*.rs", "Cargo.toml", "README.md", "options.schema.json"]
+include = [
+  "**/*.rs",
+  "Cargo.toml",
+  "README.md",
+  "options.schema.json",
+  "runtime.schema.json",
+  "tests/configuration.json",
+]
 
 [features]
 # `secrecy/serde` so a password deserialises with the rest of the options.
 serde = ["dep:serde", "secrecy/serde"]
+# The configuration loader, and the parsers of the files and documents it reads.
+configuration = ["serde", "dep:serde_json", "dep:toml", "dep:yaml-rust2"]
 # A JSON schema of the option vocabulary, for generating an options class in another language.
 # `serde_json` because the prefix helper rewrites the generated schema's property names, and a
 # schemars 1.x schema is edited as the JSON value it wraps.
@@ -27,6 +36,10 @@ test-hooks = []
 [[test]]
 name = "panics"
 required-features = ["test-hooks"]
+
+[[test]]
+name = "configuration"
+required-features = ["configuration"]
 
 # Compiled by the build against h2-batch's patch only; it counts writes with the test hooks.
 [[test]]
@@ -84,13 +97,23 @@ secrecy.workspace = true
 percent-encoding.workspace = true
 serde = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
-humantime.workspace = true
-serde_json = { workspace = true, optional = true }
+# `float_roundtrip`, so a number reads back as the double the host wrote: the default parse may
+# land an ulp away, and at a bound an ulp is a refusal. .NET Framework writes 1e-9 with
+# seventeen digits.
+serde_json = { workspace = true, optional = true, features = ["float_roundtrip"] }
+# The configuration loader's file formats beside JSON. `parse` and `serde` are what read a file
+# into a table; YAML without `encoding`, since a configuration file is UTF-8.
+toml = { workspace = true, optional = true, features = ["parse", "serde", "std"] }
+yaml-rust2 = { workspace = true, optional = true }
 
 # The schema is what the options type exists to produce, so an example prints it - and it only
 # builds where `schemars` does.
 [[example]]
 name = "schema"
+required-features = ["schema"]
+
+[[example]]
+name = "runtime_schema"
 required-features = ["schema"]
 
 # The Windows certificate store, which a client identity and a root may be resolved from, and
@@ -104,14 +127,16 @@ x509-parser = { workspace = true, features = ["verify"] }
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Networking_WinHttp"] }
 
 [dev-dependencies]
-# The boolean options are read straight from the environment, so testing which spellings they accept
-# means setting variables: process-global state, hence one test at a time.
+# The proxy tests set the process's environment and the panic tests its hook: process-global
+# state, hence one test at a time.
 serial_test.workspace = true
 # The server-streaming fixture answers a stream of messages, and tonic asks for a `Stream` to
 # build it from; the regular build never produces one.
 futures.workspace = true
-# Only to round-trip `ClientConfigArgs` in the test that pins the `serde` feature.
+# The configuration fixtures, and the schemas the options' tests read.
 serde_json.workspace = true
+# What the configuration loader logs, read back by its tests.
+tracing-subscriber = { workspace = true, features = ["fmt"] }
 # `io-util` for the tests that write HTTP/2 frames by hand.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "time", "io-util"] }
 # The integration tests serve a gRPC service to call, which the regular build never does; these features

@@ -11,8 +11,6 @@ pub mod hooks;
 mod host;
 mod ledger;
 mod lifecycle;
-#[cfg(feature = "schema")]
-pub mod options;
 mod refusal;
 mod registry;
 mod runtime;
@@ -156,6 +154,50 @@ const NULL_ARGUMENT: Refusal = Refusal::fixed(
     "a pointer argument is null",
 );
 
+/// Creates a runtime, as ak_runtime_create does, from the sources `config` lists: read in order,
+/// a later one over an earlier one option by option, into the vocabulary of runtime.schema.json -
+/// the endpoint, the memory ceilings, and the channel defaults every channel's own document is
+/// merged over.
+///
+/// What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
+/// does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
+/// view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+/// that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
+/// never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
+/// an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
+/// for.
+///
+/// # Safety
+///
+/// `config` and `out` must be valid for their types, `config.sources` must point at
+/// `source_count` sources unless that is zero, and every byte view at its length. `callback` must
+/// stay callable with `runtime_ctx` until the runtime's last event.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_runtime_create_from(
+    config: *const ak_config,
+    callback: ak_callback,
+    runtime_ctx: *mut c_void,
+    out: *mut ak_handle,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| {
+        let (Some(callback), false, false) = (callback, config.is_null(), out.is_null()) else {
+            return Err(NULL_ARGUMENT);
+        };
+        let config = unsafe { read_versioned(config) }?;
+        let configuration = unsafe { config::sources(&config) }?;
+
+        unsafe {
+            hand_over(
+                out,
+                lifecycle::create_runtime_from(&configuration, Host::new(callback, runtime_ctx)),
+            )
+        }
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
 /// The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
 /// inside a callback.
 #[no_mangle]
@@ -237,13 +279,13 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// shutting down is AK_STATUS_INVALID_STATE.
 ///
 /// The endpoint is its own argument, as UTF-8 - "http://host:port" in the clear, or
-/// "https://host:port" over TLS. It is the one value a channel cannot be created without, so it is
-/// not an option that happens to be mandatory: every option of the document has a default, and
+/// "https://host:port" over TLS. An empty one is the Endpoint of the runtime's configuration, and
+/// is AK_STATUS_INVALID_ARG when that names none. Every option of the document has a default, and
 /// `{}` is a valid configuration.
 ///
-/// The document is structured and typed, and a JSON schema states it: objects nest, a number is a
-/// number and not a string spelled like one, and an option spelled wrong is refused rather than
-/// ignored. That schema, `options.schema.json`, names each option with its type and, where it has
+/// The document is structured and typed, and a JSON schema states it: objects nest, and a number is
+/// a number and not a string spelled like one. A key no option declares is ignored rather than
+/// refused. That schema, `options.schema.json`, names each option with its type and, where it has
 /// them, its range and default.
 ///
 /// The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call

@@ -1,0 +1,290 @@
+[
+  {
+    "name": "no source is every option at its default",
+    "sources": [],
+    "options": {}
+  },
+  {
+    "name": "a document is read as it is written",
+    "sources": [
+      { "document": { "Endpoint": "http://server.test:5001", "MemoryCeiling": 1048576 } }
+    ],
+    "options": { "Endpoint": "http://server.test:5001", "MemoryCeiling": 1048576 }
+  },
+  {
+    "name": "a later source wins over an earlier one, option by option",
+    "files": {
+      "base.json": "{\"GrpcClient\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}},\"Logging\":{\"Level\":\"Debug\"}}"
+    },
+    "sources": [
+      { "file": "base.json" },
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "over" } } } }
+    ],
+    "options": {
+      "Endpoint": "http://base.test:1",
+      "ChannelDefaults": {
+        "Http2": { "SimultaneousCallsPerConnection": 4 },
+        "Grpc": { "UserAgent": "over" }
+      }
+    }
+  },
+  {
+    "name": "YAML and TOML are read as JSON is",
+    "files": {
+      "base.yaml": "GrpcClient:\n  Endpoint: https://yaml.test:2\n  MemoryCeiling: 1024\n  ChannelDefaults:\n    Transport:\n      Tls:\n        Server:\n          Unverified: true\n",
+      "over.toml": "[GrpcClient]\nMemoryHardCeiling = 2048\n\n[GrpcClient.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
+    },
+    "sources": [
+      { "file": "base.yaml" },
+      { "file": "over.toml" }
+    ],
+    "options": {
+      "Endpoint": "https://yaml.test:2",
+      "MemoryCeiling": 1024,
+      "MemoryHardCeiling": 2048,
+      "ChannelDefaults": {
+        "Transport": { "Tls": { "Server": { "Unverified": true } } },
+        "Http2": { "KeepAliveWhileIdle": true, "KeepAliveTimeoutSeconds": 2.5 }
+      }
+    }
+  },
+  {
+    "name": "with no prefix a file's document is the whole file, its host's sections logged",
+    "prefix": "",
+    "files": {
+      "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Logging\":{\"Level\":\"Debug\"}}"
+    },
+    "sources": [
+      { "file": "whole.json" }
+    ],
+    "options": { "Endpoint": "http://whole.test:3" },
+    "unknown": ["Logging"]
+  },
+  {
+    "name": "a file with no section of the prefix contributes nothing",
+    "files": {
+      "other.json": "{\"Other\":{\"Endpoint\":\"http://other.test:4\"}}"
+    },
+    "sources": [
+      { "file": "other.json" },
+      { "document": { "MemoryCeiling": 5 } }
+    ],
+    "options": { "MemoryCeiling": 5 }
+  },
+  {
+    "name": "an optional file that does not exist contributes nothing",
+    "sources": [
+      { "optional_file": "absent.json" },
+      { "document": { "MemoryCeiling": 6 } }
+    ],
+    "options": { "MemoryCeiling": 6 }
+  },
+  {
+    "name": "a file that does not exist is refused",
+    "sources": [
+      { "file": "absent.json" }
+    ],
+    "refused": { "source": "absent.json" }
+  },
+  {
+    "name": "a file of another format is refused",
+    "files": {
+      "settings.ini": "[GrpcClient]\nEndpoint = http://ini.test:5\n"
+    },
+    "sources": [
+      { "file": "settings.ini" }
+    ],
+    "refused": { "source": "settings.ini", "says": ".json, .yaml, .yml and .toml" }
+  },
+  {
+    "name": "a file that does not parse is refused with its line",
+    "files": {
+      "broken.json": "{\n  \"GrpcClient\": {\n    \"Endpoint\": ,\n  }\n}\n"
+    },
+    "sources": [
+      { "file": "broken.json" }
+    ],
+    "refused": { "source": "broken.json", "says": "line 3" }
+  },
+  {
+    "name": "a prefix's section that is not an object is refused",
+    "files": {
+      "scalar.yaml": "GrpcClient: 7\n"
+    },
+    "sources": [
+      { "file": "scalar.yaml" }
+    ],
+    "refused": { "source": "scalar.yaml", "says": "GrpcClient is not an object" }
+  },
+  {
+    "name": "the environment is read under its prefix, its names without case, its values by their key's type",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__Endpoint": "http://environment.test:6",
+      "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection": "4",
+      "ArmoniKFixture__ChannelDefaults__Transport__Tls__Server__unverified": "True",
+      "ArmoniKFixture__ChannelDefaults__Grpc__DefaultDeadlineSeconds": "2.5",
+      "ArmoniKFixture__MemoryCeiling": "8192",
+      "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
+      "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "options": {
+      "Endpoint": "http://environment.test:6",
+      "MemoryCeiling": 8192,
+      "ChannelDefaults": {
+        "Transport": { "Tls": { "Server": { "Unverified": true } } },
+        "Http2": { "SimultaneousCallsPerConnection": 4 },
+        "Grpc": { "DefaultDeadlineSeconds": 2.5 }
+      }
+    },
+    "unknown": ["ChannelDefaults.Http2.Nope"]
+  },
+  {
+    "name": "an environment value that is not of its key's type is refused by its path",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__MemoryCeiling": "a great deal"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "MemoryCeiling", "never": "a great deal" }
+  },
+  {
+    "name": "an environment value where options are expected is refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults": "everything"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults", "never": "everything" }
+  },
+  {
+    "name": "an environment key given a value and keys under it is refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2": "on",
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAliveWhileIdle": "true"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2" }
+  },
+  {
+    "name": "the environment with no prefix is refused",
+    "prefix": "",
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment" }
+  },
+  {
+    "name": "pairs are read as the environment is",
+    "sources": [
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__Retry__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+    ],
+    "options": {
+      "Endpoint": "http://pairs.test:8",
+      "ChannelDefaults": { "Grpc": { "Retry": { "MaxAttempts": 3 } } }
+    },
+    "unknown": ["ChannelDefaults.Grpc.Nope"]
+  },
+  {
+    "name": "pairs that are not text values are refused",
+    "sources": [
+      { "pairs": "{\"Endpoint\":5}" }
+    ],
+    "refused": { "source": "pairs" }
+  },
+  {
+    "name": "a document that is not JSON is refused",
+    "sources": [
+      { "document": "{\"Endpoint\":" }
+    ],
+    "refused": { "source": "a document" }
+  },
+  {
+    "name": "a value of the wrong type is refused by its path and never quoted",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12", "Password": 123456 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.Client.P12.Password", "never": "123456" }
+  },
+  {
+    "name": "an alternative that names no variant keeps the earlier source's, its key logged",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } } } },
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Socks": { "Address": "socks5://proxy.test:1080" } } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } }
+    },
+    "unknown": ["ChannelDefaults.Transport.Proxy.Socks"]
+  },
+  {
+    "name": "an alternative that names two variants is refused",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "None": true, "System": {} } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy" }
+  },
+  {
+    "name": "a key no option declares is logged, and the rest read",
+    "sources": [
+      { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }
+    ],
+    "options": { "Endpoint": "http://unknown.test:9" },
+    "unknown": ["Endpiont"]
+  },
+  {
+    "name": "a key a document states twice is refused rather than taken once",
+    "sources": [
+      { "document": "{\"MemoryCeiling\":1,\"MemoryCeiling\":2}" }
+    ],
+    "refused": { "source": "a document", "says": "MemoryCeiling is stated twice" }
+  },
+  {
+    "name": "a file that starts with a byte order mark is read as one without",
+    "files": {
+      "marked.json": "\ufeff{\"GrpcClient\":{\"MemoryCeiling\":7}}"
+    },
+    "sources": [
+      { "file": "marked.json" }
+    ],
+    "options": { "MemoryCeiling": 7 }
+  },
+  {
+    "name": "a key a YAML file states twice is refused",
+    "files": {
+      "twice.yaml": "GrpcClient:\n  MemoryCeiling: 1\n  MemoryCeiling: 2\n"
+    },
+    "sources": [
+      { "file": "twice.yaml" }
+    ],
+    "refused": { "source": "twice.yaml", "says": "duplicated key" }
+  },
+  {
+    "name": "a YAML file of more than one document is refused",
+    "files": {
+      "two.yaml": "Other: 1\n---\nGrpcClient:\n  MemoryCeiling: 1\n"
+    },
+    "sources": [
+      { "file": "two.yaml" }
+    ],
+    "refused": { "source": "two.yaml", "says": "more than one YAML document" }
+  },
+  {
+    "name": "the first refusal ends the load",
+    "sources": [
+      { "document": "not JSON" },
+      { "document": { "MemoryCeiling": "many" } }
+    ],
+    "refused": { "source": "a document", "says": "not JSON" }
+  }
+]

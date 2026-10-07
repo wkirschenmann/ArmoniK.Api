@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 use std::time::Duration;
 
-use armonik_transport::options::ChannelOptions;
+use armonik_transport::options::{ChannelOptions, RuntimeOptions};
 use tokio::sync::{oneshot, watch};
 
 use crate::abi::{ak_error_kind, ak_event_kind, ak_host_debt, ak_runtime_state, ak_status};
@@ -34,8 +34,9 @@ pub(crate) struct AkRuntime {
     stop_channels: watch::Sender<bool>,
     /// Numbers the channels' threads, so that each is told apart by its name.
     channels_started: AtomicU64,
-    /// The options every channel's own are merged over, if the host gave any.
-    channel_defaults: Option<ChannelOptions>,
+    /// What the host configured: the endpoint a channel created with none reaches, and the
+    /// options every channel's own are merged over.
+    options: RuntimeOptions,
 }
 
 /// A channel's thread, from the channel's side: where its work runs, and what stops it when the
@@ -102,14 +103,13 @@ impl AkRuntime {
         LIVE.store(false, Ordering::Release);
     }
 
-    pub(crate) fn new(
-        memory_ceiling: u64,
-        memory_hard_ceiling: u64,
-        channel_defaults: Option<ChannelOptions>,
-        host: Host,
-    ) -> Result<Arc<Self>, Refusal> {
-        let ledger =
-            Ledger::new(memory_ceiling, memory_hard_ceiling).map_err(|_| THRESHOLDS_CROSSED)?;
+    /// A ceiling the options leave out is zero, which the ledger reads as its own.
+    pub(crate) fn new(options: RuntimeOptions, host: Host) -> Result<Arc<Self>, Refusal> {
+        let ledger = Ledger::new(
+            options.memory_ceiling.unwrap_or(0),
+            options.memory_hard_ceiling.unwrap_or(0),
+        )
+        .map_err(|_| THRESHOLDS_CROSSED)?;
 
         // One worker: what runs here is the shutdown's orchestration, the channels' work running
         // on threads of their own.
@@ -132,12 +132,16 @@ impl AkRuntime {
             channel_threads: Mutex::new(Vec::new()),
             stop_channels: watch::channel(false).0,
             channels_started: AtomicU64::new(0),
-            channel_defaults,
+            options,
         }))
     }
 
+    pub(crate) fn options(&self) -> &RuntimeOptions {
+        &self.options
+    }
+
     pub(crate) fn channel_defaults(&self) -> Option<&ChannelOptions> {
-        self.channel_defaults.as_ref()
+        self.options.channel_defaults.as_ref()
     }
 
     /// Starts a channel's thread: a current-thread runtime that runs until the channel drops the
@@ -370,7 +374,10 @@ mod tests {
 
     #[test]
     fn a_second_threshold_below_the_first_is_refused_with_its_reason() {
-        let refused = AkRuntime::new(64, 32, None, Host::new(never_called, std::ptr::null_mut()))
+        let mut options = RuntimeOptions::default();
+        options.memory_ceiling = Some(64);
+        options.memory_hard_ceiling = Some(32);
+        let refused = AkRuntime::new(options, Host::new(never_called, std::ptr::null_mut()))
             .err()
             .expect("a second threshold below the first is refused");
 

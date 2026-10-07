@@ -261,17 +261,19 @@ mod tests {
     /// refusal it wraps once.
     #[test]
     fn a_refusal_of_the_defaults_or_the_merge_is_said_once() {
-        let inner = ConfigRefusal::EmptyUserAgent.to_string();
+        let inner =
+            ConfigRefusal::Settled(armonik_transport::settings::SettingRefusal::EmptyUserAgent)
+                .to_string();
         assert_eq!(
-            flattened(&ConfigRefusal::Defaults(Box::new(
-                ConfigRefusal::EmptyUserAgent
-            ))),
+            flattened(&ConfigRefusal::Defaults(Box::new(ConfigRefusal::Settled(
+                armonik_transport::settings::SettingRefusal::EmptyUserAgent
+            )))),
             format!("ChannelDefaults: {inner}")
         );
         assert_eq!(
-            flattened(&ConfigRefusal::Merged(Box::new(
-                ConfigRefusal::EmptyUserAgent
-            ))),
+            flattened(&ConfigRefusal::Merged(Box::new(ConfigRefusal::Settled(
+                armonik_transport::settings::SettingRefusal::EmptyUserAgent
+            )))),
             format!("{inner}, once merged over the runtime's ChannelDefaults")
         );
     }

@@ -1,12 +1,12 @@
 //! Writes the JSON schema of the runtime options, which is committed beside this crate.
 //!
-//! The path is an argument rather than a shell redirection, for the reason armonik-transport's
-//! own schema example gives: PowerShell's `>` writes UTF-16 or a byte order mark.
+//! The path is an argument rather than a shell redirection, for the reason the channel schema's
+//! example gives: PowerShell's `>` writes UTF-16 or a byte order mark.
 
 use std::io::Write;
 
 fn main() {
-    let rendered = armonik_transport_ffi::options::schema();
+    let rendered = armonik_transport::options::runtime_schema();
 
     match std::env::args().nth(1) {
         Some(path) => std::fs::write(&path, rendered)

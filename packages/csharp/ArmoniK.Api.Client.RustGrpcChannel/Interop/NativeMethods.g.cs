@@ -35,6 +35,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
 
         /// <summary>
+        ///  In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
+        /// </summary>
+        internal const uint AK_CONFIG_NO_PREFIX = 1;
+        /// <summary>
         ///  In ak_call_start_options.flags: timeout_ns states the call's deadline.
         /// </summary>
         internal const uint AK_CALL_HAS_DEADLINE = 1;
@@ -62,6 +66,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         internal delegate void ak_runtime_create_callback_delegate(void* runtime_ctx, void* call_ctx, ak_event* events, nuint count);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        internal delegate void ak_runtime_create_from_callback_delegate(void* runtime_ctx, void* call_ctx, ak_event* events, nuint count);
+
 
 
         /// <summary>
@@ -78,6 +85,30 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_status ak_runtime_create(ak_runtime_config* config, ak_runtime_create_callback_delegate callback, void* runtime_ctx, ulong* @out, ak_error* out_error);
+
+        /// <summary>
+        ///  Creates a runtime, as ak_runtime_create does, from the sources `config` lists: read in order,
+        ///  a later one over an earlier one option by option, into the vocabulary of runtime.schema.json -
+        ///  the endpoint, the memory ceilings, and the channel defaults every channel's own document is
+        ///  merged over.
+        ///
+        ///  What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
+        ///  does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
+        ///  view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+        ///  that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
+        ///  never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
+        ///  an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
+        ///  for.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` and `out` must be valid for their types, `config.sources` must point at
+        ///  `source_count` sources unless that is zero, and every byte view at its length. `callback` must
+        ///  stay callable with `runtime_ctx` until the runtime's last event.
+        ///  `out_error` must be null or writable for an `ak_error`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_runtime_create_from", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern ak_status ak_runtime_create_from(ak_config* config, ak_runtime_create_from_callback_delegate callback, void* runtime_ctx, ulong* @out, ak_error* out_error);
 
         /// <summary>
         ///  The runtime's state. Synchronous, non-blocking, and callable from any thread, including from
@@ -132,13 +163,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  shutting down is AK_STATUS_INVALID_STATE.
         ///
         ///  The endpoint is its own argument, as UTF-8 - "http://host:port" in the clear, or
-        ///  "https://host:port" over TLS. It is the one value a channel cannot be created without, so it is
-        ///  not an option that happens to be mandatory: every option of the document has a default, and
+        ///  "https://host:port" over TLS. An empty one is the Endpoint of the runtime's configuration, and
+        ///  is AK_STATUS_INVALID_ARG when that names none. Every option of the document has a default, and
         ///  `{}` is a valid configuration.
         ///
-        ///  The document is structured and typed, and a JSON schema states it: objects nest, a number is a
-        ///  number and not a string spelled like one, and an option spelled wrong is refused rather than
-        ///  ignored. That schema, `options.schema.json`, names each option with its type and, where it has
+        ///  The document is structured and typed, and a JSON schema states it: objects nest, and a number is
+        ///  a number and not a string spelled like one. A key no option declares is ignored rather than
+        ///  refused. That schema, `options.schema.json`, names each option with its type and, where it has
         ///  them, its range and default.
         ///
         ///  The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call
@@ -499,6 +530,64 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         public ak_bytes_in channel_defaults_json;
     }
 
+    /// <summary>
+    ///  One source of a configuration.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_config_source
+    {
+        /// <summary>
+        ///  An ak_source_kind; another is AK_STATUS_INVALID_ARG.
+        /// </summary>
+        public uint kind;
+        /// <summary>
+        ///  Zero; another is AK_STATUS_INVALID_ARG.
+        /// </summary>
+        public uint reserved;
+        /// <summary>
+        ///  What the kind says, UTF-8; one that is not is AK_STATUS_INVALID_ARG.
+        /// </summary>
+        public ak_bytes_in value;
+    }
+
+    /// <summary>
+    ///  Where a runtime's configuration comes from: sources, read in order when the runtime is created,
+    ///  a later one over an earlier one option by option. A key the vocabulary does not declare is
+    ///  ignored rather than refused; a value that does not fit its key is refused, with its source and
+    ///  its path, and never quoted.
+    ///
+    ///  Versioned as the options structs are, but for its fourth field, which is source_count rather
+    ///  than reserved.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_config
+    {
+        public uint struct_size;
+        /// <summary>
+        ///  Zero, the one revision of this record there is.
+        /// </summary>
+        public uint version;
+        /// <summary>
+        ///  AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+        /// </summary>
+        public uint flags;
+        /// <summary>
+        ///  How many sources `sources` points at.
+        /// </summary>
+        public uint source_count;
+        /// <summary>
+        ///  The sources, in order, a later one over an earlier one. May be NULL when source_count is
+        ///  zero.
+        /// </summary>
+        public ak_config_source* sources;
+        /// <summary>
+        ///  The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
+        ///  the configuration is read from. Empty is `GrpcClient`; with AK_CONFIG_NO_PREFIX it has to be
+        ///  empty.
+        /// </summary>
+        public ak_bytes_in prefix;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct ak_memory_usage
     {
@@ -756,6 +845,40 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  Consume the payloads, return the buffers; AK_EVENT_RESOURCES_RELEASED follows.
         /// </summary>
         AK_HOST_MUST_RETURN = 1,
+    }
+
+    /// <summary>
+    ///  Where a source of ak_config is read from, in ak_config_source.kind.
+    /// </summary>
+    internal enum ak_source_kind : int
+    {
+        /// <summary>
+        ///  value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
+        ///  .toml - its document the section the prefix names, or the whole file with
+        ///  AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+        /// </summary>
+        AK_SOURCE_FILE = 1,
+        /// <summary>
+        ///  value: the file's path, read as AK_SOURCE_FILE's, except that a file that does not exist
+        ///  contributes nothing.
+        /// </summary>
+        AK_SOURCE_OPTIONAL_FILE = 2,
+        /// <summary>
+        ///  value: empty. The variables whose name starts with the prefix and `__`, the rest of the
+        ///  name the key's path, its parts joined by `__` and compared without case, and the value text
+        ///  read by its key's type. Read once, by ak_runtime_create_from. Refused with
+        ///  AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+        /// </summary>
+        AK_SOURCE_ENVIRONMENT = 3,
+        /// <summary>
+        ///  value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+        /// </summary>
+        AK_SOURCE_DOCUMENT = 4,
+        /// <summary>
+        ///  value: a JSON object whose names are keys' paths, their parts joined by `__` under no
+        ///  prefix, and whose values are text, read as the environment's are.
+        /// </summary>
+        AK_SOURCE_PAIRS = 5,
     }
 
     /// <summary>
