@@ -1,7 +1,7 @@
 //! How many RST_STREAM frames the engine sends: none for a call that ends as gRPC means it to, of
 //! any cardinality, nor for one whose response ends while its request is still open, which it
-//! half-closes; one for each call it stops - a cancel, a deadline. A server counting resets per
-//! connection, as rapid-reset defences do, sees only those.
+//! half-closes; one for each call it stops - a cancel, a deadline, a failure of its own. A server
+//! counting resets per connection, as rapid-reset defences do, sees only those.
 
 mod common;
 
@@ -9,9 +9,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use armonik_transport::grpc::{CallStartOptions, Deadline, GrpcChannel, GrpcStatusCode};
+use armonik_transport::grpc::{
+    CallControl, CallStartOptions, Deadline, GrpcChannel, GrpcChannelConfig, GrpcStatusCode,
+};
+use armonik_transport::http2::TransportConfig;
 use bytes::Bytes;
 use common::echo::*;
+use http::Uri;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -146,6 +150,19 @@ async fn call(channel: &GrpcChannel, method: &str, messages: &[&'static str]) ->
     send.end_send().await.expect("the half-close");
     read_to_terminal(&mut recv).await.2.code
 }
+
+/// Whether the call's request ends as a reset, which the call settles before its status is out.
+///
+/// The frames say as much, but only as a race: a request that ends whole is a half-close that
+/// reaches the wire first only when the connection writes in the instants between the request's
+/// end and the stream's release, which h2 turns into a reset.
+#[cfg(feature = "test-hooks")]
+fn assert_cut(control: &CallControl, cut: bool, call: &str) {
+    assert_eq!(control.is_cut(), cut, "{call}");
+}
+
+#[cfg(not(feature = "test-hooks"))]
+fn assert_cut(_: &CallControl, _: bool, _: &str) {}
 
 /// What a frame could still be on its way with: the engine writes it on its own task.
 async fn settled() {
@@ -348,7 +365,7 @@ async fn a_call_answered_before_its_request_ends_half_closes_it() {
     let channel = channel(&census.endpoint);
 
     for _ in 0..10 {
-        let (mut send, mut recv, _control) = channel
+        let (mut send, mut recv, control) = channel
             .start_call(CallStartOptions::new(ANSWER_EARLY))
             .expect("the call starts")
             .split();
@@ -357,8 +374,106 @@ async fn a_call_answered_before_its_request_ends_half_closes_it() {
             .expect("the message is accepted");
         let (_, _, terminal) = read_to_terminal(&mut recv).await;
         assert_eq!(terminal.code, GrpcStatusCode::Ok, "{terminal}");
+        assert_cut(&control, false, ANSWER_EARLY);
     }
     settled().await;
     assert_eq!(census.half_closes(), 10);
+    assert_eq!(census.resets(), 0);
+}
+
+/// A channel that takes no message larger than `max` bytes.
+fn receiving_at_most(endpoint: &str, max: usize) -> GrpcChannel {
+    let uri = Uri::try_from(endpoint).expect("the test server's endpoint");
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(uri));
+    config.max_recv_message_size = max;
+    channel_with(config).expect("a plain endpoint")
+}
+
+/// A call that ends this side on a response it refuses, while the peer has not ended it, is reset
+/// like one stopped by a cancel: the request it leaves open must not end as a whole one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_past_the_limit_resets_the_request_it_leaves_open() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = receiving_at_most(&census.endpoint, 1024);
+
+    for _ in 0..20 {
+        let (mut send, mut recv, control) = channel
+            .start_call(CallStartOptions::new(CHAT))
+            .expect("the call starts")
+            .split();
+        send.send_message(Bytes::from(vec![b'x'; 4096]))
+            .await
+            .expect("the message is accepted");
+        let (_, messages, status) = read_to_terminal(&mut recv).await;
+        assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+        assert!(messages.is_empty(), "{messages:?}");
+        assert_cut(&control, true, "a message past the limit");
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 0);
+    assert_eq!(census.resets(), 20);
+    assert_eq!(census.cancels(), 20);
+}
+
+/// The same for the second message of a call that answers once, which the engine refuses before
+/// the decoder sees it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_message_resets_the_request_it_leaves_open() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for _ in 0..20 {
+        let mut options = CallStartOptions::new(CHAT);
+        options.one_response = true;
+        let (mut send, mut recv, control) = channel
+            .start_call(options)
+            .expect("the call starts")
+            .split();
+        for message in ["a", "b"] {
+            send.send_message(Bytes::from_static(message.as_bytes()))
+                .await
+                .expect("the message is accepted");
+        }
+        let (_, messages, status) = read_to_terminal(&mut recv).await;
+        assert_eq!(status.code, GrpcStatusCode::Internal, "{status}");
+        assert_eq!(messages, vec![Bytes::from_static(b"a")]);
+        assert_cut(&control, true, "a second message");
+        drop(send);
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 0);
+    assert_eq!(census.resets(), 20);
+    assert_eq!(census.cancels(), 20);
+}
+
+/// A status other than OK that the peer gave, in a Trailers-Only response or in the trailers after
+/// a message, ends the call as the peer's own end does, and its request is half-closed: tonic
+/// returns such a status as an error from the read, as it does a message this side refuses.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_call_the_peer_failed_while_its_request_is_open_half_closes_it() {
+    let server = TestServer::start().await;
+    let census = Census::start(&server.endpoint).await;
+    let channel = channel(&census.endpoint);
+
+    for (method, messages) in [(REFUSE_EARLY, 0), (FAIL_EARLY, 1)] {
+        for _ in 0..10 {
+            let (mut send, mut recv, control) = channel
+                .start_call(CallStartOptions::new(method))
+                .expect("the call starts")
+                .split();
+            send.send_message(Bytes::from_static(b"x"))
+                .await
+                .expect("the message is accepted");
+            let (_, answered, status) = read_to_terminal(&mut recv).await;
+            assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+            assert_eq!(answered.len(), messages, "{method}");
+            assert_cut(&control, false, method);
+        }
+    }
+    settled().await;
+    assert_eq!(census.half_closes(), 20);
     assert_eq!(census.resets(), 0);
 }

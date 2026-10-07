@@ -29,6 +29,10 @@ pub const FAIL: &str = "/armonik_transport.test.Echo/Fail";
 pub const SLOW: &str = "/armonik_transport.test.Echo/Slow";
 /// Answers OK at once, its response whole, and goes on reading the request to its end.
 pub const ANSWER_EARLY: &str = "/armonik_transport.test.Echo/AnswerEarly";
+/// As [`ANSWER_EARLY`], with UNAVAILABLE in a Trailers-Only response.
+pub const REFUSE_EARLY: &str = "/armonik_transport.test.Echo/RefuseEarly";
+/// As [`ANSWER_EARLY`], with a message and then UNAVAILABLE in the trailers.
+pub const FAIL_EARLY: &str = "/armonik_transport.test.Echo/FailEarly";
 pub const COLLECT: &str = "/armonik_transport.test.Echo/Collect";
 pub const FAN: &str = "/armonik_transport.test.Echo/Fan";
 pub const CHAT: &str = "/armonik_transport.test.Echo/Chat";
@@ -347,15 +351,30 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
         return canned(raw, request.headers());
     }
 
-    if path == ANSWER_EARLY {
+    if path == ANSWER_EARLY || path == REFUSE_EARLY || path == FAIL_EARLY {
         let mut body = request.into_body();
         tokio::spawn(async move {
             while let Some(Ok(_)) =
                 std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
             {}
         });
+        if path == FAIL_EARLY {
+            return grpc_head()
+                .body(TonicBody::new(Canned {
+                    frames: vec![
+                        Frame::data(grpc_message(0, b"before the failure")),
+                        trailers(&[("grpc-status", "14")]),
+                    ]
+                    .into_iter(),
+                    then_fails: false,
+                    paced: false,
+                    gave_way: false,
+                }))
+                .expect("a response");
+        }
+        let status = if path == REFUSE_EARLY { "14" } else { "0" };
         return grpc_head()
-            .header("grpc-status", "0")
+            .header("grpc-status", status)
             .body(TonicBody::empty())
             .expect("a response");
     }
