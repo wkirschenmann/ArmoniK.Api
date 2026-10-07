@@ -191,9 +191,10 @@ public sealed class LoggingOptions
   ///   <c>h2</c> covers <c>h2::proto</c>, not <c>h2x</c> - and <c>target*</c> covers every target that starts with the
   ///   text: <c>hyper*</c> covers <c>hyper</c> and <c>hyper_util</c>. The most specific directive that covers an
   ///   event decides: the longest target, and at the same length the one without <c>*</c>. A directive
-  ///   stated for a target the default also names, with or without its <c>*</c>, replaces the default's;
-  ///   every other directive of the default stands, so <c>armonik_transport*=debug</c> raises the engine
-  ///   and leaves the rest at warning. To turn the logs down or off state the default's two
+  ///   stated with the same text as one of the default's, both with a <c>*</c> or both without,
+  ///   replaces it; every other directive of the default stands, so <c>armonik_transport*=debug</c>
+  ///   raises the engine and leaves the rest at warning, where <c>armonik_transport=debug</c> leaves
+  ///   the default's <c>armonik_transport*=info</c> standing for what it does not cover. To turn the logs down or off state the default's two
   ///   directives: <c>*=off,armonik_transport*=off</c>. A word that is no level is a target nothing
   ///   emits. A directive that is not understood is ignored with a warning. Read when the runtime
   ///   is created.

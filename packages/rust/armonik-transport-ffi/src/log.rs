@@ -83,8 +83,8 @@ impl Filter {
     }
 
     /// The filter `text` states, over the default's: directive by directive, so that one stated
-    /// for the same target - the same text, with or without its star - replaces the default's, and
-    /// the rest of the default stands.
+    /// with the same text as the default's, both with a star or both without, replaces it, and the
+    /// rest of the default stands.
     ///
     /// The directives are `tracing`'s, as `EnvFilter` reads them but for what an event has no use
     /// for and for how a target matches: a level (`info`), a target and its level (`h2=debug`), or

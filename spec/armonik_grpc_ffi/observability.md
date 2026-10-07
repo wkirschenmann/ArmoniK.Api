@@ -71,26 +71,31 @@ silent.
   `armonik_transport` covers `armonik_transport::grpc::channel`, not `armonik_transport_ffi`. A
   target that ends in `*` covers every target that starts with the text: `armonik_transport*`
   covers both, `hyper*` covers `hyper` and `hyper_util`, and `*` alone covers every target:
-  `*=debug` brings everything back, where a directive-only filter such as
-  `armonik_transport=debug` leaves what it does not name off. When several directives cover an
+  `*=debug` is a level for every target, as `debug` alone is. When several directives cover an
   event the most specific decides: the longest target, and at the same length a segment directive
-  before a `*` one, whatever order they are written in. An event no directive covers takes the
-  level directive's, or none. `tracing-subscriber`'s `Targets` and `EnvFilter` match by text
-  prefix, so the engine has its own matcher.
+  before a `*` one, whatever order they are written in. `tracing-subscriber`'s `Targets` and
+  `EnvFilter` match by text prefix, so the engine has its own matcher.
+- **The default filter is `*=warn,armonik_transport*=info`, and the user's `Logging.Filter` is
+  layered over it, directive by directive.** Every target logs warnings, and the engine's own -
+  the targets that start with `armonik_transport`, the transport and the FFI - log at info; h2,
+  hyper, tonic, tower and the rest fall under the star with no directive of their own, so a
+  dependency added later is quiet by default without listing it. A directive the user states with
+  the same text as one of the default's, both starred or both not, replaces it; every other
+  directive of the default stands. So `armonik_transport*=debug` raises the engine and leaves the
+  rest at warning, `h2=debug` raises h2 alone, `*=debug` raises every target the default does not
+  name - the engine stays at info, being named - and a stray word, such as `Information` or a
+  misspelt `inf`, is a target nothing emits and changes nothing. `armonik_transport=debug`, by
+  segment, raises `armonik_transport` and its modules and leaves `armonik_transport_ffi` at info,
+  since the default's star covers it and the segment directive does not.
+- **How a user turns the logs down or off.** By stating the default's two directives, which
+  replaces them: `*=error,armonik_transport*=error` for errors only, `*=off,armonik_transport*=off`
+  for nothing. `*=off` alone silences everything but the engine, which its own directive keeps at
+  info; a host that wants no log at all gives no callback, which costs a comparison per event.
 - **No strict validation.** A directive that names a target nothing emits is no error: the
   filter says what one wants. One whose level is not a level, or that names a span or a field
   (`h2[conn]=debug`, which an event filter has no use for), is ignored and logged at warn, whatever
-  the filter selects; a filter with no directive that holds, an empty one included, is the
-  default. A lone word that is not a level, such as `Information` or a misspelt `inf`, is a target
-  at every level, not an ignored directive, so a filter made of such words has no level of its
-  own and selects none of the engine's events.
-- **The default filter is `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`.** The engine logs at
-  info, and the libraries it is built on at warn, which a directive brings back: a diagnosis of a
-  proxy's GOAWAY wants `h2=debug`. The stars are the segment rule's consequence: `hyper=warn`
-  would leave `hyper_util`, which emits warnings of its own, and `hyper_rustls` at info, and
-  `tonic*` and `tower*` cover `tonic_prost` and `tower_http`. Counted in the dependencies' sources
-  at this version, the targets that emit at info or above are `hyper`, `hyper_util`, `hyper_rustls`,
-  `h2`, `tonic` and `tower`.
+  the filter selects; the default stands for what it does not replace, so a filter made only of
+  such directives, or an empty one, is the default.
 - **One process-wide dispatcher.** The host is not Rust, so `tracing` has no subscriber but the
   engine's: the library installs it as the process's default dispatcher the first time a runtime is
   created, and it sends each event to the callback of the runtime there is, or drops it when there
@@ -198,7 +203,7 @@ OpenTelemetry collector of its own. What is decided here goes to the host's pipe
 
 ## What the logs cost
 
-Measured on a loaded Windows laptop, in release, by
+Measured on a Windows laptop, in release, by
 `cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each figure the
 minimum and the median of fifteen repetitions of ten million events (a tenth for the delivered
 ones), net of the empty loop. Another process on the machine moves the median more than the
@@ -206,11 +211,11 @@ minimum, which is the better figure.
 
 | What | ns per event |
 |------|--------------|
-| An event above the filter's highest level (`trace!` under the default) | 0.2 min, 0.6 median |
-| An event the filter does not select by target (`info!` at `h2::...` under the default) | 1.3 min, 1.7 median |
-| An event delivered to a callback that counts, message only | 166 min, 250 median |
-| The same with three fields (an integer, a string, a boolean) | 499 min, 1031 median |
-| `ak_runtime_create` with a callback, against with none (a process with few callsites) | 0.25 ms against 0.22 ms |
+| An event above the filter's highest level (`trace!` under the default) | 0.2 min, 0.4 median |
+| An event the filter does not select by target (`info!` at `h2::...` under the default) | 0.3 min, 0.5 median |
+| An event delivered to a callback that counts, message only | 74 min, 91 median |
+| The same with three fields (an integer, a string, a boolean) | 138 min, 191 median |
+| `ak_runtime_create` with a callback, against with none (a process with few callsites) | 0.24 ms against 0.24 ms median |
 
 A runtime created with no callback sets the filter to select nothing, so its events cost the first
 row. The delivered rows are the engine's whole side: rendering the values into the thread's buffer

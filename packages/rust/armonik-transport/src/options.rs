@@ -2381,9 +2381,10 @@ pub struct LoggingOptions {
     /// `h2` covers `h2::proto`, not `h2x` - and `target*` covers every target that starts with the
     /// text: `hyper*` covers `hyper` and `hyper_util`. The most specific directive that covers an
     /// event decides: the longest target, and at the same length the one without `*`. A directive
-    /// stated for a target the default also names, with or without its `*`, replaces the default's;
-    /// every other directive of the default stands, so `armonik_transport*=debug` raises the engine
-    /// and leaves the rest at warning. To turn the logs down or off state the default's two
+    /// stated with the same text as one of the default's, both with a `*` or both without,
+    /// replaces it; every other directive of the default stands, so `armonik_transport*=debug`
+    /// raises the engine and leaves the rest at warning, where `armonik_transport=debug` leaves
+    /// the default's `armonik_transport*=info` standing for what it does not cover. To turn the logs down or off state the default's two
     /// directives: `*=off,armonik_transport*=off`. A word that is no level is a target nothing
     /// emits. A directive that is not understood is ignored with a warning. Read when the runtime
     /// is created.
