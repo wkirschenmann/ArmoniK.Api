@@ -1,11 +1,11 @@
 # Observability: what a host can see of the engine
 
-Status: decided on 2026-10-07, to be built by T10.1 (logs and the effective configuration), T10.2
-(metrics) and T10.3 (traces).
+Status: decided on 2026-10-07. T10.1 (logs and the effective configuration) is built; T10.2
+(metrics) and T10.3 (traces) are to build.
 
-Each stream of events has a callback of its own, which a host registers if it wants that stream:
-the logs, the traces. The metrics are read on demand. A host that wants none of them registers
-none and reads nothing, and holds only the few log lines of its configuration's load.
+The logs cross through a callback a host gives when it creates the runtime, the traces through one
+of their own, and the metrics are read on demand. A host that wants none of them gives none and
+reads nothing.
 
 ## Why
 
@@ -22,67 +22,145 @@ silent.
 
 ## What exists
 
-- `armonik-transport` emits almost nothing: one `debug!` and one span; `armonik-transport-ffi`
-  nothing. h2, hyper and tonic emit `tracing` events, at debug and trace levels mostly, which reach
-  no host.
+- `armonik-transport` emits `tracing` events, catalogued below; h2, hyper and tonic emit theirs,
+  at debug and trace levels mostly. `armonik-transport-ffi` emits the effective configuration, and
+  the warning about a filter directive it ignores.
 - The runtime's callback runs on the library's threads, which it must not stall: it publishes and
   returns, and must not parse, allocate what it could have allocated earlier, take a lock the
   host's own code holds, or run application code.
-- The .NET binding has no `ILogger`, no `EventSource` and no trace. It reports what it catches to
-  whoever awaits the operation, but for the trampoline's three catches - a context handle that no
-  longer names a target, a `Publish` that threw, an `Arrived` that threw - which are the boundary
-  an exception must not cross back into Rust, and which say nothing.
+- The .NET binding's trampoline has three catches - a context handle that no longer names a
+  target, a `Publish` that threw, an `Arrived` that threw - which are the boundary an exception
+  must not cross back into Rust. The last two report to the log.
 
-## Decided (2026-10-07)
+## Decided for the logs (2026-10-07)
 
-- **Logs cross through a callback of their own**, which a host that wants them registers:
-  `ak_runtime_set_log_callback(runtime, callback, ctx, filter)`. Until one is registered nothing
-  is logged across the ABI. A queue the host drains would be preferable, batching what crosses,
-  but is hard to make generic across the languages a C ABI serves; the callback is what is built
-  for now.
-- **The log callback keeps the runtime callback's contract**: it records the event where the
-  host's own thread will find it, and returns. A host whose logger runs application code - .NET's
-  providers do - copies the record into a queue of its own and writes it from a thread of its own:
-  the queue is the host's, and costs the ABI nothing. It is called on the library's threads, and
-  on the host's own inside an `ak_*` call that logs, which is why a host takes no lock its logging
-  needs around such a call.
-- **Each runtime logs to its own callback.** `tracing`'s default subscriber is the process's, and a
-  host may hold several runtimes: the FFI sets each runtime's own dispatcher on the runtime's
-  threads and around the FFI calls made on it, so that its events reach it alone. Nothing else
-  sets one, so a Rust host's own subscriber receives the engine's events.
-- **What is logged before a callback exists is kept for it.** The configuration's load runs inside
-  `ak_runtime_create`, before a host can register: its events - the unknown keys, the effective
-  configuration - are kept, and delivered when the log callback is registered, selected by the
-  runtime's filter. Only the load's events are kept, as many as the load produced, and a host that
-  never registers keeps them for the runtime's life: a few lines, against the cost of losing the
-  one warning a misspelled key gives.
-- **The engine filters.** The filter is in `tracing`'s directive syntax, `info,h2=debug`: a key of
-  the runtime's options, loaded with them (configuration-loading.md), which
-  `ak_runtime_set_log_callback` takes when its `filter` is empty and replaces when it is not, and
-  which `ak_runtime_set_log_filter` changes while the runtime runs, refusing a directive it cannot
-  parse with `AK_STATUS_INVALID_ARG` and keeping the filter in force. A disabled event never
-  crosses. By default the engine logs at `info`, and h2, hyper and tonic at `warn`; a directive
-  brings them back, as a diagnosis of a proxy's GOAWAY needs.
-- **The effective configuration is logged** at `info`: once when the runtime is created, and for a
-  channel only when its creation states options of its own, which it does not in general. Every
-  option's value is logged, the endpoint as `safe_endpoint` renders it, and not where a value came
-  from. A secret never is: the options type a password as `Password`, which holds a
+- **One log callback, given when the runtime is created, and never replaced or removed.** It is
+  two fields appended to `ak_runtime_config` and to `ak_config`, `log_callback` and `log_ctx`,
+  beside the entry points' own callback, which stays a parameter: appending is what the ABI's
+  records are for, and a host built before the fields passes none. There is no setter, so there
+  is no question of a callback replaced under a delivery, and none of when its context may be
+  freed other than the runtime's life. `log_ctx` and the function stay valid until
+  `ak_runtime_destroy` returns, or until a creation that is refused returns: the library waits for
+  the deliveries under way before either, and delivers nothing after.
+- **Logs are delivered as they come.** There is no queue the host drains. The callback keeps the
+  runtime callback's contract - record the event where the host's own thread will find it, and
+  return - and a host whose logger runs application code copies the record into a queue of its own
+  and writes it from a thread of its own: the queue is the host's, and costs the ABI nothing. It
+  is called on the library's threads, and on the host's own inside an `ak_*` call that logs; it
+  may be called by several threads at once. It must not call this library: an event logged from
+  inside it is dropped, since delivering it would enter the callback again on its own stack.
+- **Events logged while the runtime is created are delivered on the host's calling thread, before
+  the creation returns.** The configuration's load runs inside the creation, and its events - the
+  unknown keys - cannot be selected by a filter that is among what it loads. They are kept on the
+  loading thread, which is the one thread that logs then, and delivered once the filter is known,
+  each as the filter selects it. A refused creation delivers them too, selected by the default
+  filter, since they say why; the callback is detached before the call returns.
+- **The filter is the runtime's, defined once, at its creation.** Its key is `Logging.Filter`
+  among the runtime's options, loaded as the others are, in `tracing`'s directive syntax:
+  `ak_runtime_config` has no field for it, so a runtime created from it logs by the default. Only
+  one runtime exists at a time, so one filter and one callback, and a creation sets the filter
+  again. Nothing changes it while the runtime runs - no entry point, no hot reload - and no channel
+  has a filter of its own.
+  `Logging` is therefore a key of the runtime's options, which a host's own `Logging` section - the
+  one `Microsoft.Extensions.Logging` reads from `appsettings.json` - meets in a file read with no
+  prefix: its `LogLevel` is logged as the unknown key `Logging.LogLevel`, and the filter is not
+  touched. Under the default prefix the two do not meet.
+- **Directives match by module-path segment, and `*` by text.** A directive is a level (`info`),
+  a target and its level (`h2=debug`), or a target alone, which is all its levels. A target covers
+  itself and the modules below it: `h2` covers `h2` and `h2::proto::connection`, not `h2x`, and
+  `armonik_transport` covers `armonik_transport::grpc::channel`, not `armonik_transport_ffi`. A
+  target that ends in `*` covers every target that starts with the text: `armonik_transport*`
+  covers both, `hyper*` covers `hyper` and `hyper_util`, and `*` alone covers every target:
+  `*=debug` brings everything back, where a directive-only filter such as
+  `armonik_transport=debug` leaves what it does not name off. When several directives cover an
+  event the most specific decides: the longest target, and at the same length a segment directive
+  before a `*` one, whatever order they are written in. An event no directive covers takes the
+  level directive's, or none. `tracing-subscriber`'s `Targets` and `EnvFilter` match by text
+  prefix, so the engine has its own matcher.
+- **No strict validation.** A directive that names a target nothing emits is no error: the
+  filter says what one wants. One whose level is not a level, or that names a span or a field
+  (`h2[conn]=debug`, which an event filter has no use for), is ignored and logged at warn, whatever
+  the filter selects; a filter with no directive that holds, an empty one included, is the
+  default. A lone word that is not a level, such as `Information` or a misspelt `inf`, is a target
+  at every level, not an ignored directive, so a filter made of such words has no level of its
+  own and selects none of the engine's events.
+- **The default filter is `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`.** The engine logs at
+  info, and the libraries it is built on at warn, which a directive brings back: a diagnosis of a
+  proxy's GOAWAY wants `h2=debug`. The stars are the segment rule's consequence: `hyper=warn`
+  would leave `hyper_util`, which emits warnings of its own, and `hyper_rustls` at info, and
+  `tonic*` and `tower*` cover `tonic_prost` and `tower_http`. Counted in the dependencies' sources
+  at this version, the targets that emit at info or above are `hyper`, `hyper_util`, `hyper_rustls`,
+  `h2`, `tonic` and `tower`.
+- **One process-wide dispatcher.** The host is not Rust, so `tracing` has no subscriber but the
+  engine's: the library installs it as the process's default dispatcher the first time a runtime is
+  created, and it sends each event to the callback of the runtime there is, or drops it when there
+  is none. Nothing is scoped to a thread, so a thread the engine starts, tokio's or its own, needs
+  no set-up, and the cache `tracing` keeps of each callsite's interest cannot be filled from a
+  thread no runtime owns. That cache is rebuilt, by
+  `tracing_core::callsite::rebuild_interest_cache`, whenever the filter changes - at a creation,
+  and at the destroy that ends the runtime, where the filter selects nothing - and an event the
+  filter does not select costs a load and a comparison. A process that has a default dispatcher
+  already, a Rust host's,
+  keeps it, and the FFI's host receives nothing. The `armonik` crate does not use the FFI, keeps
+  its own subscriber, and `armonik-transport` installs none.
+- **The record.** A structure with `struct_size` first, as the ABI's records have it, the level, the
+  target, the message, and the event's other values as pairs of text, every view borrowed for the
+  callback's duration:
+
+  ```c
+  typedef struct { ak_bytes_in key; ak_bytes_in value; } ak_log_field;
+
+  typedef struct {
+      uint32_t struct_size;         /* sizeof the record the library built */
+      uint32_t level;               /* AK_LOG_ERROR 1, WARN 2, INFO 3, DEBUG 4, TRACE 5 */
+      ak_bytes_in target;           /* armonik_transport::grpc::channel, h2, ... */
+      ak_bytes_in message;
+      size_t field_count;
+      const ak_log_field *fields;   /* in the order the event names them; NULL for none */
+  } ak_log_record;
+
+  typedef void (*ak_log_callback)(void *log_ctx, const ak_log_record *record);
+  ```
+
+  No source location and no time: the host's logger stamps its own. A field appended to the record
+  lies past a smaller `struct_size`; `ak_log_field` is a fixed pair, so a datum per field would come
+  as a pointer appended to the record. A value is rendered once into a buffer the thread reuses,
+  so that a steady state allocates nothing, and a key is the field's static name.
+- **Nothing is allocated for a disabled event.** What is not selected is decided by the callsite's
+  cached interest, before an event is built.
+- **Unknown configuration keys are logged at info**, with their source and their path, never their
+  value, since a misspelled key may hold a secret.
+- **The effective configuration is logged at info.** Once when the runtime is created, and once for
+  each channel whose creation states options that differ from what it would take from the runtime -
+  the channel's own document merged over the runtime's defaults, with its endpoint as
+  `safe_endpoint` renders it. Every option is logged, rendered by its own type's `Debug`, never by
+  a serialization of the document: the options type a password as `Password`, which holds a
   `SecretString`, and a proxy URL carrying `user:password@` as `CredentialedUrl`, each rendering
-  redacted, and the logger renders every value through the type's own rendering, never a generic
-  serialization of the document. A key's or a certificate's path is not a secret.
-- **An unknown configuration key is logged at `warn` with its source and its path, never its
-  value**, since a misspelled key may hold a secret (T6.14).
+  redacted. A key's or a certificate's path is not a secret. The test that keeps this true walks
+  the channel schema, sets each string option to a value shaped like a credential in a channel's
+  own document and in the runtime's defaults, and finds in the log nothing of a secret; a string
+  option that the schema does not mark `writeOnly` and that the test's list does not classify as
+  plain fails it, so that an option added later as plain text is caught.
 - **A Rust host needs no crossing.** The engine emits ordinary `tracing` events, which a Rust
   application's own subscriber receives and its own filter selects; the filter key is read there
   and does nothing, as the memory ceilings are. The events and their fields are the same that cross
-  the ABI, so a diagnosis reads alike in both languages; their targets and fields are documented
-  with the engine.
-- **The .NET binding takes an optional `ILoggerFactory`** on `NativeRuntime.Create`, the target as
-  the category, which is what the ArmoniK ecosystem logs through; the binding registers the log
-  callback when it is given one. The trampoline's two catches that have a target - a
-  `Publish` or an `Arrived` that threw - log through that target's runtime's logger, by the same
-  queue, since they too run on the library's thread; the one whose handle names nothing has no
-  logger to reach. The binding takes
+  the ABI.
+- **The .NET binding takes an optional `ILoggerFactory`** on each `NativeRuntime.Create`, the
+  target as the category, which is what the ArmoniK ecosystem logs through. Its trampoline copies
+  the record into a bounded queue, 16384 records, and returns; a thread of the binding's writes the
+  queue to the loggers. A record that finds the queue full is dropped and counted, and the writer
+  says how many it lost, as a warning, before the next it writes, or when the queue closes: a
+  logger slower than the engine loses records and reports it, rather than holding an engine thread
+  or the process's memory. A provider that throws costs its record and not the writer. The queue is
+  flushed when the runtime is disposed, after the destroy, which is when the context is released,
+  and when a creation is refused or throws, so that what its load logged is written; a refused
+  creation hands the process's current log back to the runtime that lives, if one does. The
+  message's braces are doubled in the `{OriginalFormat}` a structured provider reads. The
+  trampoline's two catches that have a target - an event that could not be handed to its call's
+  reader, a reader that could not be woken - log through the same queue, at error with the
+  exception, under the category `ArmoniK.Api.Client.RustGrpcChannel`; the one whose handle names
+  nothing has no logger to reach. The `ak_runtime_create` overload reaches only the default filter,
+  the others `Logging.Filter`. The binding takes
   `Microsoft.Extensions.Logging.Abstractions` as a dependency.
 - **Metrics (T10.2) are read on demand, with no callback**: one structure of counters and gauges -
   calls in flight, dials, retries, resets, GOAWAYs - read per channel by `GrpcChannel::stats()` in
@@ -104,58 +182,71 @@ silent.
   for the call. The .NET binding creates the call's `Activity` as that stack does, so that a
   host's OpenTelemetry sees the same tree whichever transport it runs.
 - **The engine's spans cross through a callback of their own** (T10.3), which a host that wants
-  them registers: `ak_runtime_set_trace_callback`. A dial, an attempt, a retry: each span is a
-  record of its own - its trace's and its own identifiers, its parent's, when it started and
-  ended, its attributes - not a level and a message, and what selects them is sampling, not a log
-  level, so a host wanting traces without logs, as an OpenTelemetry pipeline may, registers this
-  one alone. A call's logs carry its trace's identifiers, which is what correlates the two. The
-  callback keeps the log callback's contract, its lifetime included, and each runtime's dispatcher
-  sends it that runtime's spans alone; a span ended before one is registered is not kept. Which
-  spans are built is configured, and none is built while no trace callback is registered, so that
-  an engine nobody traces spends nothing on its spans. The .NET binding makes each span a child of
-  the call's `Activity`, from a thread of its own.
+  them gives as the log callback is given, when the runtime is created. A dial, an attempt, a
+  retry: each span is a record of its own - its trace's and its own identifiers, its parent's, when
+  it started and ended, its attributes - not a level and a message, and what selects them is
+  sampling, not a log level, so a host wanting traces without logs, as an OpenTelemetry pipeline
+  may, gives this one alone. A call's logs carry its trace's identifiers, which is what correlates
+  the two. The callback keeps the log callback's contract and lifetime, and the process-wide
+  dispatcher sends it the spans of the runtime there is; a span ended before one is registered is
+  not kept. Which spans are built is configured, and none is built while no trace callback is
+  given, so that an engine nobody traces spends nothing on its spans. The .NET binding makes each
+  span a child of the call's `Activity`, from a thread of its own.
 
 Out of V1's scope (requirements.md): exporting telemetry from the native side, to an
 OpenTelemetry collector of its own. What is decided here goes to the host's pipeline instead.
 
-## What crosses
+## What the logs cost
 
-A log record is valid for the callback alone: the host copies what it keeps, so nothing is lent
-on its behalf and nothing comes back. A sketch, which T10.1 settles:
+Measured on a loaded Windows laptop, in release, by
+`cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each figure the
+minimum and the median of fifteen repetitions of ten million events (a tenth for the delivered
+ones), net of the empty loop. Another process on the machine moves the median more than the
+minimum, which is the better figure.
 
-```c
-typedef struct {
-    ak_bytes_in key;
-    ak_bytes_in value;            /* rendered as text */
-} ak_log_field;
+| What | ns per event |
+|------|--------------|
+| An event above the filter's highest level (`trace!` under the default) | 0.2 min, 0.6 median |
+| An event the filter does not select by target (`info!` at `h2::...` under the default) | 1.3 min, 1.7 median |
+| An event delivered to a callback that counts, message only | 166 min, 250 median |
+| The same with three fields (an integer, a string, a boolean) | 499 min, 1031 median |
+| `ak_runtime_create` with a callback, against with none (a process with few callsites) | 0.25 ms against 0.22 ms |
 
-typedef struct {
-    uint32_t level;               /* AK_LOG_ERROR, WARN, INFO, DEBUG, TRACE */
-    uint32_t field_count;
-    ak_bytes_in target;           /* armonik_transport::grpc, h2, ... */
-    ak_bytes_in message;
-    const ak_log_field *fields;
-} ak_log_record;
+A runtime created with no callback sets the filter to select nothing, so its events cost the first
+row. The delivered rows are the engine's whole side: rendering the values into the thread's buffer
+and the call, with a callback that does nothing. Each value is rendered as text and each event's
+message is formatted, which a static message and borrowed values would not need; the engine uses
+neither. The creation's cost is the cache's rebuild, which scales with the callsites a
+process has registered.
 
-typedef void (*ak_log_callback)(void *ctx, const ak_log_record *record);
-```
+## The engine's events
 
-T10.1 settles, in building it:
+A target is the module that emits it. A host selects by target and level (`Logging.Filter`).
 
-- the record's shape, and how it grows - a `struct_size`, as the ABI's other structures have, and
-  an `ak_log_field` that cannot grow in an array without breaking its stride;
-- the log callback's lifetime: whether it can be replaced or removed, and its last invocation
-  against `AK_EVENT_RESOURCES_RELEASED` and `ak_runtime_destroy`, so that a host frees what `ctx`
-  names knowing nothing will reach it;
-- whether the kept events are delivered inside `ak_runtime_set_log_callback`, on the host's
-  thread, or from the library's;
-- the catalogue of the engine's events - their targets, levels, messages and fields - and the
-  filter's key;
-- the secret-bearing options, and a test that sets each and finds none of their values in the
-  effective configuration's log, so that an option added later as plain text is caught.
+| Target | Level | Message | Fields |
+|--------|-------|---------|--------|
+| `armonik_transport::configuration` | info | the configuration names a key the engine does not know, which is ignored | `source`, `key` |
+| `armonik_transport::configuration` | warn | the configuration gives a key twice, which is taken from the later | `source`, `key` |
+| `armonik_transport_ffi::config` | info | the runtime's effective configuration | `endpoint`, `memory_ceiling`, `memory_hard_ceiling`, `channel_defaults`, `log_filter` |
+| `armonik_transport_ffi::config` | info | the channel's effective configuration | `endpoint`, `options` |
+| `armonik_transport_ffi::log` | warn | the log filter holds a directive that is not understood, which is ignored | `directive` |
+| `armonik_transport::grpc::channel` | debug | channel created, channel closed | `endpoint` |
+| `armonik_transport::grpc::channel` | debug | dialling | `endpoint` |
+| `armonik_transport::grpc::channel` | debug | the HTTP/2 session opened | `endpoint` |
+| `armonik_transport::grpc::channel` | debug | the HTTP/2 session closed, or ended | `endpoint`, `error` |
+| `armonik_transport::grpc::channel` | warn | the dial failed | `endpoint`, `error` |
+| `armonik_transport::grpc::channel` | error | the engine panicked while dialling | `endpoint` |
+| `armonik_transport::grpc::driver` | debug | the call failed and is retried after a backoff | `method`, `attempt`, `code`, `wait_ms` |
+| `armonik_transport::grpc::driver` | debug | the request never reached the peer's application, and is sent again | `method`, `reason` |
+
+An event is emitted outside the engine's own locks where the engine owns the lock, since a host's
+callback runs inside the emitting call. No field carries a message's payload, a metadata value, or
+a credential.
+
+## T10.2 and T10.3 settle
 
 T10.2 settles the structure's counters and gauges.
 
 T10.3 settles the span record and how a span's start and end cross - one record at its end, or
 one at each - how the spans built are configured and sampled; the trace callback's lifetime
-follows what T10.1 settles for the log callback's.
+follows the log callback's.

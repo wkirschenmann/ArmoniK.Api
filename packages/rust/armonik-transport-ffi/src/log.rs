@@ -632,7 +632,7 @@ mod tests {
     }
 
     /// What lets a host free the context its callback was given: no call is under way once the
-    /// detach has returned. The one test of this crate that uses the process's sink.
+    /// detach has returned. It attaches the process's sink, so it takes `SINK_TESTS`.
     #[test]
     fn a_detach_waits_for_the_delivery_under_way() {
         use std::sync::atomic::AtomicBool;

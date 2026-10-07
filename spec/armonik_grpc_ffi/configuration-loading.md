@@ -70,7 +70,9 @@ well as from JSON, so every host language gets the same result from the same sou
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's
   path, so that a misspelled key does not give the defaults with nothing to say so. The engine logs
-  through `tracing`; how that reaches a host is T10.1's.
+  through `tracing`, at info; it reaches a host through the log callback it gives when the runtime
+  is created (observability.md), the load's events delivered on the creating thread, selected by
+  the `Logging.Filter` the load found.
 - **The endpoint is a key of the runtime's document**, `Endpoint` (2026-10-07): the one the
   `armonik` client reaches, and the one a channel reaches when `ak_channel_create` is given none.
 - **Both hosts read the runtime's document**, which follows from the endpoint's being one of its
@@ -96,7 +98,7 @@ well as from JSON, so every host language gets the same result from the same sou
    never appears in a message.
 6. **Conformance**: one set of fixtures - sources in, resulting document or refusal out - run
    against the Rust loader directly and against each binding through the ABI; the keys logged as
-   unknown are checked on the Rust loader, and through the ABI once T10.1 carries the log.
+   unknown are checked on the Rust loader, and through the ABI by the log callback (T10.1).
 
 ## Shape
 
