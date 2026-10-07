@@ -32,6 +32,8 @@
     <!-- LoadConfigFromCommandLine parses a command line in .NET's syntaxes, with this provider
          alone, and hands the engine what it read. -->
     <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="8.0.0" />
+    <!-- The engine's logs go to the ILoggerFactory a runtime is created with. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
   </ItemGroup>
 
   <ItemGroup>

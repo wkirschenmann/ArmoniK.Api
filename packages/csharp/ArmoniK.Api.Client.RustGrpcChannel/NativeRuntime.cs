@@ -25,13 +25,15 @@ using System.Threading.Tasks;
 using ArmoniK.Api.Client.RustGrpcChannel.Calls;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
+using Microsoft.Extensions.Logging;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
 /// <summary>The native engine, and the channels made from it.</summary>
 ///
 /// One per process, because the engine admits one and says so: `ak_runtime_create` refuses while
 /// another lives. That is a fact about the library and not a policy of this type, which is why a
-/// second <see cref="Create(ulong,ulong)" /> answers at once instead of waiting for the first to go.
+/// second <see cref="Create(ulong,ulong,ILoggerFactory)" /> answers at once instead of waiting for the first to go.
 ///
 /// <para>
 ///   Its lifetime is the caller's, declared: what it makes, it disposes. A channel cannot outlive
@@ -78,12 +80,18 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
   private readonly ArrivalSignal announced_ = new();
 
+  // What the engine's logs go to, when the runtime was given a logger factory.
+  private readonly EngineLog? log_;
+
   /// <summary>What asks the engine for a runtime, handed the context its callbacks carry.</summary>
   private unsafe delegate ak_status Creating(void*     context,
+                                            void*     logCallback,
+                                            void*     logContext,
                                             ulong*    created,
                                             ak_error* error);
 
   private unsafe NativeRuntime(ChannelOptions? channelDefaults,
+                               ILoggerFactory? loggerFactory,
                                Creating        create)
   {
     channelDefaults_ = channelDefaults is null
@@ -91,21 +99,51 @@ public sealed class NativeRuntime : IAsyncDisposable
                          : new ChannelOptions(channelDefaults);
 
     self_ = GCHandle.Alloc(this);
+    log_  = loggerFactory is null
+              ? null
+              : new EngineLog(loggerFactory);
+
+    // Published before the engine can call back, so that a failure of the first events is reported.
+    log_?.Publish();
 
     ak_status status;
     ak_error  error = default;
-    fixed (ulong* created = &handle_)
+    try
     {
-      status = create((void*)GCHandle.ToIntPtr(self_),
-                      created,
-                      &error);
+      fixed (ulong* created = &handle_)
+      {
+        status = create((void*)GCHandle.ToIntPtr(self_),
+                        log_ is null
+                          ? null
+                          : EngineLog.Trampoline,
+                        log_ is null
+                          ? null
+                          : log_.Context,
+                        created,
+                        &error);
+      }
+    }
+    catch
+    {
+      Abandon();
+      throw;
     }
 
     if (status != ak_status.AK_STATUS_OK)
     {
-      self_.Free();
-      throw new InvalidOperationException($"the native runtime could not be created ({status}): {error.Take()}");
+      var refusal = error.Take();
+      Abandon();
+      throw new InvalidOperationException($"the native runtime could not be created ({status}): {refusal}");
     }
+  }
+
+  /// <summary>Lets go of what a creation that failed held.</summary>
+  /// <remarks>After the engine has returned, nothing reaches the log: what the creation logged
+  /// before it was refused is written out first.</remarks>
+  private void Abandon()
+  {
+    self_.Free();
+    log_?.Close();
   }
 
   internal ulong Handle
@@ -139,18 +177,27 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   <paramref name="memoryCeiling" />, or the engine's own when that is 0 - and less than that
   ///   threshold is refused.
   /// </param>
+  /// <param name="loggerFactory">
+  ///   Where the engine's logs go, the engine's target as the category, or none. Written from a
+  ///   thread of its own: a provider is never called on the engine's. The engine's default filter
+  ///   selects what reaches it: its own events at information, the libraries' at warning.
+  /// </param>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   /// <exception cref="InvalidOperationException">
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
   /// </exception>
-  public static unsafe NativeRuntime Create(ulong memoryCeiling     = 0,
-                                            ulong memoryHardCeiling = 0)
+  public static unsafe NativeRuntime Create(ulong           memoryCeiling     = 0,
+                                            ulong           memoryHardCeiling = 0,
+                                            ILoggerFactory? loggerFactory     = null)
   {
     RefuseAnotherAbi();
 
     return new NativeRuntime(null,
+                             loggerFactory,
                              (context,
+                              logCallback,
+                              logContext,
                               created,
                               error) =>
                              {
@@ -159,6 +206,8 @@ public sealed class NativeRuntime : IAsyncDisposable
                                               struct_size         = (uint)Marshal.SizeOf<ak_runtime_config>(),
                                               memory_ceiling      = memoryCeiling,
                                               memory_hard_ceiling = memoryHardCeiling,
+                                              log_callback        = logCallback,
+                                              log_ctx             = logContext,
                                             };
                                return NativeMethods.ak_runtime_create(&config,
                                                                       Trampoline,
@@ -170,11 +219,16 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>Starts the engine with the options its configuration's sources state, read by the engine now.</summary>
   /// <param name="configuration">Where the options are read from, in order.</param>
+  /// <param name="loggerFactory">
+  ///   Where the engine's logs go, the engine's target as the category, or none. Written from a
+  ///   thread of its own: a provider is never called on the engine's. The engine's own filter
+  ///   selects what reaches it, <c>Logging.Filter</c> of the runtime's options.
+  /// </param>
   /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
   /// <exception cref="InvalidOperationException">
   ///   A source is refused - a file that does not exist or does not parse, a value that does not
   ///   fit its key, the environment with no prefix - the message naming the source and the key's
-  ///   path, or the engine refused as <see cref="Create(ulong,ulong)" /> does.
+  ///   path, or the engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   /// <remarks>
@@ -182,7 +236,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   a channel sizes its rings from the window it sends, its own options' or
   ///   <see cref="DefaultDeliveryCredits" />.
   /// </remarks>
-  public static NativeRuntime Create(NativeConfiguration configuration)
+  public static NativeRuntime Create(NativeConfiguration configuration,
+                                     ILoggerFactory?     loggerFactory = null)
   {
     if (configuration is null)
     {
@@ -191,16 +246,19 @@ public sealed class NativeRuntime : IAsyncDisposable
 
     return Create(configuration.Prefix,
                   configuration.Sources,
-                  null);
+                  null,
+                  loggerFactory);
   }
 
   /// <summary>Starts the engine from the sources it reads, in order, under <paramref name="prefix" />.</summary>
   /// <param name="prefix">The sources' prefix, empty for none.</param>
   /// <param name="sources">Each source's kind and value.</param>
   /// <param name="channelDefaults">The channel defaults the sources state, when the caller knows them.</param>
+  /// <param name="loggerFactory">Where the engine's logs go, or none.</param>
   private static unsafe NativeRuntime Create(string                                             prefix,
                                              IReadOnlyList<(ak_source_kind Kind, byte[] Value)> sources,
-                                             ChannelOptions?                                    channelDefaults)
+                                             ChannelOptions?                                    channelDefaults,
+                                             ILoggerFactory?                                    loggerFactory)
   {
     RefuseAnotherAbi();
 
@@ -223,7 +281,10 @@ public sealed class NativeRuntime : IAsyncDisposable
     var listed = new ak_config_source[sources.Count];
 
     return new NativeRuntime(channelDefaults,
+                             loggerFactory,
                              (context,
+                              logCallback,
+                              logContext,
                               created,
                               error) =>
                              {
@@ -250,6 +311,8 @@ public sealed class NativeRuntime : IAsyncDisposable
                                                 sources      = first,
                                                 prefix = ak_bytes_in.Borrow(pinned,
                                                                             named.Length),
+                                                log_callback = logCallback,
+                                                log_ctx      = logContext,
                                               };
                                  return NativeMethods.ak_runtime_create_from(&config,
                                                                              TrampolineFrom,
@@ -281,11 +344,17 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>Starts the engine with the options given, each one left out taking its default.</summary>
   /// <param name="options">What the engine is started with.</param>
+  /// <param name="loggerFactory">
+  ///   Where the engine's logs go, the engine's target as the category, or none. Written from a
+  ///   thread of its own: a provider is never called on the engine's. The engine's own filter
+  ///   selects what reaches it, <c>Logging.Filter</c> of the runtime's options.
+  /// </param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(ulong,ulong)" /> does.</exception>
+  /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.</exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
-  public static NativeRuntime Create(RuntimeOptions options)
+  public static NativeRuntime Create(RuntimeOptions   options,
+                                     ILoggerFactory? loggerFactory = null)
   {
     if (options is null)
     {
@@ -297,7 +366,8 @@ public sealed class NativeRuntime : IAsyncDisposable
     var configuration = new NativeConfiguration().LoadConfigFromObject(options);
     return Create(configuration.Prefix,
                   configuration.Sources,
-                  options.ChannelDefaults);
+                  options.ChannelDefaults,
+                  loggerFactory);
   }
 
   /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>
@@ -497,6 +567,14 @@ public sealed class NativeRuntime : IAsyncDisposable
     // Only once both have answered. A runtime that refused to be destroyed still holds this
     // pointer, and freeing the root would hand its next callback whatever the slot is reused for.
     self_.Free();
+
+    // The engine logs nothing after the destroy, so what is queued is written and the log's
+    // context released; off this thread, since the writer's providers may take their time.
+    if (log_ is not null)
+    {
+      await Task.Run(log_.Close)
+                .ConfigureAwait(false);
+    }
   }
 
   // Out of RetireAsync, which as an async method may not pass a pointer.
@@ -626,10 +704,12 @@ public sealed class NativeRuntime : IAsyncDisposable
           runtime.announced_.Set();
         }
       }
-      catch
+      catch (Exception raised)
       {
         // Nothing may unwind into the engine: an exception crossing this callback is undefined
-        // on its side of the ABI.
+        // on its side of the ABI. It is reported to the log, which queues it and returns.
+        EngineLog.Current?.Caught("an event of a call could not be handed to its reader",
+                                  raised);
       }
       finally
       {
@@ -661,9 +741,11 @@ public sealed class NativeRuntime : IAsyncDisposable
         call.Arrived();
       }
     }
-    catch
+    catch (Exception raised)
     {
       // As above: nothing may unwind into the engine.
+      EngineLog.Current?.Caught("the reader of a call could not be woken for the events handed to it",
+                                raised);
     }
     finally
     {

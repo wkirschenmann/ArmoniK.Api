@@ -53,6 +53,11 @@ internal static unsafe partial class NativeMethods
     }
   }
 
+  /// <summary>The engine's log callback, which the generated declarations carry as a plain pointer.</summary>
+  [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+  internal delegate void LogCallback(void*          logCtx,
+                                     ak_log_record* record);
+
   [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
   private static extern IntPtr LoadLibrary(string path);
 }
