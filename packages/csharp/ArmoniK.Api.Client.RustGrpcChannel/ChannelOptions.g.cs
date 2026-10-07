@@ -2472,8 +2472,17 @@ public sealed class GrpcSendOptions
 [JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
 public enum MessageEncoding
 {
-  /// <summary>RFC 1952 gzip.</summary>
+  /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
   Gzip,
+
+  /// <summary>
+  ///   gRPC's <c>deflate</c>: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+  ///   RFC 1951 stream.
+  /// </summary>
+  Deflate,
+
+  /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
+  Zstd,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -2495,7 +2504,9 @@ public sealed class GrpcReceiveOptions
     }
 
     MaxMessageSize = other.MaxMessageSize;
-    Compression = other.Compression;
+    Compression = other.Compression is null
+                    ? null
+                    : new global::System.Collections.Generic.List<MessageEncoding>(other.Compression);
   }
 
   /// <summary>The largest message this client will accept, in bytes.</summary>
@@ -2509,15 +2520,16 @@ public sealed class GrpcReceiveOptions
   public int? MaxMessageSize { get; set; }
 
   /// <summary>
-  ///   The encoding besides <c>identity</c> that this client accepts for the messages of an answer,
-  ///   which it states as <c>grpc-accept-encoding</c>. A server may then compress what it sends, and
-  ///   <c>MaxMessageSize</c> bounds a message once it is decompressed. A message compressed in any other
-  ///   encoding ends its call <c>INTERNAL</c>.
+  ///   The encodings besides <c>identity</c> that this client accepts for the messages of an answer,
+  ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
+  ///   may then compress what it sends, in the first of them that it knows. A name given twice
+  ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>.
   /// </summary>
-  /// <remarks>Defaults to none, only <c>identity</c> being accepted.</remarks>
+  /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public MessageEncoding? Compression { get; set; }
+  public global::System.Collections.Generic.List<MessageEncoding>? Compression { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -2530,11 +2542,18 @@ public sealed class GrpcReceiveOptions
                                             "MaxMessageSize has to be at least 1.");
     }
 
-    if (Compression is MessageEncoding compression && !Enum.IsDefined(typeof(MessageEncoding), compression))
+    if (Compression is { } compression)
     {
-      throw new ArgumentOutOfRangeException(nameof(Compression),
-                                            compression,
-                                            "Compression has to be a name MessageEncoding declares.");
+      var compressionUndeclared = compression.Where(item => !Enum.IsDefined(typeof(MessageEncoding), item))
+                                             .ToList();
+
+      if (compressionUndeclared.Count > 0)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Compression),
+                                              string.Join(", ",
+                                                          compressionUndeclared),
+                                              "Compression has to be names MessageEncoding declares.");
+      }
     }
   }
 
@@ -2556,7 +2575,7 @@ public sealed class GrpcReceiveOptions
       else if (ChannelOptionsConfiguration.Is(entry,
                                               "Compression"))
       {
-        bound.Compression = ChannelOptionsConfiguration.Enumeration<MessageEncoding>(entry);
+        bound.Compression = ChannelOptionsConfiguration.Enumerations<MessageEncoding>(entry);
       }
       else
       {
@@ -2921,6 +2940,27 @@ internal static class ChannelOptionsConfiguration
                                                         names))
              : (T)Enum.Parse(typeof(T),
                              name);
+  }
+
+  /// <summary>The names of a key that holds a list, each one <typeparamref name="T" /> declares, or none where it holds nothing.</summary>
+  /// <remarks>A key without entries is unset, so a configuration cannot state an empty list; two layers that both state an index are merged by it.</remarks>
+  /// <exception cref="InvalidOperationException">It holds a value instead of entries, or an entry names nothing <typeparamref name="T" /> declares.</exception>
+  internal static global::System.Collections.Generic.List<T>? Enumerations<T>(IConfigurationSection section)
+    where T : struct, Enum
+  {
+    if (!string.IsNullOrEmpty(section.Value))
+    {
+      throw new InvalidOperationException($"{section.Path} holds a value, and it names a list: each name goes under an index of its own.");
+    }
+
+    var entries = section.GetChildren()
+                         .ToList();
+
+    return entries.Count == 0
+             ? null
+             : entries.Select(entry => Enumeration<T>(entry) ?? throw Unreadable(entry,
+                                                                               "a name"))
+                      .ToList();
   }
 
   /// <summary>A key nothing declares, refused by its path.</summary>

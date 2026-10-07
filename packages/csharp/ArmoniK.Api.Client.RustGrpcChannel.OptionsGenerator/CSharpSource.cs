@@ -311,6 +311,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       }
     }
 
+    // The type of a group's property, nullable form excluded: a list is a settable one.
+    private static string PropertyType(Option option)
+      => option.Kind == OptionKind.EnumerationList
+           ? ListOf(option.Type)
+           : option.Type;
+
+    private static string ListOf(string type)
+      => $"global::System.Collections.Generic.List<{type}>";
+
     private static void AppendGroup(IndentedTextWriter source,
                                     OptionGroup group,
                                     bool encodes,
@@ -348,7 +357,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               $$"""
                 [JsonPropertyName("{{option.Name}}")]
                 [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                public {{option.Type}}? {{option.Name}} { get; set; }
+                public {{PropertyType(option)}}? {{option.Name}} { get; set; }
                 """);
       }
 
@@ -456,6 +465,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
          {
            OptionKind.Group or OptionKind.Choice => $"{reading}.Holds({section}) ? {option.Type}.Bind({section}) : null",
            OptionKind.Enumeration                => $"{reading}.Enumeration<{option.Type}>({section})",
+           OptionKind.EnumerationList            => $"{reading}.Enumerations<{option.Type}>({section})",
            _ => option.Type switch
                 {
                   "string" => $"{reading}.Text({section})",
@@ -1030,7 +1040,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       void Reads(Option option)
         => used.Add(option.Kind switch
                     {
-                      OptionKind.Enumeration => "Enumeration",
+                      OptionKind.Enumeration     => "Enumeration",
+                      OptionKind.EnumerationList => "Enumerations",
                       OptionKind.Value => option.Type switch
                                           {
                                             "int"    => "Int32",
@@ -1314,6 +1325,34 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                   name);
        }
        """),
+      ("Enumerations",
+       new[]
+       {
+         "Enumeration",
+         "Unreadable",
+       },
+       """
+       /// <summary>The names of a key that holds a list, each one <typeparamref name="T" /> declares, or none where it holds nothing.</summary>
+       /// <remarks>A key without entries is unset, so a configuration cannot state an empty list; two layers that both state an index are merged by it.</remarks>
+       /// <exception cref="InvalidOperationException">It holds a value instead of entries, or an entry names nothing <typeparamref name="T" /> declares.</exception>
+       internal static global::System.Collections.Generic.List<T>? Enumerations<T>(IConfigurationSection section)
+         where T : struct, Enum
+       {
+         if (!string.IsNullOrEmpty(section.Value))
+         {
+           throw new InvalidOperationException($"{section.Path} holds a value, and it names a list: each name goes under an index of its own.");
+         }
+
+         var entries = section.GetChildren()
+                              .ToList();
+
+         return entries.Count == 0
+                  ? null
+                  : entries.Select(entry => Enumeration<T>(entry) ?? throw Unreadable(entry,
+                                                                                    "a name"))
+                           .ToList();
+       }
+       """),
       ("Unknown",
        Array.Empty<string>(),
        """
@@ -1398,8 +1437,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       foreach (var option in group.Options)
       {
         // A choice is a record and an enumeration a value: neither changes once made, so both
-        // are shared rather than copied.
-        if (option.Kind != OptionKind.Group)
+        // are shared rather than copied. A list changes, and is copied: its names are values.
+        if (option.Kind is not (OptionKind.Group or OptionKind.EnumerationList))
         {
           source.WriteLine($"{option.Name} = other.{option.Name};");
           continue;
@@ -1412,7 +1451,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               $"""
                {option.Name} = other.{option.Name} is null
                {under}? null
-               {under}: new {option.Type}(other.{option.Name});
+               {under}: new {PropertyType(option)}(other.{option.Name});
                """);
       }
 
@@ -1427,7 +1466,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                        IReadOnlyList<Option> options,
                                        string signature)
     {
-      var checks = options.Where(option => option.Kind == OptionKind.Enumeration ||
+      var checks = options.Where(option => option.Kind is OptionKind.Enumeration or OptionKind.EnumerationList ||
                                            (option.Kind == OptionKind.Value && (option.Bounds.Count > 0 || option.Type == "double")))
                           .ToList();
       var nested = options.Where(option => option.Kind is OptionKind.Group or OptionKind.Choice)
@@ -1457,6 +1496,44 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
         var refuses = new List<string>();
         var says    = new List<string>();
+
+        // A list is checked by each of its names, and says so in the plural. Its item is a name
+        // of its own so that it cannot be the local of an option.
+        if (option.Kind == OptionKind.EnumerationList)
+        {
+          var item = value == "item"
+                       ? "member"
+                       : "item";
+
+          if (n > 0)
+          {
+            Blank(source);
+          }
+
+          var undeclared = value + "Undeclared";
+
+          // The chain's second link lines up under the first: `var x = list.Where(...)`.
+          var chain = new string(' ',
+                                 "var ".Length + undeclared.Length + " = ".Length + value.Length);
+
+          Lines(source,
+                $$"""
+                  if ({{option.Name}} is { } {{value}})
+                  {
+                    var {{undeclared}} = {{value}}.Where({{item}} => !Enum.IsDefined(typeof({{option.Type}}), {{item}}))
+                    {{chain}}.ToList();
+
+                    if ({{undeclared}}.Count > 0)
+                    {
+                      throw new ArgumentOutOfRangeException(nameof({{option.Name}}),
+                      {{under}}string.Join(", ",
+                      {{under}}            {{undeclared}}),
+                      {{under}}"{{option.Name}} has to be names {{option.Type}} declares.");
+                    }
+                  }
+                  """);
+          continue;
+        }
 
         // An enum is a number, and a cast makes any number one of its type.
         if (option.Kind == OptionKind.Enumeration)

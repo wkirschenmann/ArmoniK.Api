@@ -75,8 +75,10 @@ impl ChannelSettings {
         config.accept_encodings = grpc
             .receive
             .compression
+            .iter()
+            .flatten()
+            .copied()
             .map(MessageEncoding::encoding)
-            .into_iter()
             .collect();
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
@@ -751,11 +753,24 @@ mod tests {
         assert_eq!(sends.send_encoding, Some(Encoding::Gzip));
         assert_eq!(sends.accept_encodings, vec![]);
 
-        let accepts = config_of(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#);
+        let accepts = config_of(br#"{"Grpc":{"Receive":{"Compression":["Gzip"]}}}"#);
         assert_eq!(accepts.send_encoding, None);
         assert_eq!(accepts.accept_encodings, vec![Encoding::Gzip]);
 
-        assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Zstd"}}}"#).is_err());
+        let both = config_of(
+            br#"{"Grpc":{"Send":{"Compression":"Zstd"},"Receive":{"Compression":["Deflate","Gzip","Zstd"]}}}"#,
+        );
+        assert_eq!(both.send_encoding, Some(Encoding::Zstd));
+        assert_eq!(
+            both.accept_encodings,
+            vec![Encoding::Deflate, Encoding::Gzip, Encoding::Zstd],
+            "in the order stated"
+        );
+        let empty = config_of(br#"{"Grpc":{"Receive":{"Compression":[]}}}"#);
+        assert_eq!(empty.accept_encodings, vec![]);
+
+        assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Brotli"}}}"#).is_err());
+        assert!(parse(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#).is_err());
     }
 
     #[test]

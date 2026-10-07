@@ -1759,8 +1759,13 @@ pub struct GrpcOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum MessageEncoding {
-    /// RFC 1952 gzip.
+    /// RFC 1952 gzip, `gzip` on the wire.
     Gzip,
+    /// gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+    /// RFC 1951 stream.
+    Deflate,
+    /// RFC 8878 Zstandard, `zstd` on the wire.
+    Zstd,
 }
 
 impl MessageEncoding {
@@ -1768,6 +1773,8 @@ impl MessageEncoding {
     pub fn encoding(self) -> crate::grpc::Encoding {
         match self {
             Self::Gzip => crate::grpc::Encoding::Gzip,
+            Self::Deflate => crate::grpc::Encoding::Deflate,
+            Self::Zstd => crate::grpc::Encoding::Zstd,
         }
     }
 }
@@ -1836,18 +1843,19 @@ pub struct GrpcReceiveOptions {
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_message_size: Option<i32>,
 
-    /// The encoding besides `identity` that this client accepts for the messages of an answer,
-    /// which it states as `grpc-accept-encoding`. A server may then compress what it sends, and
-    /// `MaxMessageSize` bounds a message once it is decompressed. A message compressed in any other
-    /// encoding ends its call `INTERNAL`.
+    /// The encodings besides `identity` that this client accepts for the messages of an answer,
+    /// which it states as `grpc-accept-encoding` in the order given, `identity` last. A server
+    /// may then compress what it sends, in the first of them that it knows. A name given twice
+    /// counts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A
+    /// message compressed in an encoding that is not listed ends its call `INTERNAL`.
     ///
-    /// Defaults to none, only `identity` being accepted.
+    /// Defaults to none, only `identity` being accepted, which an empty list says too.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
-    pub compression: Option<MessageEncoding>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<MessageEncoding>"))]
+    pub compression: Option<Vec<MessageEncoding>>,
 }
 
 /// What crosses between the host and the engine on each call, one way and the other.
@@ -1974,6 +1982,7 @@ over_values!(
     Chosen,
     StoreLocation,
     MessageEncoding,
+    Vec<MessageEncoding>,
     CredentialedUrl,
 );
 
@@ -3016,23 +3025,70 @@ mod tests {
         let sending = read(r#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("gzip is named");
         assert_eq!(sending.grpc.send.compression, Some(MessageEncoding::Gzip));
         assert_eq!(sending.grpc.receive.compression, None);
-        assert_eq!(
-            MessageEncoding::Gzip.encoding(),
-            crate::grpc::Encoding::Gzip
-        );
+
+        for (name, encoding, wire) in [
+            ("Gzip", MessageEncoding::Gzip, crate::grpc::Encoding::Gzip),
+            (
+                "Deflate",
+                MessageEncoding::Deflate,
+                crate::grpc::Encoding::Deflate,
+            ),
+            ("Zstd", MessageEncoding::Zstd, crate::grpc::Encoding::Zstd),
+        ] {
+            let sends = read(&format!(
+                r#"{{"Grpc":{{"Send":{{"Compression":"{name}"}}}}}}"#
+            ))
+            .expect("a declared name");
+            assert_eq!(sends.grpc.send.compression, Some(encoding));
+            assert_eq!(encoding.encoding(), wire);
+        }
 
         for refused in [
             r#"{"Grpc":{"Send":{"Compression":"Brotli"}}}"#,
-            r#"{"Grpc":{"Receive":{"Compression":"gzip"}}}"#,
-            r#"{"Grpc":{"Receive":{"Compression":["Gzip"]}}}"#,
+            r#"{"Grpc":{"Send":{"Compression":"gzip"}}}"#,
+            r#"{"Grpc":{"Send":{"Compression":["Gzip"]}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":["gzip"]}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":["Gzip","Brotli"]}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
         }
+    }
 
-        let defaults = read(r#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#).expect("gzip");
-        let merged = sending.over(&defaults);
-        assert_eq!(merged.grpc.send.compression, Some(MessageEncoding::Gzip));
-        assert_eq!(merged.grpc.receive.compression, Some(MessageEncoding::Gzip));
+    /// What a channel accepts is a list: kept in the order stated, a repeat included (the channel
+    /// collapses it), and stated whole over the defaults', an empty list included.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn the_accepted_encodings_are_a_list_stated_whole() {
+        use MessageEncoding::*;
+        let read = |json: &str| serde_json::from_str::<ChannelOptions>(json).expect("options");
+        let accepts = |options: &ChannelOptions| options.grpc.receive.compression.clone();
+
+        let stated = read(r#"{"Grpc":{"Receive":{"Compression":["Zstd","Gzip","Zstd"]}}}"#);
+        assert_eq!(accepts(&stated), Some(vec![Zstd, Gzip, Zstd]));
+        assert_eq!(
+            serde_json::to_value(&stated).expect("a document")["Grpc"]["Receive"],
+            serde_json::json!({"Compression": ["Zstd", "Gzip", "Zstd"]}),
+            "written as an array of names, in order"
+        );
+
+        let defaults = read(r#"{"Grpc":{"Receive":{"Compression":["Gzip","Deflate"]}}}"#);
+        assert_eq!(
+            accepts(&stated.clone().over(&defaults)),
+            Some(vec![Zstd, Gzip, Zstd]),
+            "the list stated replaces the default's, it is not appended to it"
+        );
+        assert_eq!(
+            accepts(&ChannelOptions::default().over(&defaults)),
+            Some(vec![Gzip, Deflate]),
+            "a channel that states none has the default's"
+        );
+        let empty = read(r#"{"Grpc":{"Receive":{"Compression":[]}}}"#);
+        assert_eq!(
+            accepts(&empty.over(&defaults)),
+            Some(vec![]),
+            "an empty list is stated, and clears the default's"
+        );
     }
 
     /// The adaptive windows are an alternative to the fixed ones: either, stated over the other,
@@ -3358,6 +3414,8 @@ mod tests {
             Some("number") => json!(1.0),
             Some("string") => json!("x"),
             Some("boolean") => json!(true),
+            // One item, of the type the schema states for them.
+            Some("array") => json!([a_value_for(&node["items"], root, alternative)]),
             Some(other) => panic!("`{other}` is a type this test states no value for"),
         }
     }
