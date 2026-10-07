@@ -1,0 +1,11 @@
+targg    filters=-            global=-      emit=debug | ns/event net of loop: min    0.48  median    0.65  max    0.92 | delivered 0
+targg    filters=-            global=info   emit=debug | ns/event net of loop: min    0.38  median    0.41  max    0.93 | delivered 0
+targg    filters=info         global=-      emit=debug | ns/event net of loop: min    0.54  median    0.66  max    0.99 | delivered 0
+targg    filters=info+info    global=-      emit=debug | ns/event net of loop: min    0.00  median    0.62  max    1.49 | delivered 0
+targg    filters=info+debug   global=-      emit=debug | ns/event net of loop: min   47.57  median   50.11  max   60.26 | delivered 0
+targg    filters=info+debug   global=warn   emit=debug | ns/event net of loop: min   48.84  median   53.34  max   60.94 | delivered 0
+targg    filters=info+info+info+info global=-      emit=debug | ns/event net of loop: min    0.37  median    0.56  max    1.00 | delivered 0
+targg    filters=debug        global=-      emit=debug | ns/event net of loop: min  310.34  median  328.62  max  476.80 | delivered 140001000
+targg    filters=info+debug   global=-      emit=debug | ns/event net of loop: min   47.86  median   52.17  max   64.34 | delivered 0
+targg    filters=info         global=-      emit=info  | ns/event net of loop: min  320.37  median  358.85  max  417.21 | delivered 140001000
+targg    filters=info+debug   global=-      emit=info  | ns/event net of loop: min  271.88  median  302.35  max  351.55 | delivered 140001000

@@ -1,0 +1,29 @@
+[package]
+name = "observability-spike"
+description = "Prototypes for the observability design (T10.1 to T10.3); not for merging"
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+armonik-transport = { path = "../armonik-transport", features = ["serde", "schema"] }
+arc-swap = "1"
+fastrand.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
+tracing.workspace = true
+tracing-core = "0.1"
+tracing-subscriber = { workspace = true, features = ["env-filter", "registry", "std"] }
+
+[dev-dependencies]
+serde.workspace = true
+bytes.workspace = true
+futures.workspace = true
+http.workspace = true
+hyper = { workspace = true, features = ["server", "http2"] }
+rcgen = { workspace = true, features = ["crypto", "pem", "ring"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "io-util"] }
+tonic = { workspace = true, features = ["codegen", "server", "router"] }
+tower-service.workspace = true
