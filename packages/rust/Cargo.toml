@@ -25,6 +25,7 @@ base64 = "0.22"
 # 1.9 for `Bytes::from_owner`, which lends a pooled arena as a message.
 bytes = "1.9"
 fastrand = "2"
+flate2 = "1"
 # `clap` is only the command-line tool; the library is what renders.
 cbindgen = { version = "0.29", default-features = false }
 csbindgen = "1.9"

@@ -1,5 +1,6 @@
 mod call;
 mod channel;
+mod compression;
 mod contained;
 mod driver;
 mod error;
@@ -14,6 +15,7 @@ pub use call::{
     RecvHalf, RecvResult, ResponseHead, ResponseSink, SendHalf,
 };
 pub use channel::{CallDriver, GrpcChannel, GrpcChannelConfig};
+pub use compression::Encoding;
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};
 pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 pub use request::{FramedMessage, OneRequest, FRAME_PREFIX};

@@ -70,6 +70,8 @@ armonik-transport = { path = "../armonik-transport", features = ["serde", "schem
 # The tests include armonik-transport's gRPC fixture by path, and its server-streaming service
 # answers with a `Stream`.
 futures.workspace = true
+# And its compressed answers, which are gzip the fixture writes.
+flate2.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = ["codegen", "server", "router"] }
 tower-service.workspace = true

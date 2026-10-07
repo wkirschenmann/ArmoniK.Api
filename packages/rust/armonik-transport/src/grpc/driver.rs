@@ -18,9 +18,10 @@ use super::call::{
     ResponseSink,
 };
 use super::channel::Inner;
+use super::compression::compressed;
 use super::contained::contained;
 use super::metadata::Metadata;
-use super::request::{RequestSlot, FRAME_PREFIX};
+use super::request::RequestSlot;
 use super::retry::{jittered, OneReplay, Replay, RequestBody, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{GrpcStatus, Unprocessed};
@@ -343,14 +344,25 @@ async fn run<S: ResponseSink>(
         // first has sent nothing its peer could act on.
         Sending::One(slot) => match until_stopped(stop, slot.taken()).await {
             Some(Some(request)) => {
-                let body = request.body();
-                let len = body.len() - FRAME_PREFIX;
+                let len = request.len();
                 if let Some(max) = inner.max_send_message_size.filter(|max| len > *max) {
                     return GrpcStatus::new(
                         GrpcStatusCode::ResourceExhausted,
                         format!("a message of {len} bytes is past the {max} the channel sends"),
                     );
                 }
+                // Compressed once, here: every attempt sends the same bytes, and the replay is
+                // charged what is sent.
+                let request = match inner.send_encoding {
+                    Some(encoding) => {
+                        match until_stopped(stop, compressed(encoding, request)).await {
+                            Some(request) => request,
+                            None => return GrpcStatus::cancelled(),
+                        }
+                    }
+                    None => request,
+                };
+                let body = request.body();
                 Sent::One(OneReplay::new(
                     body,
                     replay_limit,
