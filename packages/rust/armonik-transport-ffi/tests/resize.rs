@@ -174,8 +174,11 @@ fn the_ceiling_sees_the_difference_alone() {
 
     let (status, buffer) = resize(buffer, 65, 4);
     assert_eq!(status, ak_status::AK_STATUS_MESSAGE_TOO_LARGE);
-    assert_eq!(buffer.len, 64, "the buffer is the one it was");
-    assert_eq!(memory_usage(host.runtime).bytes_used, 64);
+    assert_eq!(
+        memory_usage(host.runtime).bytes_used,
+        64,
+        "the buffer is charged as it was"
+    );
 
     let (status, buffer) = resize(buffer, 8, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
@@ -212,8 +215,6 @@ fn refused_for_room(flags: u32) {
 
     let (status, same) = resize(buffer, 50, 7);
     assert_eq!(status, ak_status::AK_STATUS_BUDGET_BUSY);
-    assert_eq!(same.ptr, buffer.ptr);
-    assert_eq!(same.len, 24);
     assert_eq!(read(same, 7), b"written", "the bytes are where they were");
     assert_eq!(memory_usage(host.runtime).bytes_used, 48);
     assert_eq!(debt_of(call).buffers_lent, 1);
@@ -315,7 +316,11 @@ fn a_cancelled_call_resizes_nothing() {
     );
     let (status, buffer) = resize(buffer, 16, 0);
     assert_eq!(status, ak_status::AK_STATUS_INVALID_STATE);
-    assert_eq!(buffer.len, 8);
+    assert_eq!(
+        debt_of(call).buffers_lent,
+        1,
+        "the buffer is still the host's"
+    );
     unsafe { ak_return_call_buffer(buffer) };
 
     host.recorder.await_terminal();

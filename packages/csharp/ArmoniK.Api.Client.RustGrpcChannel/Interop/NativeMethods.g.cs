@@ -312,7 +312,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  size now: it records no wait and owes no AK_EVENT_BUDGET_WAKE, and a host that waits for room
         ///  gives the buffer back and lends the new length, as one that waits holds none.
         ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
-        ///  requested, resizes nothing: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
+        ///  requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
+        ///  it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
         ///  `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
         ///  allocator failure is AK_STATUS_INTERNAL.
         ///

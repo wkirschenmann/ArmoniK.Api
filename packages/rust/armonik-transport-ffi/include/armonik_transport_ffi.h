@@ -12,8 +12,8 @@
  *     faulting - and so does one on an object of another kind.
  *   - Memory crosses in one direction at a time. What the library hands over, the host gives
  *     back exactly once - a payload through ak_event_consumed, a lent buffer through
- *     ak_call_send_message or ak_return_call_buffer, the one ak_resize_call_buffer replaces it
- *     by included - and the runtime cannot finish until it has.
+ *     ak_call_send_message or ak_return_call_buffer, and the buffer ak_resize_call_buffer hands
+ *     back in its place counts as the one owed - and the runtime cannot finish until it has.
  *     Exactly once is the host's to keep: unlike a handle, the owner in ak_bytes and ak_buffer is
  *     a pointer, so giving one back twice reads memory this library has freed. Undefined
  *     behaviour, not a refusal - there is nothing left to refuse with.
@@ -858,7 +858,8 @@ void ak_return_call_buffer(ak_buffer buffer);
  * size now: it records no wait and owes no AK_EVENT_BUDGET_WAKE, and a host that waits for room
  * gives the buffer back and lends the new length, as one that waits holds none.
  * AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
- * requested, resizes nothing: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
+ * requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
+ * it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
  * `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
  * allocator failure is AK_STATUS_INTERNAL.
  *
