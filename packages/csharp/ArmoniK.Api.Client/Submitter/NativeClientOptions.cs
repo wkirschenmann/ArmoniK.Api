@@ -1,0 +1,207 @@
+// This file is part of the ArmoniK project
+//
+// Copyright (C) ANEO, 2021-2026. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License")
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+using System;
+using System.Collections.Generic;
+
+using ArmoniK.Api.Client.Options;
+using ArmoniK.Api.Client.RustGrpcChannel;
+
+using NativeChannelOptions = ArmoniK.Api.Client.RustGrpcChannel.ChannelOptions;
+
+namespace ArmoniK.Api.Client.Submitter
+{
+  /// <summary>
+  ///   What a <see cref="GrpcClient" /> says, in the native engine's vocabulary
+  /// </summary>
+  internal static class NativeClientOptions
+  {
+    /// <summary>
+    ///   The channel options the engine reads for <paramref name="options" />
+    /// </summary>
+    /// <param name="options">The options of the client</param>
+    /// <param name="floor">
+    ///   When given, only what <paramref name="options" /> states beyond it is translated: an option equal to
+    ///   <paramref name="floor" />'s is left to the sources below, so that it does not override them
+    /// </param>
+    /// <returns>The channel options; a group of options with nothing stated is left null</returns>
+    internal static NativeChannelOptions Translate(GrpcClient  options,
+                                                   GrpcClient? floor)
+    {
+      bool Stated<T>(Func<GrpcClient, T> read)
+        => floor is null || !EqualityComparer<T>.Default.Equals(read(options),
+                                                                read(floor));
+
+      var tls = new TlsOptions();
+      if (Stated(o => o.AllowUnsafeConnection) || Stated(o => o.CaCert))
+      {
+        if (options.AllowUnsafeConnection)
+        {
+          tls.Server = new ServerVerification.Unverified();
+        }
+        else if (!string.IsNullOrWhiteSpace(options.CaCert))
+        {
+          tls.Server = new ServerVerification.CaPem(options.CaCert);
+        }
+      }
+
+      if (Stated(o => o.CertP12) || Stated(o => o.CertPem) || Stated(o => o.KeyPem))
+      {
+        if (!string.IsNullOrWhiteSpace(options.CertP12))
+        {
+          tls.Client = new ClientCertificate.P12(options.CertP12);
+        }
+        else if (!string.IsNullOrWhiteSpace(options.CertPem) && !string.IsNullOrWhiteSpace(options.KeyPem))
+        {
+          tls.Client = new ClientCertificate.Pem(options.CertPem,
+                                                 options.KeyPem);
+        }
+      }
+
+      if (Stated(o => o.OverrideTargetName) && !string.IsNullOrEmpty(options.OverrideTargetName))
+      {
+        tls.OverrideTargetName = options.OverrideTargetName;
+      }
+
+      var transport = new TransportOptions
+                      {
+                        Tls = IsEmpty(tls)
+                                ? null
+                                : tls,
+                      };
+
+      if (Stated(o => o.Proxy) || Stated(o => o.ProxyUsername) || Stated(o => o.ProxyPassword))
+      {
+        transport.Proxy = Proxy(options);
+      }
+
+      var keepalive = new TcpKeepaliveOptions();
+      if (Stated(o => o.KeepAliveTime) && Positive(options.KeepAliveTime))
+      {
+        keepalive.IdleSeconds = options.KeepAliveTime.TotalSeconds;
+      }
+
+      if (Stated(o => o.KeepAliveTimeInterval) && Positive(options.KeepAliveTimeInterval))
+      {
+        keepalive.IntervalSeconds = options.KeepAliveTimeInterval.TotalSeconds;
+      }
+
+      if (keepalive.IdleSeconds is not null || keepalive.IntervalSeconds is not null)
+      {
+        transport.TcpKeepalive = keepalive;
+      }
+
+      var http2 = new Http2Options();
+      if (Stated(o => o.MaxIdleTime) && Positive(options.MaxIdleTime))
+      {
+        http2.IdleTimeoutSeconds = options.MaxIdleTime.TotalSeconds;
+      }
+
+      var retry = new RetryOptions();
+      if (Stated(o => o.MaxAttempts))
+      {
+        retry.MaxAttempts = options.MaxAttempts;
+      }
+
+      if (Stated(o => o.InitialBackOff))
+      {
+        retry.InitialBackoffSeconds = options.InitialBackOff.TotalSeconds;
+      }
+
+      if (Stated(o => o.MaxBackOff))
+      {
+        retry.MaxBackoffSeconds = options.MaxBackOff.TotalSeconds;
+      }
+
+      if (Stated(o => o.BackoffMultiplier))
+      {
+        retry.BackoffMultiplier = options.BackoffMultiplier;
+      }
+
+      var grpc = new GrpcOptions
+                 {
+                   Retry = retry,
+                 };
+      if (Stated(o => o.RequestTimeout) && Positive(options.RequestTimeout))
+      {
+        grpc.DefaultDeadlineSeconds = options.RequestTimeout.TotalSeconds;
+      }
+
+      return new NativeChannelOptions
+             {
+               Transport = transport,
+               Http2     = http2,
+               Grpc      = grpc,
+             };
+    }
+
+    /// <summary>
+    ///   The options that ask for no bound where the engine's sources set one, which the engine states by saying nothing
+    /// </summary>
+    /// <param name="options">The options of the client</param>
+    /// <returns>The names of the options that cannot turn off what the defaults of <see cref="GrpcClient" /> set</returns>
+    internal static IEnumerable<string> CannotBeDisabled(GrpcClient options)
+    {
+      if (!Positive(options.KeepAliveTime))
+      {
+        yield return nameof(GrpcClient.KeepAliveTime);
+      }
+
+      if (!Positive(options.KeepAliveTimeInterval))
+      {
+        yield return nameof(GrpcClient.KeepAliveTimeInterval);
+      }
+
+      if (!Positive(options.MaxIdleTime))
+      {
+        yield return nameof(GrpcClient.MaxIdleTime);
+      }
+    }
+
+    // The proxy as the managed transport reads the three options: empty is the default, `none` and
+    // `system` are words, and anything else is an address, which the credentials go with.
+    private static ProxyOptions? Proxy(GrpcClient options)
+    {
+      switch (options.Proxy)
+      {
+        case "":
+          return null;
+        case "none":
+        case "None":
+          return new ProxyOptions.None();
+        case "system":
+        case "System":
+          return new ProxyOptions.System();
+        default:
+          return new ProxyOptions.Url(options.Proxy,
+                                      string.IsNullOrEmpty(options.ProxyUsername)
+                                        ? null
+                                        : options.ProxyUsername,
+                                      string.IsNullOrEmpty(options.ProxyPassword)
+                                        ? null
+                                        : options.ProxyPassword);
+      }
+    }
+
+    // A span that is not positive, the infinite one included, is no bound, which the engine states by
+    // saying nothing.
+    private static bool Positive(TimeSpan span)
+      => span > TimeSpan.Zero;
+
+    private static bool IsEmpty(TlsOptions tls)
+      => tls.Server is null && tls.Client is null && tls.OverrideTargetName is null;
+  }
+}

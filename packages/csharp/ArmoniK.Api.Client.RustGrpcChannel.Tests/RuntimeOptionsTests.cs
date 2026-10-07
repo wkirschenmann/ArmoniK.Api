@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.IO;
 using System.Threading.Tasks;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
@@ -137,8 +138,8 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var configuration = new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                             {
-                                                                              "--GrpcClient:MemoryCeiling=65536",
-                                                                              "--GrpcClient:MemoryHardCeiling=131072",
+                                                                              "--ArmoniK:Client:Grpc:MemoryCeiling=65536",
+                                                                              "--ArmoniK:Client:Grpc:MemoryHardCeiling=131072",
                                                                             });
 
     var runtime = await RestartAsync(() => NativeRuntime.Create(configuration))
@@ -146,6 +147,44 @@ public class RuntimeOptionsTests : RuntimeFixture
 
     Assert.That(Ceiling(runtime.Handle),
                 Is.EqualTo(65536UL));
+  }
+
+  /// <summary>A prefix of several parts is nested sections in a file, read from its depth.</summary>
+  [Test]
+  public async Task APrefixOfSeveralPartsIsNestedSectionsOfAFile()
+  {
+    var path = Path.Combine(Path.GetTempPath(),
+                            "armonik-nested-" + Guid.NewGuid()
+                                                    .ToString("N") + ".json");
+    File.WriteAllText(path,
+                      "{ \"Outer\": { \"Inner\": { \"MemoryCeiling\": 65536 } }, \"MemoryCeiling\": 1 }");
+    try
+    {
+      var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration("Outer__Inner").LoadConfigFromFiles(path)))
+                      .ConfigureAwait(false);
+
+      Assert.That(Ceiling(runtime.Handle),
+                  Is.EqualTo(65536UL));
+    }
+    finally
+    {
+      File.Delete(path);
+    }
+  }
+
+  /// <summary>And of a command line, which .NET reads as a path of sections.</summary>
+  [Test]
+  public async Task APrefixOfSeveralPartsIsNestedSectionsOfACommandLine()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration("Outer__Inner").LoadConfigFromCommandLine(new[]
+                                                                                                                                  {
+                                                                                                                                    "--Outer:Inner:MemoryCeiling=32768",
+                                                                                                                                    "--Outer:MemoryCeiling=1",
+                                                                                                                                  })))
+                    .ConfigureAwait(false);
+
+    Assert.That(Ceiling(runtime.Handle),
+                Is.EqualTo(32768UL));
   }
 
   /// <summary>Zero is the ABI's default and no option's value: asking for the default is leaving the

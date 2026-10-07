@@ -32,8 +32,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   <para>
 ///     Each load adds a source, and the engine reads them in the order they were added when the
 ///     runtime is created, a later one over an earlier one option by option. The keys are those
-///     of <see cref="RuntimeOptions" />, under a prefix: <c>GrpcClient</c> unless the constructor
-///     names another, and none when it names the empty one.
+///     of <see cref="RuntimeOptions" />, under a prefix: <c>ArmoniK__Client__Grpc</c> unless the
+///     constructor names another, and none when it names the empty one. A prefix is a path, its
+///     parts joined by <c>__</c> or <c>:</c>: the sections of a file, the start of a variable's name.
 ///   </para>
 ///   <para>
 ///     The files and the environment are read by the engine alone, so every host of it reads them
@@ -45,7 +46,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 public sealed class NativeConfiguration
 {
   /// <summary>The prefix the options are read under when the constructor names none.</summary>
-  public const string DefaultPrefix = "GrpcClient";
+  public const string DefaultPrefix = "ArmoniK__Client__Grpc";
 
   private readonly List<(ak_source_kind Kind, byte[] Value)> sources_ = new();
 
@@ -93,7 +94,7 @@ public sealed class NativeConfiguration
             Array.Empty<byte>());
 
   /// <summary>Adds a command line, in the syntaxes .NET's command-line configuration reads.</summary>
-  /// <param name="args">The arguments, such as <c>--GrpcClient:Endpoint=http://host:5001</c>.</param>
+  /// <param name="args">The arguments, such as <c>--ArmoniK:Client:Grpc:Endpoint=http://host:5001</c>.</param>
   /// <returns>This configuration.</returns>
   /// <exception cref="ArgumentNullException"><paramref name="args" /> is null.</exception>
   /// <remarks>
@@ -111,7 +112,8 @@ public sealed class NativeConfiguration
                                            .Build();
     IConfiguration section = Prefix.Length == 0
                                ? parsed
-                               : parsed.GetSection(Prefix);
+                               : parsed.GetSection(Prefix.Replace("__",
+                                                                  ConfigurationPath.KeyDelimiter));
 
     using var written = new MemoryStream();
     using (var writer = new Utf8JsonWriter(written))

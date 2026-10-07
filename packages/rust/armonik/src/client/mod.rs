@@ -103,8 +103,9 @@ pub enum ConnectionError {
 }
 
 impl Client {
-    /// Create a new client configured by the environment: the `GrpcClient__*` variables, read as
-    /// [`Configuration::environment`] reads them. `GrpcClient__Endpoint` is required.
+    /// Create a new client configured by the environment: the `ArmoniK__Client__Grpc__*`
+    /// variables, read as [`Configuration::environment`] reads them. `ArmoniK__Client__Grpc__Endpoint`
+    /// is required.
     pub async fn new() -> Result<Self, ConnectionError> {
         Self::with_configuration(&Configuration::new().environment()).await
     }

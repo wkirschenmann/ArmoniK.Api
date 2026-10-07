@@ -1295,10 +1295,11 @@ the shape every option takes, and gives the reasons:
   what it receives under `Receive`.
 
 The binding takes no `IConfiguration`: the engine reads files and the environment itself, under the
-prefix `GrpcClient` by default, and the binding hands it a command line as pairs of a key's path and
-a text value, and an object set in code as a document, through `NativeConfiguration`'s loads
-(configuration-loading.md). A runtime created from a `NativeConfiguration` gives its channels no
-delivery window the binding can see, so a channel sends its own, or `DefaultDeliveryCredits`.
+prefix `ArmoniK__Client__Grpc` by default, and the binding hands it a command line as pairs of a
+key's path and a text value, and an object set in code as a document, through
+`NativeConfiguration`'s loads (configuration-loading.md). The binding does not know the delivery
+window a channel ends up with when the runtime's sources state a default: it reads it back from the
+engine with `ak_channel_delivery_window` once the channel is created, and sizes its rings from that.
 
 A binding may narrow what the schema admits, and cannot widen it: the engine checks every bound
 again. The schema states what the engine can honour, and a binding that sizes something of its

@@ -475,6 +475,8 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     ) -> ak_status = ak_channel_create;
     let _: extern "C" fn(ak_handle) = ak_channel_release;
     let _: extern "C" fn(ak_handle) -> ak_channel_state = ak_channel_status;
+    let _: unsafe extern "C" fn(ak_handle, *mut u32, *mut ak_error) -> ak_status =
+        ak_channel_delivery_window;
 
     let _: unsafe extern "C" fn(
         ak_handle,
@@ -522,6 +524,10 @@ fn every_entry_point_the_header_declares_is_exported() {
         ("ak_channel_create", ak_channel_create as *const ()),
         ("ak_channel_release", ak_channel_release as *const ()),
         ("ak_channel_status", ak_channel_status as *const ()),
+        (
+            "ak_channel_delivery_window",
+            ak_channel_delivery_window as *const (),
+        ),
         ("ak_call_start", ak_call_start as *const ()),
         ("ak_get_call_buffer", ak_get_call_buffer as *const ()),
         ("ak_call_send_message", ak_call_send_message as *const ()),
@@ -611,6 +617,10 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
         ),
         ("ak_channel_release", &["ak_handle"]),
         ("ak_channel_status", &["ak_handle"]),
+        (
+            "ak_channel_delivery_window",
+            &["ak_handle", "uint32_t *", "ak_error *"],
+        ),
         (
             "ak_call_start",
             &[

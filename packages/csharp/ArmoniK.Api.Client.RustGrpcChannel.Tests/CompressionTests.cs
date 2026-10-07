@@ -205,9 +205,9 @@ public class CompressionTests : EchoServerFixture
   {
     var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                                                                 {
-                                                                                                                  $"--GrpcClient:Endpoint={Endpoint}",
-                                                                                                                  "--GrpcClient:ChannelDefaults:Grpc:Send:Compression=Gzip",
-                                                                                                                  "--GrpcClient:ChannelDefaults:Grpc:Receive:Compression=Gzip",
+                                                                                                                  $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
+                                                                                                                  "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Send:Compression=Gzip",
+                                                                                                                  "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Receive:Compression=Gzip",
                                                                                                                 })))
                     .ConfigureAwait(false);
     await using var channel = runtime.Channel(string.Empty);

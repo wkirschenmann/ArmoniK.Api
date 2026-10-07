@@ -69,10 +69,6 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   private bool disposing_;
 
-  // What every channel's options are merged over, the engine's side and this one's alike: the
-  // delivery window this side sizes rings from has to be the one the engine grants.
-  private readonly ChannelOptions? channelDefaults_;
-
   /// <summary>What the runtime says about its own shutdown, as a wake-up and not as news.</summary>
   /// <remarks>The two events a runtime carries rather than a call - SHUTDOWN_COMPLETE and
   /// RESOURCES_RELEASED - and the state is what they mean, read again after the wait.</remarks>
@@ -83,13 +79,8 @@ public sealed class NativeRuntime : IAsyncDisposable
                                             ulong*    created,
                                             ak_error* error);
 
-  private unsafe NativeRuntime(ChannelOptions? channelDefaults,
-                               Creating        create)
+  private unsafe NativeRuntime(Creating create)
   {
-    channelDefaults_ = channelDefaults is null
-                         ? null
-                         : new ChannelOptions(channelDefaults);
-
     self_ = GCHandle.Alloc(this);
 
     ak_status status;
@@ -119,15 +110,6 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// the binding's.</remarks>
   public const int MaxDeliveryCredits = 1 << 15;
 
-  /// <summary>The delivery window a channel gets when neither its options nor the runtime's channel defaults name one.</summary>
-  /// <remarks>
-  ///   Resolved into the document a channel sends, so the engine is never left to apply its own -
-  ///   which is what keeps the ring this side sizes and the credits that side grants the same
-  ///   number. Four: the head and the message of a unary call each take one, and a stream has
-  ///   the rest.
-  /// </remarks>
-  public const int DefaultDeliveryCredits = 4;
-
   /// <summary>Starts the engine, which the caller owns until it disposes it.</summary>
   /// <param name="memoryCeiling">
   ///   The bytes of messages, sent and received, it holds before work waits: a call stops reading
@@ -149,8 +131,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     RefuseAnotherAbi();
 
-    return new NativeRuntime(null,
-                             (context,
+    return new NativeRuntime((context,
                               created,
                               error) =>
                              {
@@ -178,9 +159,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
   /// <remarks>
-  ///   The sources are read by the engine, so a channel's delivery window is never one they state:
-  ///   a channel sizes its rings from the window it sends, its own options' or
-  ///   <see cref="DefaultDeliveryCredits" />.
+  ///   The sources are read by the engine alone, so a channel reads back from the engine the delivery
+  ///   window its options and the sources settle between them, and sizes its rings from that.
   /// </remarks>
   public static NativeRuntime Create(NativeConfiguration configuration)
   {
@@ -190,17 +170,14 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
 
     return Create(configuration.Prefix,
-                  configuration.Sources,
-                  null);
+                  configuration.Sources);
   }
 
   /// <summary>Starts the engine from the sources it reads, in order, under <paramref name="prefix" />.</summary>
   /// <param name="prefix">The sources' prefix, empty for none.</param>
   /// <param name="sources">Each source's kind and value.</param>
-  /// <param name="channelDefaults">The channel defaults the sources state, when the caller knows them.</param>
   private static unsafe NativeRuntime Create(string                                             prefix,
-                                             IReadOnlyList<(ak_source_kind Kind, byte[] Value)> sources,
-                                             ChannelOptions?                                    channelDefaults)
+                                             IReadOnlyList<(ak_source_kind Kind, byte[] Value)> sources)
   {
     RefuseAnotherAbi();
 
@@ -222,8 +199,7 @@ public sealed class NativeRuntime : IAsyncDisposable
 
     var listed = new ak_config_source[sources.Count];
 
-    return new NativeRuntime(channelDefaults,
-                             (context,
+    return new NativeRuntime((context,
                               created,
                               error) =>
                              {
@@ -296,12 +272,12 @@ public sealed class NativeRuntime : IAsyncDisposable
 
     var configuration = new NativeConfiguration().LoadConfigFromObject(options);
     return Create(configuration.Prefix,
-                  configuration.Sources,
-                  options.ChannelDefaults);
+                  configuration.Sources);
   }
 
   /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>
   /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
+  /// <exception cref="ArgumentOutOfRangeException">The runtime's channel defaults state a window no ring can hold.</exception>
   /// <exception cref="ArgumentException">The engine dials no such endpoint.</exception>
   /// <exception cref="ObjectDisposedException">This runtime is going away.</exception>
   /// <exception cref="InvalidOperationException">The engine refused for a reason of its own.</exception>
@@ -337,7 +313,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <param name="endpoint">Where the channel connects; empty for the Endpoint of the runtime's options.</param>
   /// <param name="options">What the channel is opened with, read once and never written to.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">
+  ///   An option is outside what is admitted, or the runtime's channel defaults state a window no ring can hold.
+  /// </exception>
   /// <exception cref="ArgumentException">
   ///   The engine dials no such endpoint, or refuses an option given with it.
   /// </exception>
@@ -351,19 +329,14 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new ArgumentNullException(nameof(options));
     }
 
-    // One read of the caller's instance: what a channel sizes its rings from and what it sends
-    // the engine are the same number only if nothing can set it in between.
+    // One read of the caller's instance, so what is validated is what is sent.
     var settled = new ChannelOptions(options);
-    var credits = settled.Grpc?.Host?.Receive?.Window ?? channelDefaults_?.Grpc?.Host?.Receive?.Window ?? DefaultDeliveryCredits;
-    settled.Grpc                ??= new GrpcOptions();
-    settled.Grpc.Host           ??= new HostOptions();
-    settled.Grpc.Host.Receive   ??= new HostReceiveOptions();
-    settled.Grpc.Host.Receive.Window = credits;
 
     // The schema's bounds, then this binding's own tighter one. Both are checked here rather
-    // than left to the engine, which answers a bad document with a status naming no option.
+    // than left to the engine, which answers a bad document with a status naming no option. A
+    // window the runtime's sources state is checked once the engine has settled it.
     settled.Validate();
-    RefuseAWindowNoRingCanHold(credits);
+    RefuseAWindowNoRingCanHold(settled.Grpc?.Host?.Receive?.Window);
 
     lock (gate_)
     {
@@ -460,7 +433,7 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   // Checked wherever a window arrives, so which door a caller came through does not decide
   // which bound applies.
-  private static void RefuseAWindowNoRingCanHold(int? deliveryCredits)
+  internal static void RefuseAWindowNoRingCanHold(int? deliveryCredits)
   {
     if (deliveryCredits > MaxDeliveryCredits)
     {

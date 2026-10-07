@@ -61,8 +61,6 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
     : base(endpoint)
   {
     runtime_ = runtime;
-    // Resolved by the runtime, so this and the engine size from one number.
-    deliveryCredits_ = options.Grpc!.Host!.Receive!.Window!.Value;
 
     // Its own argument rather than an option, and empty for the Endpoint of the runtime's
     // options, which the engine reads; `Target` is then empty too.
@@ -111,6 +109,33 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                   _ => new InvalidOperationException($"`{Safely(endpoint)}` was refused ({status}): {why}"),
                 };
         }
+
+        // The engine settles the window from the channel's document and the runtime's defaults,
+        // so the rings are sized from its answer and never from a guess at the defaults.
+        uint window;
+        ak_error windowError = default;
+        var read = NativeMethods.ak_channel_delivery_window(handle_,
+                                                            &window,
+                                                            &windowError);
+        if (read != ak_status.AK_STATUS_OK)
+        {
+          var why = windowError.Take();
+          NativeMethods.ak_channel_release(handle_);
+          throw new InvalidOperationException($"the delivery window of `{Safely(endpoint)}` could not be read ({read}): {why}");
+        }
+
+        try
+        {
+          NativeRuntime.RefuseAWindowNoRingCanHold((int)Math.Min(window,
+                                                                 int.MaxValue));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+          NativeMethods.ak_channel_release(handle_);
+          throw;
+        }
+
+        deliveryCredits_ = (int)window;
       }
     }
   }

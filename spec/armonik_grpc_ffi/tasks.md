@@ -660,8 +660,8 @@ layers, which is what the two-layer test asserts.  The environment test sets all
 and makes a call, so it is also the test T3.3 owed: an option the engine stops reading under its
 name refuses the channel there.
 
-**`ChannelOptions` is public.**  A caller fills it in, and T6.8 will construct one from another
-assembly; the generator emits `public sealed class` for that reason.  Which makes the
+**`ChannelOptions` is public.**  A caller fills it in, and T6.8's `NativeClientOptions` constructs one from
+another assembly; the generator emits `public sealed class` for that reason.  Which makes the
 documentation requirement of T3.3 load-bearing rather than tidy: these are the tooltips a .NET
 caller reads.
 
@@ -1244,7 +1244,7 @@ by hand, not in CI, where a shared runner would measure its neighbours.
 **Commit**: let a consumer choose the transport by `ArmoniK.Api.Client`'s own configuration - the
 `GrpcClient` options and section it already reads - rather than by which factory it calls (decided
 2026-10-07). The transport's choice is not a key of the engine's configuration. What
-`ArmoniK.Api.Client` hands the engine when the native one is chosen is on the open list below.
+`ArmoniK.Api.Client` hands the engine when the native one is chosen is on the decided list below.
 
 Today the seam is `ChannelBase`: every generated ArmoniK stub takes one, `NativeChannel` is one,
 and a consumer picks by calling `NativeRuntime.Channel` instead of
@@ -1260,9 +1260,9 @@ A selector may live inside `ArmoniK.Api.Client` (decided 2026-10-02). That packa
 on the native one, so the cdylib and its architectures enter every consumer's build, including
 those that chose the managed transport; the cost is accepted.
 
-`HttpMessageHandler` is the existing precedent for naming a transport in a string option, and
-the generated options type is a superset of `GrpcClient`, so the two vocabularies meet here or
-nowhere.
+`HttpMessageHandler` names a handler in a string option, and the generated options type is a
+superset of `GrpcClient`, so the two vocabularies meet here or nowhere; the transport is its own
+option, `Transport`, and not a value of `HttpMessageHandler`.
 
 **`ArmoniK.Api.Common` is not split** (decided 2026-10-02). T3.4 took a reference to it for
 `ConfigurationExt.GetRequiredValue`, which is four lines - and Common also compiles 28 `.proto`
@@ -1276,27 +1276,34 @@ That cost is accepted rather than paid down by a small shared assembly. Measured
 assumed - `dotnet sln`'s own nuspec is where the dependency was read.
 
 **The Rust bridge on the other side is built** - T7.1, and T6.14's loader - which T6.8 waited for
-so that both directions are designed together rather than one constrained by the other. What it
-waits on now is the open list below.
+so that both directions are designed together rather than one constrained by the other.
 
-**Open (2026-10-07)**, the shape of the selector, before it is built:
+**Decided (2026-10-07)**, the shape of the selector, which decisions.md records:
 
-- which `GrpcClient` option names the transport: a new string option beside `HttpMessageHandler`,
-  or a value of `HttpMessageHandler` itself;
-- how `ArmoniK.Api.Client` hands back the `ChannelBase` either transport gives, since
-  `GrpcChannelFactory.CreateChannel` returns `GrpcChannel`: a new method, or `CreateChannel`
-  returning `ChannelBase`, which breaks its callers;
-- who owns the one `NativeRuntime` a process may hold: `ArmoniK.Api.Client`, creating it on its
-  first native channel and keeping it for the process, or the caller; and what a second
-  `GrpcClient` with other runtime options does to it;
-- which `GrpcClient` options go to the runtime's `ChannelDefaults` and which to each channel's own
-  options - the mapping of names itself is `OptionVocabularyTests`' `Counterparts` - and what
-  `ArmoniK.Api.Client` hands the engine: only the options it holds, as an object, or also the
-  environment and its files, through `NativeConfiguration`'s loads;
-- how a .NET channel takes a delivery window stated in a source of a `NativeConfiguration`, T6.14's
-  open point.
+- a new option `Transport` in `GrpcClient`, `Managed` (the default, unchanged) or `Native`; not a
+  value of `HttpMessageHandler`;
+- `GrpcChannelFactory.CreateChannel` keeps returning `GrpcChannel`, managed and unchanged; a new
+  `CreateChannelBase` returns a `ChannelBase` and honours `Transport`;
+- a `NativeChannelFactory`, a static singleton, owns the native runtime: it starts with the first
+  native channel and stops at `ShutdownAsync`;
+- the engine's option types are not an `IConfiguration`, so `ArmoniK.Api.Client` cannot feed the
+  engine from the environment itself: it translates the options it holds into an object
+  (`LoadConfigFromObject`), lets the engine read the environment under `ArmoniK__Client__Grpc__`, and
+  passes the command line it has (`LoadConfigFromCommandLine`); the engine's default prefix is
+  `ArmoniK__Client__Grpc`, from `GrpcClient` (T6.14's follow-up, in this task's commits);
+- the engine gives the effective delivery window of a channel at its creation
+  (`ak_channel_delivery_window`) and the binding sizes its rings from it, which closes T6.14's open
+  point;
+- T6.14's follow-ups: `LoadConfigFromOptionalFiles` stays, and the cargo feature `configuration` is
+  gone, the parsers always compiled.
 
 **Deliverable**: a consumer switches transport by `ArmoniK.Api.Client`'s configuration.
+**Status**: done. `GrpcClient.Transport` and `GrpcChannelFactory.CreateChannelBase` choose the
+channel; `NativeChannelFactory.Instance` owns the runtime; `NativeClientOptions` translates the
+options of a `GrpcClient`, and states only what it sets beyond the defaults, so that the engine's
+environment and command line decide what it leaves; tests drive the selection and the effective
+window on net4.7, net4.8, net8.0 and net10.0. Not done here: the tests of `ArmoniK.Api.Client.Test`,
+which need a server of ArmoniK, do not choose the native transport.
 
 ### T6.9: Documentation and cleanup
 
@@ -1505,17 +1512,21 @@ done tasks of phase 3 in this file, which say the same, stay as the record of wh
 **Deliverable**: the same sources give the same options, or the same refusal, through the Rust
 loader and through the ABI, one set of fixtures driving both; the keys logged as unknown checked
 on the Rust loader, the ABI having no log to read before T10.1.
-**Status**: done. `armonik-transport` has the loader under its `configuration` feature, and
+**Status**: done. `armonik-transport` has the loader, always compiled (its `configuration` feature,
+and the `serde` feature the options' derives hung on, went on 2026-10-07: the parsers and `serde`
+are mandatory dependencies, since every host reads the vocabulary through the loader), and
 `settings::ChannelSettings`, which settles a channel's options for the FFI and the `armonik` client
 alike; `ak_runtime_create_from` reads an `ak_config`; the .NET binding has `NativeConfiguration`,
 with `LoadConfigFromOptionalFiles` beside the four loads for a file the host marks optional, and its
 options generator renders no `Bind`; the `armonik` client loads the runtime's document,
-`ClientConfig` gone. 28 fixtures drive the loader and the ABI. Three points the documents left open
-were settled as the code has them: a file's section is found by the prefix as written, where the
-environment matches it without case; a `Document` is also `Default`, what a configuration with no
-source loads; and a YAML file of more than one document is refused. One is open: a `ChannelDefaults`
-delivery window stated in any source of a `NativeConfiguration` reaches no channel of the .NET
-binding, which sizes its rings from the window it sends.
+`ClientConfig` gone. 32 fixtures drive the loader and the ABI. Three points the documents left open
+were settled as the code has them: a file's section is found by the prefix as written, a path whose
+parts walk the nested sections, where the environment matches it without case; a `Document` is also
+`Default`, what a configuration with no source loads; and a YAML file of more than one document is
+refused. The one open point, that a `ChannelDefaults` delivery window stated in any source of a
+`NativeConfiguration` reached no channel of the .NET binding, which sized its rings from the window it
+sent, was closed on 2026-10-07 by T6.8: the binding reads the effective window back from the engine,
+`ak_channel_delivery_window`.
 
 ### T6.15: The options a gRPC client is expected to have
 

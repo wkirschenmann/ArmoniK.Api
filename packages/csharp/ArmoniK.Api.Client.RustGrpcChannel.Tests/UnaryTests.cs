@@ -133,8 +133,7 @@ public class UnaryTests : EchoServerFixture
 
   /// <summary>Opening a channel writes nothing to the options it was given.</summary>
   /// <remarks>
-  ///   The factory resolves the delivery window into what it sends. Resolved into the caller's
-  ///   instance, a second channel opened from it would inherit the first one's resolution.
+  ///   The options are copied before they are validated and sent, so a caller may reuse them.
   /// </remarks>
   [Test]
   public async Task OpeningAChannelLeavesTheCallersOptionsAsTheyWere()
@@ -146,7 +145,7 @@ public class UnaryTests : EchoServerFixture
 
     Assert.That(options.Grpc,
                 Is.Null,
-                "the window was resolved into the copy the channel holds, not into this");
+                "the channel works on a copy");
   }
 
   /// <summary>The shortest timeout this side admits is one the engine admits too.</summary>

@@ -17,7 +17,7 @@ name = "armonik_transport_ffi"
 # By path: this crate is never published, and the two move together.
 # The configuration loader and the options types it reads: the vocabulary is declared once,
 # beside the engine that honours it, and this crate reads rather than restates it.
-armonik-transport = { path = "../armonik-transport", features = ["configuration"] }
+armonik-transport = { path = "../armonik-transport" }
 bytes.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 
@@ -55,7 +55,7 @@ required-features = ["test-hooks"]
 [dev-dependencies]
 # The same crate again, with the schema turned on: one test reads the bounds the schema states
 # and drives `config::parse` at each of them, which is what keeps the reader's copy honest.
-armonik-transport = { path = "../armonik-transport", features = ["configuration", "schema"] }
+armonik-transport = { path = "../armonik-transport", features = ["schema"] }
 # The tests include armonik-transport's gRPC fixture by path, and its server-streaming service
 # answers with a `Stream`.
 futures.workspace = true

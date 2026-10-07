@@ -440,6 +440,9 @@ namespace ArmoniK.Api.Client.Submitter
     /// <returns>
     ///   The initialized GrpcChannel
     /// </returns>
+    /// <remarks>
+    ///   Always grpc-dotnet, as <see cref="CreateChannel" /> is
+    /// </remarks>
     /// <exception cref="InvalidOperationException">Endpoint passed through options is missing</exception>
     public static Task<GrpcChannel> CreateChannelAsync(GrpcClient        optionsGrpcClient,
                                                        ILogger?          logger            = null,
@@ -450,6 +453,47 @@ namespace ArmoniK.Api.Client.Submitter
                                        loggerFactory));
 
     /// <summary>
+    ///   Creates the channel of the transport <see cref="GrpcClient.Transport" /> names
+    /// </summary>
+    /// <param name="optionsGrpcClient">Options for the creation of the channel</param>
+    /// <param name="logger">Optional logger</param>
+    /// <param name="loggerFactory">Optional loggerFactory</param>
+    /// <returns>
+    ///   A <see cref="GrpcChannel" /> for <see cref="ClientTransport.Managed" />, as <see cref="CreateChannel" /> makes
+    ///   it; a native channel opened by <see cref="NativeChannelFactory.Instance" /> for
+    ///   <see cref="ClientTransport.Native" />
+    /// </returns>
+    /// <exception cref="ArgumentNullException">The options are null</exception>
+    /// <exception cref="InvalidOperationException">
+    ///   Endpoint passed through options is missing for the managed transport, or the native engine could not start
+    /// </exception>
+    public static ChannelBase CreateChannelBase(GrpcClient      optionsGrpcClient,
+                                                ILogger?        logger        = null,
+                                                ILoggerFactory? loggerFactory = null)
+    {
+      if (optionsGrpcClient is null)
+      {
+        throw new ArgumentNullException(nameof(optionsGrpcClient));
+      }
+
+      switch (optionsGrpcClient.Transport)
+      {
+        case ClientTransport.Managed:
+          return CreateChannel(optionsGrpcClient,
+                               logger,
+                               loggerFactory);
+        case ClientTransport.Native:
+          return NativeChannelFactory.Instance.CreateChannel(optionsGrpcClient,
+                                                             null,
+                                                             logger ?? loggerFactory?.CreateLogger<NativeChannelFactory>());
+        default:
+          throw new ArgumentOutOfRangeException(nameof(optionsGrpcClient),
+                                                optionsGrpcClient.Transport,
+                                                "unknown transport");
+      }
+    }
+
+    /// <summary>
     ///   Creates the GrpcChannel
     /// </summary>
     /// <param name="optionsGrpcClient">Options for the creation of the channel</param>
@@ -458,6 +502,9 @@ namespace ArmoniK.Api.Client.Submitter
     /// <returns>
     ///   The initialized GrpcChannel
     /// </returns>
+    /// <remarks>
+    ///   Always grpc-dotnet: <see cref="GrpcClient.Transport" /> is read by <see cref="CreateChannelBase" />
+    /// </remarks>
     /// <exception cref="InvalidOperationException">Endpoint passed through options is missing</exception>
     public static GrpcChannel CreateChannel(GrpcClient      optionsGrpcClient,
                                             ILogger?        logger        = null,
@@ -467,6 +514,12 @@ namespace ArmoniK.Api.Client.Submitter
       if (!string.IsNullOrEmpty(optionsGrpcClient.OverrideTargetName))
       {
         logger?.LogWarning("OverrideTargetName is not supported");
+      }
+
+      if (optionsGrpcClient.Transport != ClientTransport.Managed)
+      {
+        logger?.LogWarning("Transport {Transport} is not honoured by CreateChannel, which returns a GrpcChannel; use CreateChannelBase",
+                           optionsGrpcClient.Transport);
       }
 
       // ReSharper disable once ConvertTypeCheckPatternToNullCheck

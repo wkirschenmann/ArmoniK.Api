@@ -20,7 +20,11 @@ use serde::de::{
 };
 
 /// The prefix a configuration is read under when the host names none.
-pub const DEFAULT_PREFIX: &str = "GrpcClient";
+///
+/// `ArmoniK__Client__Grpc`: the gRPC part of the ArmoniK client's configuration. Its parts are
+/// joined by `__`, as an environment variable's name writes them, and a file holds them as nested
+/// sections.
+pub const DEFAULT_PREFIX: &str = "ArmoniK__Client__Grpc";
 
 /// The separator between the parts of a key's path in the environment and in pairs, as .NET's
 /// configuration providers write it.
@@ -74,15 +78,18 @@ impl Default for Configuration {
 }
 
 impl Configuration {
-    /// Under `GrpcClient`, with no source.
+    /// Under [`DEFAULT_PREFIX`], with no source.
     pub fn new() -> Self {
         Self::with_prefix(DEFAULT_PREFIX)
     }
 
     /// Under `prefix`, or under none when it is empty: a file's document is then the whole file.
+    ///
+    /// The prefix is a path, its parts joined by `__`, or by `:` as a .NET section's path is
+    /// written, which is read as `__`.
     pub fn with_prefix(prefix: &str) -> Self {
         Self {
-            prefix: (!prefix.is_empty()).then(|| prefix.to_owned()),
+            prefix: (!prefix.is_empty()).then(|| prefix.replace(':', SEPARATOR)),
             sources: Vec::new(),
         }
     }
@@ -173,24 +180,15 @@ impl Configuration {
                 // A byte order mark, as an editor on Windows writes one.
                 let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
                 let root = parse_file(path, text).map_err(refused)?;
+                if !matches!(root, Node::Map(_)) {
+                    return Err(refused("the file holds no object".to_owned()));
+                }
                 let section = match &self.prefix {
                     None => Some(root),
-                    Some(prefix) => match root {
-                        Node::Map(entries) => entries
-                            .into_iter()
-                            .find(|(key, _)| key == prefix)
-                            .map(|(_, section)| section),
-                        _ => return Err(refused("the file holds no object".to_owned())),
-                    },
+                    Some(prefix) => section(root, prefix)
+                        .map_err(|at| refused(format!("its section {at} is not an object")))?,
                 };
-                match section {
-                    None => Ok(None),
-                    Some(section @ Node::Map(_)) => Ok(Some(Tree::typed(section))),
-                    Some(_) => Err(refused(match &self.prefix {
-                        Some(prefix) => format!("its section {prefix} is not an object"),
-                        None => "the file holds no object".to_owned(),
-                    })),
-                }
+                Ok(section.map(Tree::typed))
             }
             Source::Environment => {
                 let Some(prefix) = &self.prefix else {
@@ -248,6 +246,29 @@ impl Configuration {
                 }
             }
         }
+    }
+}
+
+/// The section a prefix names in a file's tree: its parts, joined by `__`, walk down the nested
+/// sections, each key compared as written, so that `A__B` is the section `B` of the section `A`.
+/// Nothing when a section is missing; an error, the path to the section at fault, when a section
+/// is not an object.
+fn section(root: Node, prefix: &str) -> Result<Option<Node>, String> {
+    let mut current = root;
+    let mut walked = 0;
+    for part in prefix.split(SEPARATOR) {
+        let Node::Map(entries) = current else {
+            return Err(prefix[..walked].trim_end_matches(SEPARATOR).to_owned());
+        };
+        match entries.into_iter().find(|(key, _)| key == part) {
+            Some((_, found)) => current = found,
+            None => return Ok(None),
+        }
+        walked += part.len() + SEPARATOR.len();
+    }
+    match current {
+        Node::Map(_) => Ok(Some(current)),
+        _ => Err(prefix.to_owned()),
     }
 }
 

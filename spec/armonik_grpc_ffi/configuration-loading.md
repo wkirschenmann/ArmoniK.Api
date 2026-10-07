@@ -38,12 +38,16 @@ well as from JSON, so every host language gets the same result from the same sou
   an earlier one: typically the files from the least to the most important, then the environment,
   then its own values.
 - **File formats**: JSON, YAML and TOML.
-- **Environment**: `__` as the separator, as .NET's; the prefix is the host's to choose, `GrpcClient`
-  by default - the section name `ArmoniK.Api.Client`'s `GrpcClient.SettingSection` gives.
-  Read once, when the runtime is created, and only if the host lists it among the sources.
+- **Environment**: `__` as the separator, as .NET's; the prefix is the host's to choose,
+  `ArmoniK__Client__Grpc` by default (decided 2026-10-07): `ArmoniK__Client__` is the family of the
+  ArmoniK client's configuration, and `Grpc` its gRPC part, which this engine reads. A prefix is a
+  path: its parts, joined by `__` (a `:`, as a .NET section's path is written, is read as `__`), are
+  the nested sections of a file, each key compared as written
+  (`{"ArmoniK": {"Client": {"Grpc": {...}}}}`), and the start of a variable's name. Read once, when
+  the runtime is created, and only if the host lists it among the sources.
 - **No aliases**: the keys under the prefix are the schema's. The engine maps none of the names
-  `ArmoniK.Api.Client` reads under `GrpcClient`: a channel's option is under `ChannelDefaults`, the
-  endpoint is `Endpoint`.
+  `ArmoniK.Api.Client`'s managed transport reads under its `GrpcClient` section: a channel's option
+  is under `ChannelDefaults`, the endpoint is `Endpoint`.
 - **.NET stops binding these options from `IConfiguration`**: the engine's loader reads the files
   and the environment; the host passes only what it states itself. `NativeRuntime.Create(IConfiguration,
   key)` and the `RustGrpcRuntime` section it reads by default go: the runtime's options move under
@@ -107,12 +111,16 @@ them, the channel options every channel takes by default among them, under `Chan
 
 ```json
 {
-  "GrpcClient": {
-    "Endpoint": "https://armonik.example.com:5001",
-    "MemoryCeiling": 2147483648,
-    "ChannelDefaults": {
-      "Http2": { "SimultaneousCallsPerConnection": 4 },
-      "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12" } } } }
+  "ArmoniK": {
+    "Client": {
+      "Grpc": {
+        "Endpoint": "https://armonik.example.com:5001",
+        "MemoryCeiling": 2147483648,
+        "ChannelDefaults": {
+          "Http2": { "SimultaneousCallsPerConnection": 4 },
+          "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12" } } } }
+        }
+      }
     }
   }
 }
@@ -128,16 +136,17 @@ file or one environment configures every host alike; a document with no `Endpoin
 ### Sources
 
 - **A file**, JSON, YAML or TOML by its extension (`.json`, `.yaml` or `.yml`, `.toml`). The
-  document is the file's section named by the prefix, so the host's own `appsettings.json` can
-  carry it beside sections the host reads itself; the other sections are not the engine's, and are
-  left alone. A file with no such section contributes nothing. With no prefix, the document is the
-  whole file, so the sections of its own host that a file also holds are unknown keys, logged. A
-  missing file is refused, unless the host marks it optional, as .NET's
-  `AddJsonFile(path, optional: true)` does.
+  document is the file's section named by the prefix, found by walking its parts down the nested
+  sections as written (a section that is missing contributes nothing, one that is not an object is
+  refused), so the host's own `appsettings.json` can carry it beside sections the host reads
+  itself; the other sections are not the engine's, and are left alone. A file with no such section
+  contributes nothing. With no prefix, the document is the whole file, so the sections of its own
+  host that a file also holds are unknown keys, logged. A missing file is refused, unless the host
+  marks it optional, as .NET's `AddJsonFile(path, optional: true)` does.
 - **The environment**: the variables whose name starts with the prefix and `__`, read once, when
   the runtime is created. The rest of a name is the key's path, its parts joined by `__`, compared
-  without case: `GrpcClient__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is
-  text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
+  without case:
+  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
   variable of the process would be a key, and the log would name every one of them, so an
   environment source with no prefix is refused. The schema holds no list; a list would
   take an element by its index, `__0`, as .NET's providers render one.
@@ -195,7 +204,7 @@ pub trait Document: serde::de::DeserializeOwned + Default {
 pub struct Configuration { /* prefix, sources */ }
 
 impl Configuration {
-    /// Under `GrpcClient`, with no source.
+    /// Under `ArmoniK__Client__Grpc`, with no source.
     pub fn new() -> Self;
     /// Under `prefix`, or under none when it is empty.
     pub fn with_prefix(prefix: &str) -> Self;
@@ -241,7 +250,7 @@ typedef struct {
     uint32_t flags;               /* AK_CONFIG_*; another bit is AK_STATUS_INVALID_ARG */
     uint32_t source_count;
     const ak_config_source *sources;  /* in order, a later one over an earlier one */
-    ak_bytes_in prefix;           /* empty: GrpcClient; with AK_CONFIG_NO_PREFIX it must be
+    ak_bytes_in prefix;           /* empty: ArmoniK__Client__Grpc; with AK_CONFIG_NO_PREFIX it must be
                                      empty, else AK_STATUS_INVALID_ARG */
 } ak_config;
 
@@ -269,9 +278,9 @@ var configuration = new NativeConfiguration()                // or NativeConfigu
 await using var runtime = NativeRuntime.Create(configuration);
 ```
 
-The prefix is `GrpcClient` unless the constructor is given one; `""` is none, which the binding
-passes as `AK_CONFIG_NO_PREFIX`. `LoadConfigFromFiles` and `LoadConfigFromEnvironment` add a source
-the engine reads, and what the engine refuses in one surfaces at `NativeRuntime.Create`.
+The prefix is `ArmoniK__Client__Grpc` unless the constructor is given one; `""` is none, which the
+binding passes as `AK_CONFIG_NO_PREFIX`. `LoadConfigFromFiles` and `LoadConfigFromEnvironment` add a
+source the engine reads, and what the engine refuses in one surfaces at `NativeRuntime.Create`.
 `LoadConfigFromOptionalFiles` adds files the host marks optional, which contribute nothing when they
 do not exist. `LoadConfigFromCommandLine` parses the arguments with an `IConfiguration` holding the
 command-line provider alone and adds the section under the prefix - the whole tree with none - as
@@ -280,8 +289,10 @@ and types a value as it does the environment's; `LoadConfigFromObject` serialize
 document, writing only the options set, so that a default does not override an earlier source. No
 `IConfiguration` is taken or returned.
 
-A runtime created from a `NativeConfiguration` gives its channels no delivery window the binding can
-see: the engine reads every source, an object's document included, and a channel sizes its rings
-from the window it sends, its own options' or `DefaultDeliveryCredits`. A `ChannelDefaults` window
-stated in any of them therefore reaches no channel of the .NET binding; only
-`NativeRuntime.Create(RuntimeOptions)` gives the binding its defaults.
+The engine reads every source, an object's document included, so the binding does not know the
+delivery window a channel ends up with. It reads it back: once a channel is created, the binding asks
+the engine for the window the channel's own options and the runtime's `ChannelDefaults` settled
+(`ak_channel_delivery_window`, decided 2026-10-07) and sizes the channel's rings from the answer. A
+`ChannelDefaults` window stated in any source therefore reaches every channel of the .NET binding,
+and a window past what a ring can hold (`NativeRuntime.MaxDeliveryCredits`) is refused when the
+channel is created, whichever source stated it.
