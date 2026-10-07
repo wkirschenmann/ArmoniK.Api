@@ -1339,6 +1339,10 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Grpc.Retry.*` |
 
+`GrpcClient__RateLimit`, which the Rust client's `ClientConfig` reads and the .NET `GrpcClient`
+does not, has `Grpc.RateLimit` for its counterpart: `100/1s` is `{"Calls": 100, "PerSeconds": 1}`.
+The mapping is T6.14's, and `ClientConfig` refuses the option until then.
+
 ---
 
 ## What is missing

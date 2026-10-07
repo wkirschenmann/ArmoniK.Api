@@ -1498,6 +1498,15 @@ disables Nagle's algorithm. Hedging and client-side load balancing are not wante
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
 
+**Status**: `RateLimit` is done in the engine, bar the Rust client's `GrpcClient__RateLimit`, which
+T6.14 maps; the other options are not. It is `Grpc.RateLimit`, `Calls` and
+`PerSeconds`, read into `GrpcChannelConfig.rate_limit`: `Calls` requests start in a window of
+`PerSeconds`, and one over the limit waits for the next window, as tower's `RateLimit` has it. A request is an attempt, so a retry counts and a stream counts once; waiting calls
+are let through in order; a waiting call ends `DEADLINE_EXCEEDED` at its deadline and `CANCELLED`
+when cancelled or when its channel closes, and holds no turn. The reasons are in decisions.md.
+`tests/grpc_rate_limit.rs` covers each, and `UnaryTests` a deadline and a cancel ending a waiting
+call through the binding.
+
 ### T6.16: The host's buffers, several at once and resizable
 
 **Prerequisite**: none
@@ -1560,8 +1569,9 @@ a feature position nothing exercises rots before then.
 whole engine part of the Rust client's public API; it gives way to the items the client offers.
 Its configuration stays `ClientConfig::from_env` until T6.14, mapped onto the engine's options;
 the tonic channel `connect` builds from it goes with the stubs. The mapping refuses what the
-engine has not got - `RateLimit` and `Http2MaxHeaderListSize` until T6.15 builds them,
-`TcpNagleAlgorithm` for good - so that none is read and ignored. T6.14 then replaces
+engine has not got - `Http2MaxHeaderListSize` until T6.15 builds it, `RateLimit` until T6.14
+maps it onto the engine's `Grpc.RateLimit`, which T6.15 has built, `TcpNagleAlgorithm` for good -
+so that none is read and ignored. T6.14 then replaces
 `ClientConfig` and its `GrpcClient__*` names with the loader's, with no alias.
 
 ---

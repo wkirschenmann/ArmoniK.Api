@@ -176,6 +176,9 @@ pub struct TransportError {
 pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub retry: Option<RetryConfig>,
+    /// How many requests start in a window of time, a retry's included; a
+    /// request over it waits for the next window. None starts them as made.
+    pub rate_limit: Option<RateLimitConfig>,
     pub default_deadline: Option<Duration>,
     pub user_agent: Option<String>,
     /// The largest message the engine reassembles, refused on the length the
@@ -190,6 +193,14 @@ pub struct GrpcChannelConfig {
     // No eager_connect flag: connecting is GrpcChannel::connect().await. The
     // option document's Transport.ConnectEagerly is the FFI's, which calls connect()
     // once ak_channel_create has registered the channel.
+}
+
+/// At most `calls` requests start in a window of `per`; a request over it
+/// waits for the next window. Refused when the channel is created if `calls`
+/// is 0 or `per` is zero.
+pub struct RateLimitConfig {
+    pub calls: usize,
+    pub per: Duration,
 }
 
 pub struct RetryConfig {
