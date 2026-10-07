@@ -1,8 +1,9 @@
 # Retry admission: one health estimate for the rate limit, the retries and the backoffs
 
-Status: proposal, 2026-10-07. Research only; nothing here binds the code until the questions in
-section 8 are decided. It is stacked on `wk/feat/option-rate-limit` (tip `2ae62df47`), whose rate
-limiter, decisions and tests it cites, and it merges after that branch.
+Status: proposal, 2026-10-07; the answers to section 8 of the same day are recorded there. Research
+only; nothing here binds the code until the open questions are decided. The rate limiter it builds
+on is merged on `wk/feat/phase1` (`90249e09b`, from `wk/feat/option-rate-limit`, tip `2ae62df47`),
+and "the branch" below means that code.
 
 ## 1. The question
 
@@ -53,7 +54,7 @@ Shortcomings, each answered in section 4:
    a tenth of a retry is never a whole one (section 4.9).
 7. **A herd after an outage is not paced.** Calls that wait for a connection leave together when it
    opens, and so do the transparent resends after a GOAWAY, unless the turn is taken when the
-   request is about to leave.
+   request is about to leave; with no `Grpc.Rate.Limit` there is no rate to pace them by (4.8).
 
 ## 2. Survey
 
@@ -339,7 +340,7 @@ alone, because the engine maps several origins onto one code:
 | a dial, TLS or connection failure; a connection that dies or is reset by the peer before the response head with no GOAWAY, for any reason but `CANCEL` and `INADEQUATE_SECURITY`; `REFUSED_STREAM`; `ENHANCE_YOUR_CALM` | reject | the request could not be served |
 | a reset `CANCEL` or `INADEQUATE_SECURITY`; a stream that breaks after the response head arrived | neither | not a refusal of load |
 | a stream the peer's GOAWAY ended, processed or not, and a request that hyper dropped unsent | neither | a draining server is not an overloaded one |
-| the engine's own: the call's deadline, a cancel, a message over the send or the receive limit, a request over the header-list limit, malformed trailers or messages, a closed channel, a failed dial task, a refusal by the estimate's cap | neither | the caller's or the engine's doing, whatever code it carries |
+| the engine's own: the call's deadline, a cancel, a message over the send or the receive limit, a request over the header-list limit, malformed trailers or messages, a closed channel, a failed dial task | neither | the caller's or the engine's doing, whatever code it carries |
 
 A call that waits for a connection (wait-for-ready) has no attempt and counts nothing.
 
@@ -385,11 +386,11 @@ is in 4.12.
    start `r_a = max(K * A / W', r_floor)` attempts a second, with `W'` the window or the age of the
    estimate if younger and `r_floor` the `FloorPerSecond` option, 0.5 a second by default (the
    lesser of it and the ceiling cell's rate, `Calls / PerSeconds`): it sends at most `K` times what
-   the server accepts, per second, and never stops probing. A first attempt over the cap fails
-   locally with `UNAVAILABLE`, at once, as the SRE book rejects; a call that asked to wait for the
-   connection, or a channel configured to `DelayFirstAttempts`, waits for its turn of the adaptive
-   cell instead, in order, up to its deadline. A configured `Grpc.Rate.Limit` is a second, separate
-   bound, taken after the cap is passed (4.4).
+   the server accepts, per second, and never stops probing. A first attempt over the cap **waits**
+   for its turn of the adaptive cell, in order, as AWS's adaptive mode delays the initial request;
+   the SRE book rejects it instead, and the engine does not (Q2, decided). The deadline ends the
+   wait `DEADLINE_EXCEEDED` with nothing sent, a cancel ends it `CANCELLED`. A configured
+   `Grpc.Rate.Limit` is a second, separate bound, taken after the cap is passed (4.4).
 3. **The per-call ceiling stays.** `MaxAttempts`, default 5, bounds one call whatever the estimate
    says (4.7).
 
@@ -423,17 +424,40 @@ T`. A request conforms when `L >= 1`; taking the turn sets `TAT = max(TAT, now) 
 - **The adaptive cell** exists only while the channel is unhealthy: `T = 1 / r_a`, `B = max(1,
   ceil(r_a))`, one second of burst at the lower rate, both read from the current `r_a` at each
   admission. It is created with `TAT = now` when the channel turns unhealthy and discarded when it
-  turns healthy again, so no debt outlives the cap.
+  turns healthy again, so no debt outlives the cap. Its queue of waiters is not discarded with it.
 
-A first attempt meets the adaptive cell first, when it exists: it tries it, and fails locally if it
-does not conform, or, if it was to wait, queues for it in order on a fair queue of its own. Only
-when it has the adaptive turn does it take a turn of the ceiling cell, waiting in order when it does
-not conform: it joins the ceiling's fair queue when that queue is not empty or the cell does not
-conform, and a newcomer never takes the fast path past a waiter. So a call waiting on the adaptive
-cell holds no ceiling turn, and the calls delayed by a cap do not spend the ceiling while they wait.
-A retry conforms to the ceiling cell when no first attempt is waiting and `L >= 1 + F`, with the
-reserve `F = floor((B - 1) / 2)`, the shape of A6's `maxTokens / 2`; it never waits, and it does not
-consult the adaptive cell, since an unhealthy channel has refused it already.
+A first attempt meets the adaptive cell first, when it exists: it tries it and, if it does not
+conform or its queue is not empty, queues for it in order on a fair queue of its own, so a newcomer
+never takes the fast path past a waiter of either cell. Only when it has the adaptive turn does it
+take a turn of the ceiling cell, waiting in order when it does not conform: it joins the ceiling's
+fair queue when that queue is not empty or the cell does not conform, and a newcomer never takes the
+fast path past a waiter. Both queues are first in, first out and the second is entered in the order
+the first leaves, so the calls keep the order in which they arrived whatever mix of the two bounds
+delays them. A call waiting on the adaptive cell holds no ceiling turn, so the calls delayed by a
+cap do not spend the ceiling while they wait. A retry conforms to the ceiling cell when no first
+attempt is waiting and `L >= 1 + F`, with the reserve `F = floor((B - 1) / 2)`, the shape of A6's
+`maxTokens / 2`; it never waits, and it does not consult the adaptive cell, since an unhealthy
+channel has refused it already.
+
+**The waiters of the adaptive cell.** A waiting call has sent nothing and holds no replay: it holds
+its request. On the C ABI that request is charged to the memory ceiling like any send, so a host
+that outruns the cap meets the ceiling's `BUDGET_BUSY`; a Rust host on Model B has no such bound in
+the engine, and its queue is bounded by what it spawns. The cell serves its queue at `r_a`, down to
+the floor, one call every `1 / r_a`, and each call it serves is a probe: an attempt that ends and
+counts. A call with a deadline ends `DEADLINE_EXCEEDED` having sent nothing if its turn comes after
+it.
+
+What a call with **no deadline** waits for depends on the server. If it is still dead, the call
+waits for its turn, about its position in the queue times `1 / r_a`, two seconds a call at the
+default floor, and then ends `UNAVAILABLE` as the probe it is. If the server has come back, a probe
+succeeds, the estimate reopens within about a window (4.10), and the whole queue is released at
+once, in order, into the ceiling cell if there is one and straight to the server if not: the pacing
+by the ceiling is the one bound on that herd (4.8). Either way the call waits for the outage and the
+reopening, and for a deep queue behind a dead server that is hours, where today the call ends in
+about 8 s: with 60 calls a second offered against a floor of 0.5, the queue grows by about 59 a
+second. A caller that wants a bound sets one, the call's own deadline or
+`Grpc.DefaultDeadlineSeconds`; the engine has no option that fails a first attempt instead of making
+it wait.
 
 Guarantees of the ceiling cell, with `lambda_f` the served first-attempt rate (at most `Calls /
 PerSeconds`, written `rate` below):
@@ -453,7 +477,7 @@ PerSeconds`, written `rate` below):
 
 | kind | when | needs | on admission | when it cannot start now |
 |---|---|---|---|---|
-| first attempt | the call starts, the connection ready | healthy, or a turn of the adaptive cell; then a turn of the ceiling cell | takes the turns | the adaptive cap: fails locally `UNAVAILABLE`, or waits (4.3); the ceiling: waits in order, and the deadline ends it `DEADLINE_EXCEEDED`, a cancel `CANCELLED` |
+| first attempt | the call starts, the connection ready | healthy, or a turn of the adaptive cell; then a turn of the ceiling cell | takes the turns | waits in order for the adaptive cap and then for the ceiling; the deadline ends the wait `DEADLINE_EXCEEDED`, a cancel `CANCELLED` |
 | transparent resend | the peer never processed the request | as a first attempt | takes the turns | as a first attempt |
 | retry | health at the failure and after the backoff; the ceiling cell after the backoff; the call under its ceiling | healthy, and `L >= 1 + F` of the ceiling cell | takes a turn | refused: section 4.6 |
 
@@ -587,14 +611,14 @@ healthy before the outage. They are derived, not measured.
 - **When first attempts are capped.** After the retries have stopped, `A` keeps ageing out, and the
   cap `K * A / W' = 2 * lambda * (W - d) / W` falls under the offered rate `lambda` at `d = W / 2`,
   15 s, and reaches the floor at `d = W`, 30 s. Until then first attempts reach the dead server
-  uncapped; after, the surplus fails locally and at once.
+  uncapped; after, the surplus waits for its turns at the falling cap (4.4).
 - **Recovery.** The estimate reopens when the rejections recorded during the outage have aged out of
   the window down to the slack. That is at most about one window after the server returns, 30 s, and
-  the longer the retries amplified the outage the nearer that bound. After an outage of `W` or more
-  the window holds only probes at the floor: `R` is about `r_floor * W`, 15, all rejected; each
-  probe after the return adds one accept while the oldest rejections age out, so `E = r_floor * W -
-  K * r_floor * t` falls from 15 to `S` = 10 in 5 s. The cap and the retries come back together, in
-  one step.
+  the longer the retries amplified the outage the nearer that bound. After an outage of `2 W` or
+  more the window holds only probes at the floor (at `W` it still holds the uncapped attempts of the
+  first half): `R` is about `r_floor * W`, 15, all rejected; each probe after the return adds one
+  accept while the oldest rejections age out, so `E = r_floor * W - K * r_floor * t` falls from 15
+  to `S` = 10 in 5 s. The cap and the retries come back together, in one step.
 - **If the server is still failing at the step**, `E` passes `S` again after about `S` further
   rejections and the cap returns, so each cycle wastes about `S` requests plus the adaptive cell's
   burst of one second at the lower rate.
@@ -609,8 +633,9 @@ call by the policy's default; no `RateLimit` unless stated.
 | a 3 s outage | each call retried up to 4 times over about 8 s | `E` stays negative: healthy; nothing changes |
 | 5% of attempts refused, steady | the retries pass | healthy; the retries pass |
 | 50% refused, steady | the retries pass | `E` is 0, so healthy: the server sees at most twice what it accepts |
-| 60% refused, steady | the retries pass | `E` is 0.2 `R`, far past `S`: retries refused at their failure; the cap `2A / W'` is 80% of the counted rate and falls with it, so if the refusals do not depend on the channel's load it converges to the floor, and if they do it settles where the server accepts what is sent |
-| the server dead for 60 s | each call takes about 8 s to end `UNAVAILABLE`, 240 retries a second | retries stop after about 5 to 7 s (about a thousand pass); first attempts go uncapped to about 15 s, then the cap falls to the floor at 30 s and the surplus ends `UNAVAILABLE` at once |
+| 60% refused, steady | the retries pass | `E` is 0.2 `R`, far past `S`: retries refused at their failure; the cap `2A / W'` is 80% of the counted rate and falls with it, so the surplus first attempts wait for a turn; if the refusals do not depend on the channel's load the cap converges to the floor, and if they do it settles where the server accepts what is sent |
+| the server dead for 60 s | each call takes about 8 s to end `UNAVAILABLE`, 240 retries a second | retries stop after about 5 to 7 s (about a thousand pass); first attempts go uncapped to about 15 s, then the cap falls to the floor at 30 s and the surplus queues: each call ends `DEADLINE_EXCEEDED` at its deadline having sent nothing, or is served as a probe at the floor and ends `UNAVAILABLE` |
+| the server dead, calls with no deadline | each call ends `UNAVAILABLE` in about 8 s | after the retries stop, each call waits about two seconds for each call ahead of it, then ends `UNAVAILABLE` as a probe |
 | the server back after that outage | the load resumes | retries and first attempts are back about 5 s after it returns, and within 30 s after any outage |
 | 1 call a second, 30% refused | all retries pass | healthy: retries pass; no volume term starves it |
 | `RateLimit` 100 over 1 s, healthy, 5% failing | the 3 retries a second pass | pass; 37 of the 100 turns a second stay unused |
@@ -650,8 +675,8 @@ the state and an `Instant`, over a word type with `get` and `set`:
 | If the assumption fails | updates are lost and the estimate drifts; no memory unsafety, every access is atomic | cannot fail: correct under any number of threads |
 
 The core never does a read-modify-write of its own; the lock of Model B makes each operation atomic
-as a whole, which Model A gets from having one writer. The waiting queue of first attempts is the
-async fair lock in both, and only a call that has to wait touches it.
+as a whole, which Model A gets from having one writer. The waiting queues of first attempts are
+async fair locks in both, and only a call that has to wait touches it.
 
 **How the model is chosen.** Once, when the channel is created, from `Handle::runtime_flavor()`
 (present in the pinned tokio 1.52): `CurrentThread` gives Model A, any other flavor Model B, so a
@@ -725,7 +750,6 @@ alternative whole.
 | `Grpc.Rate.Adaptive.On.Slack` (`S`) | int | 10 | below 0 or above 1,000,000 |
 | `Grpc.Rate.Adaptive.On.WindowSeconds` (`W`) | seconds | 30 | below 0.012 (a slot of under a millisecond) or above 86,400 |
 | `Grpc.Rate.Adaptive.On.FloorPerSecond` | number | 0.5 | not finite, not above 0 (a floor of 0 stops the probing) or above 1,000,000 |
-| `Grpc.Rate.Adaptive.On.DelayFirstAttempts` | bool | `false` (Q2) | never |
 | `Grpc.Retry.MaxAttempts` | int | 5 | below 1 (as built) |
 
 A document that names both `On` and `Off` is refused as it is read. A value out of bounds is refused
@@ -749,15 +773,15 @@ by retries as today (4.10).
 
 Proposals, each against the document it touches.
 
-1. **`Grpc.RateLimit` becomes GCRA** (`Grpc.Rate.Limit` if Q12 is accepted; decisions.md, "What a
-   rate limit counts, and what a request over it does"). Kept: what counts (every attempt, a stream
+1. **`Grpc.RateLimit` becomes GCRA** (`Grpc.Rate.Limit`, as Q12 decides; decisions.md, "What a rate
+   limit counts, and what a request over it does"). Kept: what counts (every attempt, a stream
    once), arrival order, the end of a waiting call by deadline or cancel, the limit being the
    channel's. Changed: no window; `Calls` start at once after idle, then one every `PerSeconds /
    Calls`. This removes the burst of `2 * Calls` at one instant, not the `2 * Calls` that can start
    over one `PerSeconds`. The cost the row cites for a sliding window, a record per start, is not
-   paid. The limit is now the ceiling of an effective rate that the estimate may lower. The branch
-   is amended to GCRA and the reserve before it merges; its skip rule and counters stay as the first
-   rule of 4.6, and its public type (`RateLimitConfig`) and options do not change.
+   paid. The limit is now the ceiling of an effective rate that the estimate may lower. The merged
+   code is amended by a follow-up commit on `wk/feat/phase1`, while the option is unreleased: GCRA
+   and the reserve, and the rename of Q12; its skip rule and counters stay as the first rule of 4.6.
 2. **"A saturated limit skips retries (interim, until the retry budget)"** keeps its first rule for
    a channel that disables the estimate and gives way to the second, ending the call, by default:
    section 4.6. The branch's `try_admit`, which reads a mutex, goes.
@@ -769,74 +793,78 @@ Proposals, each against the document it touches.
 5. **`RetryConfig` keeps `max_attempts` and its default**; the estimate is a new config beside it.
 6. **The formal model** needs no change if, as now, neither `RetryConfig` nor `options` is modelled:
    a retry not sent is a call that ends with a status it could already end with, and a first attempt
-   refused locally is one that ends `UNAVAILABLE` without a request. To be checked when built.
+   that waits for a turn is a call that has not started. To be checked when built.
 7. **The engine's attempt outcome carries its origin** (4.2), which the status mapping does not keep
    today.
 8. **T10.2's `GrpcChannel::stats()`** (observability.md, not built) gains counters: starts by kind,
-   first attempts that waited, first attempts refused locally, retries refused by each gate, `R` and
-   `A` over the window, `E`, the cap and the ceiling cell's level.
+   first attempts that waited, first attempts that waited for the cap, retries refused by each gate,
+   `R` and `A` over the window, `E`, the cap and the ceiling cell's level.
 9. **SPEC.MD** lists this document.
 10. **decisions.md's grouping row** ("How a channel's options are grouped") gains `Rate` among the
     groups of `Grpc`, holding the limit and the adaptive control.
 
-## 8. Questions for the user
+## 8. Decisions and open questions
 
-**Q1. Are the defaults right?** `K` 2 and `S` 10, floor 0.5 a second, `W` 30 s. `K` 2 is the SRE
-book's, and the floor is AWS adaptive mode's minimum fill rate. The book's window is two minutes;
-the proposal shortens it to 30 s because retries stop after `W / (n + 1)` of outage (4.10), 5 s at
-30 s and 20 s at two minutes, and a client that keeps retrying a dead server for 20 s defeats the
-purpose. The cost of a short window is a noisier estimate. `S` is a judgment, about A6's `maxTokens
-/ 2` at the grpc.io example doubled. None is measured. Recommendation: these.
+Answered on 2026-10-07 unless marked open.
 
-**Q2. Does a first attempt over the adaptive cap fail or wait?** Recommendation: fail locally with
-`UNAVAILABLE` by default, as the SRE book rejects, and wait with `DelayFirstAttempts`, as AWS
-adaptive mode delays. A default that made calls wait would hang a call with no deadline behind a
-dead server where today it ends in about 8 s. This differs from the rate limit's decision, whose
-over-limit calls wait, because that limit is one the user declared. A call that asked for
-wait-for-ready always waits.
+**Q1. The defaults: `K` 2, `S` 10, floor 0.5 a second, `W` 30 s. Decided, to be tested.** `K` 2 is
+the SRE book's, and the floor is AWS adaptive mode's minimum fill rate. The book's window is two
+minutes; the proposal shortens it to 30 s because retries stop after `W / (n + 1)` of outage (4.10),
+5 s at 30 s and 20 s at two minutes. `S` is a judgment, about A6's `maxTokens / 2` at the grpc.io
+example doubled. The plan that shows them right or wrong is in section 9.
 
-**Q3. Is the estimate on by default, and is a capacity refusal then final?** Recommendation: yes to
-both. The consequences: requirement 3.1 gains an exception (7.4); and a channel that sets only
-`Grpc.Rate.Limit` has a retry refused by the ceiling end its call, instead of skipping into the next
-backoff (4.6). The `GrpcClient` this engine replaces has no throttle and no such rule.
+**Q2. A first attempt over the adaptive cap waits. Decided, as AWS adaptive mode delays.** The wait
+is bounded by the call's deadline; a call with none waits for its place in the queue and is then
+served as a probe or, if the estimate reopens first, released in order (4.4). There is no option
+that fails the call instead: that would be a second behaviour to document and test, and a caller who
+wants a bound has the deadline. This is the rate limit's ordering too: the waiters of the adaptive
+cell and of the ceiling form one first-in, first-out order (4.4).
 
-**Q4. Is the classification right, and is the plumbing wanted?** Recommendation: as in 4.2: refusals
-of load reject, application statuses (`ABORTED` and `UNKNOWN` included) accept, deadlines, cancels,
-GOAWAY-unprocessed and the engine's own statuses are neutral. The blind spot is a slow server that
-answers late. The plumbing (7.7) is a prerequisite of the estimate.
+**Q3. The estimate is on by default, and a capacity refusal is final. Decided.** Requirement 3.1
+gains an exception (7.4); a channel that sets only `Grpc.Rate.Limit` has a retry refused by the
+ceiling end its call, instead of skipping into the next backoff (4.6). The `GrpcClient` this engine
+replaces has no throttle and no such rule.
 
-**Q5. Should `UNKNOWN` stay in the default retryable codes?** Recommendation: remove it, keeping
-`UNAVAILABLE` and `ABORTED`. `UNKNOWN` is an unhandled server exception, which is what makes poison
-calls; the ceiling bounds the cost, not the pointlessness, and the estimate does not see them. This
-breaks requirement 3 and `GrpcClient`'s default, so it is the user's decision; a host that wants it
-states it.
+**Q4. The accept, reject and neutral classification, and the plumbing it needs. Open.** As proposed
+in 4.2: refusals of load reject, application statuses (`ABORTED` and `UNKNOWN` included) accept,
+deadlines, cancels, GOAWAY-ended streams and the engine's own statuses are neutral. The blind spot
+is a slow server that answers late. The plumbing (7.7) is a prerequisite of the estimate.
 
-**Q6. Is the reserve a constant, half the bucket?** Recommendation: yes, A6's half, not an option.
+**Q5. Which codes are retried by default. Open.** What the standards say: A6 sets no default list,
+and requires one (`retryableStatusCodes` is non-empty); the grpc.io example retries `UNAVAILABLE`
+alone. `google.rpc.Code` advises `UNAVAILABLE` where the client can retry just the failing call,
+`ABORTED` where the client should retry at a higher level (a failed sequencer check or a transaction
+abort, which means starting the unit of work again, not repeating the call), and describes `UNKNOWN`
+as a status from an error space this address space does not know. By that reading only `UNAVAILABLE`
+is retried on the same call. `GrpcClient` and requirement 3 retry all three. Options: keep the
+three; drop `UNKNOWN`, the least breaking step, since a poison call is the failure the per-call
+ceiling alone bounds and the estimate does not see; or retry `UNAVAILABLE` alone. Recommendation:
+drop `UNKNOWN` now, and let the validation plan (section 9) count how often ABORTED and UNKNOWN end
+calls in a real deployment before deciding on the third.
 
-**Q7. Do retries get a floor at saturation?** Recommendation: no. When first attempts ask for the
-rate or more, retries get nothing, which is the point of lowering their priority.
+**Q6. The reserve is a constant, half the bucket. Decided.**
 
-**Q8. Where is the turn taken for a wait-for-ready call?** Recommendation: after the connection is
-ready (4.8). A connection that fails in between makes the call a transparent resend with a second
-turn.
+**Q7. Retries have no floor at saturation. Decided.** When first attempts ask for the rate or more,
+retries get nothing.
 
-**Q9. Does a transparent resend wait as a first attempt?** Recommendation: yes, as decided; after a
-GOAWAY it is the herd the limiter exists for.
+**Q8. The turn of a wait-for-ready call is taken after the connection is ready. Decided** (4.8). A
+connection that fails in between makes the call a transparent resend with a second turn.
 
-**Q10. Is a ramp after reopening wanted now?** Recommendation: not until a real control plane shows
-the step is too abrupt (4.9).
+**Q9. A transparent resend waits as a first attempt. Decided.**
 
-**Q11. Is the state model chosen from the runtime's flavor, with no option?** Recommendation: yes
-(4.12). Model A, the C ABI's, is lock-free and read-modify-write-free; Model B, a multi-thread Rust
-host's, pays an uncontended lock per decision. Both are to be built and tested (section 9), and a
-benchmark of both belongs to the task that builds the estimate.
+**Q10. No ramp after reopening for now. Decided.** To be reopened if a real control plane shows the
+step is too abrupt (4.9).
 
-**Q12. Does `Grpc.RateLimit` move to `Grpc.Rate.Limit`?** Recommendation: yes, before the branch
-merges, so that one rate is not spread over two groups. The rename touches the five places a rename
-touches: the options type and its documentation, the two schemas, the generated C#, the loader's
-mapping of `GrpcClient__RateLimit` (T6.14), and the tests and the vocabulary test. While the option
-is unreleased that is a rename; after, it is a break. The alternative is to keep `Grpc.RateLimit`
-and put only `Adaptive` under `Grpc.Rate`.
+**Q11. Is the state model chosen from the runtime's flavor, with no option? Open.** Proposed (4.12):
+Model A, the C ABI's, is lock-free and read-modify-write-free; Model B, a multi-thread Rust host's,
+pays an uncontended lock per decision. Both are to be built and tested (section 9), and a benchmark
+of both belongs to the task that builds the estimate.
+
+**Q12. `Grpc.RateLimit` becomes `Grpc.Rate.Limit`. Decided.** The rate limiter is already merged on
+`wk/feat/phase1`, so the rename is a follow-up commit there while the option is unreleased. It
+touches the five places a rename touches: the options type and its documentation, the two schemas,
+the generated C#, the loader's mapping of `GrpcClient__RateLimit` (T6.14), and the tests and the
+vocabulary test. After a release it would be a break.
 
 ## 9. Test plan
 
@@ -845,15 +873,15 @@ attempts a call sent (`grpc-previous-rpc-attempts` as the server reads it); the 
 
 **Deterministic under paused time.** The estimate and the cells are functions of state and an
 `Instant`: `record(outcome, now)`, `healthy(now)`, `cap(now)`, and `admit(kind, now) -> Admit |
-Wait(until) | Refused(Health | Capacity | Cap)`, with integer counts and nanoseconds, so unit tests
-need no runtime. Channel tests use `#[tokio::test(start_paused = true)]` with
-`tokio::time::advance`, as `call.rs` uses `start_paused`, and the units take explicit instants, as
-`backoff.rs` does; `test-util` is already a dev-dependency. A real server on a paused clock is a
-hazard, since time auto-advances when the runtime idles and a timer awaited beside socket I/O can
-fire early: keep each end-to-end test to timers the limiter alone owns, and give each behaviour one
-real-time variant with short windows, as `tests/grpc_rate_limit.rs` does. The backoff draw is the
-only randomness. `retry.rs` calls `fastrand` directly, and only `backoff.rs` takes the draw as an
-argument, so a seam has to be added; until then assert bounds, not values.
+Wait(until) | Refused(Health | Capacity)`, with integer counts and nanoseconds, so unit tests need
+no runtime. Channel tests use `#[tokio::test(start_paused = true)]` with `tokio::time::advance`, as
+`call.rs` uses `start_paused`, and the units take explicit instants, as `backoff.rs` does;
+`test-util` is already a dev-dependency. A real server on a paused clock is a hazard, since time
+auto-advances when the runtime idles and a timer awaited beside socket I/O can fire early: keep each
+end-to-end test to timers the limiter alone owns, and give each behaviour one real-time variant with
+short windows, as `tests/grpc_rate_limit.rs` does. The backoff draw is the only randomness.
+`retry.rs` calls `fastrand` directly, and only `backoff.rs` takes the draw as an argument, so a seam
+has to be added; until then assert bounds, not values.
 
 Estimate, unit tests with explicit instants:
 
@@ -870,8 +898,8 @@ Estimate, unit tests with explicit instants:
 4. The figures of 4.10 for `lambda` 60, `n` 5, `W` 30, each within a slot of 2.5 s: no trip at 3 s;
    retries stop between 5 and 9 s; the cap falls under the offered rate at about 15 s and reaches
    the floor at about 30 s; after a 30 s outage the channel reopens within 30 s of the server
-   returning, and about 5 s when the window held only probes. With `n` 1 the retries stop at about
-   15 s.
+   returning, and about 5 s after an outage of 2 `W`, when the window held only probes. With `n` 1
+   the retries stop at about 15 s.
 5. The cap: no cap while healthy; just past `S` it is within `S / W'` of the window's average send
    rate; it never falls under the floor; with `K` 1 the channel trips on rejections beyond `S`
    whatever it accepts.
@@ -920,11 +948,14 @@ Channel, paused clock:
     requests and ends `UNKNOWN`, and `E` falls by `MaxAttempts`.
 19. A slow limit (`Calls` 1, `PerSeconds` 10) refuses every retry; with the estimate disabled the
     call skips until the ceiling is spent, with it enabled the call ends at its first failure.
-20. A server scripted dead for 60 s and then up: first attempts over the cap end `UNAVAILABLE`
-    without a request, the server sees probes at the floor, and with `DelayFirstAttempts` they wait
-    and end `DEADLINE_EXCEEDED` at their deadline having sent nothing; a call that asked to wait for
-    ready waits in either case; and a call waiting for the adaptive turn has taken no ceiling turn,
-    so when the cap lifts the ceiling cell is as full as it was.
+20. A server scripted dead for 60 s and then up: first attempts over the cap wait in order and none
+    is refused; the server sees probes at the floor; a waiting call with a deadline ends
+    `DEADLINE_EXCEEDED` having sent nothing, one with none is served as a probe and ends
+    `UNAVAILABLE`, about `1 / r_a` after the one ahead of it; a call waiting for the adaptive turn
+    has taken no ceiling turn, so when the cap lifts the ceiling cell is as full as it was; and with
+    a ceiling cell too the calls leave in the order they arrived. When the estimate reopens the
+    waiters are released in order, and a call that arrives while the adaptive queue is not empty
+    queues behind it instead of taking the fast path.
 21. No rate limit, estimate enabled, server dead: the retries stop after `W / (n + 1)`, first
     attempts go uncapped until the cap falls under the offered rate; with `Adaptive` `Off` none of
     this happens and the channel is as today's.
@@ -941,6 +972,43 @@ Channel, paused clock:
     `Adaptive` absent from the merged document is `On` with the defaults; a document naming `On` and
     `Off` is refused as it is read, an out-of-bounds value when the channel is created, and the
     defaults' naming `ChannelDefaults`.
+
+### Validating the defaults
+
+`K`, `S`, `W` and the floor are the SRE book's and AWS's, and a judgment for `S` and `W`; the plan
+below shows whether they suit an ArmoniK control plane. It runs against a scripted server first and
+a real deployment after, and each scenario names what would show a default wrong.
+
+1. **No false trips.** A server that refuses a steady share `f` of attempts at random, `f` from 0.05
+   to 0.6, with callers at 1, 60 and 600 calls a second, for an hour each. At 60 calls a second or
+   more the window holds enough attempts for the threshold to be sharp. Right: no trip for `f` up to
+   0.45, a trip within `W` for `f` from 0.6. At 1 call a second the window holds about 30 attempts
+   and `E` has a standard deviation of about 5, so the criterion is the rate of false trips and not
+   zero: none for `f` up to 0.3 over the hour, and a trip at `f` 0.3 shows `S` is too small. A trip
+   at 60 a second under 0.45, or none at 600 a second at 0.6, shows `S` or `W` is wrong.
+2. **Outage length.** The server dead for 3, 5, 10, 20 and 60 s, then up, at 60 calls a second with
+   the default policy. Measure the retries sent before the trip, the time to the trip, the time to
+   reopen. Right: the trip near `W / (n + 1)` and the reopening within `W`, as 4.10 derives; the
+   figures are the check of the derivation as much as of the defaults. Wrong: a rolling restart that
+   takes 10 s losing calls that the baseline would have saved (then `W` is too short).
+3. **The real restart.** A rolling restart of the control plane under a representative load,
+   measuring calls that end in error, retries sent and time to full rate, against the same run with
+   `Adaptive` `Off`. Right: no more failed calls than the baseline, fewer requests to the server
+   while it is down.
+4. **Overload.** A server of capacity `C` offered 2 `C` and 4 `C`, with load shedding. Measure the
+   requests it receives against what it accepts, and the goodput. Right: requests at most `K` times
+   the accepts, goodput no lower than the baseline's.
+5. **Low traffic.** One call a second against a server that fails 30% of its calls and one that dies
+   for a minute. Right: the first keeps its retries; the second stops them within `S` rejections and
+   recovers within `W` of the server's return.
+6. **A flapping server**, up and down every 5 to 20 s. Right: no sustained oscillation of the cap;
+   the number of cycles between healthy and unhealthy is at most one per `W`.
+7. **Sweeps**, each parameter alone with the others at their defaults: `K` in 1.5, 2, 3; `S` in 0,
+   10, 50; `W` in 10, 30, 120; the floor in 0.1, 0.5, 2. Report, for scenarios 1 to 6, the false
+   trips, the failed calls, the retries and requests sent, and the time to reopen. A default is kept
+   unless a neighbouring value is better on one metric and no worse on the others.
+8. **Which codes end calls.** In the real deployment, count the statuses that end calls and the
+   attempts that are retried, by code, to settle Q5.
 
 ## 10. Not proposed
 
