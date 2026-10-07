@@ -1498,6 +1498,14 @@ disables Nagle's algorithm. Hedging and client-side load balancing are not wante
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
 
+**Status**: compression is done: `Grpc.Send.Compression` and `Grpc.Receive.Compression`, gzip,
+per channel and per direction, both off by default; decisions.md says why. A message the engine
+compresses is flagged as such, one that would not shrink goes out flagged uncompressed under the
+same `grpc-encoding`, and the replay buffers hold what is sent. The send limit is on the message
+before it is compressed; the receive limit bounds the frame as it arrives and the message once
+tonic's decoder has inflated it. Tested against tonic's server, canned answers and
+grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0.
+
 ### T6.16: The host's buffers, several at once and resizable
 
 **Prerequisite**: none

@@ -187,10 +187,24 @@ pub struct GrpcChannelConfig {
     /// How many buffers one call may have out at once before a send waits.
     /// Default 1.
     pub max_sends_in_flight: usize,
+    /// What a call's messages are compressed with, `grpc-encoding`. Default
+    /// None: they go as they are. A message that would not be smaller goes out
+    /// flagged uncompressed. The send limit is on the message as written;
+    /// the receive limit bounds the frame as it arrives and the message once
+    /// it is inflated.
+    pub send_encoding: Option<Encoding>,
+    /// The encoding besides identity the channel accepts in an answer, named
+    /// in `grpc-accept-encoding`; a message compressed in any other ends INTERNAL.
+    /// Default None.
+    pub accept_encoding: Option<Encoding>,
     // No eager_connect flag: connecting is GrpcChannel::connect().await. The
     // option document's Transport.ConnectEagerly is the FFI's, which calls connect()
     // once ak_channel_create has registered the channel.
 }
+
+/// A message encoding; gzip is the only one.
+#[non_exhaustive]
+pub enum Encoding { Gzip }
 
 pub struct RetryConfig {
     pub max_attempts: u32,          // total (initial + retries)
@@ -402,8 +416,7 @@ method, as `GrpcClient` configures it, where gRPC would allow one per method.
 ## What is missing
 
 **Protocol surface not yet contractualized.** Message and metadata size limits and what a
-violation produces on each side; gRPC compression (`grpc-encoding`,
-`grpc-accept-encoding`, per-message compressed flag); `-bin`
+violation produces on each side; `-bin`
 metadata keys and their base64 encoding; `grpc-message` percent-encoding; GOAWAY handling
 beyond the code of a stream it ends, and stream re-attempt; and the Trailers-Only response,
 which the ABI normalizes but whose status mapping is not written down. Each is a place where
