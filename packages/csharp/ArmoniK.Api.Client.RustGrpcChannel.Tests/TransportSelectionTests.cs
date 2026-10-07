@@ -129,6 +129,113 @@ public class TransportSelectionTests
                 Is.EqualTo("native"));
   }
 
+  /// <summary>The managed transport accepts TLS options beside an http endpoint, ignoring them, and so does the native one.</summary>
+  [Test]
+  public async Task TlsOptionsBesideAClearEndpointAreIgnored()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint              = Endpoint,
+                    Transport             = ClientTransport.Native,
+                    AllowUnsafeConnection = true,
+                    CertPem               = "client.pem",
+                    KeyPem                = "client.key",
+                    OverrideTargetName    = "server.test",
+                  };
+
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  new GrpcClient())
+                                                                       .Encode()),
+                Does.Not.Contain("Tls"));
+
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "clear",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+    Assert.That(reply.Text,
+                Is.EqualTo("clear"));
+  }
+
+  /// <summary>The TLS options of an https endpoint are translated.</summary>
+  [Test]
+  public void TlsOptionsBesideASecureEndpointAreTranslated()
+    => Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
+                                                                                     {
+                                                                                       Endpoint              = "HTTPS://server.test:5001",
+                                                                                       AllowUnsafeConnection = true,
+                                                                                     },
+                                                                                     new GrpcClient())
+                                                                          .Encode()),
+                   Does.Contain(@"""Unverified"""));
+
+  /// <summary>An initial backoff past the default maximum travels with the maximum, raised to it.</summary>
+  [Test]
+  public async Task TheBackoffsAreTranslatedAsAPair()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint       = Endpoint,
+                    Transport      = ClientTransport.Native,
+                    InitialBackOff = TimeSpan.FromSeconds(10),
+                  };
+
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  new GrpcClient())
+                                                                       .Encode()),
+                Does.Contain(@"""InitialBackoffSeconds"":10")
+                    .And.Contain(@"""MaxBackoffSeconds"":10"));
+
+    // The engine refuses a maximum below the initial one, so creating the channel fails if only
+    // the initial one is sent.
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+  }
+
+  /// <summary>A backoff that is not stated is left to the engine's sources, unless the stated one would pass it.</summary>
+  [Test]
+  public void AnUnstatedBackoffIsSentOnlyWhenTheStatedOnePassesIt()
+  {
+    string Encoded(GrpcClient options)
+      => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                           new GrpcClient())
+                                                                .Encode());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            InitialBackOff = TimeSpan.FromSeconds(2),
+                                          }),
+                                  Does.Contain(@"""InitialBackoffSeconds"":2")
+                                      .And.Not.Contain("MaxBackoffSeconds"),
+                                  "an initial one under the default maximum travels alone");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxBackOff = TimeSpan.FromSeconds(30),
+                                          }),
+                                  Does.Contain(@"""MaxBackoffSeconds"":30")
+                                      .And.Not.Contain("InitialBackoffSeconds"),
+                                  "a maximum over the default initial one travels alone");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxBackOff = TimeSpan.FromSeconds(0.5),
+                                          }),
+                                  Does.Contain(@"""MaxBackoffSeconds"":0.5")
+                                      .And.Contain(@"""InitialBackoffSeconds"":0.5"),
+                                  "an initial one above a stated maximum is lowered to it");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            InitialBackOff = TimeSpan.FromSeconds(10),
+                                            MaxBackOff     = TimeSpan.FromSeconds(3),
+                                          }),
+                                  Does.Contain(@"""InitialBackoffSeconds"":10")
+                                      .And.Contain(@"""MaxBackoffSeconds"":10"),
+                                  "two stated bounds that cross are sent with the maximum raised");
+                    });
+  }
+
   /// <summary>Two channels are open on the engine the factory owns, and after a shutdown the next channel starts another.</summary>
   [Test]
   public async Task TwoChannelsAreOpenOnOneEngineAndAShutdownLetsANewOneStart()

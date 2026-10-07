@@ -45,8 +45,12 @@ namespace ArmoniK.Api.Client.Submitter
         => floor is null || !EqualityComparer<T>.Default.Equals(read(options),
                                                                 read(floor));
 
+      // The managed transport ignores every TLS option of an `http://` endpoint, and the engine
+      // refuses them there. An empty endpoint is the engine's own, whose scheme is not known here.
+      var clear = options.Endpoint is not null && options.Endpoint.StartsWith("http://",
+                                                                              StringComparison.OrdinalIgnoreCase);
       var tls = new TlsOptions();
-      if (Stated(o => o.AllowUnsafeConnection) || Stated(o => o.CaCert))
+      if (!clear && (Stated(o => o.AllowUnsafeConnection) || Stated(o => o.CaCert)))
       {
         if (options.AllowUnsafeConnection)
         {
@@ -58,7 +62,7 @@ namespace ArmoniK.Api.Client.Submitter
         }
       }
 
-      if (Stated(o => o.CertP12) || Stated(o => o.CertPem) || Stated(o => o.KeyPem))
+      if (!clear && (Stated(o => o.CertP12) || Stated(o => o.CertPem) || Stated(o => o.KeyPem)))
       {
         if (!string.IsNullOrWhiteSpace(options.CertP12))
         {
@@ -71,7 +75,7 @@ namespace ArmoniK.Api.Client.Submitter
         }
       }
 
-      if (Stated(o => o.OverrideTargetName) && !string.IsNullOrEmpty(options.OverrideTargetName))
+      if (!clear && Stated(o => o.OverrideTargetName) && !string.IsNullOrEmpty(options.OverrideTargetName))
       {
         tls.OverrideTargetName = options.OverrideTargetName;
       }
@@ -116,14 +120,38 @@ namespace ArmoniK.Api.Client.Submitter
         retry.MaxAttempts = options.MaxAttempts;
       }
 
-      if (Stated(o => o.InitialBackOff))
+      // Each bound when it is stated. The engine refuses a maximum below the initial one, though,
+      // so the bound that is not stated is sent too when the other would pass it: grpc-dotnet draws
+      // its first delay up to the initial backoff and caps the later ones at the maximum, so a
+      // maximum below the initial one is raised to it, and an initial one above a stated maximum is
+      // lowered to it.
+      var initial = options.InitialBackOff.TotalSeconds;
+      var maximum = options.MaxBackOff.TotalSeconds;
+      var initialStated = Stated(o => o.InitialBackOff);
+      var maximumStated = Stated(o => o.MaxBackOff);
+      if (initialStated)
       {
-        retry.InitialBackoffSeconds = options.InitialBackOff.TotalSeconds;
+        retry.InitialBackoffSeconds = initial;
       }
 
-      if (Stated(o => o.MaxBackOff))
+      if (maximumStated)
       {
-        retry.MaxBackoffSeconds = options.MaxBackOff.TotalSeconds;
+        retry.MaxBackoffSeconds = initialStated
+                                    ? Math.Max(initial,
+                                               maximum)
+                                    : maximum;
+      }
+
+      if (initial > maximum)
+      {
+        if (initialStated && !maximumStated)
+        {
+          retry.MaxBackoffSeconds = initial;
+        }
+        else if (maximumStated && !initialStated)
+        {
+          retry.InitialBackoffSeconds = maximum;
+        }
       }
 
       if (Stated(o => o.BackoffMultiplier))
