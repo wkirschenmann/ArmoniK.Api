@@ -647,7 +647,7 @@
           "minimum": 1
         },
         "Compression": {
-          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding: one that does not ends the call `UNIMPLEMENTED`,\nand there is no fallback to sending the messages as they are.\n\nDefaults to none, the messages going out as they are.",
+          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to none, the messages going out as they are.",
           "$ref": "#/$defs/MessageEncoding"
         }
       },
@@ -657,9 +657,19 @@
       "description": "How the messages of a call are compressed.",
       "oneOf": [
         {
-          "description": "RFC 1952 gzip.",
+          "description": "RFC 1952 gzip, `gzip` on the wire.",
           "type": "string",
           "const": "Gzip"
+        },
+        {
+          "description": "gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw\nRFC 1951 stream.",
+          "type": "string",
+          "const": "Deflate"
+        },
+        {
+          "description": "RFC 8878 Zstandard, `zstd` on the wire.",
+          "type": "string",
+          "const": "Zstd"
         }
       ]
     },
@@ -674,8 +684,11 @@
           "minimum": 1
         },
         "Compression": {
-          "description": "The encoding besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding`. A server may then compress what it sends, and\n`MaxMessageSize` bounds a message once it is decompressed. A message compressed in any other\nencoding ends its call `INTERNAL`.\n\nDefaults to none, only `identity` being accepted.",
-          "$ref": "#/$defs/MessageEncoding"
+          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessageEncoding"
+          }
         }
       },
       "additionalProperties": false

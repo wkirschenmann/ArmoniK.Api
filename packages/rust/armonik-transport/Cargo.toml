@@ -38,9 +38,10 @@ required-features = ["test-hooks"]
 
 [dependencies]
 # `codegen` for tonic's client, which carries the engine's gRPC framing, and for the
-# `http`/`tokio_stream` re-exports a dependent reaches through this crate. `gzip` for its decoder,
-# which inflates a response's compressed messages within the channel's receive limit.
-tonic = { workspace = true, features = ["codegen", "gzip"] }
+# `http`/`tokio_stream` re-exports a dependent reaches through this crate. `gzip`, `deflate` and
+# `zstd` for its decoder, which inflates a response's compressed messages within the channel's
+# receive limit.
+tonic = { workspace = true, features = ["codegen", "deflate", "gzip", "zstd"] }
 snafu.workspace = true
 tracing.workspace = true
 h2 = { workspace = true }
@@ -64,6 +65,7 @@ bytes.workspace = true
 # Compresses the messages a call sends when the channel is set to; tonic's own encoder is out of
 # the path, the engine framing its messages itself.
 flate2.workspace = true
+zstd.workspace = true
 # The backoff's jitter, drawn below its bound so calls that failed together do not come back
 # together.
 fastrand.workspace = true

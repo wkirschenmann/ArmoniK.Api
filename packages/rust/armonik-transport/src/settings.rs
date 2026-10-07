@@ -192,7 +192,14 @@ impl ChannelSettings {
             config.max_recv_message_size = max as usize;
         }
         config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
-        config.accept_encoding = grpc.receive.compression.map(MessageEncoding::encoding);
+        config.accept_encodings = grpc
+            .receive
+            .compression
+            .iter()
+            .flatten()
+            .copied()
+            .map(MessageEncoding::encoding)
+            .collect();
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }

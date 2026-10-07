@@ -41,6 +41,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     /// <summary>One of the generated enums.</summary>
     Enumeration,
+
+    /// <summary>A list of the names of one of the generated enums, in the order stated.</summary>
+    EnumerationList,
   }
 
   /// <summary>What the schema says an option is, once its references are resolved.</summary>
@@ -370,6 +373,17 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                          "type")
                  ?.GetString();
 
+      // A list of the names of an enumeration: the one list this generator has a property for.
+      if (type == "array")
+      {
+        return ReadList(property,
+                        target,
+                        description,
+                        required,
+                        nested,
+                        holdsGroups);
+      }
+
       // A choice first: Corvus composes the properties of a `oneOf`'s alternatives into the
       // choice itself, so it would also pass for an object.
       if (IsChoice(target) || type == "object" || target.HasPropertyDeclarations)
@@ -426,6 +440,53 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                Secret   = IsSecret(property.UnreducedPropertyType) || IsSecret(target),
                Bounds = BoundsOf(node,
                                  target),
+             };
+    }
+
+    // An array of the names of an enumeration is a settable list. Any other array is refused: a
+    // list of numbers, of text or of groups has bounds and copies this generator does not write,
+    // and one that states none of its items is a shape nothing here can type.
+    private static Option ReadList(PropertyDeclaration property,
+                                   TypeDeclaration target,
+                                   string description,
+                                   bool required,
+                                   List<(TypeDeclaration Declaration, string Name)> nested,
+                                   bool holdsGroups)
+    {
+      var name = property.JsonPropertyName;
+
+      // A record is immutable and a list is not, so a record holding one would be a value a
+      // caller can change through a copy that was meant to be its own.
+      if (!holdsGroups)
+      {
+        throw new NotSupportedException($"`{name}` is a list, and an alternative holds none: a record is immutable, and a list in it would not be.");
+      }
+
+      var items = target.ArrayItemsType();
+
+      if (items is null)
+      {
+        throw new NotSupportedException($"`{name}` is an array that states no `items`, and this generator types a list by its items.");
+      }
+
+      var item = Resolve(items.ReducedType);
+
+      if (!IsChoice(item) || !IsEnumeration(item))
+      {
+        throw new NotSupportedException($"`{name}` is a list of something other than the names of an enumeration, which this generator has no property for.");
+      }
+
+      var typeName = NameOf(item,
+                            false);
+      nested.Add((item, typeName));
+
+      return new Option
+             {
+               Name        = name,
+               Description = description,
+               Type        = typeName,
+               Kind        = OptionKind.EnumerationList,
+               Required    = required,
              };
     }
 
@@ -919,6 +980,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               Report(member.Name);
             }
 
+            continue;
+          }
+
+          // The one subschema of a list, which `ReadList` reads: what is unhandled inside it is
+          // named like anything else.
+          if (member.Name == "items")
+          {
+            Schema(member.Value);
             continue;
           }
 

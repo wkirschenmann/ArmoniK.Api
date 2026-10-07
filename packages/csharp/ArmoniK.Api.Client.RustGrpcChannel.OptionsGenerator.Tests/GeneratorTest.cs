@@ -462,6 +462,9 @@ public enum Place
     [TestCase(@"{ ""description"": ""Group."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Inner"": { ""description"": ""Inner."", ""$ref"": ""#/$defs/Held"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "an alternative holds none",
               TestName = "AnAlternative_HoldingAGroup")]
+    [TestCase(@"{ ""description"": ""List."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Names"": { ""description"": ""Names."", ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Place"" } } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "is a list, and an alternative holds none",
+              TestName = "AnAlternative_HoldingAList")]
     [TestCase(@"{ ""description"": ""Plumbing."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Writer"": { ""description"": ""Writer."", ""type"": ""string"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "declares already",
               TestName = "AnAlternative_FieldNamedLikeALocal")]
@@ -718,6 +721,79 @@ public enum Place
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("Names"));
+
+    private const string Encodings = @",
+  ""$defs"": {
+    ""Encoding"": {
+      ""description"": ""How a message is compressed."",
+      ""oneOf"": [
+        { ""description"": ""One."", ""type"": ""string"", ""const"": ""Gzip"" },
+        { ""description"": ""Two."", ""type"": ""string"", ""const"": ""Zstd"" }
+      ]
+    }
+  }";
+
+    /// <summary>A list of the names of an enumeration is a settable list, copied and checked.</summary>
+    /// <remarks>
+    ///   A list is a mutable reference a caller can change after handing it over, so the copy
+    ///   makes a list of its own; and each name is checked, since a cast makes any number one.
+    /// </remarks>
+    [Test]
+    public async Task AListOfNamesIsASettableListThatIsCopiedAndChecked()
+    {
+      var rendered = await Render(Wrap($@"""Accepts"": {{ {Documented}""type"": ""array"", ""items"": {{ ""$ref"": ""#/$defs/Encoding"" }} }}",
+                                       Encodings))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("public global::System.Collections.Generic.List<Encoding>? Accepts { get; set; }"));
+      Assert.That(rendered,
+                  Does.Contain("using System.Linq;"),
+                  "the check of the names uses LINQ");
+      Assert.That(rendered,
+                  Does.Contain("public enum Encoding"),
+                  "the items' enumeration is declared once");
+      Assert.That(rendered,
+                  Does.Contain("new global::System.Collections.Generic.List<Encoding>(other.Accepts)"),
+                  "a list is copied, not shared");
+      Assert.That(rendered,
+                  Does.Contain("accepts.Where(item => !Enum.IsDefined(typeof(Encoding), item))"),
+                  "each name is checked");
+      Assert.That(rendered,
+                  Does.Contain("string.Join(\", \","),
+                  "and the names that are not declared are said");
+    }
+
+    /// <summary>A list of anything but the names of an enumeration is refused, not guessed at.</summary>
+    [TestCase(@"""type"": ""array"", ""items"": { ""type"": ""string"" }", TestName = "AList_OfText")]
+    [TestCase(@"""type"": ""array"", ""items"": { ""type"": ""integer"", ""format"": ""int32"" }", TestName = "AList_OfNumbers")]
+    [TestCase(@"""type"": ""array""", TestName = "AList_OfNothingStated")]
+    public void AListOfAnythingButNamesIsRefused(string list)
+      => Assert.That(async () => await Render(Wrap($@"""Names"": {{ {Documented}{list} }}",
+                                                   Encodings))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("Names"));
+
+    /// <summary>What bounds a list is not read, so it is reported rather than dropped.</summary>
+    [TestCase("minItems", TestName = "AListBound_MinItems")]
+    [TestCase("maxItems", TestName = "AListBound_MaxItems")]
+    [TestCase("uniqueItems", TestName = "AListBound_UniqueItems")]
+    public void WhatBoundsAListIsReported(string keyword)
+      => Assert.That(OptionVocabulary.Unhandled(Wrap($@"""Accepts"": {{ ""type"": ""array"", ""{keyword}"": 1, ""items"": {{ ""type"": ""string"" }} }}")),
+                     Is.EqualTo(new[]
+                                {
+                                  keyword,
+                                }));
+
+    /// <summary>What an item states is walked, so an unhandled keyword inside it is named.</summary>
+    [Test]
+    public void WhatAnItemStatesIsWalked()
+      => Assert.That(OptionVocabulary.Unhandled(Wrap(@"""Accepts"": { ""type"": ""array"", ""items"": { ""type"": ""string"", ""pattern"": ""^a"" } }")),
+                     Is.EqualTo(new[]
+                                {
+                                  "pattern",
+                                }));
 
     /// <summary>A group is copied and not shared, or a caller still holds what it handed over.</summary>
     /// <remarks>

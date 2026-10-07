@@ -66,8 +66,11 @@ public class EchoService : Echo.EchoBase
                };
     if (http.Request.Headers.ContainsKey("x-compress-response"))
     {
+      // The encoding the request names, gzip for any other value.
       head.Add("grpc-internal-encoding-request",
-               "gzip");
+               http.Request.Headers["x-compress-response"] == "deflate"
+                 ? "deflate"
+                 : "gzip");
     }
 
     await context.WriteResponseHeadersAsync(head)

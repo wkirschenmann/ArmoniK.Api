@@ -23,6 +23,7 @@
 #nullable enable
 
 using System;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -1802,8 +1803,12 @@ public sealed class GrpcSendOptions
   ///   <c>MaxMessageSize</c> is checked on a message before it is compressed.
   /// </summary>
   /// <remarks>
-  ///   The server has to accept the encoding: one that does not ends the call <c>UNIMPLEMENTED</c>,
-  ///   and there is no fallback to sending the messages as they are.
+  ///   The server has to accept the encoding, and says which it accepts in the
+  ///   <c>grpc-accept-encoding</c> of its responses. A response that lists encodings without this one
+  ///   stops the channel compressing: the calls that start after it send their messages as they
+  ///   are, and the channel logs a warning once. A later response that lists it has the channel
+  ///   compress again. A call that reached a server which does not accept the encoding ends
+  ///   <c>UNIMPLEMENTED</c> and is not sent again.
   ///   Defaults to none, the messages going out as they are.
   /// </remarks>
   [JsonPropertyName("Compression")]
@@ -1834,8 +1839,17 @@ public sealed class GrpcSendOptions
 [JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
 public enum MessageEncoding
 {
-  /// <summary>RFC 1952 gzip.</summary>
+  /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
   Gzip,
+
+  /// <summary>
+  ///   gRPC's <c>deflate</c>: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+  ///   RFC 1951 stream.
+  /// </summary>
+  Deflate,
+
+  /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
+  Zstd,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -1857,7 +1871,9 @@ public sealed class GrpcReceiveOptions
     }
 
     MaxMessageSize = other.MaxMessageSize;
-    Compression = other.Compression;
+    Compression = other.Compression is null
+                    ? null
+                    : new global::System.Collections.Generic.List<MessageEncoding>(other.Compression);
   }
 
   /// <summary>The largest message this client will accept, in bytes.</summary>
@@ -1871,15 +1887,16 @@ public sealed class GrpcReceiveOptions
   public int? MaxMessageSize { get; set; }
 
   /// <summary>
-  ///   The encoding besides <c>identity</c> that this client accepts for the messages of an answer,
-  ///   which it states as <c>grpc-accept-encoding</c>. A server may then compress what it sends, and
-  ///   <c>MaxMessageSize</c> bounds a message once it is decompressed. A message compressed in any other
-  ///   encoding ends its call <c>INTERNAL</c>.
+  ///   The encodings besides <c>identity</c> that this client accepts for the messages of an answer,
+  ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
+  ///   may then compress what it sends, in the first of them that it knows. A name given twice
+  ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>.
   /// </summary>
-  /// <remarks>Defaults to none, only <c>identity</c> being accepted.</remarks>
+  /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public MessageEncoding? Compression { get; set; }
+  public global::System.Collections.Generic.List<MessageEncoding>? Compression { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -1892,11 +1909,18 @@ public sealed class GrpcReceiveOptions
                                             "MaxMessageSize has to be at least 1.");
     }
 
-    if (Compression is MessageEncoding compression && !Enum.IsDefined(typeof(MessageEncoding), compression))
+    if (Compression is { } compression)
     {
-      throw new ArgumentOutOfRangeException(nameof(Compression),
-                                            compression,
-                                            "Compression has to be a name MessageEncoding declares.");
+      var compressionUndeclared = compression.Where(item => !Enum.IsDefined(typeof(MessageEncoding), item))
+                                             .ToList();
+
+      if (compressionUndeclared.Count > 0)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Compression),
+                                              string.Join(", ",
+                                                          compressionUndeclared),
+                                              "Compression has to be names MessageEncoding declares.");
+      }
     }
   }
 }

@@ -1550,9 +1550,10 @@ sent, was closed on 2026-10-07 by T6.8: the binding reads the effective window b
 
 **Prerequisite**: T6.14, so that each arrives with its loading
 **Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
-outnumber successes; compression, `grpc-encoding: gzip`; wait-for-ready, a call that waits for a
-connection rather than failing UNAVAILABLE; `RateLimit`. `TcpNagleAlgorithm` is refused: the
-engine always disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
+outnumber successes; compression, `grpc-encoding` in gzip, deflate or zstd; wait-for-ready, a
+call that waits for a connection rather than failing UNAVAILABLE; `RateLimit`. `TcpNagleAlgorithm`
+is refused: the engine always disables Nagle's algorithm. Hedging and client-side load balancing
+are not wanted.
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
 **Status**: wait-for-ready done, per call (decisions.md has its shape). `CallStartOptions` has
@@ -1595,13 +1596,25 @@ sent too large header field", and nginx closes the connection, ending the call b
   `Http2.Send.MaxHeaderListSize`; unlike tonic's setting of that name, it bounds the request's
   headers, not the response's.
 
-**Compression: done in the engine.** `Grpc.Send.Compression` and `Grpc.Receive.Compression`,
-gzip, per channel and per direction, both off by default; decisions.md says why. A message the engine
-compresses is flagged as such, one that would not shrink goes out flagged uncompressed under the
-same `grpc-encoding`, and the replay buffers hold what is sent. The send limit is on the message
-before it is compressed; the receive limit bounds the frame as it arrives and the message once
-tonic's decoder has inflated it. Tested against tonic's server, canned answers and
-grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0.
+**Compression: done in the engine.** `Grpc.Send.Compression`, one of `Gzip`, `Deflate` (the zlib
+structure of RFC 1950) and `Zstd`, and `Grpc.Receive.Compression`, a list of them, per channel
+and per direction, both off by default; decisions.md says why, and which encodings common servers
+accept by default. A message the engine compresses is flagged as such, one that would not shrink
+goes out flagged uncompressed under the same `grpc-encoding`, and the replay buffers hold what is
+sent. The send limit is on the message before it is compressed; the receive limit bounds the frame
+as it arrives and the message once tonic's decoder has inflated it. The receive list is
+advertised in order with identity last. The channel learns what a server accepts from the
+`grpc-accept-encoding` of its responses: toward a server that does not list the send encoding the
+calls that started before its first answer end UNIMPLEMENTED, the channel logs one warning and the
+calls after it send as they are, and a later response that lists the encoding has it compress
+again. Tested against tonic's server, canned answers and grpc-dotnet's server, on net4.7, net4.8,
+net8.0 and net10.0. The loader reads the list from a file or a document, and refuses it from the
+command line, the environment and pairs, whose reader has no indexed keys: a .NET host sets
+`Receive.Compression` through a file or `LoadConfigFromObject`. Open: `zstd-sys` builds C. It was
+built for win-x64 and win-x86 (x86_64 and i686 `pc-windows-msvc`); win-arm64, linux-x64,
+linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to be checked. A
+server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
+is not learned from, so every call toward it ends UNIMPLEMENTED.
 
 **`RateLimit`: done in the engine.** It is `Grpc.RateLimit`, `Calls` and `PerSeconds`, read
 into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any
