@@ -191,7 +191,18 @@ pub struct GrpcChannelConfig {
     /// None: they go as they are. A message that would not be smaller goes out
     /// flagged uncompressed. The send limit is on the message as written;
     /// the receive limit bounds the frame as it arrives and the message once
-    /// it is inflated.
+    /// it is inflated. The channel reads `grpc-accept-encoding` on every
+    /// response head of a gRPC response, a Trailers-Only one included; a head
+    /// without it, or with it blank, says nothing. While the last head that
+    /// has it leaves this encoding out, calls that start send as they are, and
+    /// the channel logs one warning in all (`tracing`, target
+    /// `armonik_transport`). A later head that lists it has calls compress
+    /// again, logged at debug as a further refusal is. Behind a balancer whose
+    /// backends differ, the state follows whichever answered last. A call
+    /// keeps the encoding it started with, so its messages and its
+    /// `grpc-encoding` agree through a retry; one sent compressed to a server
+    /// that does not accept it ends UNIMPLEMENTED and is not sent again. A
+    /// server that states no `grpc-accept-encoding` is not learned from.
     pub send_encoding: Option<Encoding>,
     /// The encodings besides identity the channel accepts in an answer, named
     /// in `grpc-accept-encoding` in this order with identity last; a repeated

@@ -1491,20 +1491,30 @@ on the Rust loader, the ABI having no log to read before T10.1.
 
 **Prerequisite**: T6.14, so that each arrives with its loading
 **Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
-outnumber successes; compression, `grpc-encoding: gzip`; wait-for-ready, a call that waits for a
+outnumber successes; compression, `grpc-encoding` in gzip, deflate or zstd; wait-for-ready, a call that waits for a
 connection rather than failing UNAVAILABLE; `RateLimit`; `Http2MaxHeaderListSize`, whose bound
 keeps a request out of nginx's header limits. `TcpNagleAlgorithm` is refused: the engine always
 disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
 
-**Status**: compression is done: `Grpc.Send.Compression` and `Grpc.Receive.Compression`, gzip,
-per channel and per direction, both off by default; decisions.md says why. A message the engine
-compresses is flagged as such, one that would not shrink goes out flagged uncompressed under the
-same `grpc-encoding`, and the replay buffers hold what is sent. The send limit is on the message
-before it is compressed; the receive limit bounds the frame as it arrives and the message once
-tonic's decoder has inflated it. Tested against tonic's server, canned answers and
-grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0.
+**Status**: compression is done: `Grpc.Send.Compression`, one of `Gzip`, `Deflate` (the zlib
+structure of RFC 1950) and `Zstd`, and `Grpc.Receive.Compression`, a list of them, per channel
+and per direction, both off by default; decisions.md says why, and which encodings common servers
+accept by default. A message the engine compresses is flagged as such, one that would not shrink
+goes out flagged uncompressed under the same `grpc-encoding`, and the replay buffers hold what is
+sent. The send limit is on the message before it is compressed; the receive limit bounds the frame
+as it arrives and the message once tonic's decoder has inflated it. The receive list is
+advertised in order with identity last. The channel learns what a server accepts from the
+`grpc-accept-encoding` of its responses: toward a server that does not list the send encoding the
+calls that started before its first answer end UNIMPLEMENTED, the channel logs one warning and the
+calls after it send as they are, and a later response that lists the encoding has it compress
+again. Tested against tonic's
+server, canned answers and grpc-dotnet's server, on net4.7, net4.8, net8.0 and net10.0. Open:
+`zstd-sys` builds C. It was built for win-x64 and win-x86 (x86_64 and i686 `pc-windows-msvc`);
+win-arm64, linux-x64, linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64
+are to be checked. A server that refuses an encoding without stating `grpc-accept-encoding`, as
+grpc-go's source does, is not learned from, so every call toward it ends UNIMPLEMENTED.
 
 ### T6.16: The host's buffers, several at once and resizable
 
