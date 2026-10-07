@@ -97,7 +97,6 @@ secrecy.workspace = true
 percent-encoding.workspace = true
 serde = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
-humantime.workspace = true
 # `float_roundtrip`, so a number reads back as the double the host wrote: the default parse may
 # land an ulp away, and at a bound an ulp is a refusal. .NET Framework writes 1e-9 with
 # seventeen digits.
@@ -128,13 +127,13 @@ x509-parser = { workspace = true, features = ["verify"] }
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Networking_WinHttp"] }
 
 [dev-dependencies]
-# The boolean options are read straight from the environment, so testing which spellings they accept
-# means setting variables: process-global state, hence one test at a time.
+# The proxy tests set the process's environment and the panic tests its hook: process-global
+# state, hence one test at a time.
 serial_test.workspace = true
 # The server-streaming fixture answers a stream of messages, and tonic asks for a `Stream` to
 # build it from; the regular build never produces one.
 futures.workspace = true
-# Only to round-trip `ClientConfigArgs` in the test that pins the `serde` feature.
+# The configuration fixtures, and the schemas the options' tests read.
 serde_json.workspace = true
 # What the configuration loader logs, read back by its tests.
 tracing-subscriber = { workspace = true, features = ["fmt"] }

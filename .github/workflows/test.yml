@@ -170,6 +170,9 @@ jobs:
           [ -e ../out/ArmoniK.Api.Mock.exe ] || ln -s ArmoniK.Api.Mock ../out/ArmoniK.Api.Mock.exe
 
       # Run tests
+      # The Rust client reads the engine's configuration: the same GrpcClient prefix, the endpoint
+      # as Endpoint and the TLS options under ChannelDefaults. The other clients read the names
+      # beside them, and each ignores the other's.
       - name: noTLS
         working-directory: packages/csharp/
         shell: bash
@@ -196,6 +199,7 @@ jobs:
           export Grpc__AllowUnsafeConnection=true
           export GrpcClient__Endpoint=https://localhost:5001
           export GrpcClient__AllowUnsafeConnection=true
+          export GrpcClient__ChannelDefaults__Transport__Tls__Server__Unverified=true
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: TLS secure
@@ -213,6 +217,7 @@ jobs:
           export GrpcClient__Endpoint=https://localhost:5001
           export GrpcClient__AllowUnsafeConnection=false
           export GrpcClient__CaCert=$CertFolder/server1-ca.pem
+          export GrpcClient__ChannelDefaults__Transport__Tls__Server__CaPem=$CertFolder/server1-ca.pem
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: TLS store
@@ -247,6 +252,9 @@ jobs:
           export GrpcClient__AllowUnsafeConnection=true
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
+          export GrpcClient__ChannelDefaults__Transport__Tls__Server__Unverified=true
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: mTLS secure
@@ -269,6 +277,9 @@ jobs:
           export GrpcClient__CaCert=$CertFolder/server1-ca.pem
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
+          export GrpcClient__ChannelDefaults__Transport__Tls__Server__CaPem=$CertFolder/server1-ca.pem
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: mTLS store
@@ -289,6 +300,8 @@ jobs:
           export GrpcClient__AllowUnsafeConnection=false
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
+          export GrpcClient__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: Test Report

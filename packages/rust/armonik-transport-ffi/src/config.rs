@@ -1,90 +1,14 @@
 use std::fmt;
-use std::time::Duration;
 
 use armonik_transport::configuration::{ConfigRefusal as LoadRefusal, Configuration};
-use armonik_transport::grpc::{GrpcChannelConfig, RetryConfig};
-use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
-use armonik_transport::options::{
-    ChannelOptions, OptionRefusal, ProxyOptions, RuntimeOptions, Seconds, LARGEST_WINDOW,
-};
+use armonik_transport::options::{ChannelOptions, OptionRefusal, RuntimeOptions};
 use armonik_transport::reexports::http::Uri;
+use armonik_transport::settings::{ChannelSettings, SettingRefusal};
 
 use crate::abi::{
     ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status, AK_CONFIG_NO_PREFIX,
 };
 use crate::refusal::Refusal;
-
-// What a configuration that names neither gets. One send, the smallest window. Four deliveries:
-// the head and the message of a unary call each take one, and a stream has the rest.
-const MAX_SENDS_IN_FLIGHT: i32 = 1;
-const DELIVERY_CREDITS: i32 = 4;
-
-/// The options a host sent, read and found admissible.
-///
-/// Each unit is held as the engine configuration it became rather than as what was written:
-/// converting once, where the document is refused, is what leaves nothing here that can fail -
-/// and the files the TLS unit names are read there, once.
-pub(crate) struct ChannelSettings {
-    options: ChannelOptions,
-    connect_timeout: Option<Duration>,
-    default_deadline: Option<Duration>,
-    tls: TlsConfig,
-    tcp: TcpConfig,
-    http2: Http2Config,
-    proxy: ProxyConfig,
-    retry: RetryConfig,
-}
-
-impl ChannelSettings {
-    pub(crate) fn delivery_credits(&self) -> usize {
-        self.options
-            .grpc
-            .host
-            .receive
-            .window
-            .unwrap_or(DELIVERY_CREDITS) as usize
-    }
-
-    pub(crate) fn connect_eagerly(&self) -> bool {
-        self.options.transport.connect_eagerly.unwrap_or(false)
-    }
-
-    pub(crate) fn max_sends_in_flight(&self) -> usize {
-        self.options
-            .grpc
-            .host
-            .send
-            .window
-            .unwrap_or(MAX_SENDS_IN_FLIGHT) as usize
-    }
-
-    pub(crate) fn into_channel_config(self, endpoint: Uri) -> GrpcChannelConfig {
-        let max_sends_in_flight = self.max_sends_in_flight();
-        let mut transport = TransportConfig::new(endpoint);
-        if let Some(connect_timeout) = self.connect_timeout {
-            transport.connect_timeout = connect_timeout;
-        }
-        transport.tls = self.tls;
-        transport.tcp = self.tcp;
-        transport.http2 = self.http2;
-        transport.proxy = self.proxy;
-
-        let mut config = GrpcChannelConfig::new(transport);
-        config.max_sends_in_flight = max_sends_in_flight;
-        let grpc = self.options.grpc;
-        config.user_agent = grpc.user_agent;
-        config.max_send_message_size = grpc.send.max_message_size.map(|max| max as usize);
-        if let Some(max) = grpc.receive.max_message_size {
-            config.max_recv_message_size = max as usize;
-        }
-        if let Some(bytes) = grpc.host.receive.coalescing_bytes {
-            config.delivery_coalescing = bytes as usize;
-        }
-        config.default_deadline = self.default_deadline;
-        config.retry = Some(self.retry);
-        config
-    }
-}
 
 /// Why a document was refused, named by the key it was refused over.
 #[derive(Debug)]
@@ -99,17 +23,9 @@ pub(crate) enum ConfigRefusal {
     ZeroCeiling { key: &'static str },
     /// An Endpoint that names nothing a channel could reach.
     Endpoint { why: &'static str },
-    /// A window outside what the schema admits.
-    Window { key: &'static str, value: i32 },
-    /// A message size limit that admits only empty messages.
-    NoMessage { key: &'static str, value: i32 },
-    /// A count of bytes below zero.
-    Bytes { key: &'static str, value: i32 },
-    /// An empty user agent.
-    EmptyUserAgent,
-    /// A duration no `Duration` holds, or one below what it holds.
-    Seconds { key: &'static str, seconds: f64 },
-    /// An option of a unit the engine converts, a file it names included.
+    /// Options the engine cannot be configured with, by the key at fault.
+    Settled(SettingRefusal),
+    /// An alternative whose own values contradict it, found before any merge.
     Option(OptionRefusal),
     /// A refusal of the runtime's channel defaults, read alone.
     Defaults(Box<ConfigRefusal>),
@@ -125,22 +41,7 @@ impl fmt::Display for ConfigRefusal {
             Self::NotUtf8 => f.write_str("the configuration document is not UTF-8"),
             Self::ZeroCeiling { key } => write!(f, "{key} is 0, and has to be at least 1"),
             Self::Endpoint { why } => write!(f, "Endpoint {why}"),
-            Self::Window { key, value } => write!(
-                f,
-                "{key} is {value}, and has to be between 1 and {LARGEST_WINDOW}"
-            ),
-            Self::NoMessage { key, value } => write!(
-                f,
-                "{key} is {value}, and has to be at least 1 - zero admits only empty messages"
-            ),
-            Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
-            Self::EmptyUserAgent => {
-                f.write_str("Grpc.UserAgent is empty, and has to name something")
-            }
-            Self::Seconds { key, seconds } => write!(
-                f,
-                "{key} is {seconds}, and has to be at least 1e-9 and less than 2^64"
-            ),
+            Self::Settled(refused) => refused.fmt(f),
             Self::Option(refused) => refused.fmt(f),
             Self::Defaults(refused) => write!(f, "ChannelDefaults: {refused}"),
             Self::Merged(refused) => {
@@ -323,116 +224,18 @@ fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
         .map_err(ConfigRefusal::Loaded)
 }
 
-/// Settles the options, refusing exactly what the schema refuses, and saying over which key.
-///
-/// Every bound checked here is stated in the schema the options type derives - a minimum, a
-/// maximum, a minimum length - so a document a validator would reject is one this refuses too.
-/// They are checked again rather than trusted: nothing obliges a host to have validated, and the
-/// engine is what a bad value would break.
 fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
-    let window = |key: &'static str, asked: Option<i32>| match asked {
-        Some(value) if !(1..=LARGEST_WINDOW).contains(&value) => {
-            Err(ConfigRefusal::Window { key, value })
-        }
-        _ => Ok(()),
-    };
-    let grpc = &options.grpc;
-    window("Grpc.Host.Receive.Window", grpc.host.receive.window)?;
-    window("Grpc.Host.Send.Window", grpc.host.send.window)?;
-
-    // Zero is refused: it admits only empty messages, which is a channel with no use.
-    for (key, max) in [
-        ("Grpc.Send.MaxMessageSize", grpc.send.max_message_size),
-        ("Grpc.Receive.MaxMessageSize", grpc.receive.max_message_size),
-    ] {
-        if let Some(value) = max.filter(|max| *max < 1) {
-            return Err(ConfigRefusal::NoMessage { key, value });
-        }
-    }
-
-    if let Some(value) = grpc
-        .host
-        .receive
-        .coalescing_bytes
-        .filter(|bytes| *bytes < 0)
-    {
-        return Err(ConfigRefusal::Bytes {
-            key: "Grpc.Host.Receive.CoalescingBytes",
-            value,
-        });
-    }
-
-    if grpc.user_agent.as_deref().is_some_and(str::is_empty) {
-        return Err(ConfigRefusal::EmptyUserAgent);
-    }
-
-    // Below a nanosecond is refused, as the schema's `minimum` refuses it: `Duration` holds
-    // nothing finer, so the conversion could round it to zero, which no dial or call could beat.
-    // And a number is not yet a duration: `Duration` holds no value past its own range either, so
-    // the conversion is what says whether the document named one.
-    let duration = |key: &'static str, asked: Option<Seconds>| match asked {
-        None => Ok(None),
-        Some(seconds) => {
-            let refused = ConfigRefusal::Seconds {
-                key,
-                seconds: seconds.0,
-            };
-            if seconds.0 < 1e-9 {
-                return Err(refused);
-            }
-            Duration::try_from(seconds).map(Some).map_err(|_| refused)
-        }
-    };
-    let connect_timeout = duration(
-        "Transport.ConnectTimeoutSeconds",
-        options.transport.connect_timeout_seconds,
-    )?;
-    let default_deadline = duration("Grpc.DefaultDeadlineSeconds", grpc.default_deadline_seconds)?;
-
-    let tls = options
-        .transport
-        .tls
-        .load()
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Tls")))?;
-    let tcp = options
-        .transport
-        .tcp_keepalive
-        .to_config()
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.TcpKeepalive")))?;
-    let http2 = options
-        .http2
-        .to_config()
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Http2")))?;
-    let proxy = options
-        .transport
-        .proxy
-        .as_ref()
-        .map_or_else(
-            || ProxyOptions::default().to_config(),
-            ProxyOptions::to_config,
-        )
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Transport.Proxy")))?;
-    let retry = grpc
-        .retry
-        .to_config()
-        .map_err(|refused| ConfigRefusal::Option(refused.under("Grpc.Retry")))?;
-
-    Ok(ChannelSettings {
-        options,
-        connect_timeout,
-        default_deadline,
-        tls,
-        tcp,
-        http2,
-        proxy,
-        retry,
-    })
+    ChannelSettings::settle(options).map_err(ConfigRefusal::Settled)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use armonik_transport::grpc::GrpcChannelConfig;
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
+    use armonik_transport::options::LARGEST_WINDOW;
 
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
         let settings = parse(json).expect("valid");
@@ -912,7 +715,7 @@ mod tests {
             config.transport.endpoint.to_string(),
             "http://127.0.0.1:5000/"
         );
-        assert_eq!(config.max_sends_in_flight, MAX_SENDS_IN_FLIGHT as usize);
+        assert_eq!(config.max_sends_in_flight, 1);
     }
 
     /// The loader logs it, as it logs one from any source; the channel is the one its other options

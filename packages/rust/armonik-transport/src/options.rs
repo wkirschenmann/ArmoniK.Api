@@ -1704,8 +1704,9 @@ pub struct GrpcOptions {
 
     /// The deadline of a call that states none, counted from its start: the call ends
     /// `DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the
-    /// call started as `grpc-timeout`. A call's own deadline takes its place, and a call that
-    /// states none takes this one.
+    /// call started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not
+    /// only the wait for the response's head. A call's own deadline takes its place, and a call
+    /// that states none takes this one.
     ///
     /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
     /// finest duration the engine holds.

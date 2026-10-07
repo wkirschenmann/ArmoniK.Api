@@ -1,7 +1,5 @@
-//! Reading configuration from the environment, and the one deliberately-insecure certificate
-//! verifier that `allow_unsafe_connection` selects.
-
-use snafu::Snafu;
+//! An error's causes as one line, an endpoint as a message may print it, and the one
+//! deliberately-insecure certificate verifier that accepting any server selects.
 
 /// An error and its causes, rendered into one line.
 pub(crate) fn chain(error: &(dyn std::error::Error + 'static), separator: &str) -> String {
@@ -11,26 +9,13 @@ pub(crate) fn chain(error: &(dyn std::error::Error + 'static), separator: &str) 
         .join(separator)
 }
 
-pub(crate) fn read_env(name: &str) -> Result<String, ReadEnvError> {
-    match std::env::var(name) {
-        Ok(value) => Ok(value),
-        Err(std::env::VarError::NotPresent) => Ok(String::new()),
-        Err(std::env::VarError::NotUnicode(value)) => NotUnicodeSnafu {
-            name: name.to_owned(),
-            value,
-        }
-        .fail(),
-    }
-}
-
 /// An endpoint as an error or a span may print it: scheme, host and port, and nothing else.
 ///
 /// A URI can carry `user:password@`, and every message that took `{endpoint}` put it in the
 /// caller's log. `http2::dialable` refuses such an endpoint outright, but a config built by hand is
-/// not checked, and an error is not the place to find that out. Public because
-/// `ClientConfig::endpoint` is a public field, so a config built by hand rather than read from the
-/// environment never met the check that refuses userinfo - and its holder needs this to say where
-/// it is connecting.
+/// not checked, and an error is not the place to find that out. Public because an endpoint a caller
+/// holds never met the check that refuses userinfo, and its holder needs this to say where it is
+/// connecting.
 pub fn safe_endpoint(endpoint: &http::Uri) -> String {
     let scheme = endpoint.scheme_str().unwrap_or("http");
     match (endpoint.host(), endpoint.port_u16()) {
@@ -38,47 +23,6 @@ pub fn safe_endpoint(endpoint: &http::Uri) -> String {
         (Some(host), None) => format!("{scheme}://{host}"),
         (None, _) => format!("{scheme}://<no host>"),
     }
-}
-
-/// Trimmed, case-folded and wide, because the environment is written from more than one language
-/// and each spells a boolean its own way: `True` is C#'s and Python's, `1` what a shell or C++
-/// prints, `on` an INI file's and systemd's, `y` and `t` YAML 1.1's.
-pub(crate) fn read_env_bool(name: &str) -> Result<bool, ReadEnvError> {
-    let value = read_env(name)?;
-    match value.trim().to_ascii_lowercase().as_str() {
-        "" | "0" | "f" | "n" | "no" | "off" | "false" | "disable" | "disallow" | "forbid" => {
-            Ok(false)
-        }
-        "1" | "t" | "y" | "on" | "yes" | "true" | "enable" | "allow" | "authorize" => Ok(true),
-        _ => NotBooleanSnafu {
-            name: name.to_owned(),
-            value,
-        }
-        .fail(),
-    }
-}
-
-#[derive(Debug, Snafu)]
-#[non_exhaustive]
-pub enum ReadEnvError {
-    #[snafu(display(
-        "Environment variable `{name}={value:?}` is not a valid unicode string [{location}]"
-    ))]
-    #[non_exhaustive]
-    NotUnicode {
-        name: String,
-        value: std::ffi::OsString,
-        #[snafu(implicit)]
-        location: snafu::Location,
-    },
-    #[snafu(display("Environment variable `{name}={value}` is not a valid boolean [{location}]"))]
-    #[non_exhaustive]
-    NotBoolean {
-        name: String,
-        value: String,
-        #[snafu(implicit)]
-        location: snafu::Location,
-    },
 }
 
 #[derive(Debug)]
@@ -165,96 +109,5 @@ mod tests {
             safe_endpoint(&http::Uri::try_from("/only/a/path").expect("a uri")),
             "http://<no host>"
         );
-    }
-
-    /// A variable name of its own per test, so that a stray value cannot leak between them even though
-    /// they are serialised.
-    fn with_var<T>(name: &str, value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        match value {
-            Some(value) => std::env::set_var(name, value),
-            None => std::env::remove_var(name),
-        }
-        let outcome = body();
-        std::env::remove_var(name);
-        outcome
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn every_accepted_spelling_is_accepted() {
-        // The vocabulary is wider than `true`/`false` and there is no other record of it: the list is the
-        // specification, so it is written out here rather than sampled.
-        for spelling in [
-            "1",
-            "t",
-            "y",
-            "on",
-            "yes",
-            "true",
-            "enable",
-            "allow",
-            "authorize",
-            // The same value as another language writes it: C# and Python capitalise, a shouting
-            // shell script does not, and a value read out of a file keeps its whitespace.
-            "True",
-            "TRUE",
-            "On",
-            " true ",
-        ] {
-            let read = with_var("ARMONIK_TEST_BOOL", Some(spelling), || {
-                read_env_bool("ARMONIK_TEST_BOOL")
-            });
-            assert!(read.expect(spelling), "`{spelling}` should read as true");
-        }
-
-        for spelling in [
-            "0", "f", "n", "off", "no", "false", "disable", "disallow", "forbid", "False", "OFF",
-            "",
-        ] {
-            let read = with_var("ARMONIK_TEST_BOOL", Some(spelling), || {
-                read_env_bool("ARMONIK_TEST_BOOL")
-            });
-            assert!(!read.expect(spelling), "`{spelling}` should read as false");
-        }
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn an_unset_variable_reads_as_false() {
-        // Absent and empty are the same thing here, which is what lets every boolean option default to
-        // off without the caller having to set it.
-        let read = with_var("ARMONIK_TEST_BOOL", None, || {
-            read_env_bool("ARMONIK_TEST_BOOL")
-        });
-        assert!(!read.expect("an unset variable"));
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn an_unrecognised_value_is_reported_with_its_name_and_value() {
-        // The message has to carry both, or the reader is left guessing which of a dozen `GrpcClient__*`
-        // variables was the problem.
-        let read = with_var("ARMONIK_TEST_BOOL", Some("perhaps"), || {
-            read_env_bool("ARMONIK_TEST_BOOL")
-        });
-
-        let error = read.expect_err("`perhaps` is not a boolean");
-        let rendered = error.to_string();
-        assert!(rendered.contains("ARMONIK_TEST_BOOL"), "{rendered}");
-        assert!(rendered.contains("perhaps"), "{rendered}");
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn reading_a_plain_string_passes_it_through_and_maps_absent_to_empty() {
-        let value = with_var("ARMONIK_TEST_STRING", Some(" spaced "), || {
-            read_env("ARMONIK_TEST_STRING")
-        });
-        assert_eq!(value.expect("set"), " spaced ", "no trimming, no rewriting");
-
-        let absent = with_var("ARMONIK_TEST_STRING", None, || {
-            read_env("ARMONIK_TEST_STRING")
-        });
-        assert_eq!(absent.expect("unset"), "", "absent reads as empty");
     }
 }

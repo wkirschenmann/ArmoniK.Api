@@ -1477,8 +1477,9 @@ public sealed class GrpcOptions
   /// <summary>
   ///   The deadline of a call that states none, counted from its start: the call ends
   ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
-  ///   call started as <c>grpc-timeout</c>. A call's own deadline takes its place, and a call that
-  ///   states none takes this one.
+  ///   call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one included, and not
+  ///   only the wait for the response's head. A call's own deadline takes its place, and a call
+  ///   that states none takes this one.
   /// </summary>
   /// <remarks>
   ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the

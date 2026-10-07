@@ -1,33 +1,35 @@
-//! A `hyper` connector built from a [`ClientConfig`], for HTTP requests other than gRPC to the
-//! server a channel reaches, in cleartext or over TLS as the endpoint's scheme says.
+//! A `hyper` connector built from a channel's transport configuration, for HTTP requests other
+//! than gRPC to the server a channel reaches, in cleartext or over TLS as the endpoint's scheme
+//! says.
 
 use hyper_rustls::{FixedServerNameResolver, HttpsConnector};
 use hyper_util::client::legacy::connect::HttpConnector;
-use snafu::{IntoError, ResultExt, Snafu};
+use snafu::{IntoError, Snafu};
 
-use crate::config::{override_server_name, ConfigError};
+use crate::http2::TransportConfig;
 use crate::tls::{Refused, Trust};
 use crate::utils::safe_endpoint;
-use crate::ClientConfig;
 
 /// Build a hyper connector, TCP then TLS or mTLS as the endpoint's scheme says, from the
-/// configuration a channel uses. Hidden: its return type names this crate's dependencies; `pub`
-/// only so the signature is expressible.
+/// transport configuration a channel uses. Hidden: its return type names this crate's
+/// dependencies; `pub` only so the signature is expressible.
 #[doc(hidden)]
 pub async fn https_connector(
-    config: ClientConfig,
+    transport: TransportConfig,
 ) -> Result<HttpsConnector<HttpConnector>, ConnectionError> {
-    let endpoint = config.endpoint;
+    let endpoint = transport.endpoint;
+    let tls = transport.tls;
 
-    let trust = if config.allow_unsafe_connection {
+    let trust = if tls.accept_any_server {
         Trust::Anything
-    } else if !config.cacert.is_empty() {
-        Trust::Roots(config.cacert)
+    } else if !tls.roots.is_empty() {
+        Trust::Roots(tls.roots)
     } else {
         Trust::System
     };
+    let identity = tls.identity.map(|identity| (identity.chain, identity.key));
     let tls_config =
-        crate::tls::client_config(trust, config.identity).map_err(|refused| match refused {
+        crate::tls::client_config(trust, identity).map_err(|refused| match refused {
             Refused::SystemRoots(source) => IoSnafu {}.into_error(source),
             Refused::Protocols(source) | Refused::Root(source) | Refused::Identity(source) => {
                 TlsSnafu {
@@ -42,33 +44,31 @@ pub async fn https_connector(
         .with_tls_config(tls_config)
         .https_or_http();
 
-    if let Some(hostname) = &config.override_target {
-        let server_name = override_server_name(hostname).context(ConfigSnafu {})?;
+    if let Some(written) = &tls.server_name {
+        let server_name = crate::http2::verified_name(written)
+            .map_err(|refused| ServerNameSnafu.into_error(refused))?;
         https = https.with_server_name_resolver(FixedServerNameResolver::new(server_name));
     };
 
     let mut http = HttpConnector::new();
     http.enforce_http(false); // required for hyper-rustls to switch schemes
-    http.set_nodelay(!config.tcp_nagle_algorithm);
-    http.set_keepalive(config.tcp_keepalive);
-    http.set_keepalive_interval(config.tcp_keepalive_interval);
-    http.set_keepalive_retries(config.tcp_keepalive_retries);
-    if let Some(timeout) = config.connect_timeout {
-        http.set_connect_timeout(Some(timeout));
-    }
+    http.set_nodelay(true);
+    http.set_keepalive(transport.tcp.keepalive);
+    http.set_keepalive_interval(transport.tcp.keepalive_interval);
+    http.set_keepalive_retries(transport.tcp.keepalive_retries);
+    http.set_connect_timeout(Some(transport.connect_timeout));
 
     Ok(https.enable_http1().enable_http2().wrap_connector(http))
 }
 
-/// Everything that can go wrong between a [`ClientConfig`] and a connector.
+/// Everything that can go wrong between a transport configuration and a connector.
 #[derive(Debug, Snafu)]
 #[non_exhaustive]
 pub enum ConnectionError {
-    #[snafu(display("Could not read the client config [{location}]"))]
+    #[snafu(display("The server name to verify against is refused [{location}]"))]
     #[non_exhaustive]
-    Config {
-        #[snafu(source(from(ConfigError, Box::new)))]
-        source: Box<ConfigError>,
+    ServerName {
+        source: crate::http2::TransportError,
         #[snafu(implicit)]
         location: snafu::Location,
     },
@@ -94,34 +94,34 @@ pub enum ConnectionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ClientConfigArgs;
 
-    /// A configuration whose only interesting part is the override target. Unsafe connections so that
-    /// building the connector reads no certificate store.
-    fn config(override_target_name: &str) -> ClientConfig {
-        ClientConfig::from_config_args(ClientConfigArgs {
-            endpoint: String::from("https://10.0.0.1:5003"),
-            override_target_name: String::from(override_target_name),
-            allow_unsafe_connection: true,
-            ..Default::default()
-        })
-        .expect("the override target should be a valid authority")
+    /// A configuration whose only interesting part is the server name. Any server accepted, so
+    /// that building the connector reads no certificate store.
+    fn transport(server_name: &str) -> TransportConfig {
+        let mut transport =
+            TransportConfig::new("https://10.0.0.1:5003".parse().expect("an endpoint"));
+        transport.tls.accept_any_server = true;
+        transport.tls.server_name = Some(server_name.to_owned());
+        transport
     }
 
     #[tokio::test]
-    async fn a_bracketed_ipv6_override_builds_a_connector() {
+    async fn a_bracketed_ipv6_server_name_builds_a_connector() {
         // The whole path, since the name is only pinned onto the connector at the end of it.
-        https_connector(config("[::1]"))
+        https_connector(transport("[::1]"))
             .await
-            .expect("a bracketed IPv6 override is a valid one");
+            .expect("a bracketed IPv6 name is a valid one");
     }
 
     #[tokio::test]
-    async fn an_override_that_names_nothing_verifiable_fails_rather_than_panics() {
-        let error = https_connector(config("-nope-"))
+    async fn a_server_name_that_names_nothing_verifiable_fails_rather_than_panics() {
+        let error = https_connector(transport("-nope-"))
             .await
             .expect_err("the connector cannot be built without a name to verify against");
 
-        assert!(matches!(error, ConnectionError::Config { .. }), "{error:?}");
+        assert!(
+            matches!(error, ConnectionError::ServerName { .. }),
+            "{error:?}"
+        );
     }
 }

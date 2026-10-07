@@ -32,7 +32,6 @@ eyre = "0.6"
 futures = "0.3"
 http = "1"
 http-body-util = "0.1"
-humantime = "2.3.0"
 # The version hyper resolves to. Direct, because a stream reset carries its reason in an
 # `h2::Error` that hyper passes through as its own error's source and does not re-export: reading
 # it means naming the type, and naming it means the same crate instance hyper linked. Cargo

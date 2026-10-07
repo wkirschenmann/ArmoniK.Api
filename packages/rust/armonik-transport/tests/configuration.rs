@@ -95,7 +95,7 @@ fn every_fixture_loads_the_options_or_the_refusal_it_states() {
                 Err(refused),
             ) => {
                 let said = refused.to_string();
-                match refused.source() {
+                match refused.source_name() {
                     SourceName::File(path) => assert!(path.ends_with(source), "{name}: {said}"),
                     named => assert_eq!(&named.to_string(), source, "{name}: {said}"),
                 }

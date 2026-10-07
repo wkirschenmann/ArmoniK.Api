@@ -80,11 +80,6 @@
                       Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Client.RustGrpcChannel.TestServer/bin/$(Configuration)/net8.0/ArmoniK.Api.Client.RustGrpcChannel.TestServer.dll" />
     <AssemblyMetadata Include="MockServerAssembly"
                       Value="$(MSBuildThisFileDirectory)../ArmoniK.Api.Mock/bin/$(Configuration)/net8.0/ArmoniK.Api.Mock.dll" />
-    <!-- The Rust client's environment reader, whose `GrpcClient__` names the vocabulary gate
-         compares against this repository's own options. Its source, because the names are what
-         its calls spell and a list mirrored here would be the drift the gate exists to catch. -->
-    <AssemblyMetadata Include="RustClientConfig"
-                      Value="$(MSBuildThisFileDirectory)../../rust/armonik-transport/src/config.rs" />
   </ItemGroup>
 
   <!-- An architecture switch in one tree does not rebuild on its own: MSBuild's up-to-date check

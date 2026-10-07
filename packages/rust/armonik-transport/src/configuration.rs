@@ -358,7 +358,7 @@ impl ConfigRefusal {
     }
 
     /// The source that refused.
-    pub fn source(&self) -> &SourceName {
+    pub fn source_name(&self) -> &SourceName {
         &self.source
     }
 

@@ -2,7 +2,6 @@
 //!
 //! The dial and the connection are hyper's, and the TLS is rustls under hyper-rustls; what this
 //! module adds is the endpoint check and the connector shape the gRPC layer drives.
-//! [`crate::ClientConfig`] configures the other path and never reaches this one.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -29,8 +28,8 @@ use crate::utils::{chain, safe_endpoint};
 
 /// What this connector needs in order to dial: where, how long to wait, and how to secure it.
 ///
-/// [`crate::ClientConfig::channel_config`] builds one, inside a channel's configuration, from the
-/// `GrpcClient__*` options.
+/// [`crate::settings::ChannelSettings`] builds one, inside a channel's configuration, from a
+/// channel's options.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct TransportConfig {
