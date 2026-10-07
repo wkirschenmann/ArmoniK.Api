@@ -159,14 +159,23 @@ impl Stop {
     }
 }
 
-/// Marks the call cut when dropped by a panic's unwinding, which stops the call this side as much
-/// as a cancel does.
-struct CutOnPanic(Arc<AtomicBool>);
+/// Marks the call cut when `run` is left with the peer's response not ended, or by a panic's
+/// unwinding.
+///
+/// A status `run` gives then is not the peer's - a message the decoder refuses, a second one on a
+/// call that answers once, a sink that refuses, a connection lost - and ends the call as a cancel
+/// does. `Answered::ended` is what tells the peer's status from these: tonic's reading of the
+/// response returns an error for the peer's non-OK trailers as well as for a refusal of its own,
+/// but a peer's end has been read off the wire by the time it does.
+struct CutOnExit {
+    cut: Arc<AtomicBool>,
+    answered: Answered,
+}
 
-impl Drop for CutOnPanic {
+impl Drop for CutOnExit {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.0.store(true, Ordering::Release);
+        if std::thread::panicking() || !self.answered.ended() {
+            self.cut.store(true, Ordering::Release);
         }
     }
 }
@@ -360,9 +369,12 @@ async fn run<S: ResponseSink>(
             None | Some(None) => return GrpcStatus::cancelled(),
         },
     };
-    // After the replay, so dropped before it: the call is marked cut before a panic's unwinding
-    // lets go of the request.
-    let _cut_on_panic = CutOnPanic(stop.cut.clone());
+    // After the replay, so dropped before it: the call is marked cut before its end, or a panic's
+    // unwinding, lets go of the request.
+    let _cut_on_exit = CutOnExit {
+        cut: stop.cut.clone(),
+        answered: responding.answered.clone(),
+    };
     let mut bound = policy
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();
@@ -499,8 +511,8 @@ async fn attempt<S: ResponseSink>(
         );
     }
 
-    // Each attempt's own: whether a response came is the last attempt's to say.
-    responding.answered = Answered::default();
+    // Each attempt's own: whether a response came, and ended, is the last attempt's to say.
+    responding.answered.reset();
     let mut client = inner.client(responding.answered.clone(), one_response, body);
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),

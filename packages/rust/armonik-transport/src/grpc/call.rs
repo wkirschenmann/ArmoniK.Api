@@ -35,18 +35,42 @@ pub struct ResponseHead {
     pub origin: HeadOrigin,
 }
 
-/// Marked by the call's service once the peer's HTTP response is in, which is what tells a call no
-/// response reached from one whose response delivered no head.
+/// What the call's service saw of the last attempt's response.
+///
+/// Marked once the peer's HTTP response is in, which is what tells a call no response reached from
+/// one whose response delivered no head; and once the peer has ended it, its trailers or its end of
+/// stream read, which is what tells a status the peer gave from one this side did.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Answered(Arc<AtomicBool>);
+pub(crate) struct Answered(Arc<Seen>);
+
+#[derive(Debug, Default)]
+struct Seen {
+    response: AtomicBool,
+    ended: AtomicBool,
+}
 
 impl Answered {
     pub(crate) fn mark(&self) {
-        self.0.store(true, Ordering::Release);
+        self.0.response.store(true, Ordering::Release);
     }
 
     pub(crate) fn marked(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.0.response.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn mark_ended(&self) {
+        self.0.ended.store(true, Ordering::Release);
+    }
+
+    /// Whether the peer ended its response, whether or not this side has read all of it.
+    pub(crate) fn ended(&self) -> bool {
+        self.0.ended.load(Ordering::Acquire)
+    }
+
+    /// Forgets the attempt before, which an attempt's own response then answers for.
+    pub(crate) fn reset(&self) {
+        self.0.response.store(false, Ordering::Release);
+        self.0.ended.store(false, Ordering::Release);
     }
 }
 
@@ -294,9 +318,9 @@ pub struct CallControl {
     /// call ended - and hyper keeps a reference to the HTTP/2 stream for as long as the body they
     /// feed is unfinished. This is what makes the stream go back.
     body_over: Arc<Mutex<Option<oneshot::Sender<()>>>>,
-    /// Set when the call is stopped this side - a cancel, a refusal, its deadline, its channel
-    /// closing - before anything lets go of the request, which then ends as a reset rather than
-    /// as a whole request.
+    /// Set when the call ends this side - a cancel, a refusal, its deadline, its channel closing, a
+    /// failure of its own before the peer ended its response - before anything lets go of the
+    /// request, which then ends as a reset rather than as a whole request.
     pub(crate) cut: Arc<AtomicBool>,
     /// Why the call stopped when it is this side that refused what it was given, which is the
     /// status it ends with rather than `CANCELLED`.
@@ -312,6 +336,13 @@ impl CallControl {
 
     pub(crate) fn refusal(&self) -> Option<GrpcStatus> {
         self.refused.get().cloned()
+    }
+
+    /// Whether the call ended this side before the peer ended its response, so that its request
+    /// ends as a reset. Compiled with the `test-hooks` feature only.
+    #[cfg(feature = "test-hooks")]
+    pub fn is_cut(&self) -> bool {
+        self.cut.load(Ordering::Acquire)
     }
 
     /// Stops the call. A call that already ended keeps its request's end as it was.
@@ -330,7 +361,7 @@ impl CallControl {
     }
 
     /// Ends the call once it has its status. A request still open ends whole, as it may once the
-    /// peer has answered; a call stopped this side was cut before.
+    /// peer has ended its response; a call that ended this side was cut before.
     pub(crate) fn finish(&self) {
         self.over.send_replace(true);
         if let Some(told) = self

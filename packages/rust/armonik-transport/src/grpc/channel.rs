@@ -787,11 +787,15 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 status
             })?;
             answered.mark();
+            // A response whose head ended it: the Trailers-Only shape, or an HTTP error with no body.
+            if response.body().is_end_stream() {
+                answered.mark_ended();
+            }
             response.headers_mut().remove(GRPC_STATUS_DETAILS);
             refuse_what_is_not_grpc(&response)?;
-            let response = refuse_a_message_behind_a_stated_status(response).await?;
+            let response = refuse_a_message_behind_a_stated_status(response, &answered).await?;
 
-            Ok(response.map(|body| ResponseBody::new(body, lease, one_response)))
+            Ok(response.map(|body| ResponseBody::new(body, lease, one_response, answered)))
         })
     }
 }
@@ -931,16 +935,21 @@ pub(crate) struct ResponseBody {
     one_response: bool,
     /// The refusal of a second message, owed once the first's last bytes have gone up.
     refused: Option<tonic::Status>,
+    /// Told when the peer's trailers, or its end of stream, come off the wire: tonic ends a call on
+    /// those with the peer's status, which no failure of this side's reading of the messages
+    /// before them does.
+    answered: Answered,
     _lease: Lease,
 }
 
 impl ResponseBody {
-    fn new(inner: Incoming, lease: Lease, one_response: bool) -> Self {
+    fn new(inner: Incoming, lease: Lease, one_response: bool, answered: Answered) -> Self {
         Self {
             inner,
             framing: Framing::default(),
             one_response,
             refused: None,
+            answered,
             _lease: lease,
         }
     }
@@ -1018,13 +1027,19 @@ impl Body for ResponseBody {
             return Poll::Ready(Some(Err(refused)));
         }
         let frame = match ready!(Pin::new(&mut this.inner).poll_frame(cx)) {
-            None => return Poll::Ready(None),
+            None => {
+                this.answered.mark_ended();
+                return Poll::Ready(None);
+            }
             Some(Err(error)) => return Poll::Ready(Some(Err(broke(error)))),
             Some(Ok(frame)) => frame,
         };
 
         let mut trailers = match frame.into_trailers() {
-            Ok(trailers) => trailers,
+            Ok(trailers) => {
+                this.answered.mark_ended();
+                trailers
+            }
             Err(frame) if !this.one_response => {
                 if let Some(data) = frame.data_ref() {
                     this.framing.follow(data);
@@ -1104,6 +1119,7 @@ fn refuse_what_is_not_grpc(response: &http::Response<Incoming>) -> Result<(), to
 /// UNKNOWN, because the call's status has not been said where the protocol puts it.
 async fn refuse_a_message_behind_a_stated_status(
     mut response: http::Response<Incoming>,
+    answered: &Answered,
 ) -> Result<http::Response<Incoming>, tonic::Status> {
     if !response.headers().contains_key("grpc-status") {
         return Ok(response);
@@ -1116,6 +1132,7 @@ async fn refuse_a_message_behind_a_stated_status(
             ));
         }
     }
+    answered.mark_ended();
     Ok(response)
 }
 
