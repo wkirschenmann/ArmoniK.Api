@@ -230,9 +230,10 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   internal NativeCall<TResponse> StartCall<TResponse>(string                method,
                                                       Metadata?             metadata,
                                                       Marshaller<TResponse> marshaller,
-                                                      DateTime?             deadline    = null,
-                                                      bool                  oneRequest  = false,
-                                                      bool                  oneResponse = false)
+                                                      DateTime?             deadline     = null,
+                                                      bool                  oneRequest   = false,
+                                                      bool                  oneResponse  = false,
+                                                      bool                  waitForReady = false)
     where TResponse : class
   {
     if (Volatile.Read(ref disposing_) != 0)
@@ -248,7 +249,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                            marshaller,
                                            deadline,
                                            oneRequest,
-                                           oneResponse);
+                                           oneResponse,
+                                           waitForReady);
     // The settlement and not the response: a server stream has no single response, and what the
     // drain has to wait for is the terminal consumed with nothing owed either way.
     Track(call,

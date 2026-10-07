@@ -106,7 +106,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                               Marshaller<TResponse> marshaller,
                                               DateTime? deadline,
                                               bool oneRequest,
-                                              bool oneResponse)
+                                              bool oneResponse,
+                                              bool waitForReady)
   {
     // Encoded before the call exists: the encoding refuses a reserved key by throwing, and a call
     // built first would already hold the handle that roots it, with no terminal to free it.
@@ -122,6 +123,11 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     if (oneResponse)
     {
       flags |= NativeMethods.AK_CALL_ONE_RESPONSE;
+    }
+
+    if (waitForReady)
+    {
+      flags |= NativeMethods.AK_CALL_WAIT_FOR_READY;
     }
 
     var call = new NativeCall<TResponse>(deliveryCredits,

@@ -225,7 +225,8 @@ internal sealed class NativeCallInvoker : CallInvoker
                                   method.ResponseMarshaller,
                                   options.Deadline,
                                   method.Type is MethodType.Unary or MethodType.ServerStreaming,
-                                  method.Type is MethodType.Unary or MethodType.ClientStreaming);
+                                  method.Type is MethodType.Unary or MethodType.ClientStreaming,
+                                  options.IsWaitForReady);
     call.CancelWith(options.CancellationToken);
     return call;
   }

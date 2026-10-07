@@ -42,7 +42,16 @@ public static class Program
   public static async Task Main(string[] args)
   {
     var tls = args.Contains("--tls");
-    var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--tls")
+
+    // `--port N` listens there rather than at a port the system picks, for a test that starts the
+    // server after it dialled.
+    var portAt = Array.IndexOf(args,
+                               "--port");
+    var port = portAt < 0
+                 ? 0
+                 : int.Parse(args[portAt + 1]);
+    var builder = WebApplication.CreateBuilder(args.Where((arg,
+                                                           at) => arg != "--tls" && (portAt < 0 || (at != portAt && at != portAt + 1)))
                                                    .ToArray());
 
     var (certificate, authority) = tls
@@ -52,7 +61,8 @@ public static class Program
     {
       await Serve(builder,
                   certificate,
-                  tls)
+                  tls,
+                  port)
         .ConfigureAwait(false);
     }
     finally
@@ -67,7 +77,8 @@ public static class Program
 
   private static async Task Serve(WebApplicationBuilder builder,
                                   X509Certificate2?     certificate,
-                                  bool                  tls)
+                                  bool                  tls,
+                                  int                   port)
   {
     builder.WebHost.ConfigureKestrel(options =>
                                      {
@@ -75,7 +86,7 @@ public static class Program
                                        // only, and the benchmarks send a unary message of 150 MiB.
                                        options.Limits.MaxRequestBodySize = null;
                                        options.Listen(IPAddress.Loopback,
-                                                      0,
+                                                      port,
                                                       listen =>
                                                       {
                                                         listen.Protocols = HttpProtocols.Http2;

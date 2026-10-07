@@ -37,13 +37,17 @@ internal sealed class EchoServerProcess : IDisposable
 
   internal string Endpoint { get; }
 
-  internal static EchoServerProcess Start()
+  /// <summary>Starts the server, listening at <paramref name="port" /> or at one the system
+  /// picks when it is zero.</summary>
+  internal static EchoServerProcess Start(int port = 0)
   {
     var assembly = BuiltServer.Assembly("TestServerAssembly");
     var process = new Process
                   {
                     StartInfo = new ProcessStartInfo("dotnet",
-                                                     $"\"{assembly}\"")
+                                                     port == 0
+                                                       ? $"\"{assembly}\""
+                                                       : $"\"{assembly}\" --port {port}")
                                 {
                                   RedirectStandardOutput = true,
                                   RedirectStandardError  = true,
