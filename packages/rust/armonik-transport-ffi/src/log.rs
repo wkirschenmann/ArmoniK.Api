@@ -32,8 +32,8 @@ use crate::abi::{
     AK_LOG_INFO, AK_LOG_TRACE, AK_LOG_WARN,
 };
 
-/// What `Logging.Filter` is layered over: warnings from every target, and the engine's own - the
-/// targets that start with `armonik_transport` - at info.
+/// What `Logging.Filter` is when it states nothing: warnings from every target, and the engine's
+/// own - the targets that start with `armonik_transport` - at info.
 pub(crate) const DEFAULT_FILTER: &str = "*=warn,armonik_transport*=info";
 
 /// One directive of a filter: the events it covers, and the level it lets through.
@@ -82,9 +82,9 @@ impl Filter {
         }
     }
 
-    /// The filter `text` states, over the default's: directive by directive, so that one stated
-    /// with the same text as the default's, both with a star or both without, replaces it, and the
-    /// rest of the default stands.
+    /// The filter `text` states, which replaces the default whole: a target none of its directives
+    /// covers is off, unless it states a level for every target - a bare level, or `*=level`. A
+    /// filter that states no directive that holds, an empty one included, is the default.
     ///
     /// The directives are `tracing`'s, as `EnvFilter` reads them but for what an event has no use
     /// for and for how a target matches: a level (`info`), a target and its level (`h2=debug`), or
@@ -95,24 +95,26 @@ impl Filter {
     /// directive whose level is not one, or that names a span or a field, is ignored and returned
     /// with the filter.
     pub(crate) fn parse(text: &str) -> (Self, Vec<String>) {
-        let (default, mut directives, _) = Self::read(DEFAULT_FILTER);
         let (stated_default, stated, ignored) = Self::read(text);
-        for directive in stated {
-            directives
-                .retain(|held| held.target != directive.target || held.prefix != directive.prefix);
-            directives.push(directive);
-        }
+        let (default, mut directives) = if stated_default.is_none() && stated.is_empty() {
+            let (level, directives, _) = Self::read(DEFAULT_FILTER);
+            (level.unwrap_or(LevelFilter::OFF), directives)
+        } else {
+            (stated_default.unwrap_or(LevelFilter::OFF), stated)
+        };
         directives.sort_by(|a, b| {
             b.target
                 .len()
                 .cmp(&a.target.len())
                 .then(a.prefix.cmp(&b.prefix))
         });
-        let filter = Self {
-            directives,
-            default: stated_default.or(default).unwrap_or(LevelFilter::OFF),
-        };
-        (filter, ignored)
+        (
+            Self {
+                directives,
+                default,
+            },
+            ignored,
+        )
     }
 
     /// The directives of `text`: the level for every target, the others, and what is ignored.
@@ -724,26 +726,21 @@ mod tests {
     }
 
     #[test]
-    fn a_directive_stated_for_a_target_is_layered_over_the_default_and_the_rest_stands() {
+    fn a_stated_filter_replaces_the_default_and_what_it_does_not_cover_is_off() {
         let (filter, ignored) = Filter::parse("armonik_transport=debug");
         assert!(ignored.is_empty());
         assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
         assert!(!allows(&filter, "armonik_transport::grpc", Level::TRACE));
-        // The default's star for the same text covers what the segment directive does not.
-        assert!(allows(
-            &filter,
-            "armonik_transport_ffi::config",
-            Level::INFO
-        ));
+        // The default's directive for the engine is gone: nothing else is on, the engine's other
+        // target included.
         assert!(!allows(
             &filter,
             "armonik_transport_ffi::config",
-            Level::DEBUG
+            Level::ERROR
         ));
-        assert!(allows(&filter, "h2::proto", Level::WARN));
-        assert!(!allows(&filter, "h2::proto", Level::INFO));
+        assert!(!allows(&filter, "h2::proto", Level::ERROR));
+        assert_eq!(filter.max_level(), LevelFilter::DEBUG);
 
-        // The same target, star included, replaces the default's directive.
         let (filter, _) = Filter::parse("armonik_transport*=debug");
         assert!(allows(
             &filter,
@@ -751,27 +748,34 @@ mod tests {
             Level::DEBUG
         ));
         assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
-        assert!(!allows(&filter, "h2::proto", Level::INFO));
+        assert!(!allows(&filter, "h2::proto", Level::ERROR));
     }
 
     #[test]
-    fn a_user_turns_the_default_down_or_off_by_stating_its_directives() {
-        // The star's level and the engine's are two directives of the default, and each is
-        // replaced by stating its own.
-        let (filter, _) = Filter::parse("*=error,armonik_transport*=error");
-        assert!(allows(&filter, "armonik_transport::grpc", Level::ERROR));
-        assert!(!allows(&filter, "armonik_transport::grpc", Level::WARN));
-        assert!(!allows(&filter, "h2::proto", Level::WARN));
-
-        let (off, _) = Filter::parse("*=off,armonik_transport*=off");
+    fn a_level_for_every_target_is_what_a_filter_says_of_the_rest() {
+        let (off, ignored) = Filter::parse("*=off");
+        assert!(ignored.is_empty());
         assert!(!allows(&off, "armonik_transport::grpc", Level::ERROR));
         assert!(!allows(&off, "h2::proto", Level::ERROR));
         assert_eq!(off.max_level(), LevelFilter::OFF);
 
-        // Stating the star alone leaves the engine's directive standing.
-        let (star_only, _) = Filter::parse("*=off");
-        assert!(allows(&star_only, "armonik_transport::grpc", Level::INFO));
-        assert!(!allows(&star_only, "h2::proto", Level::ERROR));
+        let (only, _) = Filter::parse("*=off,armonik_transport=debug");
+        assert!(allows(&only, "armonik_transport::grpc", Level::DEBUG));
+        assert!(!allows(
+            &only,
+            "armonik_transport_ffi::config",
+            Level::ERROR
+        ));
+        assert!(!allows(&only, "h2::proto", Level::ERROR));
+
+        let (errors, _) = Filter::parse("*=error");
+        assert!(allows(&errors, "armonik_transport::grpc", Level::ERROR));
+        assert!(!allows(&errors, "armonik_transport::grpc", Level::WARN));
+        assert!(!allows(&errors, "h2::proto", Level::WARN));
+
+        // The default is a filter like any other, and what no filter states.
+        let (default, _) = Filter::parse(DEFAULT_FILTER);
+        assert_eq!(default, Filter::parse("").0);
     }
 
     #[test]
@@ -781,7 +785,7 @@ mod tests {
         assert!(allows(&filter, "h2::proto::connection", Level::DEBUG));
         assert!(!allows(&filter, "h2x", Level::DEBUG));
         assert!(!allows(&filter, "h2x::proto", Level::DEBUG));
-        assert!(allows(&filter, "h2x", Level::WARN));
+        assert!(!allows(&filter, "h2x", Level::ERROR), "off, not covered");
     }
 
     #[test]
@@ -806,8 +810,7 @@ mod tests {
         assert!(!allows(&filter, "anything::at_all", Level::TRACE));
         assert!(allows(&filter, "h2::proto", Level::ERROR));
         assert!(!allows(&filter, "h2::proto", Level::WARN));
-        // The default's directive for the engine is more specific, and stands.
-        assert!(!allows(&filter, "armonik_transport::grpc", Level::DEBUG));
+        assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
 
         let (everything, _) = Filter::parse("*");
         assert!(allows(&everything, "any", Level::TRACE));
@@ -856,24 +859,22 @@ mod tests {
     }
 
     #[test]
-    fn a_target_alone_is_all_its_levels_and_the_default_stands_for_the_rest() {
+    fn a_target_alone_is_all_its_levels_and_the_rest_is_off() {
         let (filter, _) = Filter::parse("h2");
         assert!(allows(&filter, "h2", Level::TRACE));
-        assert!(allows(&filter, "armonik_transport", Level::INFO));
-        assert!(!allows(&filter, "armonik_transport", Level::DEBUG));
+        assert!(!allows(&filter, "armonik_transport", Level::ERROR));
     }
 
     #[test]
-    fn a_stray_word_switches_nothing_off() {
-        // A word that is not a level is a target: one nothing emits, which selects nothing.
+    fn a_stray_word_is_a_target_nothing_emits_so_it_shows_nothing() {
         for word in ["Information", "Warning", "inf", "Information,Warning"] {
             let (filter, ignored) = Filter::parse(word);
             assert!(ignored.is_empty(), "{word}");
             assert!(
-                allows(&filter, "armonik_transport::grpc", Level::INFO),
+                !allows(&filter, "armonik_transport::grpc", Level::ERROR),
                 "{word}"
             );
-            assert!(allows(&filter, "h2::proto", Level::WARN), "{word}");
+            assert!(!allows(&filter, "h2::proto", Level::ERROR), "{word}");
         }
     }
 

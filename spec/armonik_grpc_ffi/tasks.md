@@ -1692,9 +1692,9 @@ through a bounded queue.
 configuration in its own logs, filtered as it chose; the keys T6.14 logs as unknown among them.
 
 **Status**: done. Delivered in `observability.md`'s terms, with a filter that matches by path
-segment and a `*` for a text prefix, a default of `*=warn,armonik_transport*=info` that the user's
-filter is layered over directive by directive, and no field for the filter in `ak_runtime_config`:
-it is `Logging.Filter` of the loader's options.
+segment and a `*` for a text prefix, a default of `*=warn,armonik_transport*=info` that a filter the
+user gives replaces whole, a target it does not cover being off, and no field for the filter in
+`ak_runtime_config`: it is `Logging.Filter` of the loader's options.
 The costs measured are in `observability.md`: 0.2 to 0.3 ns for an event the filter rejects, 74
 to 138 ns for one delivered.
 

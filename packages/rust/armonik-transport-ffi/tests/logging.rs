@@ -196,75 +196,63 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     drop(host);
 }
 
-/// A filter that states one directive keeps the default's for the rest, and a word that is no level
-/// is a target nothing emits, so it switches nothing off.
+/// A filter the user gives replaces the default whole, and a target none of its directives covers
+/// is off: a word that is no level is a target nothing emits, so it shows nothing, and
+/// `armonik_transport=debug` alone shows that target alone.
 #[test]
-fn a_stated_filter_is_layered_over_the_default_and_a_stray_word_switches_nothing_off() {
+fn a_stated_filter_replaces_the_default_and_what_it_does_not_cover_is_off() {
     let _turn = turn();
     let host = create(&with_filter("Information")).expect("a runtime");
-    let records = logged();
-    assert!(
-        records
-            .iter()
-            .any(|record| record.message.contains("runtime's effective")),
-        "a stray word switched the engine's events off: {records:#?}"
-    );
-    tracing::warn!(target: "h2::test", "a library at warn");
-    tracing::info!(target: "h2::test", "a library at info");
+    tracing::error!(target: "h2::test", "a library at error");
+    tracing::error!(target: "armonik_transport::test", "the engine at error");
     drop(host);
-    let messages: Vec<_> = logged()
-        .into_iter()
-        .filter(|record| record.target == "h2::test")
-        .map(|record| record.message)
-        .collect();
-    assert_eq!(messages, ["a library at warn"]);
+    assert!(logged().is_empty(), "{:#?}", logged());
 
     let host = create(&with_filter("armonik_transport=debug")).expect("a runtime");
     tracing::debug!(target: "armonik_transport::test", "the named target");
-    tracing::debug!(target: "armonik_transport_ffi::test", "the same text, not its module");
+    tracing::error!(target: "armonik_transport_ffi::test", "the same text, not its module");
+    tracing::error!(target: "h2::test", "a library at error");
+    drop(host);
+    let messages: Vec<_> = logged().into_iter().map(|record| record.message).collect();
+    assert_eq!(messages, ["the named target"]);
+}
+
+/// With no filter the default applies: warnings from every target, the engine's own at info.
+#[test]
+fn with_no_filter_the_default_applies() {
+    let _turn = turn();
+    let host = create("{}").expect("a runtime");
+    tracing::info!(target: "armonik_transport_ffi::test", "the engine at info");
+    tracing::debug!(target: "armonik_transport_ffi::test", "the engine at debug");
+    tracing::warn!(target: "h2::test", "a library at warn");
     tracing::info!(target: "h2::test", "a library at info");
-    tracing::warn!(target: "other::test", "another target at warn");
     drop(host);
     let messages: Vec<_> = logged()
         .into_iter()
         .filter(|record| record.target.ends_with("::test"))
         .map(|record| record.message)
         .collect();
-    assert_eq!(
-        messages,
-        [
-            "a library at warn",
-            "the named target",
-            "another target at warn"
-        ]
-    );
+    assert_eq!(messages, ["the engine at info", "a library at warn"]);
 }
 
-/// `*=off` replaces the default's star and leaves the engine's own directive, which is stated
-/// separately; both turn everything off.
+/// A filter that states a level for every target says what the rest is: `*=off` alone is no logs at
+/// all, and `*=off` with a target is that target alone.
 #[test]
-fn stating_the_default_directives_turns_the_logs_down_or_off() {
+fn a_star_in_the_filter_says_what_it_does_not_cover() {
     let _turn = turn();
     let host = create(&with_filter("*=off")).expect("a runtime");
-    tracing::warn!(target: "h2::test", "silenced");
-    drop(host);
-    let records = logged();
-    assert!(
-        records.iter().all(|record| record.message != "silenced"),
-        "{records:#?}"
-    );
-    assert!(
-        records
-            .iter()
-            .any(|record| record.message.contains("runtime's effective")),
-        "the engine's directive stands: {records:#?}"
-    );
-
-    LOGS.lock().unwrap_or_else(|held| held.into_inner()).clear();
-    let host = create(&with_filter("*=off,armonik_transport*=off")).expect("a runtime");
+    tracing::error!(target: "h2::test", "silenced");
     tracing::error!(target: "armonik_transport::test", "silenced too");
     drop(host);
     assert!(logged().is_empty(), "{:#?}", logged());
+
+    let host = create(&with_filter("*=off,armonik_transport=debug")).expect("a runtime");
+    tracing::debug!(target: "armonik_transport::test", "the named target");
+    tracing::error!(target: "armonik_transport_ffi::test", "not named");
+    tracing::error!(target: "h2::test", "another library");
+    drop(host);
+    let messages: Vec<_> = logged().into_iter().map(|record| record.message).collect();
+    assert_eq!(messages, ["the named target"]);
 }
 
 #[test]
@@ -395,7 +383,7 @@ fn the_filter_option_selects_what_the_engine_logs_and_the_default_keeps_debug_ou
 }
 
 #[test]
-fn a_filter_that_is_not_understood_is_logged_as_ignored_and_the_default_applies() {
+fn a_directive_that_is_not_understood_is_logged_as_ignored_and_the_rest_is_held() {
     let _turn = turn();
     let host = create(&with_filter("h2=loud,armonik_transport_ffi=warn")).expect("a runtime");
     let records = logged();
@@ -406,12 +394,14 @@ fn a_filter_that_is_not_understood_is_logged_as_ignored_and_the_default_applies(
                 && record.field("directive") == Some("h2=loud")),
         "{records:#?}"
     );
-    // The directive that holds is in force: the runtime's effective configuration, at info, is not.
-    // It is layered over the default, which stands for every other target.
+    // The directive that holds replaces the default: the engine's info events are off.
+    tracing::info!(target: "armonik_transport::test", "the engine at info");
+    let records = logged();
     assert!(
         records
             .iter()
-            .all(|record| !record.message.contains("runtime's effective")),
+            .all(|record| !record.message.contains("runtime's effective")
+                && record.message != "the engine at info"),
         "{records:#?}"
     );
     drop(host);

@@ -75,27 +75,23 @@ silent.
   event the most specific decides: the longest target, and at the same length a segment directive
   before a `*` one, whatever order they are written in. `tracing-subscriber`'s `Targets` and
   `EnvFilter` match by text prefix, so the engine has its own matcher.
-- **The default filter is `*=warn,armonik_transport*=info`, and the user's `Logging.Filter` is
-  layered over it, directive by directive.** Every target logs warnings, and the engine's own -
-  the targets that start with `armonik_transport`, the transport and the FFI - log at info; h2,
-  hyper, tonic, tower and the rest fall under the star with no directive of their own, so a
-  dependency added later is quiet by default without listing it. A directive the user states with
-  the same text as one of the default's, both starred or both not, replaces it; every other
-  directive of the default stands. So `armonik_transport*=debug` raises the engine and leaves the
-  rest at warning, `h2=debug` raises h2 alone, `*=debug` raises every target the default does not
-  name - the engine stays at info, being named - and a stray word, such as `Information` or a
-  misspelt `inf`, is a target nothing emits and changes nothing. `armonik_transport=debug`, by
-  segment, raises `armonik_transport` and its modules and leaves `armonik_transport_ffi` at info,
-  since the default's star covers it and the segment directive does not.
-- **How a user turns the logs down or off.** By stating the default's two directives, which
-  replaces them: `*=error,armonik_transport*=error` for errors only, `*=off,armonik_transport*=off`
-  for nothing. `*=off` alone silences everything but the engine, which its own directive keeps at
-  info; a host that wants no log at all gives no callback, which costs a comparison per event.
+- **The default filter is `*=warn,armonik_transport*=info`; a filter the user gives replaces it
+  whole.** With no filter, every target logs warnings and the engine's own - the targets that start
+  with `armonik_transport`, the transport and the FFI - log at info; h2, hyper, tonic, tower and
+  the rest fall under the star with no directive of their own, so a dependency added later is quiet
+  without listing it. A filter replaces it whole, and a target none of its directives covers is
+  off: `armonik_transport=debug` alone shows `armonik_transport` and its modules and nothing else
+  - `armonik_transport_ffi` is a different target - and `armonik_transport*=debug` shows both of
+  the engine's targets. A level for every target, as `*=warn` states it, is the one directive that
+  covers the rest: `*=off` alone shows nothing, `*=off,h2=debug` is h2 alone, `*=error` is errors
+  only, and `*=warn,armonik_transport*=info` is the default. A stray word such as
+  `Information` or a misspelt `inf` is a target nothing emits, so a filter of such words shows
+  nothing. A host that wants no log at all gives no callback, which costs a comparison per event.
 - **No strict validation.** A directive that names a target nothing emits is no error: the
   filter says what one wants. One whose level is not a level, or that names a span or a field
   (`h2[conn]=debug`, which an event filter has no use for), is ignored and logged at warn, whatever
-  the filter selects; the default stands for what it does not replace, so a filter made only of
-  such directives, or an empty one, is the default.
+  the filter selects; a filter with no directive that holds, an empty one included, is the
+  default.
 - **One process-wide dispatcher.** The host is not Rust, so `tracing` has no subscriber but the
   engine's: the library installs it as the process's default dispatcher the first time a runtime is
   created, and it sends each event to the callback of the runtime there is, or drops it when there

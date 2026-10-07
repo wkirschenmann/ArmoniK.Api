@@ -185,23 +185,22 @@ public sealed class LoggingOptions
   }
 
   /// <summary>
-  ///   Which events are reported, as directives laid over the default's: comma-separated, each a
-  ///   level for every target (<c>warn</c>, or <c>*=warn</c>), a target and its level (<c>h2=debug</c>), or a
-  ///   target alone, which is all its levels. A target covers itself and the modules below it -
-  ///   <c>h2</c> covers <c>h2::proto</c>, not <c>h2x</c> - and <c>target*</c> covers every target that starts with the
-  ///   text: <c>hyper*</c> covers <c>hyper</c> and <c>hyper_util</c>. The most specific directive that covers an
-  ///   event decides: the longest target, and at the same length the one without <c>*</c>. A directive
-  ///   stated with the same text as one of the default's, both with a <c>*</c> or both without,
-  ///   replaces it; every other directive of the default stands, so <c>armonik_transport*=debug</c>
-  ///   raises the engine and leaves the rest at warning, where <c>armonik_transport=debug</c> leaves
-  ///   the default's <c>armonik_transport*=info</c> standing for what it does not cover. To turn the logs down or off state the default's two
-  ///   directives: <c>*=off,armonik_transport*=off</c>. A word that is no level is a target nothing
-  ///   emits. A directive that is not understood is ignored with a warning. Read when the runtime
-  ///   is created.
+  ///   Which events are reported: comma-separated directives, each a level for every target
+  ///   (<c>warn</c>, or <c>*=warn</c>), a target and its level (<c>h2=debug</c>), or a target alone, which is all
+  ///   its levels. A target covers itself and the modules below it - <c>h2</c> covers <c>h2::proto</c>, not
+  ///   <c>h2x</c> - and <c>target*</c> covers every target that starts with the text: <c>hyper*</c> covers
+  ///   <c>hyper</c> and <c>hyper_util</c>. The most specific directive that covers an event decides: the
+  ///   longest target, and at the same length the one without <c>*</c>. A filter replaces the default
+  ///   whole, and a target none of its directives covers is off: <c>armonik_transport=debug</c> alone
+  ///   reports that target and nothing else, <c>*=off</c> alone reports nothing, and a word that is no
+  ///   level is a target nothing emits. A level for every target, as <c>*=warn</c> states it, covers
+  ///   the rest. A directive that is not understood is ignored with a warning, and a filter with
+  ///   none that is understood, an empty one included, is the default. Read when the runtime is
+  ///   created.
   /// </summary>
   /// <remarks>
   ///   Defaults to <c>*=warn,armonik_transport*=info</c>: warnings from every target, and the engine's
-  ///   own events at information.
+  ///   own events - the targets that start with <c>armonik_transport</c> - at information.
   /// </remarks>
   [JsonPropertyName("Filter")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
