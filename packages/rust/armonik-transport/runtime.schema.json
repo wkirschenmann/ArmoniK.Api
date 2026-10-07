@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every\nchannel takes where its own state none.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceilings, the options every\nchannel takes where its own state none, and what the engine logs.",
   "type": "object",
   "properties": {
     "Endpoint": {
@@ -24,6 +24,10 @@
     "ChannelDefaults": {
       "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - merges its fields\nover the same alternative and is taken whole over another.\n\nDefaults to none.",
       "$ref": "#/$defs/ChannelOptions"
+    },
+    "Logging": {
+      "description": "What the engine reports of itself to the host.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+      "$ref": "#/$defs/LoggingOptions"
     }
   },
   "additionalProperties": false,
@@ -707,6 +711,17 @@
           "type": "integer",
           "format": "int32",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "LoggingOptions": {
+      "description": "Which of the engine's log events a host receives.\n\nIgnored by a Rust host.",
+      "type": "object",
+      "properties": {
+        "Filter": {
+          "description": "Which events are reported: comma-separated directives, each a level (`info`), a target and\nits level (`h2=debug`), or a target alone, which is all its levels. A target covers itself\nand the modules below it - `h2` covers `h2::proto`, not `h2x` - and `target*` covers every\ntarget that starts with the text: `hyper*` covers `hyper` and `hyper_util`. The most\nspecific directive that covers an event decides: the longest target, and at the same length\nthe one without `*`. An event no directive covers is reported only if a directive gives a\nlevel for all targets, so `h2=debug` alone silences the engine's own events. A directive\nthat is not understood is ignored with a warning, and a filter with none that is\nunderstood, an empty one included, is the default. Read when the runtime is created.\n\nDefaults to `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`.",
+          "type": "string"
         }
       },
       "additionalProperties": false

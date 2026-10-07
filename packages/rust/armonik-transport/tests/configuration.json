@@ -14,7 +14,7 @@
   {
     "name": "a later source wins over an earlier one, option by option",
     "files": {
-      "base.json": "{\"GrpcClient\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}},\"Logging\":{\"Level\":\"Debug\"}}"
+      "base.json": "{\"GrpcClient\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}},\"Serilog\":{\"Level\":\"Debug\"}}"
     },
     "sources": [
       { "file": "base.json" },
@@ -52,13 +52,13 @@
     "name": "with no prefix a file's document is the whole file, its host's sections logged",
     "prefix": "",
     "files": {
-      "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Logging\":{\"Level\":\"Debug\"}}"
+      "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Serilog\":{\"Level\":\"Debug\"}}"
     },
     "sources": [
       { "file": "whole.json" }
     ],
     "options": { "Endpoint": "http://whole.test:3" },
-    "unknown": ["Logging"]
+    "unknown": ["Serilog"]
   },
   {
     "name": "a file with no section of the prefix contributes nothing",
