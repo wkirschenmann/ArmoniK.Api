@@ -30,15 +30,42 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 /// for at the announced length and the written count be checked against it. The buffer is the
 /// state: holding none is a message not begun or already sent, and both refuse a write through a
 /// capacity of zero.
+///
+/// A message that turns out longer than it announced is not refused: the buffer is exchanged for a
+/// larger one, with what was written carried over. Memory the serializer holds then is a disposed
+/// view; a span is a pointer into an arena the engine may lend again, which the IBufferWriter
+/// contract allows: nothing obtained before a request for more room is written through after it.
+/// A request for room the ceiling has none of yet is answered by an exception that leaves the
+/// serializer, so a serializer lets what `GetMemory` throws out.
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {
+  private const int Page = 4096;
+
+  private readonly int atLeast_;
   private readonly ulong call_;
+  private int announced_;
   private ak_buffer buffer_;
   private UnmanagedMemoryManager? block_;
   private int written_;
 
-  internal LentBuffer(ulong call)
-    => call_ = call;
+  /// <param name="call">The call the buffer is lent by.</param>
+  /// <param name="atLeast">The length a lend is made at when the announcement is shorter: the room
+  /// the message is known to need.</param>
+  internal LentBuffer(ulong call,
+                      int   atLeast = 0)
+  {
+    call_    = call;
+    atLeast_ = atLeast;
+  }
+
+  /// <summary>The least length the engine's ceiling had no room for yet, or zero: what the next
+  /// attempt at this message lends at, so that the wait is for the room the message has been found
+  /// to need and not for the room the announcement did.</summary>
+  internal int Needed { get; private set; }
+
+  /// <summary>Whether the ceiling's refusal was of an exchange, which records no wait: the engine
+  /// owes this call no wake-up for it, and the way to wait is to lend at <see cref="Needed" />.</summary>
+  internal bool RefusedExchange { get; private set; }
 
   public void Advance(int count)
   {
@@ -53,12 +80,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
   public Memory<byte> GetMemory(int sizeHint = 0)
   {
-    var wanted = written_ + Math.Max(sizeHint,
-                                     1);
+    var wanted = (long)written_ + Math.Max(sizeHint,
+                                           1);
     if (Capacity < wanted)
     {
-      throw new RpcException(new Status(StatusCode.Internal,
-                                        $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
+      Grow(wanted);
     }
 
     return Block.Memory.Slice(written_);
@@ -88,12 +114,14 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
     // An empty message needs no buffer: the engine sends it with none, and refuses a lend of no
     // bytes.
+    announced_ = payloadLength;
     if (payloadLength == 0)
     {
       return;
     }
 
-    if (Take(payloadLength) == ak_status.AK_STATUS_BUDGET_BUSY)
+    if (Take(Math.Max(payloadLength,
+                      atLeast_)) == ak_status.AK_STATUS_BUDGET_BUSY)
     {
       // Serializing onto the managed heap instead would answer backpressure with the very
       // allocation the ceiling exists to refuse, and `bytes_used` would never see those bytes.
@@ -105,35 +133,46 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     => this;
 
   /// <summary>Ends the serialization, and checks the announced length was written.</summary>
-  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract: the
-  /// buffer is lent at the announced length, and a serializer that then writes another length
-  /// computed its size from one message and wrote another. Refused here, where it can still be
-  /// told apart from a transport failure.</remarks>
+  /// <remarks>This binding turns Grpc.Core's optional length hint into a hard contract: a
+  /// serializer that writes less than it announced computed its size from one message and wrote
+  /// another, and is refused here, where it can still be told apart from a transport failure.
+  /// One that writes more has asked for the room and been given it, so the message is what it
+  /// wrote.</remarks>
   public override void Complete()
   {
-    if (written_ != Capacity)
+    if (written_ < announced_)
     {
       throw new RpcException(new Status(StatusCode.Internal,
-                                        $"the serializer announced {Capacity} bytes and wrote {written_}"));
+                                        $"the serializer announced {announced_} bytes and wrote {written_}"));
     }
   }
 
   /// <summary>Ends the serialization with a payload of its own.</summary>
-  /// <remarks>The array replaces whatever was announced, buffer included. The first is given back
-  /// before the next is asked for, because the engine lends one at a time.</remarks>
+  /// <remarks>The array replaces whatever was announced: the buffer is exchanged for one of its
+  /// length, which the ceiling sees as the difference alone, with no moment at which another call
+  /// can take the room the buffer held.</remarks>
   public override void Complete(byte[] payload)
   {
-    if (Holding)
-    {
-      GiveBack();
-    }
-
     if (payload.Length == 0)
     {
+      if (Holding)
+      {
+        GiveBack();
+      }
+
       return;
     }
 
-    if (Take(payload.Length) == ak_status.AK_STATUS_BUDGET_BUSY)
+    if (Holding)
+    {
+      if (Capacity != payload.Length)
+      {
+        Settle(Resize(payload.Length,
+                      0),
+               payload.Length);
+      }
+    }
+    else if (Take(payload.Length) == ak_status.AK_STATUS_BUDGET_BUSY)
     {
       throw new NoRoomYet();
     }
@@ -208,7 +247,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     switch (status)
     {
       case ak_status.AK_STATUS_OK:
+        return status;
+
       case ak_status.AK_STATUS_BUDGET_BUSY:
+        Needed = length;
         return status;
 
       case ak_status.AK_STATUS_INVALID_STATE:
@@ -228,6 +270,121 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         throw new RpcException(new Status(status == ak_status.AK_STATUS_MESSAGE_TOO_LARGE
                                             ? StatusCode.ResourceExhausted
                                             : StatusCode.Internal,
+                                          $"no buffer to serialize into ({status})"));
+    }
+  }
+
+  /// <summary>Makes room for <paramref name="wanted" /> bytes, with what was written kept.</summary>
+  /// <remarks>Twice the capacity when that is more, so a serializer that asks for a byte at a time
+  /// is not a copy of the message for each. The ceiling's refusal of that, for room or for the
+  /// size itself, is not the answer while less would do: a quarter more than the buffer holds, and
+  /// never less than a page, then halves of the distance down to what was asked. A refusal costs a
+  /// downcall that allocates nothing, and a message sized against a tight ceiling takes the
+  /// largest size that fits, so the attempts grow with the logarithm of the size and not with its
+  /// length.</remarks>
+  private void Grow(long wanted)
+  {
+    if (!Holding)
+    {
+      throw new RpcException(new Status(StatusCode.Internal,
+                                        $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
+    }
+
+    if (wanted > int.MaxValue)
+    {
+      throw new RpcException(new Status(StatusCode.ResourceExhausted,
+                                        $"a message of {wanted} bytes does not fit one buffer"));
+    }
+
+    var length = (int)Math.Min(Math.Max(wanted,
+                                        2L * Capacity),
+                               int.MaxValue);
+    var least = (int)Math.Min(length,
+                              Math.Max(wanted,
+                                       (long)Capacity + Math.Max(Page,
+                                                                 Capacity / 4)));
+
+    // A smaller size is refused for room only when every larger one was, so what is left of the
+    // refusal after the last try is the room what was asked for needs.
+    var status = Resize(length,
+                        written_);
+    while (status != ak_status.AK_STATUS_OK && length > wanted)
+    {
+      length = length > least
+                 ? least
+                 : (int)(wanted + (length - wanted) / 2);
+      status = Resize(length,
+                      written_);
+    }
+
+    Settle(status,
+           (int)wanted);
+  }
+
+  /// <summary>What the exchange of the buffer for one of <paramref name="length" /> bytes came
+  /// to: nothing to say when it was made, the wait for room when the ceiling has none yet, and a
+  /// refusal of the message when no room will ever do.</summary>
+  private void Settle(ak_status status,
+                      int       length)
+  {
+    switch (status)
+    {
+      case ak_status.AK_STATUS_OK:
+        Needed          = 0;
+        RefusedExchange = false;
+        return;
+
+      case ak_status.AK_STATUS_BUDGET_BUSY:
+        Needed          = length;
+        RefusedExchange = true;
+        throw new NoRoomYet();
+
+      default:
+        throw new RpcException(new Status(StatusCode.ResourceExhausted,
+                                          $"a message of {length} bytes does not fit the ceiling"));
+    }
+  }
+
+  /// <summary>Exchanges the buffer for one of <paramref name="length" /> bytes, keeping the first
+  /// <paramref name="keep" /> of what was written, unless the ceiling has no room for it, now or
+  /// ever, which is the status that says so.</summary>
+  /// <remarks>Whatever else is refused leaves the buffer lent, and disposal returns it. What
+  /// succeeds disposes the memory the serializer was handed, which names the old arena.</remarks>
+  private unsafe ak_status Resize(int length,
+                                  int keep)
+  {
+    ak_buffer resized;
+    var status = NativeMethods.ak_resize_call_buffer(buffer_,
+                                                     (nuint)length,
+                                                     (nuint)keep,
+                                                     &resized,
+                                                     null);
+    switch (status)
+    {
+      case ak_status.AK_STATUS_OK:
+        ReleaseBlock();
+        buffer_ = resized;
+        return status;
+
+      case ak_status.AK_STATUS_BUDGET_BUSY:
+      case ak_status.AK_STATUS_MESSAGE_TOO_LARGE:
+        return status;
+
+      case ak_status.AK_STATUS_INVALID_STATE:
+      case ak_status.AK_STATUS_HANDLE_STALE:
+        throw new CallEnded(status);
+
+      // The engine has taken the buffer back, unfreed, and is shutting down: nothing is left to
+      // give back, and the serializer wrote past what it was lent.
+      case ak_status.AK_STATUS_CORRUPTED:
+        ReleaseBlock();
+        buffer_  = default;
+        written_ = 0;
+        throw new RpcException(new Status(StatusCode.Internal,
+                                          "the serializer wrote past the buffer it was lent"));
+
+      default:
+        throw new RpcException(new Status(StatusCode.Internal,
                                           $"no buffer to serialize into ({status})"));
     }
   }
