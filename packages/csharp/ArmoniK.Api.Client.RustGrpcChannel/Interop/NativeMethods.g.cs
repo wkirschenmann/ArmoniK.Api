@@ -591,9 +591,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public ak_bytes_in channel_defaults_json;
         /// <summary>
-        ///  Receives the engine's logs, filtered by `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`:
-        ///  the runtime option Logging.Filter, which only ak_runtime_create_from loads, is the one way
-        ///  to another. NULL for none.
+        ///  Receives the engine's logs, filtered by `*=warn,armonik_transport*=info`: the runtime option
+        ///  Logging.Filter, which only ak_runtime_create_from loads, is the one way to another. NULL for
+        ///  none.
         /// </summary>
         public void* log_callback;
         /// <summary>

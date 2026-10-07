@@ -191,9 +191,80 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     );
     assert_eq!(
         record.field("log_filter"),
-        Some("info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn")
+        Some("*=warn,armonik_transport*=info")
     );
     drop(host);
+}
+
+/// A filter that states one directive keeps the default's for the rest, and a word that is no level
+/// is a target nothing emits, so it switches nothing off.
+#[test]
+fn a_stated_filter_is_layered_over_the_default_and_a_stray_word_switches_nothing_off() {
+    let _turn = turn();
+    let host = create(&with_filter("Information")).expect("a runtime");
+    let records = logged();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.contains("runtime's effective")),
+        "a stray word switched the engine's events off: {records:#?}"
+    );
+    tracing::warn!(target: "h2::test", "a library at warn");
+    tracing::info!(target: "h2::test", "a library at info");
+    drop(host);
+    let messages: Vec<_> = logged()
+        .into_iter()
+        .filter(|record| record.target == "h2::test")
+        .map(|record| record.message)
+        .collect();
+    assert_eq!(messages, ["a library at warn"]);
+
+    let host = create(&with_filter("armonik_transport=debug")).expect("a runtime");
+    tracing::debug!(target: "armonik_transport::test", "the named target");
+    tracing::debug!(target: "armonik_transport_ffi::test", "the same text, not its module");
+    tracing::info!(target: "h2::test", "a library at info");
+    tracing::warn!(target: "other::test", "another target at warn");
+    drop(host);
+    let messages: Vec<_> = logged()
+        .into_iter()
+        .filter(|record| record.target.ends_with("::test"))
+        .map(|record| record.message)
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "a library at warn",
+            "the named target",
+            "another target at warn"
+        ]
+    );
+}
+
+/// `*=off` replaces the default's star and leaves the engine's own directive, which is stated
+/// separately; both turn everything off.
+#[test]
+fn stating_the_default_directives_turns_the_logs_down_or_off() {
+    let _turn = turn();
+    let host = create(&with_filter("*=off")).expect("a runtime");
+    tracing::warn!(target: "h2::test", "silenced");
+    drop(host);
+    let records = logged();
+    assert!(
+        records.iter().all(|record| record.message != "silenced"),
+        "{records:#?}"
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.contains("runtime's effective")),
+        "the engine's directive stands: {records:#?}"
+    );
+
+    LOGS.lock().unwrap_or_else(|held| held.into_inner()).clear();
+    let host = create(&with_filter("*=off,armonik_transport*=off")).expect("a runtime");
+    tracing::error!(target: "armonik_transport::test", "silenced too");
+    drop(host);
+    assert!(logged().is_empty(), "{:#?}", logged());
 }
 
 #[test]
@@ -336,6 +407,7 @@ fn a_filter_that_is_not_understood_is_logged_as_ignored_and_the_default_applies(
         "{records:#?}"
     );
     // The directive that holds is in force: the runtime's effective configuration, at info, is not.
+    // It is layered over the default, which stands for every other target.
     assert!(
         records
             .iter()

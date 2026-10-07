@@ -354,9 +354,9 @@ pub struct ak_runtime_config {
     /// alternative and is taken whole over another. Empty states none.
     /// Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
     pub channel_defaults_json: ak_bytes_in,
-    /// Receives the engine's logs, filtered by `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`:
-    /// the runtime option Logging.Filter, which only ak_runtime_create_from loads, is the one way
-    /// to another. NULL for none.
+    /// Receives the engine's logs, filtered by `*=warn,armonik_transport*=info`: the runtime option
+    /// Logging.Filter, which only ak_runtime_create_from loads, is the one way to another. NULL for
+    /// none.
     pub log_callback: ak_log_callback,
     /// Handed to `log_callback` with each record.
     pub log_ctx: *mut c_void,

@@ -32,9 +32,9 @@ use crate::abi::{
     AK_LOG_INFO, AK_LOG_TRACE, AK_LOG_WARN,
 };
 
-/// What `Logging.Filter` is when it states nothing: the engine at info, and the libraries it is
-/// built on at warn, which a directive brings back.
-pub(crate) const DEFAULT_FILTER: &str = "info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn";
+/// What `Logging.Filter` is layered over: warnings from every target, and the engine's own - the
+/// targets that start with `armonik_transport` - at info.
+pub(crate) const DEFAULT_FILTER: &str = "*=warn,armonik_transport*=info";
 
 /// One directive of a filter: the events it covers, and the level it lets through.
 #[derive(Clone, Debug, PartialEq)]
@@ -82,15 +82,41 @@ impl Filter {
         }
     }
 
-    /// `tracing`'s directives, as `EnvFilter` reads them but for what an event has no use for and
-    /// for how a target matches: a level (`info`), a target and its level (`h2=debug`), or a
-    /// target alone, which is every level of it. A target covers itself and the modules below it
+    /// The filter `text` states, over the default's: directive by directive, so that one stated
+    /// for the same target - the same text, with or without its star - replaces the default's, and
+    /// the rest of the default stands.
+    ///
+    /// The directives are `tracing`'s, as `EnvFilter` reads them but for what an event has no use
+    /// for and for how a target matches: a level (`info`), a target and its level (`h2=debug`), or
+    /// a target alone, which is every level of it. A target covers itself and the modules below it
     /// (`h2` covers `h2::proto`, not `h2x`), and one ending in `*` covers every target that
     /// starts with the text (`hyper*` covers `hyper` and `hyper_util`, and `*` alone every target,
     /// as a level alone does). Of the directives that cover an event the most specific decides. A
     /// directive whose level is not one, or that names a span or a field, is ignored and returned
-    /// with the filter. A filter that states nothing, or none that holds, is the default.
+    /// with the filter.
     pub(crate) fn parse(text: &str) -> (Self, Vec<String>) {
+        let (default, mut directives, _) = Self::read(DEFAULT_FILTER);
+        let (stated_default, stated, ignored) = Self::read(text);
+        for directive in stated {
+            directives
+                .retain(|held| held.target != directive.target || held.prefix != directive.prefix);
+            directives.push(directive);
+        }
+        directives.sort_by(|a, b| {
+            b.target
+                .len()
+                .cmp(&a.target.len())
+                .then(a.prefix.cmp(&b.prefix))
+        });
+        let filter = Self {
+            directives,
+            default: stated_default.or(default).unwrap_or(LevelFilter::OFF),
+        };
+        (filter, ignored)
+    }
+
+    /// The directives of `text`: the level for every target, the others, and what is ignored.
+    fn read(text: &str) -> (Option<LevelFilter>, Vec<Directive>, Vec<String>) {
         let mut ignored = Vec::new();
         let mut default = None;
         let mut directives: Vec<Directive> = Vec::new();
@@ -125,20 +151,7 @@ impl Filter {
                 });
             }
         }
-        if default.is_none() && directives.is_empty() {
-            return (Self::parse(DEFAULT_FILTER).0, ignored);
-        }
-        directives.sort_by(|a, b| {
-            b.target
-                .len()
-                .cmp(&a.target.len())
-                .then(a.prefix.cmp(&b.prefix))
-        });
-        let filter = Self {
-            directives,
-            default: default.unwrap_or(LevelFilter::OFF),
-        };
-        (filter, ignored)
+        (default, directives, ignored)
     }
 
     fn allows(&self, target: &str, level: Level) -> bool {
@@ -684,55 +697,105 @@ mod tests {
     }
 
     #[test]
-    fn the_default_filter_keeps_the_libraries_at_warn() {
-        let (filter, ignored) = Filter::parse(DEFAULT_FILTER);
+    fn the_default_is_warnings_everywhere_and_the_engines_own_events_at_info() {
+        let (filter, ignored) = Filter::parse("");
         assert!(ignored.is_empty());
-        assert!(allows(&filter, "armonik_transport::grpc", Level::INFO));
-        assert!(!allows(&filter, "armonik_transport::grpc", Level::DEBUG));
-        assert!(allows(&filter, "h2::proto::connection", Level::WARN));
-        assert!(!allows(&filter, "h2::proto::connection", Level::INFO));
-        assert!(!allows(&filter, "hyper_util::client", Level::DEBUG));
-        assert!(!allows(&filter, "tonic::transport", Level::INFO));
+        assert_eq!(filter, Filter::parse(DEFAULT_FILTER).0);
+        for engine in [
+            "armonik_transport::grpc",
+            "armonik_transport_ffi::config",
+            "armonik_transport_ffi::log",
+        ] {
+            assert!(allows(&filter, engine, Level::INFO), "{engine}");
+            assert!(!allows(&filter, engine, Level::DEBUG), "{engine}");
+        }
+        for library in [
+            "h2::proto::connection",
+            "hyper_util::client",
+            "hyper_rustls",
+            "tonic::transport",
+            "tower::buffer",
+            "something::else",
+        ] {
+            assert!(allows(&filter, library, Level::WARN), "{library}");
+            assert!(!allows(&filter, library, Level::INFO), "{library}");
+        }
+        assert_eq!(filter.max_level(), LevelFilter::INFO);
     }
 
     #[test]
-    fn a_target_covers_its_own_path_segments_and_not_a_longer_name() {
-        let (filter, _) = Filter::parse("warn,h2=debug");
-        assert!(allows(&filter, "h2", Level::DEBUG));
-        assert!(allows(&filter, "h2::proto::connection", Level::DEBUG));
-        assert!(!allows(&filter, "h2x", Level::DEBUG));
-        assert!(!allows(&filter, "h2x::proto", Level::DEBUG));
-        assert!(allows(&filter, "h2x", Level::WARN));
-
-        let (filter, _) = Filter::parse("warn,armonik_transport=debug");
+    fn a_directive_stated_for_a_target_is_layered_over_the_default_and_the_rest_stands() {
+        let (filter, ignored) = Filter::parse("armonik_transport=debug");
+        assert!(ignored.is_empty());
+        assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
+        assert!(!allows(&filter, "armonik_transport::grpc", Level::TRACE));
+        // The default's star for the same text covers what the segment directive does not.
         assert!(allows(
             &filter,
-            "armonik_transport::grpc::channel",
-            Level::DEBUG
+            "armonik_transport_ffi::config",
+            Level::INFO
         ));
         assert!(!allows(
             &filter,
             "armonik_transport_ffi::config",
             Level::DEBUG
         ));
-    }
+        assert!(allows(&filter, "h2::proto", Level::WARN));
+        assert!(!allows(&filter, "h2::proto", Level::INFO));
 
-    #[test]
-    fn a_target_ending_in_a_star_covers_every_target_that_starts_with_it() {
-        let (filter, _) = Filter::parse("warn,armonik_transport*=debug");
-        assert!(allows(&filter, "armonik_transport", Level::DEBUG));
-        assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
+        // The same target, star included, replaces the default's directive.
+        let (filter, _) = Filter::parse("armonik_transport*=debug");
         assert!(allows(
             &filter,
             "armonik_transport_ffi::config",
             Level::DEBUG
         ));
-        assert!(!allows(&filter, "armonik", Level::DEBUG));
+        assert!(allows(&filter, "armonik_transport::grpc", Level::DEBUG));
+        assert!(!allows(&filter, "h2::proto", Level::INFO));
+    }
 
-        let (filter, _) = Filter::parse("info,hyper*=warn");
-        assert!(!allows(&filter, "hyper", Level::INFO));
-        assert!(!allows(&filter, "hyper_util::client::legacy", Level::INFO));
-        assert!(allows(&filter, "hyper_util::client::legacy", Level::WARN));
+    #[test]
+    fn a_user_turns_the_default_down_or_off_by_stating_its_directives() {
+        // The star's level and the engine's are two directives of the default, and each is
+        // replaced by stating its own.
+        let (filter, _) = Filter::parse("*=error,armonik_transport*=error");
+        assert!(allows(&filter, "armonik_transport::grpc", Level::ERROR));
+        assert!(!allows(&filter, "armonik_transport::grpc", Level::WARN));
+        assert!(!allows(&filter, "h2::proto", Level::WARN));
+
+        let (off, _) = Filter::parse("*=off,armonik_transport*=off");
+        assert!(!allows(&off, "armonik_transport::grpc", Level::ERROR));
+        assert!(!allows(&off, "h2::proto", Level::ERROR));
+        assert_eq!(off.max_level(), LevelFilter::OFF);
+
+        // Stating the star alone leaves the engine's directive standing.
+        let (star_only, _) = Filter::parse("*=off");
+        assert!(allows(&star_only, "armonik_transport::grpc", Level::INFO));
+        assert!(!allows(&star_only, "h2::proto", Level::ERROR));
+    }
+
+    #[test]
+    fn a_target_covers_its_own_path_segments_and_not_a_longer_name() {
+        let (filter, _) = Filter::parse("h2=debug");
+        assert!(allows(&filter, "h2", Level::DEBUG));
+        assert!(allows(&filter, "h2::proto::connection", Level::DEBUG));
+        assert!(!allows(&filter, "h2x", Level::DEBUG));
+        assert!(!allows(&filter, "h2x::proto", Level::DEBUG));
+        assert!(allows(&filter, "h2x", Level::WARN));
+    }
+
+    #[test]
+    fn a_target_ending_in_a_star_covers_every_target_that_starts_with_it() {
+        let (filter, _) = Filter::parse("hyper*=debug");
+        assert!(allows(&filter, "hyper", Level::DEBUG));
+        assert!(allows(&filter, "hyper_util::client::legacy", Level::DEBUG));
+        assert!(!allows(&filter, "h2", Level::DEBUG));
+
+        let (filter, _) = Filter::parse("info,hyper*=error");
+        assert!(!allows(&filter, "hyper", Level::WARN));
+        assert!(!allows(&filter, "hyper_util::client::legacy", Level::WARN));
+        assert!(allows(&filter, "hyper_util::client::legacy", Level::ERROR));
+        assert!(allows(&filter, "something::else", Level::INFO));
     }
 
     #[test]
@@ -743,11 +806,12 @@ mod tests {
         assert!(!allows(&filter, "anything::at_all", Level::TRACE));
         assert!(allows(&filter, "h2::proto", Level::ERROR));
         assert!(!allows(&filter, "h2::proto", Level::WARN));
+        // The default's directive for the engine is more specific, and stands.
+        assert!(!allows(&filter, "armonik_transport::grpc", Level::DEBUG));
 
         let (everything, _) = Filter::parse("*");
         assert!(allows(&everything, "any", Level::TRACE));
-        let (like_info, _) = Filter::parse("info");
-        assert_eq!(Filter::parse("*=info").0, like_info);
+        assert_eq!(Filter::parse("*=info").0, Filter::parse("info").0);
     }
 
     #[test]
@@ -792,10 +856,25 @@ mod tests {
     }
 
     #[test]
-    fn a_target_alone_is_all_its_levels_and_a_filter_without_a_level_logs_nothing_else() {
+    fn a_target_alone_is_all_its_levels_and_the_default_stands_for_the_rest() {
         let (filter, _) = Filter::parse("h2");
         assert!(allows(&filter, "h2", Level::TRACE));
-        assert!(!allows(&filter, "armonik_transport", Level::ERROR));
+        assert!(allows(&filter, "armonik_transport", Level::INFO));
+        assert!(!allows(&filter, "armonik_transport", Level::DEBUG));
+    }
+
+    #[test]
+    fn a_stray_word_switches_nothing_off() {
+        // A word that is not a level is a target: one nothing emits, which selects nothing.
+        for word in ["Information", "Warning", "inf", "Information,Warning"] {
+            let (filter, ignored) = Filter::parse(word);
+            assert!(ignored.is_empty(), "{word}");
+            assert!(
+                allows(&filter, "armonik_transport::grpc", Level::INFO),
+                "{word}"
+            );
+            assert!(allows(&filter, "h2::proto", Level::WARN), "{word}");
+        }
     }
 
     #[test]
@@ -803,13 +882,14 @@ mod tests {
         let (filter, ignored) = Filter::parse("info,no_such_crate=trace");
         assert!(ignored.is_empty());
         assert!(allows(&filter, "armonik_transport", Level::INFO));
+        assert!(allows(&filter, "no_such_crate", Level::TRACE));
     }
 
     #[test]
     fn a_directive_that_is_not_understood_is_ignored_and_the_rest_kept() {
         let (filter, ignored) = Filter::parse("info, h2=loud, h2[conn]=debug, hyper{x=1}=trace");
         assert_eq!(ignored, ["h2=loud", "h2[conn]=debug", "hyper{x=1}=trace"]);
-        assert!(allows(&filter, "armonik_transport", Level::INFO));
+        assert!(allows(&filter, "something::else", Level::INFO));
         assert!(!allows(&filter, "h2", Level::DEBUG));
     }
 
@@ -832,7 +912,7 @@ mod tests {
     fn levels_are_read_without_regard_to_case() {
         let (filter, ignored) = Filter::parse("INFO,H2=Debug");
         assert!(ignored.is_empty());
-        assert!(allows(&filter, "armonik_transport", Level::INFO));
+        assert!(allows(&filter, "something::else", Level::INFO));
         assert!(
             !allows(&filter, "h2", Level::DEBUG),
             "targets keep their case"

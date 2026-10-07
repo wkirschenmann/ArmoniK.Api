@@ -2375,18 +2375,21 @@ pub struct RuntimeOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct LoggingOptions {
-    /// Which events are reported: comma-separated directives, each a level (`info`), a target and
-    /// its level (`h2=debug`), or a target alone, which is all its levels. A target covers itself
-    /// and the modules below it - `h2` covers `h2::proto`, not `h2x` - and `target*` covers every
-    /// target that starts with the text: `hyper*` covers `hyper` and `hyper_util`, and `*=debug`
-    /// every target. The most
-    /// specific directive that covers an event decides: the longest target, and at the same length
-    /// the one without `*`. An event no directive covers is reported only if a directive gives a
-    /// level for all targets, so `h2=debug` alone silences the engine's own events. A directive
-    /// that is not understood is ignored with a warning, and a filter with none that is
-    /// understood, an empty one included, is the default. Read when the runtime is created.
+    /// Which events are reported, as directives laid over the default's: comma-separated, each a
+    /// level for every target (`warn`, or `*=warn`), a target and its level (`h2=debug`), or a
+    /// target alone, which is all its levels. A target covers itself and the modules below it -
+    /// `h2` covers `h2::proto`, not `h2x` - and `target*` covers every target that starts with the
+    /// text: `hyper*` covers `hyper` and `hyper_util`. The most specific directive that covers an
+    /// event decides: the longest target, and at the same length the one without `*`. A directive
+    /// stated for a target the default also names, with or without its `*`, replaces the default's;
+    /// every other directive of the default stands, so `armonik_transport*=debug` raises the engine
+    /// and leaves the rest at warning. To turn the logs down or off state the default's two
+    /// directives: `*=off,armonik_transport*=off`. A word that is no level is a target nothing
+    /// emits. A directive that is not understood is ignored with a warning. Read when the runtime
+    /// is created.
     ///
-    /// Defaults to `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`.
+    /// Defaults to `*=warn,armonik_transport*=info`: warnings from every target, and the engine's
+    /// own events at information.
     #[cfg_attr(
         feature = "serde",
         serde(default, skip_serializing_if = "Option::is_none")
