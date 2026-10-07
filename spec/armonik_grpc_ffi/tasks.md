@@ -1505,7 +1505,9 @@ done tasks of phase 3 in this file, which say the same, stay as the record of wh
 **Deliverable**: the same sources give the same options, or the same refusal, through the Rust
 loader and through the ABI, one set of fixtures driving both; the keys logged as unknown checked
 on the Rust loader, the ABI having no log to read before T10.1.
-**Status**: done. `armonik-transport` has the loader under its `configuration` feature, and
+**Status**: done. `armonik-transport` has the loader, always compiled (its `configuration` feature,
+and the `serde` feature the options' derives hung on, went on 2026-10-07: the parsers and `serde`
+are mandatory dependencies, since every host reads the vocabulary through the loader), and
 `settings::ChannelSettings`, which settles a channel's options for the FFI and the `armonik` client
 alike; `ak_runtime_create_from` reads an `ak_config`; the .NET binding has `NativeConfiguration`,
 with `LoadConfigFromOptionalFiles` beside the four loads for a file the host marks optional, and its

@@ -42,9 +42,8 @@ pub const LARGEST_WINDOW: i32 = 536_870_910;
 /// and `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here
 /// rather than left to the conversion, which refuses correctly but names no option when it does -
 /// a caller then reads that their configuration was refused and not which line of it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
     feature = "schema",
@@ -67,9 +66,8 @@ impl TryFrom<Seconds> for Duration {
 ///
 /// The endpoint is not here: a channel is opened on its own, or on the Endpoint of its runtime's
 /// options. Every option has a default, so naming none of them is a valid configuration.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -78,10 +76,7 @@ pub struct TransportOptions {
     ///
     /// Defaults to 60, and at least a nanosecond, the finest duration the engine holds: a shorter
     /// one could round to zero, which no dial could beat.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     // Set beside the `$ref` that `with` writes, where `range` does not reach.
     #[cfg_attr(
         feature = "schema",
@@ -93,26 +88,23 @@ pub struct TransportOptions {
     ///
     /// Defaults to `{}`: the server verified against the system's roots under the endpoint's
     /// host, and no client certificate. Refused for an `http://` endpoint unless it sets nothing.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub tls: TlsOptions,
 
     /// The socket's keepalive.
     ///
     /// Defaults to `{}`, which sets none.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub tcp_keepalive: TcpKeepaliveOptions,
 
     /// The HTTP proxy every dial tunnels through.
     ///
     /// Defaults to `{"System": {}}`: the proxy the system names, if any, with no credentials of
     /// its own.
-    #[cfg_attr(
-        feature = "serde",
-        serde(
-            default,
-            deserialize_with = "alternative::optional",
-            skip_serializing_if = "Option::is_none"
-        )
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ProxyOptions"))]
     pub proxy: Option<ProxyOptions>,
@@ -122,10 +114,7 @@ pub struct TransportOptions {
     /// not reported: the first call dials again and reports what it meets.
     ///
     /// Defaults to false.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "bool"))]
     pub connect_eagerly: Option<bool>,
 }
@@ -135,14 +124,12 @@ pub struct TransportOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Chosen;
 
-#[cfg(feature = "serde")]
 impl serde::Serialize for Chosen {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bool(true)
     }
 }
 
-#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Chosen {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         if bool::deserialize(deserializer)? {
@@ -172,8 +159,7 @@ impl schemars::JsonSchema for Chosen {
 
 /// An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the
 /// server.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum ProxyOptions {
@@ -213,9 +199,8 @@ impl Default for ProxyOptions {
 }
 
 /// The credentials the system's proxy is authenticated to with, by `Basic`.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -226,10 +211,7 @@ pub struct ProxyCredentials {
     /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
     /// username. Taken from the runtime's channel defaults, with their `Password`, only when these
     /// options state neither.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
 
@@ -239,15 +221,14 @@ pub struct ProxyCredentials {
     /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
     /// password. Taken from the runtime's channel defaults, with their `Username`, only when these
     /// options state neither.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
 }
 
 /// A proxy named by its address.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -265,10 +246,7 @@ pub struct ProxyUrl {
     ///
     /// Taken from the runtime's channel defaults, with their `Password`, only when they name the
     /// same `Address` and these options state neither.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
 
@@ -276,16 +254,15 @@ pub struct ProxyUrl {
     ///
     /// Taken from the runtime's channel defaults, with their `Username`, only when they name the
     /// same `Address` and these options state neither.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
 }
 
 /// A proxy's `http://` URL that carries its credentials, as `user:password@`, percent-encoded;
 /// `http://` is assumed when no scheme is written.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 // `writeOnly`, so a generated binding treats it as the secret it holds.
 #[cfg_attr(
@@ -502,9 +479,8 @@ const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication c
 
 /// How an `https://` endpoint is secured. Each file is read when the channel is created, so a
 /// path that names nothing usable is refused then, by its option's name.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -512,13 +488,10 @@ pub struct TlsOptions {
     /// How the server certificate is verified.
     ///
     /// Defaults to the system's roots.
-    #[cfg_attr(
-        feature = "serde",
-        serde(
-            default,
-            deserialize_with = "alternative::optional",
-            skip_serializing_if = "Option::is_none"
-        )
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ServerVerification"))]
     pub server: Option<ServerVerification>,
@@ -526,13 +499,10 @@ pub struct TlsOptions {
     /// The certificate the client presents, and its key.
     ///
     /// Defaults to none.
-    #[cfg_attr(
-        feature = "serde",
-        serde(
-            default,
-            deserialize_with = "alternative::optional",
-            skip_serializing_if = "Option::is_none"
-        )
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ClientCertificate"))]
     pub client: Option<ClientCertificate>,
@@ -540,17 +510,13 @@ pub struct TlsOptions {
     /// The host the server certificate is verified against, and sent as SNI, in place of the
     /// endpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is
     /// not read.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub override_target_name: Option<String>,
 }
 
 /// How the server certificate is verified.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum ServerVerification {
@@ -570,8 +536,7 @@ pub enum ServerVerification {
 }
 
 /// The certificate the client presents, and its key.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum ClientCertificate {
@@ -589,9 +554,8 @@ pub enum ClientCertificate {
 }
 
 /// A client certificate and its key, from PEM files.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -626,9 +590,8 @@ impl PemCertificate {
 }
 
 /// A client certificate and its key, from a PKCS#12 bundle.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -641,7 +604,7 @@ pub struct P12Certificate {
     ///
     /// Defaults to the empty one. Taken from the runtime's channel defaults only when they name
     /// the same `Path`.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing))]
+    #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
 }
@@ -656,9 +619,8 @@ impl P12Certificate {
 }
 
 /// A certificate of a Windows certificate store.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -666,23 +628,17 @@ pub struct StoreCertificate {
     /// Where the store is.
     ///
     /// Defaults to `CurrentUser`.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "StoreLocation"))]
     pub location: Option<StoreLocation>,
 
     /// The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub name: Option<String>,
 
     /// How the certificate is found in the store.
-    #[cfg_attr(feature = "serde", serde(deserialize_with = "alternative::required"))]
+    #[serde(deserialize_with = "alternative::required")]
     pub find: StoreSearch,
 }
 
@@ -697,8 +653,7 @@ impl StoreCertificate {
 }
 
 /// Where a Windows certificate store is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum StoreLocation {
@@ -710,8 +665,7 @@ pub enum StoreLocation {
 }
 
 /// How a certificate is found in its store.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum StoreSearch {
@@ -847,7 +801,6 @@ pub struct Password(secrecy::SecretString);
 
 /// Read by hand, so that a value of the wrong type is refused without being quoted: serde's own
 /// refusal names the value it was given, and a refusal is shown to whoever configured it.
-#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Password {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct Text;
@@ -939,19 +892,15 @@ impl std::fmt::Debug for Password {
 /// The socket's keepalive, off unless `IdleSeconds` is set.
 ///
 /// Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TcpKeepaliveOptions {
     /// How long the connection may be idle before the first probe, from a second to 32767, the
     /// most Linux holds.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
@@ -961,10 +910,7 @@ pub struct TcpKeepaliveOptions {
     /// How long between two probes, from a second to 32767. Defaults to the operating system's.
     ///
     /// Refused without `IdleSeconds`.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
@@ -975,28 +921,21 @@ pub struct TcpKeepaliveOptions {
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
     ///
     /// Refused without `IdleSeconds`.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
     pub retries: Option<i32>,
 }
 
 /// The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
 /// it lets the peer send ahead of what is read.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2Options {
     /// How often a PING is sent to the peer. Defaults to none sent.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1006,10 +945,7 @@ pub struct Http2Options {
     /// How long a PING may go unanswered before the session and its calls are ended.
     ///
     /// Defaults to 20.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1019,10 +955,7 @@ pub struct Http2Options {
     /// Whether a PING is also sent while no call is open.
     ///
     /// Defaults to false.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "bool"))]
     pub keep_alive_while_idle: Option<bool>,
 
@@ -1031,10 +964,7 @@ pub struct Http2Options {
     /// its response and of its request.
     ///
     /// Defaults to none: an idle connection stays open.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1048,38 +978,31 @@ pub struct Http2Options {
     /// call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
     ///
     /// Defaults to none: a connection carries as many calls as its server allows.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub simultaneous_calls_per_connection: Option<i32>,
 
     /// What the session sends.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub send: Http2SendOptions,
 
     /// What the session lets the peer send.
     ///
     /// Defaults to `{"Fixed": {}}`: windows of 2 MiB per call and 5 MiB for the connection.
-    #[cfg_attr(
-        feature = "serde",
-        serde(
-            default,
-            deserialize_with = "alternative::optional",
-            skip_serializing_if = "Option::is_none"
-        )
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "Http2ReceiveOptions"))]
     pub receive: Option<Http2ReceiveOptions>,
 }
 
 /// What an HTTP/2 session sends.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1090,10 +1013,7 @@ pub struct Http2SendOptions {
     /// headers wait then goes out with them, in one write rather than two. 0 writes at once.
     ///
     /// Defaults to 16384, 16 KiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
 
@@ -1102,10 +1022,7 @@ pub struct Http2SendOptions {
     /// are queued, and the peer's window has room, so up to one part more than this is queued.
     ///
     /// Defaults to 1048576, 1 MiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub stream_buffer_size: Option<i32>,
 
@@ -1118,10 +1035,7 @@ pub struct Http2SendOptions {
     /// 256.
     ///
     /// Defaults to 1.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_FRAMES_PER_WRITE))
@@ -1131,8 +1045,7 @@ pub struct Http2SendOptions {
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
 /// windows that grow with what the link carries.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum Http2ReceiveOptions {
@@ -1146,9 +1059,8 @@ pub enum Http2ReceiveOptions {
 }
 
 /// HTTP/2 flow-control windows of fixed sizes.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1156,10 +1068,7 @@ pub struct Http2FixedWindows {
     /// How many bytes of one call the peer may send ahead of what is read.
     ///
     /// Defaults to 2097152, 2 MiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub stream_window_size: Option<i32>,
 
@@ -1168,10 +1077,7 @@ pub struct Http2FixedWindows {
     /// the others receiving. At least 65535, the window every connection starts with.
     ///
     /// Defaults to 5242880, 5 MiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
     pub connection_window_size: Option<i32>,
 }
@@ -1180,9 +1086,8 @@ pub struct Http2FixedWindows {
 /// that starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to
 /// `MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
 /// the reader and what the call sent is still kept for the replay.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1191,20 +1096,14 @@ pub struct RetryOptions {
     /// goes again besides, whatever this is, while every message it sent is kept.
     ///
     /// Defaults to 5.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_attempts: Option<i32>,
 
     /// The bound of the first backoff.
     ///
     /// Defaults to 1.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1214,10 +1113,7 @@ pub struct RetryOptions {
     /// What the bound grows to and no further; refused below `InitialBackoffSeconds`.
     ///
     /// Defaults to 5.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1227,20 +1123,14 @@ pub struct RetryOptions {
     /// What each bound is multiplied by; 1 retries at a fixed bound.
     ///
     /// Defaults to 1.5.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "f64", extend("minimum" = 1.0)))]
     pub backoff_multiplier: Option<f64>,
 
     /// The bytes one call may keep for a replay; a call that sends more is not tried again.
     ///
     /// Defaults to 1048576, 1 MiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub call_replay_bytes: Option<i32>,
 
@@ -1248,10 +1138,7 @@ pub struct RetryOptions {
     /// would pass it is not tried again.
     ///
     /// Defaults to 16777216, 16 MiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub channel_replay_bytes: Option<i32>,
 }
@@ -1656,9 +1543,8 @@ impl Http2Options {
 }
 
 /// What a caller may set on one channel.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1666,28 +1552,27 @@ pub struct ChannelOptions {
     /// What the transport does, beyond reaching the endpoint.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub transport: TransportOptions,
 
     /// The HTTP/2 session the channel's calls share.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub http2: Http2Options,
 
     /// What the channel's calls do: their messages, deadlines and retries, and what crosses
     /// between the host and the engine.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub grpc: GrpcOptions,
 }
 
 /// What the channel's calls do: their messages, deadlines and retries, and what crosses between
 /// the host and the engine.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1695,10 +1580,7 @@ pub struct GrpcOptions {
     /// What this client calls itself in `user-agent`.
     ///
     /// Defaults to `armonik-transport/` followed by the engine's version.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub user_agent: Option<String>,
 
@@ -1710,10 +1592,7 @@ pub struct GrpcOptions {
     ///
     /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
     /// finest duration the engine holds.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
@@ -1725,32 +1604,31 @@ pub struct GrpcOptions {
     /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never
     /// processed goes again besides, whatever `MaxAttempts` is, while every message it sent is
     /// kept.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub retry: RetryOptions,
 
     /// What a call sends to the server.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub send: GrpcSendOptions,
 
     /// What a call accepts from the server.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub receive: GrpcReceiveOptions,
 
     /// What crosses between the host and the engine on each call.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub host: HostOptions,
 }
 
 /// What a call sends to the server.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1760,18 +1638,14 @@ pub struct GrpcSendOptions {
     ///
     /// Defaults to none, any message a call is given going out. Zero is refused: it admits only
     /// empty messages.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_message_size: Option<i32>,
 }
 
 /// What a call accepts from the server.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1781,18 +1655,14 @@ pub struct GrpcReceiveOptions {
     /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
     /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
     /// at all.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
     pub max_message_size: Option<i32>,
 }
 
 /// What crosses between the host and the engine on each call, one way and the other.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1800,20 +1670,19 @@ pub struct HostOptions {
     /// What the host sends.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub send: HostSendOptions,
 
     /// What the engine delivers to the host.
     ///
     /// Defaults to `{}`, which leaves each of its options at its own default.
-    #[cfg_attr(feature = "serde", serde(default))]
+    #[serde(default)]
     pub receive: HostReceiveOptions,
 }
 
 /// What a call's host sends: the messages it hands the engine.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1821,10 +1690,7 @@ pub struct HostSendOptions {
     /// How many messages a call may have sent and unacquitted at once.
     ///
     /// Defaults to 1.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
@@ -1833,9 +1699,8 @@ pub struct HostSendOptions {
 }
 
 /// What the engine delivers to a call's host: its payloads and its status.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1844,10 +1709,7 @@ pub struct HostReceiveOptions {
     /// The terminal status takes none, so a host holds at most one more.
     ///
     /// Defaults to 4.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
@@ -1858,10 +1720,7 @@ pub struct HostReceiveOptions {
     /// answer's head, message and status reach it in one callback. 0 delivers each read at once.
     ///
     /// Defaults to 16384, 16 KiB.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
 }
@@ -1927,7 +1786,6 @@ macro_rules! over_variants {
             }
         }
 
-        #[cfg(feature = "serde")]
         impl alternative::Alternative for $type {
             const NAME: &'static str = stringify!($type);
             const VARIANTS: &'static [&'static str] = &[$(stringify!($variant)),+];
@@ -1940,7 +1798,6 @@ macro_rules! over_variants {
 /// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
 /// read past instead, as a struct reads past a key it does not declare, so that the configuration
 /// loader logs it; the alternative is then none, and keeps what an earlier source gave it.
-#[cfg(feature = "serde")]
 mod alternative {
     use std::marker::PhantomData;
 
@@ -2301,9 +2158,8 @@ impl ChannelOptions {
 
 /// What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
 /// channel takes where its own state none.
-#[derive(Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "PascalCase"))]
+#[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -2312,10 +2168,7 @@ pub struct RuntimeOptions {
     /// channel created with no endpoint of its own reaches.
     ///
     /// Defaults to none: every channel then names its own.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub endpoint: Option<String>,
 
@@ -2325,10 +2178,7 @@ pub struct RuntimeOptions {
     ///
     /// Defaults to 4294967295, four gigabytes, or half the address space where that is smaller;
     /// a larger value is that too.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
     pub memory_ceiling: Option<u64>,
 
@@ -2338,10 +2188,7 @@ pub struct RuntimeOptions {
     /// MemoryCeiling's default when that is left out.
     ///
     /// Defaults to a quarter above MemoryCeiling.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
     pub memory_hard_ceiling: Option<u64>,
 
@@ -2351,10 +2198,7 @@ pub struct RuntimeOptions {
     /// over the same alternative and is taken whole over another.
     ///
     /// Defaults to none.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "ChannelOptions"))]
     pub channel_defaults: Option<ChannelOptions>,
 }
@@ -2378,14 +2222,12 @@ over_fields!(RuntimeOptions {
     channel_defaults,
 });
 
-#[cfg(feature = "configuration")]
 impl crate::configuration::Document for ChannelOptions {
     fn over(self, earlier: Self) -> Self {
         Over::over(self, &earlier)
     }
 }
 
-#[cfg(feature = "configuration")]
 impl crate::configuration::Document for RuntimeOptions {
     fn over(self, earlier: Self) -> Self {
         Over::over(self, &earlier)
@@ -2566,7 +2408,6 @@ mod tests {
 
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
     /// is read, before any file is.
-    #[cfg(feature = "serde")]
     #[test]
     fn a_document_naming_two_alternatives_is_refused() {
         for document in [
@@ -3489,7 +3330,7 @@ mod tests {
     /// name they stopped agreeing on would be an option the generated C# sets and the schema
     /// admits, which the loader reads past: nothing would refuse it, so what this asserts is that
     /// nothing is logged as unknown.
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
         fn read_all<D: crate::configuration::Document + std::fmt::Debug>(rendered: &str) {
@@ -3528,11 +3369,11 @@ mod tests {
     }
 
     /// What a subscriber writes, kept to be read back.
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     #[derive(Clone, Default)]
     struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
 
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     impl Logged {
         fn said(&self) -> String {
             let written = self.0.lock().unwrap_or_else(|held| held.into_inner());
@@ -3540,7 +3381,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     impl std::io::Write for Logged {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             self.0
@@ -3555,7 +3396,7 @@ mod tests {
         }
     }
 
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
         type Writer = Self;
 
@@ -3570,7 +3411,7 @@ mod tests {
     ///
     /// Values rather than a name list, because an unknown name is logged and a value of the wrong
     /// type refused, and only a document carrying both exercises the two.
-    #[cfg(all(feature = "schema", feature = "configuration"))]
+    #[cfg(feature = "schema")]
     fn a_value_for(
         node: &serde_json::Value,
         root: &serde_json::Value,

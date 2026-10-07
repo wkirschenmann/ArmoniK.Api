@@ -4,11 +4,10 @@
 //! HTTP/2 session of this crate's own, in cleartext or over TLS. It is configured with
 //! [`options::ChannelOptions`], where the schema states each setting's bounds and the generated
 //! .NET class its spelling, settled into the engine's configuration by
-//! [`settings::ChannelSettings`]. `configuration::Configuration`, under the `configuration`
-//! feature, loads the options from files, the environment and documents.
+//! [`settings::ChannelSettings`]. [`configuration::Configuration`] loads the options from files, the
+//! environment and documents.
 
 mod coalesce;
-#[cfg(feature = "configuration")]
 pub mod configuration;
 mod connector;
 pub mod grpc;
@@ -35,7 +34,6 @@ pub mod reexports {
     pub use hyper_rustls;
     pub use hyper_util;
     pub use rustls;
-    #[cfg(feature = "serde")]
     pub use serde;
     /// Needed to read an error's causes: the outer message of a `ConnectionError` names the step
     /// that failed, and `snafu::Report` is what prints the chain under it. Already a public
