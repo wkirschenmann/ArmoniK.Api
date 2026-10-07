@@ -79,14 +79,14 @@ deliberately unconstrained failed state: `SafetyInvariant == NotFailed => Safety
   and `SendMessage` is guarded on neither, so no send can follow
 
 **Ownership - everything belongs to a runtime:**
-- **SingleRuntime**: at most one runtime with state ∈ {RUNNING, STOPPING,
-  FAILED_UNQUIESCED} at all times. The ABI enforces it as well: `ak_runtime_create` refuses
-  a second live runtime with `AK_STATUS_INVALID_STATE`, so the model states the contract's
-  rule rather than a convenience of its own. The binding holds one runtime, the
-  object its caller created, from which every channel is made - the diagram above shows
-  the invoker's view, not a per-invoker runtime. It bounds the
-  state space and lets the shutdown chain be stated per runtime without quantifying over
-  interleavings; a second runtime would need it lifted and the shutdown proofs redone
+- **SingleRuntime**: at most one runtime with state ∈ {RUNNING, STOPPING, FAILED_UNQUIESCED} at all
+  times. The ABI enforces it as well: `ak_runtime_create` and `ak_runtime_create_from` refuse a
+  second live runtime with `AK_STATUS_INVALID_STATE`, so the model states the contract's rule rather
+  than a convenience of its own. The binding holds one runtime, the object its caller created, from
+  which every channel is made - the diagram above shows the invoker's view, not a per-invoker
+  runtime. It bounds the state space and lets the shutdown chain be stated per runtime without
+  quantifying over interleavings; a second runtime would need it lifted and the shutdown proofs
+  redone
 - **ChannelOwnership**: a created channel names a runtime
 - **CallOwnership**: a started call names a created channel, and therefore a runtime
 
@@ -632,8 +632,9 @@ Added variables - all discipline, no capacity:
 - `call_dispose_state`: the call's own machine, driving the drain
 
 **The runtime and the channels.** `CreateRuntime(rt)` is `NativeRuntime.Create`: the
-shared root and `ak_runtime_create` in one step, and no channel is involved, a runtime
-being asked for by name rather than derived from the first channel that wants one.
+shared root and `ak_runtime_create_from`, or `ak_runtime_create`, in one step, and no
+channel is involved, a runtime being asked for by name rather than derived from the first
+channel that wants one.
 `BeginCreateChannel(ch)` is `runtime.Channel(...)` entering the channel's constructor -
 the door read under the runtime's lock, no native step of its own; `CreateChannel(ch)` is
 its `ak_channel_create`, after which the constructor returns and the object is exposed -
@@ -1124,7 +1125,7 @@ have changed.
 
 Refinement mapping, by direct reuse:
 - `NativeRuntime.Create(...)` ↔ `CreateRuntime` - the shared root and
-  `ak_runtime_create`, and nothing of any channel
+  `ak_runtime_create_from` or `ak_runtime_create`, and nothing of any channel
 - `runtime.Channel(...)` ↔ `BeginCreateChannel` then `CreateChannel` - the door read
   under the lock, then this channel's `ak_channel_create`, the constructor returning
   only afterwards
@@ -1455,7 +1456,7 @@ refinement.
 
 | Level-1 action | Linearization point |
 |----------------|---------------------|
-| `RuntimeCreate` | `ak_runtime_create` publishes the runtime as RUNNING |
+| `RuntimeCreate` | `ak_runtime_create`, or `ak_runtime_create_from`, publishes the runtime as RUNNING |
 | `ChannelCreate` | `ak_channel_create` publishes the channel as open |
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
 | `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
@@ -1502,8 +1503,8 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_events_consumed`'s `payloads` and `count` | **not modelled**, as `ak_event_consumed`'s `payload`: `count` is how many `HostConsumesEvent` steps the downcall is |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
 | `ak_get_call_buffer`'s `len` | The model takes the length directly: `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned. The lend sees only a length, exactly as the C function does; the message identity is born at the commit, where `SendMessage` requires `MessageLength[msg] <= buffer_length` for the buffer it sends: the commit says how many bytes the host wrote, at most the lend, as the ABI's does. The overrun the ABI answers with `AK_STATUS_CORRUPTED` is not modelled, since a conforming host never commits it. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two. A length of zero is refused as an invalid argument: an empty message needs no buffer, and `ak_call_send_message` sends it with none, a send the model does not represent since it takes no memory. Level 0 carries no sizes: its send window counts allocations |
-| `ak_channel_create`'s `endpoint` | **not modelled.** The model's channels are identifiers, and what one connects to changes nothing it guarantees. An argument rather than an option because it is the one value a channel cannot be created without, which is also why `TransportOptions` does not carry it |
-| `config`, `config_json`, `options` | **not modelled.** Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
+| `ak_channel_create`'s `endpoint` | **not modelled.** The model's channels are identifiers, and what one connects to changes nothing it guarantees. An argument, or, empty, the `Endpoint` of the runtime's options; `TransportOptions` carries none |
+| `config`, `config_json`, `options` | **not modelled**, `ak_runtime_create_from`'s `ak_config` and the sources it lists included. Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
 | every `out_error` | **not modelled.** It is written only on a refusal, and a refusal takes no step: the model says why a downcall is refused by the guard that does not hold, and what `out_error` adds is the message for a human |

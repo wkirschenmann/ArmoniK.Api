@@ -324,18 +324,18 @@ reading the transport source code.
    against its ceiling (`ak_runtime_memory_usage`). These two are the whole of what the ABI
    offers for observation; logs and traces are T10.1's.
 
-**Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today, but for
-1's unknown option, which the engine refuses until T6.14 logs and ignores it. Every
-fallible entry point reports a family and a message through `out_error`. The .NET binding puts the
-message into its exceptions for channel and runtime creation, call start, runtime destruction and
-the half-close; the lend and the commit name their own constant refusals. A refused document or
-endpoint is refused by `ak_channel_create` with `AK_ERROR_CONFIG` and a message naming the key,
-read through the ABI and from .NET; a certificate that is not there is T4.1's, which reads
-certificates. No message carries a source location or the credentials an endpoint may hold. 2 and
-the network half of 5 are T4.1's too: the engine connects after a call has started, so a
-connection failure is not a refusal but the call's terminal status, UNAVAILABLE with the dial's
-message, and `AK_ERROR_CONNECTION`, `AK_ERROR_TRANSPORT` and `AK_ERROR_TIMEOUT` are defined with
-nothing producing them yet.
+**Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today. 1's unknown
+option is ignored and logged through `tracing` since T6.14, the log reaching a host with T10.1.
+Every fallible entry point reports a family and a message through `out_error`. The .NET binding puts
+the message into its exceptions for channel and runtime creation, call start, runtime destruction
+and the half-close; the lend and the commit name their own constant refusals. A refused document or
+endpoint is refused by `ak_channel_create` with `AK_ERROR_CONFIG` and a message naming the key, read
+through the ABI and from .NET; a certificate that is not there is T4.1's, which reads certificates.
+No message carries a source location or the credentials an endpoint may hold. 2 and the network half
+of 5 are T4.1's too: the engine connects after a call has started, so a connection failure is not a
+refusal but the call's terminal status, UNAVAILABLE with the dial's message, and
+`AK_ERROR_CONNECTION`, `AK_ERROR_TRANSPORT` and `AK_ERROR_TIMEOUT` are defined with nothing
+producing them yet.
 
 ---
 

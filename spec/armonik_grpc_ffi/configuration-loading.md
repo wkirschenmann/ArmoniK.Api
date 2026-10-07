@@ -1,17 +1,15 @@
 # Configuration loading: one loader, every host
 
-Status: decided on 2026-10-06, its shape confirmed and its open points settled on 2026-10-07, to
-be built by T6.14.
+Status: decided on 2026-10-06, its shape confirmed and its open points settled on 2026-10-07, and
+built by T6.14 on 2026-10-07.
 
 ## Why
 
-A host reaches the engine through the C ABI, and today each host builds the engine's options
-itself: .NET binds an `IConfiguration` section through the generated `ChannelOptions.Bind`, then
-hands the engine a JSON document; the Rust `armonik` crate reads its own `GrpcClient__*`
-environment variables through `ClientConfig::from_env` (`armonik-transport/src/config.rs`), a
-vocabulary T3.5 found to share no name with the engine's. A third host - Python, Java, C++ -
-would write a third loader, and three loaders are three readings of what an environment variable
-or a file means.
+A host reaches the engine through the C ABI. Were each host to build the engine's options itself -
+.NET binding an `IConfiguration` section, the Rust `armonik` crate reading `GrpcClient__*`
+environment variables in a vocabulary T3.5 found to share no name with the engine's - a third
+host, Python, Java or C++, would write a third loader, and three loaders are three readings of
+what an environment variable or a file means.
 
 The aim: the configuration crosses the ABI as a C structure that says where it comes from - which
 may be "this JSON document" - and the engine's Rust loads it, from the environment or from a file as
@@ -22,11 +20,13 @@ well as from JSON, so every host language gets the same result from the same sou
 - `ak_runtime_config` (`armonik_transport_ffi.h`) is a versioned C structure - `struct_size`,
   `version`, `flags`, `reserved` - with the memory ceilings and `channel_defaults_json`, a channel
   document every channel of the runtime takes where its own states nothing.
-- `ak_channel_create(runtime, endpoint, config_json, ...)` takes the channel's own document.
+- `ak_runtime_create_from` takes an `ak_config`, the sources the engine loads the runtime's document
+  from.
+- `ak_channel_create(runtime, endpoint, config_json, ...)` takes the channel's own document, and an
+  empty endpoint as the runtime's `Endpoint`.
 - The vocabulary is `options.schema.json` (channel) and `runtime.schema.json` (runtime), rendered
   from the Rust types; .NET's `ChannelOptions.g.cs` and `RuntimeOptions.g.cs` are generated from
-  them. Today an unknown key is refused with its path, never ignored, which T6.14 changes; a
-  value is never quoted back.
+  them. An unknown key is ignored and logged with its path; a value is never quoted back.
 - Two documents merge by `ChannelOptions::over`: a struct field by field, an alternative (an
   enum: TLS verification, client identity, proxy, receive windows) whole when the two state
   different ones.
@@ -39,11 +39,11 @@ well as from JSON, so every host language gets the same result from the same sou
   then its own values.
 - **File formats**: JSON, YAML and TOML.
 - **Environment**: `__` as the separator, as .NET's; the prefix is the host's to choose, `GrpcClient`
-  by default - the section name `ArmoniK.Api.Client`'s `GrpcClient.SettingSection` gives today.
+  by default - the section name `ArmoniK.Api.Client`'s `GrpcClient.SettingSection` gives.
   Read once, when the runtime is created, and only if the host lists it among the sources.
-- **No aliases**: the keys under the prefix are the schema's. The `GrpcClient` names the Rust and
-  .NET clients read today migrate, a channel's option under `ChannelDefaults`, the endpoint as
-  `Endpoint`; none is mapped.
+- **No aliases**: the keys under the prefix are the schema's. The engine maps none of the names
+  `ArmoniK.Api.Client` reads under `GrpcClient`: a channel's option is under `ChannelDefaults`, the
+  endpoint is `Endpoint`.
 - **.NET stops binding these options from `IConfiguration`**: the engine's loader reads the files
   and the environment; the host passes only what it states itself. `NativeRuntime.Create(IConfiguration,
   key)` and the `RustGrpcRuntime` section it reads by default go: the runtime's options move under
@@ -119,7 +119,7 @@ them, the channel options every channel takes by default among them, under `Chan
 ```
 
 A channel loads no source. The runtime loads them when it is created, and only then: a channel
-created later states its own options as a document, merged over these defaults as today. A host
+created later states its own options as a document, merged over these defaults. A host
 with no runtime, the `armonik` crate's client, loads the same document from the same sources when
 it is created, and takes its `Endpoint` and its `ChannelDefaults` as its channel's, so that one
 file or one environment configures every host alike; a document with no `Endpoint` it refuses, as
@@ -139,8 +139,8 @@ file or one environment configures every host alike; a document with no `Endpoin
   without case: `GrpcClient__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is
   text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
   variable of the process would be a key, and the log would name every one of them, so an
-  environment source with no prefix is refused. The schema holds no list today; one that comes
-  takes an element by its index, `__0`, as .NET's providers render one.
+  environment source with no prefix is refused. The schema holds no list; a list would
+  take an element by its index, `__0`, as .NET's providers render one.
 - **Pairs**: a JSON object whose names are keys' paths, their parts joined by `__`, under no
   prefix, and whose values are text, read as the environment's values are, by the schema's type
   for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection": "4"}`. It is what a
@@ -150,7 +150,7 @@ file or one environment configures every host alike; a document with no `Endpoin
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
-documents today.
+documents.
 
 ### Refusals
 
@@ -180,13 +180,14 @@ read.
 The loader lives in `armonik-transport` and is generic over the document it reads: each source is
 read into that document's type, the keys it does not declare logged and left out, and the documents
 merge by the type's own `over`. The keys left out are those serde passes over, each with its path,
-as `serde_ignored` reports them; an alternative reads a variant it does not know as none, which the
-types' own deserialization has to allow. The document is `RuntimeOptions`, which moves to
+which the loader's deserializer records as it skips them; an alternative reads a variant it does not
+know as none, which the types' own deserialization allows. A configuration with no source, or none
+that contributes, loads the document's default. The document is `RuntimeOptions`, in
 `armonik-transport` with its schema: the FFI and the `armonik` crate read the same one.
 
 ```rust
 /// A document a configuration can be read into, merged one over another.
-pub trait Document: serde::de::DeserializeOwned {
+pub trait Document: serde::de::DeserializeOwned + Default {
     fn over(self, earlier: Self) -> Self;
 }
 
@@ -202,6 +203,8 @@ impl Configuration {
     pub fn optional_file(self, path: impl Into<PathBuf>) -> Self;
     pub fn environment(self) -> Self;
     pub fn pairs(self, pairs: impl IntoIterator<Item = (String, String)>) -> Self;
+    /// Pairs as a JSON object of text values, which `AK_SOURCE_PAIRS` carries.
+    pub fn pairs_json(self, json: impl Into<String>) -> Self;
     pub fn document(self, json: impl Into<String>) -> Self;
 
     /// Reads the sources, in order, into one document, each key it does not declare logged.
@@ -253,7 +256,7 @@ ak_status ak_runtime_create_from(const ak_config *config,
 one document, and takes the same callback and context, the channel through which every event of the
 runtime reaches the host. `ak_channel_create` takes an empty endpoint as the runtime's `Endpoint`,
 and refuses one when the runtime has none. A refusal comes back through `ak_error`, as an option's
-does today, its detail naming the source and the path.
+does, its detail naming the source and the path.
 
 ### .NET
 
@@ -269,9 +272,16 @@ await using var runtime = NativeRuntime.Create(configuration);
 The prefix is `GrpcClient` unless the constructor is given one; `""` is none, which the binding
 passes as `AK_CONFIG_NO_PREFIX`. `LoadConfigFromFiles` and `LoadConfigFromEnvironment` add a source
 the engine reads, and what the engine refuses in one surfaces at `NativeRuntime.Create`.
-`LoadConfigFromCommandLine` parses the arguments with an `IConfiguration` holding the command-line
-provider alone and adds the section under the prefix - the whole tree with none - as pairs, each
-key's path joined by `__` and its value as text, so that the engine logs an unknown key and types a
-value as it does the environment's; `LoadConfigFromObject` serializes its object as a document,
-writing only the options set, so that a default does not override an earlier source. No
+`LoadConfigFromOptionalFiles` adds files the host marks optional, which contribute nothing when they
+do not exist. `LoadConfigFromCommandLine` parses the arguments with an `IConfiguration` holding the
+command-line provider alone and adds the section under the prefix - the whole tree with none - as
+pairs, each key's path joined by `__` and its value as text, so that the engine logs an unknown key
+and types a value as it does the environment's; `LoadConfigFromObject` serializes its object as a
+document, writing only the options set, so that a default does not override an earlier source. No
 `IConfiguration` is taken or returned.
+
+A runtime created from a `NativeConfiguration` gives its channels no delivery window the binding can
+see: the engine reads every source, an object's document included, and a channel sizes its rings
+from the window it sends, its own options' or `DefaultDeliveryCredits`. A `ChannelDefaults` window
+stated in any of them therefore reaches no channel of the .NET binding; only
+`NativeRuntime.Create(RuntimeOptions)` gives the binding its defaults.

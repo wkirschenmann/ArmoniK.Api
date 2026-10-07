@@ -69,19 +69,26 @@ The schema is the source of truth for:
 - Rust-side validation at channel creation
 
 The runtime's options have a schema of their own, `runtime.schema.json`, generated from
-`armonik-transport-ffi`'s `options::RuntimeOptions` under its `schema` feature. It names the fields
-of `ak_runtime_config` a host reads from its configuration - the .NET binding from the section
-`RustGrpcRuntime` - and `RuntimeOptions.g.cs` is generated from it without an encoding, since
-`ak_runtime_create` takes the fields and no document. One field is a document: `ChannelDefaults`, a
-channel document every channel of the runtime is merged over, option by option and the channel's
-winning, which `ak_runtime_config` carries as `channel_defaults_json`. A struct merges field by
-field; an alternative - how the server is verified, who the client is, which proxy - is an enum,
-whose fields merge the same way over the same alternative, and which is taken whole over another, so
-no merge combines two alternatives into one neither stated. Options that only bound one another,
-such as the two backoff bounds, merge as any option, and a merge where they disagree is refused as a
-document stating both would be. Its schema is the channel's, so the generator renders
-`RuntimeOptions.g.cs` with `--reuse` of the channel schema and refers to the classes
-`ChannelOptions.g.cs` declares.
+`armonik-transport`'s `options::RuntimeOptions` under its `schema` feature: `Endpoint`, the server a
+channel created with an empty endpoint reaches, the two memory ceilings, and `ChannelDefaults`. It
+is the document `ak_runtime_create_from` loads from the sources an `ak_config` lists - files, the
+environment, pairs and documents, a later one over an earlier one (configuration-loading.md) - and
+the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
+as the fields of `ak_runtime_config`, the case of one document with no endpoint, and its zero
+ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
+from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
+declares is ignored rather than refused, in every source and in a channel's own document, and logged
+by the engine through `tracing`, which reaches no host before T10.1.
+
+`ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
+option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`. A
+struct merges field by field; an alternative - how the server is verified, who the client is, which
+proxy - is an enum, whose fields merge the same way over the same alternative, and which is taken
+whole over another, so no merge combines two alternatives into one neither stated. Options that only
+bound one another, such as the two backoff bounds, merge as any option, and a merge where they
+disagree is refused as a document stating both would be. Its schema is the channel's, so the
+generator renders `RuntimeOptions.g.cs` with `--reuse` of the channel schema and refers to the
+classes `ChannelOptions.g.cs` declares.
 
 Note: `RetryConfig` appears both in `GrpcChannelConfig` (channel default) and, post-V1, as a
 per-call override. Only the type is shared with the schema; the per-call override travels as
@@ -144,7 +151,8 @@ credit.
 
 A record the host fills - `ak_runtime_config`, `ak_call_start_options` - starts with
 `struct_size`, `version`, `flags` and `reserved`, which is what requirement 13.5 asks of a record
-that evolves.
+that evolves. `ak_config` starts with the first three, and its `source_count` in place of
+`reserved`.
 
 The size is a minimum. A record longer than this library's definition is read up to that
 definition's end and the rest ignored, so a field appended to a record serves a newer host on an
