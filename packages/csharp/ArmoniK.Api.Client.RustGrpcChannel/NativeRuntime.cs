@@ -18,10 +18,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
-using Microsoft.Extensions.Configuration;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Calls;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
@@ -129,9 +128,6 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// </remarks>
   public const int DefaultDeliveryCredits = 4;
 
-  /// <summary>The section a channel's options are read from when a caller names none.</summary>
-  public const string SettingSection = "RustGrpcChannel";
-
   /// <summary>Starts the engine, which the caller owns until it disposes it.</summary>
   /// <param name="memoryCeiling">
   ///   The bytes of messages, sent and received, it holds before work waits: a call stops reading
@@ -172,32 +168,88 @@ public sealed class NativeRuntime : IAsyncDisposable
                              });
   }
 
-  /// <summary>Starts the engine from one document of its options.</summary>
-  /// <param name="document">The options, as the engine reads them.</param>
-  /// <param name="channelDefaults">The channel defaults the document states.</param>
-  private static unsafe NativeRuntime Create(byte[]          document,
-                                             ChannelOptions? channelDefaults)
+  /// <summary>Starts the engine with the options its configuration's sources state, read by the engine now.</summary>
+  /// <param name="configuration">Where the options are read from, in order.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
+  /// <exception cref="InvalidOperationException">
+  ///   A source is refused - a file that does not exist or does not parse, a value that does not
+  ///   fit its key, the environment with no prefix - the message naming the source and the key's
+  ///   path, or the engine refused as <see cref="Create(ulong,ulong)" /> does.
+  /// </exception>
+  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <remarks>
+  ///   The sources are read by the engine, so a channel's delivery window is never one they state:
+  ///   a channel sizes its rings from the window it sends, its own options' or
+  ///   <see cref="DefaultDeliveryCredits" />.
+  /// </remarks>
+  public static NativeRuntime Create(NativeConfiguration configuration)
+  {
+    if (configuration is null)
+    {
+      throw new ArgumentNullException(nameof(configuration));
+    }
+
+    return Create(configuration.Prefix,
+                  configuration.Sources,
+                  null);
+  }
+
+  /// <summary>Starts the engine from the sources it reads, in order, under <paramref name="prefix" />.</summary>
+  /// <param name="prefix">The sources' prefix, empty for none.</param>
+  /// <param name="sources">Each source's kind and value.</param>
+  /// <param name="channelDefaults">The channel defaults the sources state, when the caller knows them.</param>
+  private static unsafe NativeRuntime Create(string                                             prefix,
+                                             IReadOnlyList<(ak_source_kind Kind, byte[] Value)> sources,
+                                             ChannelOptions?                                    channelDefaults)
   {
     RefuseAnotherAbi();
+
+    // One array for the prefix and every source's value, so that one pin covers them all.
+    var named  = Encoding.UTF8.GetBytes(prefix);
+    var values = new byte[named.Length + sources.Sum(source => source.Value.Length)];
+    var starts = new int[sources.Count];
+    named.CopyTo(values,
+                 0);
+    var at = named.Length;
+    for (var index = 0; index < sources.Count; index++)
+    {
+      starts[index] = at;
+      sources[index]
+        .Value.CopyTo(values,
+                      at);
+      at += sources[index].Value.Length;
+    }
+
+    var listed = new ak_config_source[sources.Count];
 
     return new NativeRuntime(channelDefaults,
                              (context,
                               created,
                               error) =>
                              {
-                               fixed (byte* pinned = document)
+                               fixed (byte* pinned = values)
+                               fixed (ak_config_source* first = listed)
                                {
-                                 var source = new ak_config_source
-                                              {
-                                                kind = (uint)ak_source_kind.AK_SOURCE_DOCUMENT,
-                                                value = ak_bytes_in.Borrow(pinned,
-                                                                           document.Length),
-                                              };
+                                 for (var index = 0; index < listed.Length; index++)
+                                 {
+                                   listed[index] = new ak_config_source
+                                                   {
+                                                     kind = (uint)sources[index].Kind,
+                                                     value = ak_bytes_in.Borrow(pinned + starts[index],
+                                                                                sources[index].Value.Length),
+                                                   };
+                                 }
+
                                  var config = new ak_config
                                               {
-                                                struct_size  = (uint)Marshal.SizeOf<ak_config>(),
-                                                source_count = 1,
-                                                sources      = &source,
+                                                struct_size = (uint)Marshal.SizeOf<ak_config>(),
+                                                flags = named.Length == 0
+                                                          ? NativeMethods.AK_CONFIG_NO_PREFIX
+                                                          : 0,
+                                                source_count = (uint)listed.Length,
+                                                sources      = first,
+                                                prefix = ak_bytes_in.Borrow(pinned,
+                                                                            named.Length),
                                               };
                                  return NativeMethods.ak_runtime_create_from(&config,
                                                                              TrampolineFrom,
@@ -227,47 +279,6 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
   }
 
-  /// <summary>The section a runtime's options are read from when a caller names none.</summary>
-  public const string RuntimeSettingSection = "RustGrpcRuntime";
-
-  /// <summary>Starts the engine with the options a configuration carries.</summary>
-  /// <param name="configuration">What the options are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="ArgumentOutOfRangeException">An option in the section is outside its stated bounds.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, the section holds a key no option matches, or the
-  ///   engine refused as <see cref="Create(ulong,ulong)" /> does.
-  /// </exception>
-  /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
-  public static NativeRuntime Create(IConfiguration configuration,
-                                     string         key = RuntimeSettingSection)
-    => Create(RuntimeOptionsFrom(configuration,
-                                 key));
-
-  /// <summary>The runtime options a configuration's section carries, bound strictly.</summary>
-  /// <param name="configuration">What they are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  public static RuntimeOptions RuntimeOptionsFrom(IConfiguration configuration,
-                                                  string         key = RuntimeSettingSection)
-  {
-    if (configuration is null)
-    {
-      throw new ArgumentNullException(nameof(configuration));
-    }
-
-    var section = configuration.GetRequiredSection(key);
-
-    return section.GetChildren()
-                  .Any()
-             ? RuntimeOptions.Bind(section)
-             : throw new InvalidOperationException($"{key} carries no options");
-  }
-
   /// <summary>Starts the engine with the options given, each one left out taking its default.</summary>
   /// <param name="options">What the engine is started with.</param>
   /// <exception cref="ArgumentNullException"><paramref name="options" /> is null.</exception>
@@ -283,59 +294,10 @@ public sealed class NativeRuntime : IAsyncDisposable
 
     RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window);
 
-    return Create(options.Encode(),
+    var configuration = new NativeConfiguration().LoadConfigFromObject(options);
+    return Create(configuration.Prefix,
+                  configuration.Sources,
                   options.ChannelDefaults);
-  }
-
-  /// <summary>Opens a channel with the options a configuration carries.</summary>
-  /// <param name="endpoint">Where the channel connects, as the engine's own argument.</param>
-  /// <param name="configuration">What the options are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside what is admitted.</exception>
-  /// <remarks>
-  ///   Required rather than optional: a caller who names a section meant to configure this, and a
-  ///   misspelled name that quietly gave the engine's defaults would be a channel nobody
-  ///   configured. <see cref="Channel(string)" /> is how to ask for the defaults.
-  ///
-  ///   The same argument one level down is what binds the section strictly: a key dropped here
-  ///   would answer a misspelling with a working channel, and nothing would say so.
-  /// </remarks>
-  public NativeChannel Channel(string endpoint,
-                               IConfiguration configuration,
-                               string key = SettingSection)
-  {
-    return Channel(endpoint,
-                   OptionsFrom(configuration,
-                               key));
-  }
-
-  /// <summary>The options a configuration's section carries, bound strictly.</summary>
-  /// <param name="configuration">What they are read from.</param>
-  /// <param name="key">The section holding them.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
-  /// <exception cref="InvalidOperationException">
-  ///   <paramref name="key" /> names no section, or the section holds a key no option matches.
-  /// </exception>
-  /// <remarks>Its own method because reading a document reaches nothing native: a caller may
-  /// check what a configuration says without an engine, and a test may too.</remarks>
-  public static ChannelOptions OptionsFrom(IConfiguration configuration,
-                                           string key = SettingSection)
-  {
-    if (configuration is null)
-    {
-      throw new ArgumentNullException(nameof(configuration));
-    }
-
-    var section = configuration.GetRequiredSection(key);
-
-    return section.GetChildren()
-                  .Any()
-             ? ChannelOptions.Bind(section)
-             : throw new InvalidOperationException($"{key} carries no options");
   }
 
   /// <summary>Opens a channel with the runtime's channel defaults, and the engine's elsewhere.</summary>

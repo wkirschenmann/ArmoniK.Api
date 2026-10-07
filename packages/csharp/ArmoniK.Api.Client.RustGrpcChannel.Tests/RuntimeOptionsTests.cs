@@ -15,25 +15,18 @@
 // limitations under the License.
 
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
-
-using Microsoft.Extensions.Configuration;
 
 using NUnit.Framework;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
-/// <summary>The runtime's options, read from a configuration as a channel's are.</summary>
+/// <summary>A runtime started with options: its ceilings, and the channel defaults its channels take.</summary>
 [TestFixture]
 public class RuntimeOptionsTests : RuntimeFixture
 {
-  private static IConfiguration Configuration(Dictionary<string, string?> values)
-    => new ConfigurationBuilder().AddInMemoryCollection(values)
-                                 .Build();
-
   // A delivery window, where the vocabulary nests it.
   private static GrpcOptions Credits(int credits)
     => new()
@@ -46,47 +39,6 @@ public class RuntimeOptionsTests : RuntimeFixture
                             },
                 },
        };
-
-  [Test]
-  public void ASectionCarriesEveryRuntimeOption()
-  {
-    var options = NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
-                                                                 {
-                                                                   ["RustGrpcRuntime:MemoryCeiling"]     = "65536",
-                                                                   ["RustGrpcRuntime:MemoryHardCeiling"] = "131072",
-                                                                 }));
-
-    Assert.Multiple(() =>
-                    {
-                      Assert.That(options.MemoryCeiling,
-                                  Is.EqualTo(65536));
-                      Assert.That(options.MemoryHardCeiling,
-                                  Is.EqualTo(131072));
-                    });
-  }
-
-  /// <summary>Every channel option can be a runtime's default, read under its own section.</summary>
-  [Test]
-  public void ASectionCarriesTheChannelDefaults()
-  {
-    var options = NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
-                                                                 {
-                                                                   ["RustGrpcRuntime:ChannelDefaults:Grpc:Host:Receive:Window"] = "2",
-                                                                   ["RustGrpcRuntime:ChannelDefaults:Http2:KeepAliveWhileIdle"] = "true",
-                                                                   ["RustGrpcRuntime:ChannelDefaults:Transport:Proxy:None"]     = "true",
-                                                                 }));
-
-    Assert.Multiple(() =>
-                    {
-                      Assert.That(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window,
-                                  Is.EqualTo(2));
-                      Assert.That(options.ChannelDefaults?.Http2?.KeepAliveWhileIdle,
-                                  Is.True);
-                      Assert.That(options.ChannelDefaults?.Transport?.Proxy,
-                                  Is.EqualTo(new ProxyOptions.None()),
-                                  "an alternative is named by its key there too");
-                    });
-  }
 
   /// <summary>A channel takes the runtime's delivery window where its options name none, and its
   /// own where they do: the ring this side sizes is the window the engine grants.</summary>
@@ -179,29 +131,15 @@ public class RuntimeOptionsTests : RuntimeFixture
                    Throws.InstanceOf<InvalidOperationException>()
                          .With.Message.Contains("ChannelDefaults: Transport.Tls.Server.CaPem"));
 
-  /// <summary>Refused as a channel's misspelling is: a runtime nobody configured would start with
-  /// the engine's defaults and say nothing.</summary>
-  [Test]
-  public void AKeyNoRuntimeOptionMatchesIsRefused()
-  {
-    var refused = Assert.Throws<InvalidOperationException>(() => NativeRuntime.RuntimeOptionsFrom(Configuration(new Dictionary<string, string?>
-                                                                                                                {
-                                                                                                                  ["RustGrpcRuntime:MemoryCeil"] = "65536",
-                                                                                                                })));
-
-    Assert.That(refused?.Message,
-                Does.Contain("MemoryCeil"));
-  }
-
-  /// <summary>The engine runs with what the section says, read back from its own accounting.</summary>
+  /// <summary>The engine runs with what its configuration says, read back from its own accounting.</summary>
   [Test]
   public async Task ARuntimeStartedFromAConfigurationEnforcesItsCeiling()
   {
-    var configuration = Configuration(new Dictionary<string, string?>
-                                      {
-                                        ["RustGrpcRuntime:MemoryCeiling"]     = "65536",
-                                        ["RustGrpcRuntime:MemoryHardCeiling"] = "131072",
-                                      });
+    var configuration = new NativeConfiguration().LoadConfigFromCommandLine(new[]
+                                                                            {
+                                                                              "--GrpcClient:MemoryCeiling=65536",
+                                                                              "--GrpcClient:MemoryHardCeiling=131072",
+                                                                            });
 
     var runtime = await RestartAsync(() => NativeRuntime.Create(configuration))
                     .ConfigureAwait(false);

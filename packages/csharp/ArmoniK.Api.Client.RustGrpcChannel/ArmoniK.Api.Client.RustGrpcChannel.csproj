@@ -29,6 +29,9 @@
 
   <ItemGroup>
     <PackageReference Include="Grpc.Core.Api" Version="2.71.0" />
+    <!-- LoadConfigFromCommandLine parses a command line in .NET's syntaxes, with this provider
+         alone, and hands the engine what it read. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
