@@ -68,7 +68,7 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   Override the endpoint name during SSL verification. This option is only used when AllowUnsafeConnection is true and
-    ///   only when the runtime is .NET Framework.
+    ///   only when the runtime is .NET Framework; the native transport applies it whenever it is set.
     ///   Automatic target name by default. Should be overriden by the right name to reduce performance cost.
     /// </summary>
     public string OverrideTargetName { get; set; } = "";
@@ -120,6 +120,16 @@ namespace ArmoniK.Api.Client.Options
     ///   Timeout for grpc requests. Defaults to no timeout.
     /// </summary>
     public TimeSpan RequestTimeout { get; set; } = Timeout.InfiniteTimeSpan;
+
+    /// <summary>
+    ///   Which transport carries the calls: `Managed`, grpc-dotnet (the default), or `Native`, the
+    ///   Rust engine. Only GrpcChannelFactory.CreateChannelBase honours it.
+    ///   With `Native`, the other options of the engine are read from the environment under
+    ///   `ArmoniK__Client__Grpc__` and from the command line, and the options below are read when they
+    ///   are not at their defaults, except `HttpMessageHandler` and `ReusePorts`; see
+    ///   NativeChannelFactory.
+    /// </summary>
+    public ClientTransport Transport { get; set; } = ClientTransport.Managed;
 
     /// <summary>
     ///   Which HttpMessageHandler to use.

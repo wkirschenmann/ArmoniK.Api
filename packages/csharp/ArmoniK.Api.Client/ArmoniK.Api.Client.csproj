@@ -41,6 +41,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ArmoniK.Api.Common\ArmoniK.Api.Common.csproj" />
+    <!-- The native transport a GrpcClient may choose; its engine is built with it. -->
+    <ProjectReference Include="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -58,8 +58,8 @@ The runtime is an object its caller creates and disposes; channels are made from
 by its disposal; each call publishes its events into a ring its reader drains.
 
 **Layer 5** is the existing client. It takes the `CallInvoker` its caller chooses, so the native
-channel reaches it without a selector inside it; T6.8 adds one, chosen by the client's own
-`GrpcClient` configuration.
+channel reaches it without a selector inside it; T6.8's selector is inside it, chosen by the
+client's own `GrpcClient` configuration.
 
 The package multi-targets `netstandard2.0`, `net8.0` and `net10.0`, and `net11.0` when an SDK 11
 builds it. Behavior is identical on all of them, which is the point of objective 2; the .NET
