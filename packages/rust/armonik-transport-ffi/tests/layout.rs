@@ -428,6 +428,13 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     let _: unsafe extern "C" fn(ak_handle, ak_buffer, usize, *mut ak_error) -> ak_status =
         ak_call_send_message;
     let _: unsafe extern "C" fn(ak_buffer) = ak_return_call_buffer;
+    let _: unsafe extern "C" fn(
+        ak_buffer,
+        usize,
+        usize,
+        *mut ak_buffer,
+        *mut ak_error,
+    ) -> ak_status = ak_resize_call_buffer;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_call_end_send;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_call_cancel;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_call_debt, *mut ak_error) -> ak_status =
@@ -462,6 +469,7 @@ fn every_entry_point_the_header_declares_is_exported() {
         ("ak_get_call_buffer", ak_get_call_buffer as *const ()),
         ("ak_call_send_message", ak_call_send_message as *const ()),
         ("ak_return_call_buffer", ak_return_call_buffer as *const ()),
+        ("ak_resize_call_buffer", ak_resize_call_buffer as *const ()),
         ("ak_call_end_send", ak_call_end_send as *const ()),
         ("ak_call_cancel", ak_call_cancel as *const ()),
         ("ak_call_debt_of", ak_call_debt_of as *const ()),
@@ -558,6 +566,10 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
             &["ak_handle", "ak_buffer", "size_t", "ak_error *"],
         ),
         ("ak_return_call_buffer", &["ak_buffer"]),
+        (
+            "ak_resize_call_buffer",
+            &["ak_buffer", "size_t", "size_t", "ak_buffer *", "ak_error *"],
+        ),
         ("ak_call_end_send", &["ak_handle", "ak_error *"]),
         ("ak_call_cancel", &["ak_handle", "ak_error *"]),
         (

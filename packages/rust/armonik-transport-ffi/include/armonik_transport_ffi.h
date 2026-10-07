@@ -12,7 +12,8 @@
  *     faulting - and so does one on an object of another kind.
  *   - Memory crosses in one direction at a time. What the library hands over, the host gives
  *     back exactly once - a payload through ak_event_consumed, a lent buffer through
- *     ak_call_send_message or ak_return_call_buffer - and the runtime cannot finish until it has.
+ *     ak_call_send_message or ak_return_call_buffer, the one ak_resize_call_buffer replaces it
+ *     by included - and the runtime cannot finish until it has.
  *     Exactly once is the host's to keep: unlike a handle, the owner in ak_bytes and ak_buffer is
  *     a pointer, so giving one back twice reads memory this library has freed. Undefined
  *     behaviour, not a refusal - there is nothing left to refuse with.
@@ -118,7 +119,8 @@ enum ak_status
     /**
      * The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
      * Until the send is served or the call ends, reads are held back for it across the whole
-     * runtime, so a host woken must try again or cancel the call.
+     * runtime, so a host woken must try again or cancel the call. A refused ak_resize_call_buffer
+     * is none of this: it records no wait, and a host that waits lends again.
      */
     AK_STATUS_BUDGET_BUSY = 5,
     /**
@@ -132,9 +134,9 @@ enum ak_status
      */
     AK_STATUS_MESSAGE_TOO_LARGE = 7,
     /**
-     * The host wrote past a buffer it was lent, or committed more bytes than it was lent. The
-     * memory around the buffer may be corrupted: the buffer is taken back without being freed,
-     * and the runtime shuts down. Permanent.
+     * The host wrote past a buffer it was lent, or committed or kept more bytes than it was
+     * lent. The memory around the buffer may be corrupted: the buffer is taken back without
+     * being freed, and the runtime shuts down. Permanent.
      */
     AK_STATUS_CORRUPTED = 8,
 };
@@ -566,9 +568,10 @@ typedef struct {
 /**
  * Lent by ak_get_call_buffer out of the call's arena. The host writes at most len bytes from its
  * start and gives it back exactly once, by ak_call_send_message, which says how many it wrote,
- * or ak_return_call_buffer. This library never reclaims a lent buffer on its own - not on
- * cancellation, not on channel close - which is what removes the race between a writing thread
- * and a cancelling one.
+ * or ak_return_call_buffer. ak_resize_call_buffer exchanges it for another and does not end the
+ * obligation: the one it hands back is the host's to give back in its turn. This library never
+ * reclaims a lent buffer on its own - not on cancellation, not on channel close - which is what
+ * removes the race between a writing thread and a cancelling one.
  */
 typedef struct {
     uint8_t *ptr;
@@ -836,6 +839,45 @@ ak_status ak_call_send_message(ak_handle call,
  * `buffer` must be one this call lent and the host has not given back.
  */
 void ak_return_call_buffer(ak_buffer buffer);
+
+/**
+ * Exchanges a lent buffer for one of `new_len` bytes, larger or smaller, carrying over the first
+ * `keep` bytes the host wrote: a host that finds its buffer too small asks for another size
+ * without giving the message up. It is a lend of the new length and a return of the old one, and
+ * the ceiling sees one step: the charge moves by the difference, and a growth is admitted as a
+ * lend of that difference would be. The ceiling counts the charge, not the instant: the old
+ * arena is still allocated while the bytes are copied.
+ *
+ * On success `*out` is the new buffer, whose first `keep` bytes are the old one's and whose
+ * others are as a lend leaves them. The host gives back `*out`, in its turn, and never `buffer`:
+ * the old memory may be reused at once. The host's one buffer and its slot of the send window
+ * are the new buffer's.
+ *
+ * On every refusal but AK_STATUS_CORRUPTED the old buffer is still lent and the host's, as it
+ * was, and `*out` is untouched. AK_STATUS_BUDGET_BUSY says the ceiling has no room for the new
+ * size now: it records no wait and owes no AK_EVENT_BUDGET_WAKE, and a host that waits for room
+ * gives the buffer back and lends the new length, as one that waits holds none.
+ * AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
+ * requested, resizes nothing: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
+ * `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
+ * allocator failure is AK_STATUS_INTERNAL.
+ *
+ * A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
+ * after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back
+ * without being freed, nothing carried over, and the runtime shutting down.
+ *
+ * # Safety
+ *
+ * `buffer` must be one this call lent and the host has not given back, and the host must have
+ * written its first `keep` bytes: they are carried over as they are.
+ * `out` must be writable.
+ * `out_error` must be null or writable for an `ak_error`.
+ */
+ak_status ak_resize_call_buffer(ak_buffer buffer,
+                                size_t new_len,
+                                size_t keep,
+                                ak_buffer *out,
+                                ak_error *out_error);
 
 /**
  * Signals end of sending. No ak_call_send_message after this: a send that comes after the end,

@@ -233,6 +233,26 @@ pub fn lend(call: ak_handle, len: usize) -> (ak_status, ak_buffer) {
     (status, buffer)
 }
 
+/// What `ak_resize_call_buffer` answers, and the buffer it hands back: on a refusal, the one that
+/// was passed in the first place, since `*out` is left as it was found.
+pub fn resize(buffer: ak_buffer, new_len: usize, keep: usize) -> (ak_status, ak_buffer) {
+    let mut out = ak_buffer {
+        ptr: std::ptr::null_mut(),
+        len: usize::MAX,
+        owner: std::ptr::null_mut(),
+    };
+    let status =
+        unsafe { ak_resize_call_buffer(buffer, new_len, keep, &mut out, std::ptr::null_mut()) };
+    if status == ak_status::AK_STATUS_OK {
+        return (status, out);
+    }
+    assert!(
+        out.ptr.is_null() && out.owner.is_null() && out.len == usize::MAX,
+        "a refusal leaves *out as it was"
+    );
+    (status, buffer)
+}
+
 /// One message into the call, without ending the sending.
 ///
 /// The lend is what the window refuses, so a caller sending several in a row has to wait for

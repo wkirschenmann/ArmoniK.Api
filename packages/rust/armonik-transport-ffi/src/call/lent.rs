@@ -63,6 +63,38 @@ impl Lent {
         intact(&self.data, self.headroom, self.len)
     }
 
+    /// Moves the lend to `data`, an arena for `len` bytes after the same headroom, charged
+    /// `charged`, with the first `keep` bytes the host wrote carried over. Returns the arena it
+    /// leaves.
+    ///
+    /// `keep` is at most what was lent and what is lent now, and the old arena is intact: both are
+    /// the caller's to have checked, since an arena that was overrun is not read.
+    pub(super) fn move_to(
+        &mut self,
+        mut data: Vec<u8>,
+        len: usize,
+        charged: usize,
+        keep: usize,
+    ) -> Vec<u8> {
+        debug_assert!(keep <= self.len && keep <= len);
+        // SAFETY: each arena reserved `headroom + len` bytes and more, `keep` is within both, and
+        // two allocations do not overlap. The host wrote the `keep` bytes it says it did.
+        unsafe {
+            data.as_mut_ptr()
+                .add(self.headroom)
+                .copy_from_nonoverlapping(Vec::as_ptr(&self.data).add(self.headroom), keep)
+        };
+        self.len = len;
+        self.charged = charged;
+        std::mem::replace(&mut self.data, data)
+    }
+
+    /// The bytes lent to the host: where they start in the arena.
+    pub(super) fn lent_ptr(&mut self) -> *mut u8 {
+        // SAFETY: `arena` reserved `headroom + len` bytes and more.
+        unsafe { self.data.as_mut_ptr().add(self.headroom) }
+    }
+
     /// The call and the bytes it was charged, the arena forgotten rather than freed: past an
     /// overrun, what was overwritten may be the allocator's own record of it.
     #[allow(clippy::boxed_local)]

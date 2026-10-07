@@ -34,7 +34,8 @@ pub enum ak_status {
     AK_STATUS_INTERNAL = 4,
     /// The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
     /// Until the send is served or the call ends, reads are held back for it across the whole
-    /// runtime, so a host woken must try again or cancel the call.
+    /// runtime, so a host woken must try again or cancel the call. A refused ak_resize_call_buffer
+    /// is none of this: it records no wait, and a host that waits lends again.
     AK_STATUS_BUDGET_BUSY = 5,
     /// A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
     /// destroy before quiescence. A guard refused, which is not a fault.
@@ -42,9 +43,9 @@ pub enum ak_status {
     /// The length exceeds the ceiling itself, so no return by anyone will ever make room.
     /// Permanent; do not retry.
     AK_STATUS_MESSAGE_TOO_LARGE = 7,
-    /// The host wrote past a buffer it was lent, or committed more bytes than it was lent. The
-    /// memory around the buffer may be corrupted: the buffer is taken back without being freed,
-    /// and the runtime shuts down. Permanent.
+    /// The host wrote past a buffer it was lent, or committed or kept more bytes than it was
+    /// lent. The memory around the buffer may be corrupted: the buffer is taken back without
+    /// being freed, and the runtime shuts down. Permanent.
     AK_STATUS_CORRUPTED = 8,
 }
 
@@ -205,9 +206,10 @@ impl ak_bytes {
 
 /// Lent by ak_get_call_buffer out of the call's arena. The host writes at most len bytes from its
 /// start and gives it back exactly once, by ak_call_send_message, which says how many it wrote,
-/// or ak_return_call_buffer. This library never reclaims a lent buffer on its own - not on
-/// cancellation, not on channel close - which is what removes the race between a writing thread
-/// and a cancelling one.
+/// or ak_return_call_buffer. ak_resize_call_buffer exchanges it for another and does not end the
+/// obligation: the one it hands back is the host's to give back in its turn. This library never
+/// reclaims a lent buffer on its own - not on cancellation, not on channel close - which is what
+/// removes the race between a writing thread and a cancelling one.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ak_buffer {

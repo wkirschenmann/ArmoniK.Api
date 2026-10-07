@@ -57,8 +57,8 @@ impl Drop for ChannelThreadAlive {
     }
 }
 
-/// Runs `hook` in every lend that has passed its checks, just before the ledger is charged.
-/// `None` removes it.
+/// Runs `hook` in every lend that has passed its checks, just before the ledger is charged, and in
+/// every resize that has its new arena, just before its charge is changed. `None` removes it.
 pub fn before_charge(hook: Option<Hook>) {
     *BEFORE_CHARGE.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
