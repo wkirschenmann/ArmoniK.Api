@@ -640,9 +640,23 @@
           "type": "integer",
           "format": "int32",
           "minimum": 1
+        },
+        "Compression": {
+          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding: one that does not ends the call `UNIMPLEMENTED`,\nand there is no fallback to sending the messages as they are.\n\nDefaults to none, the messages going out as they are.",
+          "$ref": "#/$defs/MessageEncoding"
         }
       },
       "additionalProperties": false
+    },
+    "MessageEncoding": {
+      "description": "How the messages of a call are compressed.",
+      "oneOf": [
+        {
+          "description": "RFC 1952 gzip.",
+          "type": "string",
+          "const": "Gzip"
+        }
+      ]
     },
     "GrpcReceiveOptions": {
       "description": "What a call accepts from the server.",
@@ -653,6 +667,10 @@
           "type": "integer",
           "format": "int32",
           "minimum": 1
+        },
+        "Compression": {
+          "description": "The encoding besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding`. A server may then compress what it sends, and\n`MaxMessageSize` bounds a message once it is decompressed. A message compressed in any other\nencoding ends its call `INTERNAL`.\n\nDefaults to none, only `identity` being accepted.",
+          "$ref": "#/$defs/MessageEncoding"
         }
       },
       "additionalProperties": false

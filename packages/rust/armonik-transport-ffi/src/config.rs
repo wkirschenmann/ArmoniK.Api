@@ -4,7 +4,7 @@ use std::time::Duration;
 use armonik_transport::grpc::{GrpcChannelConfig, RetryConfig};
 use armonik_transport::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use armonik_transport::options::{
-    ChannelOptions, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
 };
 use armonik_transport::reexports::http::Uri;
 
@@ -71,6 +71,8 @@ impl ChannelSettings {
         if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
+        config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
+        config.accept_encoding = grpc.receive.compression.map(MessageEncoding::encoding);
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }
@@ -308,6 +310,7 @@ fn settle(options: ChannelOptions) -> Result<ChannelSettings, ConfigRefusal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use armonik_transport::grpc::Encoding;
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
 
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
@@ -732,6 +735,22 @@ mod tests {
             config_of(br#"{"Grpc":{"Send":{"MaxMessageSize":7}}}"#).max_send_message_size,
             Some(7)
         );
+    }
+
+    #[test]
+    fn compression_reaches_the_channel_per_direction() {
+        let none = config_of(b"{}");
+        assert_eq!((none.send_encoding, none.accept_encoding), (None, None));
+
+        let sends = config_of(br#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#);
+        assert_eq!(sends.send_encoding, Some(Encoding::Gzip));
+        assert_eq!(sends.accept_encoding, None);
+
+        let accepts = config_of(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#);
+        assert_eq!(accepts.send_encoding, None);
+        assert_eq!(accepts.accept_encoding, Some(Encoding::Gzip));
+
+        assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Zstd"}}}"#).is_err());
     }
 
     #[test]

@@ -52,13 +52,28 @@ public class EchoService : Echo.EchoBase
       }
     }
 
-    await context.WriteResponseHeadersAsync(new Metadata
-                                            {
-                                              {
-                                                "x-answered", "yes"
-                                              },
-                                            })
+    // What the request stated of its encodings and how many bytes its body held on the wire, and a
+    // reply compressed when the request asks: grpc-dotnet compresses only for a client that
+    // accepts the encoding. The reply's own encoding comes back in a trailer, once it is chosen.
+    http.Response.Headers["x-saw-encoding"]        = http.Request.Headers["grpc-encoding"].ToString();
+    http.Response.Headers["x-saw-accept-encoding"] = http.Request.Headers["grpc-accept-encoding"].ToString();
+    http.Response.Headers["x-saw-content-length"]  = http.Request.ContentLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    var head = new Metadata
+               {
+                 {
+                   "x-answered", "yes"
+                 },
+               };
+    if (http.Request.Headers.ContainsKey("x-compress-response"))
+    {
+      head.Add("grpc-internal-encoding-request",
+               "gzip");
+    }
+
+    await context.WriteResponseHeadersAsync(head)
                  .ConfigureAwait(false);
+    context.ResponseTrailers.Add("x-sent-encoding",
+                                 http.Response.Headers["grpc-encoding"].ToString());
 
     return new EchoReply
            {

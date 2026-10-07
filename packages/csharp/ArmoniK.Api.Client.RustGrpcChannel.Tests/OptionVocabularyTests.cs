@@ -98,6 +98,8 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Host.Send.Window"] = "the send window, which only this ABI has",
                                                                        ["Grpc.Send.MaxMessageSize"] = "grpc-dotnet's MaxSendMessageSize, which GrpcClient does not set",
                                                                        ["Grpc.Receive.MaxMessageSize"] = "grpc-dotnet takes this per method rather than per channel",
+                                                                       ["Grpc.Send.Compression"] = "grpc-dotnet compresses a call whose metadata asks for it, and GrpcClient asks for none",
+                                                                       ["Grpc.Receive.Compression"] = "grpc-dotnet's CompressionProviders, which GrpcClient does not set",
                                                                        ["Grpc.UserAgent"] = "grpc-dotnet writes its own and offers no option",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
