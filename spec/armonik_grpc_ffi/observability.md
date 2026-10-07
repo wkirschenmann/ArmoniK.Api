@@ -84,15 +84,16 @@ silent.
   queue, since they too run on the library's thread; the one whose handle names nothing has no
   logger to reach. The binding takes
   `Microsoft.Extensions.Logging.Abstractions` as a dependency.
-- **Metrics (T10.2) are read on demand, with no callback**: one structure of counters, gauges and
-  cumulative histograms by bucket - calls in flight, dials, retries, resets, GOAWAYs, and the
-  durations a histogram suits, such as a dial's - read per channel by `GrpcChannel::stats()` in
+- **Metrics (T10.2) are read on demand, with no callback**: one structure of counters and gauges -
+  calls in flight, dials, retries, resets, GOAWAYs - read per channel by `GrpcChannel::stats()` in
   Rust and per runtime, over its channels, by `ak_runtime_stats` across the ABI; the memory the
-  runtime holds stays `ak_runtime_memory_usage`'s. The .NET binding exposes the counters and
-  gauges through a `Meter`'s observable instruments, which its collector reads at its own pace,
-  the binding reading `ak_runtime_stats` then, and the histograms as T10.2 settles. A callback
-  would have the engine push at a pace it chose, with a timer of its own, whether anything exports
-  or not. `System.Diagnostics.DiagnosticSource` brings the `Meter` to .NET Framework.
+  runtime holds stays `ak_runtime_memory_usage`'s. Pushing each measurement would cost the engine
+  a crossing per measurement, where a read costs one per collection. The .NET binding exposes them
+  through a `Meter`'s observable instruments, which its collector reads at its own pace, the
+  binding reading `ak_runtime_stats` then. `System.Diagnostics.DiagnosticSource` brings the
+  `Meter` to .NET Framework.
+- **Histograms are set aside**, all of them: which ones, how the engine would build them, and how
+  one would reach a .NET host, whose `Meter` has no observable histogram.
 - **A call's trace context is a field of `ak_call_start_options`** (T10.3), appended after its
   last: `traceparent` and `tracestate` as bytes, empty for an untraced call, so that one entry
   point starts both. It is a field rather than a header the host writes in the call's metadata
@@ -109,8 +110,10 @@ silent.
   level, so a host wanting traces without logs, as an OpenTelemetry pipeline may, registers this
   one alone. A call's logs carry its trace's identifiers, which is what correlates the two. The
   callback keeps the log callback's contract, its lifetime included, and each runtime's dispatcher
-  sends it that runtime's spans alone; a span ended before one is registered is not kept. The .NET
-  binding makes each span a child of the call's `Activity`, from a thread of its own.
+  sends it that runtime's spans alone; a span ended before one is registered is not kept. Which
+  spans are built is configured, and none is built while no trace callback is registered, so that
+  an engine nobody traces spends nothing on its spans. The .NET binding makes each span a child of
+  the call's `Activity`, from a thread of its own.
 
 Out of V1's scope (requirements.md): exporting telemetry from the native side, to an
 OpenTelemetry collector of its own. What is decided here goes to the host's pipeline instead.
@@ -151,12 +154,8 @@ T10.1 settles, in building it:
 - the secret-bearing options, and a test that sets each and finds none of their values in the
   effective configuration's log, so that an option added later as plain text is caught.
 
-T10.2 settles the structure's counters, gauges and histograms, the histograms' buckets, and how a
-histogram reaches the .NET `Meter`, which has no observable histogram - its observable
-instruments are counters and gauges: as one observable counter per bucket, which the host's
-pipeline does not read as a histogram, or as durations the binding records itself, from the
-spans T10.3 brings, once T10.3 is built.
+T10.2 settles the structure's counters and gauges.
 
 T10.3 settles the span record and how a span's start and end cross - one record at its end, or
-one at each - and how sampling is chosen; the trace callback's lifetime follows what T10.1 settles
-for the log callback's.
+one at each - how the spans built are configured and sampled; the trace callback's lifetime
+follows what T10.1 settles for the log callback's.

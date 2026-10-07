@@ -1661,20 +1661,20 @@ configuration in its own logs, filtered as it chose; the keys T6.14 logs as unkn
 ### T10.2: The engine's metrics
 
 **Prerequisite**: T10.1, whose instrumentation counts what this reads
-**Commit**: as `observability.md` decides: one structure of counters, gauges and cumulative
-histograms, read on demand per channel by `GrpcChannel::stats()` and per runtime by
-`ak_runtime_stats`, behind the .NET binding's `Meter`: the counters and gauges as observable
-instruments, the histograms as this task settles.
+**Commit**: as `observability.md` decides: one structure of counters and gauges, read on demand
+per channel by `GrpcChannel::stats()` and per runtime by `ak_runtime_stats`, behind the .NET
+binding's `Meter`'s observable instruments. Histograms are set aside.
 
-**Deliverable**: a host's metrics pipeline sees the engine's metrics with no polling code of its
-own.
+**Deliverable**: a host's metrics pipeline sees the engine's counters and gauges with no polling
+code of its own.
 
 ### T10.3: Traces
 
 **Prerequisite**: T10.1
 **Commit**: as `observability.md` decides: a W3C trace context in `ak_call_start_options`, sent
-in the call's metadata; the engine's spans through `ak_runtime_set_trace_callback`; the .NET
-binding's `Activity` per call, the engine's spans its children.
+in the call's metadata; the engine's spans, those configured and only while a callback is
+registered, through `ak_runtime_set_trace_callback`; the .NET binding's `Activity` per call, the
+engine's spans its children.
 
 **Deliverable**: a .NET host's OpenTelemetry shows the same tree for a call whichever transport
 carries it, the engine's spans within it.
