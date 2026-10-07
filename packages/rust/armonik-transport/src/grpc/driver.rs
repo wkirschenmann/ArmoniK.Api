@@ -369,7 +369,28 @@ async fn run<S: ResponseSink>(
     let mut previous = 0u32;
     let mut unsent_again = false;
     let mut refused_again = false;
+    // What the previous attempt failed with, while the attempt about to start is the policy's retry.
+    let mut retry_of: Option<GrpcStatus> = None;
     loop {
+        // Before the attempt reads what is left of the deadline, so that `grpc-timeout` states what
+        // remains after the wait. A retry the policy chose takes a turn only if one is free, and
+        // otherwise ends the call with what the last attempt failed with. A first attempt, and a
+        // resend of a request its peer never processed, wait their turn; a call whose deadline
+        // passes while it waits ends DEADLINE_EXCEEDED.
+        if let Some(limiter) = &inner.rate_limit {
+            match retry_of.take() {
+                Some(failed) => {
+                    if !limiter.try_admit() {
+                        return failed;
+                    }
+                }
+                None => {
+                    if until_stopped(stop, limiter.admit()).await.is_none() {
+                        return GrpcStatus::cancelled();
+                    }
+                }
+            }
+        }
         let mut headers = metadata.clone();
         if previous > 0 {
             headers.insert(PREVIOUS_ATTEMPTS, previous.into());
@@ -448,6 +469,7 @@ async fn run<S: ResponseSink>(
         {
             return GrpcStatus::cancelled();
         }
+        retry_of = Some(status);
     }
 }
 
@@ -483,16 +505,6 @@ async fn attempt<S: ResponseSink>(
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> Ended {
-    // Before the timeout is read off the deadline, so that `grpc-timeout` states what is left
-    // after the wait. A retry waits here too, and a window that ends past the deadline ends the call
-    // DEADLINE_EXCEEDED, unlike a backoff, which would give back what the attempt failed with:
-    // the wait is on this channel and not on the server's answer.
-    if let Some(limiter) = &inner.rate_limit {
-        if until_stopped(stop, limiter.admit()).await.is_none() {
-            return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid);
-        }
-    }
-
     // tonic encodes no message: the body is the engine's, framed already, put below tonic's
     // client by the channel's own service.
     let mut request = tonic::Request::new(tonic::codegen::tokio_stream::empty::<Bytes>());

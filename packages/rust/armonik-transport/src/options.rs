@@ -1327,11 +1327,18 @@ impl RetryOptions {
 ///
 /// Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
 /// because the server sees each as a request; a streaming call counts once, when it starts. The
-/// first request opens a window of `PerSeconds`, and `Calls` of them start in it. The next request
-/// waits until the window ends, and is the one that opens the next. A request over the limit waits
-/// and is not refused: a call whose deadline passes while it waits ends `DEADLINE_EXCEEDED`, and
-/// one cancelled ends `CANCELLED`, neither having sent anything. Requests start in the order they
-/// reach the limit, and the limit is the channel's, shared by every connection it opens.
+/// first request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request
+/// after the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can
+/// start within `PerSeconds` across a boundary, the last of one window and the first of the next.
+///
+/// A call's first attempt over the limit waits for the next window and is not refused: a call whose
+/// deadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,
+/// neither having sent anything. Requests start in the order they reach the limit, and the limit
+/// is the channel's, shared by every connection it opens. A retry the retry policy chooses does
+/// not wait: once its backoff has passed it takes a turn only if one is free, and otherwise the
+/// call ends with the status of its last attempt, as a channel at its limit is not one to send
+/// more to. A resend of a request its peer never processed is no retry of the policy's, and waits
+/// its turn like a first attempt.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(

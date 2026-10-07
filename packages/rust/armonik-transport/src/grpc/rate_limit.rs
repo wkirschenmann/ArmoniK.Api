@@ -8,9 +8,11 @@ use super::error::GrpcChannelConfigError;
 /// How many requests a channel starts in a window of time.
 ///
 /// A window opens at the first request that finds none open and lasts `per`; a request that finds
-/// the window's `calls` taken waits for its end. A request is an attempt: a call's first, each
-/// retry and each resend of a request its peer never processed all start one, because the server
-/// sees each of them as a request.
+/// the window's `calls` taken waits for its end, except a retry the retry policy chose, which is
+/// given up instead. A request is an attempt: a call's first, each retry and each resend of a
+/// request its peer never processed all start one, because the server sees each of them as a
+/// request. Windows are fixed, so up to twice `calls` requests can start within `per` across a
+/// boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RateLimitConfig {
@@ -46,11 +48,11 @@ impl RateLimitConfig {
 /// The longest window, so that adding one to an `Instant` cannot overflow it.
 const LONGEST_WINDOW: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
 
-/// A channel's turns: `calls` of them in each window, and a call that finds none left waits for
-/// the next window.
+/// A channel's turns: `calls` of them in each window, and a request that finds none left waits for
+/// the next window, or is refused one by `try_admit`.
 ///
 /// A window opens when a request asks while none is open, and lasts `per`, as tower's does; the
-/// next one opens when the first request that waited for the end of this one is let through.
+/// next one opens when the first request after the end of this one is let through.
 /// Requests are let through in the order they reach the limiter, since the lock they wait on is
 /// fair.
 pub(crate) struct RateLimiter {
@@ -100,5 +102,23 @@ impl RateLimiter {
                 }
             }
         }
+    }
+
+    /// Takes a turn if one is free now, and otherwise none: a request that would have to wait,
+    /// for the window to end or behind another that is waiting, is told so instead.
+    pub(crate) fn try_admit(&self) -> bool {
+        let Ok(mut window) = self.window.try_lock() else {
+            return false;
+        };
+        let now = Instant::now();
+        if window.ends.is_none_or(|ends| now >= ends) {
+            window.ends = now.checked_add(self.per);
+            window.left = self.calls;
+        }
+        if window.left == 0 {
+            return false;
+        }
+        window.left -= 1;
+        true
     }
 }

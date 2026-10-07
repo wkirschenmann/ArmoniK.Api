@@ -278,37 +278,76 @@ async fn a_transparent_resend_is_a_request_of_its_own() {
     assert!(at >= window, "{at:?}");
 }
 
-#[tokio::test]
-async fn a_retry_is_a_request_of_its_own() {
-    let server = TestServer::start().await;
-    let window = Duration::from_millis(500);
+/// A channel limited to `calls` requests in `window`, retrying quickly.
+fn limited_and_retrying(endpoint: &str, calls: usize, window: Duration) -> GrpcChannel {
     let mut config = GrpcChannelConfig::new(TransportConfig::new(
-        Uri::try_from(server.endpoint.as_str()).expect("an endpoint"),
+        Uri::try_from(endpoint).expect("an endpoint"),
     ));
-    config.rate_limit = Some(RateLimitConfig::new(1, window));
+    config.rate_limit = Some(RateLimitConfig::new(calls, window));
     let mut retry = RetryConfig::default();
     retry.initial_backoff = Duration::from_millis(10);
     retry.max_backoff = Duration::from_millis(50);
     config.retry = Some(retry);
-    let channel = channel_with(config).expect("a channel");
+    channel_with(config).expect("a channel")
+}
 
+/// A call that fails `times` times under `key`, and then echoes.
+fn flaky_options(key: &str, times: usize) -> CallStartOptions {
     let mut options = CallStartOptions::new(FLAKY);
-    for (name, value) in [("x-flaky-key", "rate-limited"), ("x-fail-times", "2")] {
+    let times = times.to_string();
+    for (name, value) in [("x-flaky-key", key), ("x-fail-times", times.as_str())] {
         options
             .metadata
             .append(name, MetadataValue::Ascii(value.to_owned()))
             .expect("a header");
     }
+    options
+}
+
+/// A retry is a request, so it takes a turn: the call below uses two of the window's two, and the
+/// next call has to wait for the next window.
+#[tokio::test]
+async fn a_retry_takes_a_turn_when_one_is_free() {
+    let server = TestServer::start().await;
+    let window = Duration::from_secs(2);
+    let channel = limited_and_retrying(&server.endpoint, 2, window);
+
+    let since = Instant::now();
     let (at, status, _) = bounded(
         Duration::from_secs(30),
-        echo_call(&channel, options, Instant::now()),
+        echo_call(&channel, flaky_options("rate-limited-free", 1), since),
+    )
+    .await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(flaky_seen("rate-limited-free").len(), 2);
+    assert!(at < window, "{at:?}");
+
+    let (at, status, _) = bounded(
+        Duration::from_secs(30),
+        echo_call(&channel, CallStartOptions::new(ECHO), since),
+    )
+    .await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert!(at >= window, "{at:?}");
+}
+
+/// A channel at its limit sends no retry: the call ends with what its first attempt failed with,
+/// at once rather than after a window.
+#[tokio::test]
+async fn a_retry_is_given_up_when_the_limit_would_make_it_wait() {
+    let server = TestServer::start().await;
+    let channel = limited_and_retrying(&server.endpoint, 1, Duration::from_secs(60));
+
+    let started = Instant::now();
+    let (at, status, _) = bounded(
+        Duration::from_secs(30),
+        echo_call(&channel, flaky_options("rate-limited-full", 3), started),
     )
     .await;
 
-    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
-    assert_eq!(flaky_seen("rate-limited").len(), 3);
-    // One request per window: the second attempt opens the second, the third the third.
-    assert!(at >= 2 * window, "{at:?}");
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(flaky_seen("rate-limited-full").len(), 1);
+    assert!(at < Duration::from_secs(5), "{at:?}");
 }
 
 /// A streaming call is one request, however many messages it exchanges.
