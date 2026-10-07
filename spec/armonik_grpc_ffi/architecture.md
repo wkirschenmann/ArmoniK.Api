@@ -242,6 +242,11 @@ channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
 
+**Request headers are bounded where they are built.** With `Http2.Send.MaxHeaderListSize`, a
+call whose header list - counted as RFC 9113 counts one - is past the limit ends
+RESOURCE_EXHAUSTED before a connection is taken: nginx answers such a header by closing the
+connection, which ends every call on it, and the channel refuses the one call instead.
+
 **Deliveries gather what is ready.** A response's delivery to the host waits while the work
 already ready on the channel's thread reads more of it, up to `Grpc.Host.Receive.CoalescingBytes`: the
 connection shares that thread, so the message a head precedes, and the trailers a message

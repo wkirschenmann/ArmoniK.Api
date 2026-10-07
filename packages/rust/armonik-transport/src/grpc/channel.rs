@@ -129,6 +129,7 @@ impl GrpcChannel {
 
         let endpoint = config.transport.endpoint.clone();
         let idle_timeout = config.transport.http2.idle_timeout;
+        let max_header_list_size = config.transport.http2.max_header_list_size;
         let calls_per_session = config
             .transport
             .http2
@@ -150,6 +151,7 @@ impl GrpcChannel {
                 retry: config.retry,
                 replay,
                 idle_timeout,
+                max_header_list_size,
                 calls_per_session,
                 sessions: std::sync::Mutex::new(Sessions::default()),
                 closed: watch::channel(false).0,
@@ -338,6 +340,8 @@ pub(crate) struct Inner {
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
+    /// The most bytes a request's header list may take; a request past it is refused unsent.
+    max_header_list_size: Option<usize>,
     /// How many calls one session carries at once, below what its server allows; `usize::MAX`
     /// when only the server bounds them.
     calls_per_session: usize,
@@ -763,6 +767,21 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             request
                 .headers_mut()
                 .extend(engine_headers(&inner.user_agent));
+
+            // Before a connection is taken or dialled: the server's own refusal of a header list
+            // can end every call on its connection, where this one ends this call alone.
+            if let Some(limit) = inner.max_header_list_size {
+                let size = crate::http2::header_list_size(&request);
+                if size > limit {
+                    return Err(worded(GrpcStatus::new(
+                        GrpcStatusCode::ResourceExhausted,
+                        format!(
+                            "the request's header list is {size} bytes, over the {limit} allowed by \
+                             Http2.Send.MaxHeaderListSize"
+                        ),
+                    )));
+                }
+            }
 
             let (mut sender, lease) = inner.sender().await.map_err(|error| match error {
                 ChannelError::Closed => worded(GrpcStatus::cancelled()),

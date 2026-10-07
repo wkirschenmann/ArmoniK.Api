@@ -1127,6 +1127,19 @@ pub struct Http2SendOptions {
         schemars(with = "i32", range(min = 1, max = LARGEST_FRAMES_PER_WRITE))
     )]
     pub frames_per_write: Option<i32>,
+
+    /// The most bytes the headers of one request may take, counted as RFC 9113 counts a header
+    /// list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
+    /// pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
+    /// before anything is sent. It bounds what is sent, never what is received.
+    ///
+    /// Defaults to none: no request is refused for its headers.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    pub max_header_list_size: Option<i32>,
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1650,6 +1663,16 @@ impl Http2Options {
                     ))
                 }
                 Some(frames) => frames as usize,
+            },
+            max_header_list_size: match self.send.max_header_list_size {
+                None => defaults.max_header_list_size,
+                Some(size) if size < 1 => {
+                    return Err(OptionRefusal::new(
+                        "Send.MaxHeaderListSize",
+                        format!("{size} has to be at least 1"),
+                    ))
+                }
+                Some(size) => Some(size as usize),
             },
         })
     }
@@ -2200,6 +2223,7 @@ over_fields!(Http2SendOptions {
     coalescing_bytes,
     stream_buffer_size,
     frames_per_write,
+    max_header_list_size,
 });
 over_fields!(Http2FixedWindows {
     stream_window_size,
@@ -3074,6 +3098,7 @@ mod tests {
                 coalescing_bytes: Some(0),
                 stream_buffer_size: Some(4096),
                 frames_per_write: Some(1),
+                max_header_list_size: Some(8192),
             },
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                 stream_window_size: Some(1024),
@@ -3086,6 +3111,7 @@ mod tests {
         assert_eq!(config.simultaneous_calls_per_connection, Some(1));
         assert_eq!(config.write_coalescing, 0);
         assert_eq!(config.send_buffer, 4096);
+        assert_eq!(config.max_header_list_size, Some(8192));
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
         assert!(config.keep_alive_while_idle);
@@ -3142,6 +3168,17 @@ mod tests {
         .to_config()
         .expect_err("a connection that carries no call");
         assert_eq!(refused.key(), "SimultaneousCallsPerConnection");
+
+        let refused = Http2Options {
+            send: Http2SendOptions {
+                max_header_list_size: Some(0),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a header list no request fits");
+        assert_eq!(refused.key(), "Send.MaxHeaderListSize");
 
         for (frames, why) in [(0, "between 1 and"), (257, "between 1 and")] {
             let refused = Http2Options {

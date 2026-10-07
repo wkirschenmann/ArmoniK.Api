@@ -280,6 +280,11 @@ pub struct Http2Config {
     /// needs the engine built against h2-batch's patch, and is refused otherwise. At most
     /// `LARGEST_FRAMES_PER_WRITE`.
     pub frames_per_write: usize,
+    /// The most bytes the headers of one request may take, counted as RFC 9113 section 6.5.2
+    /// counts a header list: each field's name and value, and 32 more, the pseudo-header fields
+    /// among them. A call whose request goes past it is refused before anything is sent; `None`
+    /// sets no limit. At least 1.
+    pub max_header_list_size: Option<usize>,
 }
 
 /// The most DATA frames one queued part may span: 4 MiB at h2's default frame size.
@@ -341,6 +346,7 @@ impl Default for Http2Config {
             write_coalescing: 16 * 1024,
             send_buffer: 1024 * 1024,
             frames_per_write: 1,
+            max_header_list_size: None,
         }
     }
 }
@@ -388,6 +394,9 @@ impl Http2Config {
             }
             .fail();
         }
+        if self.max_header_list_size == Some(0) {
+            return refuse("a header list of at most 0 bytes admits no request");
+        }
         if !cfg!(h2_batch) && self.frames_per_write > 1 {
             return ConfigurationSnafu {
                 message: format!(
@@ -415,6 +424,48 @@ impl Http2Config {
         }
         Ok(())
     }
+}
+
+/// What a request's header list weighs, as RFC 9113 section 6.5.2 counts it for
+/// SETTINGS_MAX_HEADER_LIST_SIZE: a field's name and value in bytes, plus 32, for each field
+/// h2 sends - the pseudo-header fields, the request's headers, and the `content-length` hyper
+/// adds when the body's length is known.
+pub(crate) fn header_list_size<B: hyper::body::Body>(request: &http::Request<B>) -> usize {
+    const FIELD_OVERHEAD: usize = 32;
+    let field = |name: usize, value: usize| name + value + FIELD_OVERHEAD;
+
+    let uri = request.uri();
+    let path = uri.path_and_query().map_or("", |path| path.as_str());
+    let mut size = field(":method".len(), request.method().as_str().len())
+        + field(":path".len(), path.len().max(1));
+    if let Some(scheme) = uri.scheme_str() {
+        size += field(":scheme".len(), scheme.len());
+    }
+    if let Some(authority) = uri.authority() {
+        size += field(":authority".len(), authority.as_str().len());
+    }
+    size += request
+        .headers()
+        .iter()
+        .map(|(name, value)| field(name.as_str().len(), value.len()))
+        .sum::<usize>();
+    // hyper writes the length of a body that states it, an empty one only where the method
+    // carries a payload.
+    if !request.headers().contains_key(http::header::CONTENT_LENGTH) {
+        if let Some(length) = request.body().size_hint().exact() {
+            let payload = !matches!(
+                *request.method(),
+                http::Method::GET
+                    | http::Method::HEAD
+                    | http::Method::DELETE
+                    | http::Method::CONNECT
+            );
+            if length != 0 || payload {
+                size += field("content-length".len(), length.to_string().len());
+            }
+        }
+    }
+    size
 }
 
 /// How a connection to an `https://` endpoint is secured.
@@ -790,6 +841,56 @@ mod tests {
         config.tls.accept_any_server = true;
         config.tls.roots = vec![CertificateDer::from(vec![0u8])];
         assert!(config.dialable().is_err());
+    }
+
+    /// RFC 9113 section 6.5.2: name, value and 32 for each field, the pseudo-header fields and
+    /// the `content-length` hyper writes for a body of known length among them.
+    #[test]
+    fn a_header_list_weighs_each_field_at_its_name_and_value_and_32() {
+        let request = |body: http_body_util::Full<bytes::Bytes>| {
+            http::Request::post("http://127.0.0.1:1/svc/Method")
+                .header("te", "trailers")
+                .header("x", "abc")
+                .body(body)
+                .expect("a request")
+        };
+        // :method POST 43, :scheme http 43, :authority 127.0.0.1:1 53, :path /svc/Method 48,
+        // te 42, x 36.
+        let fields = 43 + 43 + 53 + 48 + 42 + 36;
+        // content-length: 100 is 14 + 3 + 32.
+        assert_eq!(
+            header_list_size(&request(bytes::Bytes::from(vec![0; 100]).into())),
+            fields + 49
+        );
+        // POST carries a payload semantically, so hyper states even a zero length.
+        assert_eq!(
+            header_list_size(&request(bytes::Bytes::new().into())),
+            fields + 47
+        );
+
+        let get = http::Request::get("http://h/")
+            .body(http_body_util::Empty::<bytes::Bytes>::new())
+            .expect("a request");
+        // :method GET 42, :scheme http 43, :authority h 43, :path / 38.
+        assert_eq!(header_list_size(&get), 42 + 43 + 43 + 38);
+
+        // A length the request states itself is counted once.
+        let stated = http::Request::post("http://h/")
+            .header("content-length", "5")
+            .body(http_body_util::Full::new(bytes::Bytes::from_static(
+                b"hello",
+            )))
+            .expect("a request");
+        assert_eq!(header_list_size(&stated), 43 + 43 + 43 + 38 + (14 + 1 + 32));
+    }
+
+    #[test]
+    fn a_header_list_of_no_bytes_admits_no_request() {
+        let mut http2 = Http2Config::default();
+        http2.max_header_list_size = Some(0);
+        assert!(http2.admissible().is_err());
+        http2.max_header_list_size = Some(1);
+        assert!(http2.admissible().is_ok());
     }
 
     #[test]

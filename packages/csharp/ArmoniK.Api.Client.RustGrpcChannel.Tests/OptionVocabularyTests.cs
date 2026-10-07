@@ -124,6 +124,7 @@ public class OptionVocabularyTests
                                                                        ["Http2.Send.CoalescingBytes"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.StreamBufferSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                        ["Http2.Send.FramesPerWrite"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
+                                                                       ["Http2.Send.MaxHeaderListSize"] = "grpc-dotnet's handler owns HTTP/2, and GrpcClient sets none of it",
                                                                      };
 
   /// <summary>No option is classified twice, which a union of the sets would forgive.</summary>

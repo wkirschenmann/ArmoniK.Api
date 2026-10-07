@@ -1522,11 +1522,38 @@ binding, which sizes its rings from the window it sends.
 **Prerequisite**: T6.14, so that each arrives with its loading
 **Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
 outnumber successes; compression, `grpc-encoding: gzip`; wait-for-ready, a call that waits for a
-connection rather than failing UNAVAILABLE; `RateLimit`; `Http2MaxHeaderListSize`, whose bound
-keeps a request out of nginx's header limits. `TcpNagleAlgorithm` is refused: the engine always
-disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
+connection rather than failing UNAVAILABLE; `RateLimit`. `TcpNagleAlgorithm` is refused: the
+engine always disables Nagle's algorithm. Hedging and client-side load balancing are not wanted.
 
 **Deliverable**: each option read, applied, and tested where its effect is observable.
+
+**`Http2MaxHeaderListSize`: done in the engine, decided 2026-10-07.** It is
+`Http2.Send.MaxHeaderListSize`, none by default, an `int` of at least 1. It bounds the headers
+the channel sends and not those it receives, which `Endpoint::http2_max_header_list_size`
+bounded on the tonic path. The aim is to keep a request out of nginx's header limits: measured
+with nginx 1.30.5, a request with a header past `large_client_header_buffers` is logged "client
+sent too large header field", and nginx closes the connection, ending the call beside it.
+
+- The size is RFC 9113 section 6.5.2's: a field's name and value in bytes, plus 32, over every
+  field h2 sends - the pseudo-header fields, the request's headers (the caller's metadata, the
+  engine's, `grpc-timeout`, `grpc-previous-rpc-attempts`) and the `content-length` hyper writes
+  when the body's length is known. A test finds the smallest limit a request passes and checks
+  it against an h2 server's own count: one announcing a little more serves the request, one
+  announcing a little less refuses it.
+- A request past the limit is refused where the engine adds its headers, before a connection is
+  taken or dialled, and the call ends RESOURCE_EXHAUSTED: the status the engine gives a message
+  past `Grpc.Send.MaxMessageSize`, and the one PROTOCOL-HTTP2 gives ENHANCE_YOUR_CALM. A
+  server's own 431 would end it UNKNOWN. The default retry policy does not retry
+  RESOURCE_EXHAUSTED. Measured behind nginx, the same call without the limit ended with an error
+  and took the call beside it with it, which a test asserts.
+- The server's SETTINGS_MAX_HEADER_LIST_SIZE is not read, and the configured limit stands alone:
+  h2 0.4.19 keeps no copy of the peer's value and refuses nothing it sends past it, so taking the
+  smaller of the two needs h2 extended first. That is an item of issue #721, upstream patches to
+  provide to hyper-util and h2. A list of exactly the limit is sent, where an h2 server announcing
+  the same value flags it as over size.
+- The `armonik` client reads it through the loader like any other option, as
+  `Http2.Send.MaxHeaderListSize`; unlike tonic's setting of that name, it bounds the request's
+  headers, not the response's.
 
 ### T6.16: The host's buffers, several at once and resizable
 

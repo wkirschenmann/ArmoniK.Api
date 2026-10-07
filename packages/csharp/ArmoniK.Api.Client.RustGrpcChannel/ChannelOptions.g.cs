@@ -1245,6 +1245,7 @@ public sealed class Http2SendOptions
     CoalescingBytes = other.CoalescingBytes;
     StreamBufferSize = other.StreamBufferSize;
     FramesPerWrite = other.FramesPerWrite;
+    MaxHeaderListSize = other.MaxHeaderListSize;
   }
 
   /// <summary>
@@ -1282,6 +1283,17 @@ public sealed class Http2SendOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? FramesPerWrite { get; set; }
 
+  /// <summary>
+  ///   The most bytes the headers of one request may take, counted as RFC 9113 counts a header
+  ///   list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
+  ///   pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
+  ///   before anything is sent. It bounds what is sent, never what is received.
+  /// </summary>
+  /// <remarks>Defaults to none: no request is refused for its headers.</remarks>
+  [JsonPropertyName("MaxHeaderListSize")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxHeaderListSize { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -1305,6 +1317,13 @@ public sealed class Http2SendOptions
       throw new ArgumentOutOfRangeException(nameof(FramesPerWrite),
                                             framesPerWrite,
                                             "FramesPerWrite has to be at least 1 and at most 256.");
+    }
+
+    if (MaxHeaderListSize is int maxHeaderListSize && maxHeaderListSize < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(MaxHeaderListSize),
+                                            maxHeaderListSize,
+                                            "MaxHeaderListSize has to be at least 1.");
     }
   }
 }
