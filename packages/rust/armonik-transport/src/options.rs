@@ -1335,10 +1335,11 @@ impl RetryOptions {
 /// deadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,
 /// neither having sent anything. Requests start in the order they reach the limit, and the limit
 /// is the channel's, shared by every connection it opens. A retry the retry policy chooses does
-/// not wait: once its backoff has passed it takes a turn only if one is free, and otherwise the
-/// call ends with the status of its last attempt, as a channel at its limit is not one to send
-/// more to. A resend of a request its peer never processed is no retry of the policy's, and waits
-/// its turn like a first attempt.
+/// not wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is
+/// skipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when
+/// the attempts are spent the call ends with the status of the last attempt sent. A resend of a
+/// request its peer never processed is no retry of the policy's, and waits its turn like a first
+/// attempt.
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(

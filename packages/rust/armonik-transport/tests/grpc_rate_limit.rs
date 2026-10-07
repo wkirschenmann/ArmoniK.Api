@@ -278,8 +278,14 @@ async fn a_transparent_resend_is_a_request_of_its_own() {
     assert!(at >= window, "{at:?}");
 }
 
-/// A channel limited to `calls` requests in `window`, retrying quickly.
-fn limited_and_retrying(endpoint: &str, calls: usize, window: Duration) -> GrpcChannel {
+/// A channel limited to `calls` requests in `window`, retrying quickly, with `change` applied to
+/// its retry policy.
+fn limited_and_retrying(
+    endpoint: &str,
+    calls: usize,
+    window: Duration,
+    change: impl FnOnce(&mut RetryConfig),
+) -> GrpcChannel {
     let mut config = GrpcChannelConfig::new(TransportConfig::new(
         Uri::try_from(endpoint).expect("an endpoint"),
     ));
@@ -287,6 +293,7 @@ fn limited_and_retrying(endpoint: &str, calls: usize, window: Duration) -> GrpcC
     let mut retry = RetryConfig::default();
     retry.initial_backoff = Duration::from_millis(10);
     retry.max_backoff = Duration::from_millis(50);
+    change(&mut retry);
     config.retry = Some(retry);
     channel_with(config).expect("a channel")
 }
@@ -310,7 +317,7 @@ fn flaky_options(key: &str, times: usize) -> CallStartOptions {
 async fn a_retry_takes_a_turn_when_one_is_free() {
     let server = TestServer::start().await;
     let window = Duration::from_secs(2);
-    let channel = limited_and_retrying(&server.endpoint, 2, window);
+    let channel = limited_and_retrying(&server.endpoint, 2, window, |_| {});
 
     let since = Instant::now();
     let (at, status, _) = bounded(
@@ -331,17 +338,51 @@ async fn a_retry_takes_a_turn_when_one_is_free() {
     assert!(at >= window, "{at:?}");
 }
 
-/// A channel at its limit sends no retry: the call ends with what its first attempt failed with,
-/// at once rather than after a window.
+/// A retry the limit would make wait is skipped and tried again after its next backoff: the call
+/// succeeds once the window has ended, having sent two attempts, the second of which names one
+/// before it - a skipped attempt went nowhere.
 #[tokio::test]
-async fn a_retry_is_given_up_when_the_limit_would_make_it_wait() {
+async fn a_skipped_retry_tries_again_and_succeeds_when_a_turn_frees() {
     let server = TestServer::start().await;
-    let channel = limited_and_retrying(&server.endpoint, 1, Duration::from_secs(60));
+    let window = Duration::from_millis(400);
+    let channel = limited_and_retrying(&server.endpoint, 1, window, |retry| {
+        retry.max_attempts = 100;
+        retry.initial_backoff = Duration::from_millis(100);
+        retry.max_backoff = Duration::from_millis(100);
+        retry.backoff_multiplier = 1.0;
+    });
+
+    let (at, status, _) = bounded(
+        Duration::from_secs(30),
+        echo_call(
+            &channel,
+            flaky_options("rate-limited-skipped", 1),
+            Instant::now(),
+        ),
+    )
+    .await;
+
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(
+        flaky_seen("rate-limited-skipped"),
+        vec![None, Some("1".to_owned())]
+    );
+    assert!(at >= window, "{at:?}");
+}
+
+/// Skipped retries count toward the attempts: when every one is skipped the call ends with the
+/// status of the one attempt that was sent, once the attempts are spent and not after a window.
+#[tokio::test]
+async fn skipped_retries_count_toward_the_attempts() {
+    let server = TestServer::start().await;
+    let channel = limited_and_retrying(&server.endpoint, 1, Duration::from_secs(60), |retry| {
+        retry.max_attempts = 3;
+    });
 
     let started = Instant::now();
     let (at, status, _) = bounded(
         Duration::from_secs(30),
-        echo_call(&channel, flaky_options("rate-limited-full", 3), started),
+        echo_call(&channel, flaky_options("rate-limited-full", 10), started),
     )
     .await;
 

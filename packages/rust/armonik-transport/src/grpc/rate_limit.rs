@@ -9,7 +9,7 @@ use super::error::GrpcChannelConfigError;
 ///
 /// A window opens at the first request that finds none open and lasts `per`; a request that finds
 /// the window's `calls` taken waits for its end, except a retry the retry policy chose, which is
-/// given up instead. A request is an attempt: a call's first, each retry and each resend of a
+/// skipped instead. A request is an attempt: a call's first, each retry and each resend of a
 /// request its peer never processed all start one, because the server sees each of them as a
 /// request. Windows are fixed, so up to twice `calls` requests can start within `per` across a
 /// boundary.
@@ -49,7 +49,7 @@ impl RateLimitConfig {
 const LONGEST_WINDOW: Duration = Duration::from_secs(10 * 365 * 24 * 3600);
 
 /// A channel's turns: `calls` of them in each window, and a request that finds none left waits for
-/// the next window, or is refused one by `try_admit`.
+/// the next window, or, through `try_admit`, is told there is none free.
 ///
 /// A window opens when a request asks while none is open, and lasts `per`, as tower's does; the
 /// next one opens when the first request after the end of this one is let through.

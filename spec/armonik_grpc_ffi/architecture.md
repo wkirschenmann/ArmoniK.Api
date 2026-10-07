@@ -1343,6 +1343,9 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 does not, has `Grpc.RateLimit` for its counterpart: `100/1s` is `{"Calls": 100, "PerSeconds": 1}`.
 The mapping is T6.14's, and `ClientConfig` refuses the option until then.
 
+`Grpc.RateLimit` and `Grpc.Retry` agree: a retry that finds no turn free is skipped to its next
+backoff and counts toward `Grpc.Retry.MaxAttempts`, and a call's first attempt waits for its turn.
+
 ---
 
 ## What is missing

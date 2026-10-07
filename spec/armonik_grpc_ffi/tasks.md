@@ -1505,12 +1505,14 @@ T6.14 maps; the other options are not. It is `Grpc.RateLimit`, `Calls` and
 `RateLimit` has it. A request is an attempt, so a retry counts and a stream counts once; waiting
 calls are let through in order; a waiting call ends `DEADLINE_EXCEEDED` at its deadline and
 `CANCELLED` when cancelled or when its channel closes, and holds no turn. A retry the policy
-chooses does not wait: with no turn free it is given up, and the call ends with the status of its
-last attempt, so that a saturated limit stops retries; a transparent resend waits its turn, as A6's
-exemption from throttling is read. The windows are fixed, so up to twice `Calls` requests can start within
-`PerSeconds` across a boundary. The reasons are in decisions.md.
-`tests/grpc_rate_limit.rs` covers each of these but the boundary burst, and `UnaryTests` a deadline and a cancel ending a waiting
-call through the binding.
+chooses does not wait: with no turn free it is skipped and goes to its next backoff, and skipped
+attempts count toward `maxAttempts`, so that a saturated limit slows retries and the call ends,
+when the attempts are spent, with the status of the last attempt sent. That is interim, until the
+A6 retry throttle, which is to make a refused retry end the call. A transparent resend waits
+its turn, as A6's exemption from throttling is read. The windows are fixed, so up to twice `Calls`
+requests can start within `PerSeconds` across a boundary. The reasons are in decisions.md.
+`tests/grpc_rate_limit.rs` covers each of these but the boundary burst, and `UnaryTests` a
+deadline and a cancel ending a waiting call through the binding.
 
 ### T6.16: The host's buffers, several at once and resizable
 

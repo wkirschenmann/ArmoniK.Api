@@ -62,8 +62,9 @@ pub struct GrpcChannelConfig {
     /// never processed, and that had sent nothing, goes again.
     pub retry: Option<RetryConfig>,
     /// How many requests the channel starts in a window of time; a request over it waits for the
-    /// next window, except a retry the retry policy chose, which is given up. With none, requests
-    /// start as they are made.
+    /// next window, except a retry the retry policy chose, which is skipped: it counts as an
+    /// attempt and the call goes on to its next backoff. With none, requests start as they are
+    /// made.
     pub rate_limit: Option<RateLimitConfig>,
 }
 

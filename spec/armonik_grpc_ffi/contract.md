@@ -178,8 +178,8 @@ pub struct GrpcChannelConfig {
     pub retry: Option<RetryConfig>,
     /// How many requests start in a window of time, a retry's included; a
     /// request over it waits for the next window, except a retry the policy
-    /// chose, which is given up with its last attempt's status. None starts
-    /// them as made.
+    /// chose, which is skipped to its next backoff and counts as an attempt.
+    /// None starts them as made.
     pub rate_limit: Option<RateLimitConfig>,
     pub default_deadline: Option<Duration>,
     pub user_agent: Option<String>,
@@ -198,8 +198,8 @@ pub struct GrpcChannelConfig {
 }
 
 /// At most `calls` requests start in a window of `per`; a request over it
-/// waits for the next window, except a retry the policy chose, which is given
-/// up. The windows are fixed, so up to twice `calls` can start within `per`
+/// waits for the next window, except a retry the policy chose, which is
+/// skipped. The windows are fixed, so up to twice `calls` can start within `per`
 /// across a boundary. Refused when the channel is created if `calls` is 0 or
 /// `per` is zero.
 pub struct RateLimitConfig {
