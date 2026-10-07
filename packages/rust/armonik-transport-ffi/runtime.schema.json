@@ -503,6 +503,12 @@
           "format": "int32",
           "minimum": 1,
           "maximum": 256
+        },
+        "MaxHeaderListSize": {
+          "description": "The most bytes the headers of one request may take, counted as RFC 9113 counts a header\nlist for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the\npseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED\nbefore anything is sent. It bounds what is sent, never what is received.\n\nDefaults to none: no request is refused for its headers.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1
         }
       },
       "additionalProperties": false
