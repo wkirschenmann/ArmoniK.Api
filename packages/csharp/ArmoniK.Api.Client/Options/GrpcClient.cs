@@ -123,7 +123,8 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   Which transport carries the calls: `Managed`, grpc-dotnet (the default), or `Native`, the
-    ///   Rust engine. Only GrpcChannelFactory.CreateChannelBase honours it.
+    ///   Rust engine. Only GrpcChannelFactory.CreateChannelBase honours it: CreateChannel makes a
+    ///   grpc-dotnet channel whatever it says, with a warning when it is given a logger.
     ///   With `Native`, the other options of the engine are read from the environment under
     ///   `ArmoniK__Client__Grpc__` and from the command line, and the options below are read when they
     ///   are not at their defaults, except `HttpMessageHandler` and `ReusePorts`; see

@@ -111,31 +111,31 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
         }
 
         // The engine settles the window from the channel's document and the runtime's defaults,
-        // so the rings are sized from its answer and never from a guess at the defaults.
-        uint window;
-        ak_error windowError = default;
-        var read = NativeMethods.ak_channel_delivery_window(handle_,
-                                                            &window,
-                                                            &windowError);
-        if (read != ak_status.AK_STATUS_OK)
-        {
-          var why = windowError.Take();
-          NativeMethods.ak_channel_release(handle_);
-          throw new InvalidOperationException($"the delivery window of `{Safely(endpoint)}` could not be read ({read}): {why}");
-        }
-
+        // so the rings are sized from its answer and never from a guess at the defaults. The
+        // handle is released on any failure, an engine that predates the export included: nothing
+        // else holds it, and this constructor does not return a channel to dispose.
         try
         {
+          uint window;
+          ak_error windowError = default;
+          var read = NativeMethods.ak_channel_delivery_window(handle_,
+                                                              &window,
+                                                              &windowError);
+          if (read != ak_status.AK_STATUS_OK)
+          {
+            var why = windowError.Take();
+            throw new InvalidOperationException($"the delivery window of `{Safely(endpoint)}` could not be read ({read}): {why}");
+          }
+
           NativeRuntime.RefuseAWindowNoRingCanHold((int)Math.Min(window,
                                                                  int.MaxValue));
+          deliveryCredits_ = (int)window;
         }
-        catch (ArgumentOutOfRangeException)
+        catch
         {
           NativeMethods.ak_channel_release(handle_);
           throw;
         }
-
-        deliveryCredits_ = (int)window;
       }
     }
   }

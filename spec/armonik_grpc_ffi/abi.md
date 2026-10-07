@@ -382,7 +382,10 @@ defaults settle it between them, or the engine's own (four) when neither names o
 sources states its `ChannelDefaults` where the host cannot see them, so the host reads the window
 back instead of assuming it. It is fixed for the life of the channel; `AK_STATUS_HANDLE_STALE`
 names a channel the library does not know, and a null `out` is `AK_STATUS_INVALID_ARG`. Additive:
-`AK_ABI_VERSION` stays 1, as it did for `ak_runtime_create_from`.
+`AK_ABI_VERSION` stays 1, as it did for `ak_runtime_create_from`: an addition is within the
+version, so a binding that calls it against a library of ABI 1 built before it fails with a missing
+export (an `EntryPointNotFoundException` in .NET), after which the .NET binding releases the channel
+it had made and lets the exception through.
 
 #### Memory usage
 

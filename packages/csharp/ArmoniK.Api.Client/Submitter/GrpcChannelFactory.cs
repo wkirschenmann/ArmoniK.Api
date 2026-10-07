@@ -503,7 +503,8 @@ namespace ArmoniK.Api.Client.Submitter
     ///   The initialized GrpcChannel
     /// </returns>
     /// <remarks>
-    ///   Always grpc-dotnet: <see cref="GrpcClient.Transport" /> is read by <see cref="CreateChannelBase" />
+    ///   Always grpc-dotnet: <see cref="GrpcClient.Transport" /> is read by <see cref="CreateChannelBase" />, and a
+    ///   <see cref="ClientTransport.Native" /> given here is ignored, with a warning when a logger is given
     /// </remarks>
     /// <exception cref="InvalidOperationException">Endpoint passed through options is missing</exception>
     public static GrpcChannel CreateChannel(GrpcClient      optionsGrpcClient,
