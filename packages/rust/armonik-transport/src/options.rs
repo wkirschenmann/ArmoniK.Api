@@ -2378,7 +2378,8 @@ pub struct LoggingOptions {
     /// Which events are reported: comma-separated directives, each a level (`info`), a target and
     /// its level (`h2=debug`), or a target alone, which is all its levels. A target covers itself
     /// and the modules below it - `h2` covers `h2::proto`, not `h2x` - and `target*` covers every
-    /// target that starts with the text: `hyper*` covers `hyper` and `hyper_util`. The most
+    /// target that starts with the text: `hyper*` covers `hyper` and `hyper_util`, and `*=debug`
+    /// every target. The most
     /// specific directive that covers an event decides: the longest target, and at the same length
     /// the one without `*`. An event no directive covers is reported only if a directive gives a
     /// level for all targets, so `h2=debug` alone silences the engine's own events. A directive

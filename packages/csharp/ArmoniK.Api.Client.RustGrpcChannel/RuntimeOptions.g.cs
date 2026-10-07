@@ -188,7 +188,8 @@ public sealed class LoggingOptions
   ///   Which events are reported: comma-separated directives, each a level (<c>info</c>), a target and
   ///   its level (<c>h2=debug</c>), or a target alone, which is all its levels. A target covers itself
   ///   and the modules below it - <c>h2</c> covers <c>h2::proto</c>, not <c>h2x</c> - and <c>target*</c> covers every
-  ///   target that starts with the text: <c>hyper*</c> covers <c>hyper</c> and <c>hyper_util</c>. The most
+  ///   target that starts with the text: <c>hyper*</c> covers <c>hyper</c> and <c>hyper_util</c>, and <c>*=debug</c>
+  ///   every target. The most
   ///   specific directive that covers an event decides: the longest target, and at the same length
   ///   the one without <c>*</c>. An event no directive covers is reported only if a directive gives a
   ///   level for all targets, so <c>h2=debug</c> alone silences the engine's own events. A directive
