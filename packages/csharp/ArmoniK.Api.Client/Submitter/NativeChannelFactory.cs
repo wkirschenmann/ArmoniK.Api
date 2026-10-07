@@ -100,12 +100,6 @@ namespace ArmoniK.Api.Client.Submitter
         logger?.LogWarning("HttpMessageHandler is not read by the native transport");
       }
 
-      foreach (var option in NativeClientOptions.CannotBeDisabled(options))
-      {
-        logger?.LogWarning("{Option} cannot be disabled by the native transport, which keeps its default",
-                           option);
-      }
-
       var translated = NativeClientOptions.Translate(options,
                                                      new GrpcClient());
 

@@ -92,10 +92,12 @@ namespace ArmoniK.Api.Client.Submitter
         transport.Proxy = Proxy(options);
       }
 
+      // A span that is not positive, the infinite one included, is none, which the engine reads as
+      // zero: stated, it turns off what the sources below set, as left out it would leave it.
       var keepalive = new TcpKeepaliveOptions();
-      if (Stated(o => o.KeepAliveTime) && Positive(options.KeepAliveTime))
+      if (Stated(o => o.KeepAliveTime))
       {
-        keepalive.IdleSeconds = options.KeepAliveTime.TotalSeconds;
+        keepalive.IdleSeconds = Seconds(options.KeepAliveTime);
       }
 
       if (Stated(o => o.KeepAliveTimeInterval) && Positive(options.KeepAliveTimeInterval))
@@ -109,9 +111,9 @@ namespace ArmoniK.Api.Client.Submitter
       }
 
       var http2 = new Http2Options();
-      if (Stated(o => o.MaxIdleTime) && Positive(options.MaxIdleTime))
+      if (Stated(o => o.MaxIdleTime))
       {
-        http2.IdleTimeoutSeconds = options.MaxIdleTime.TotalSeconds;
+        http2.IdleTimeoutSeconds = Seconds(options.MaxIdleTime);
       }
 
       var retry = new RetryOptions();
@@ -163,9 +165,9 @@ namespace ArmoniK.Api.Client.Submitter
                  {
                    Retry = retry,
                  };
-      if (Stated(o => o.RequestTimeout) && Positive(options.RequestTimeout))
+      if (Stated(o => o.RequestTimeout))
       {
-        grpc.DefaultDeadlineSeconds = options.RequestTimeout.TotalSeconds;
+        grpc.DefaultDeadlineSeconds = Seconds(options.RequestTimeout);
       }
 
       return new NativeChannelOptions
@@ -174,29 +176,6 @@ namespace ArmoniK.Api.Client.Submitter
                Http2     = http2,
                Grpc      = grpc,
              };
-    }
-
-    /// <summary>
-    ///   The options that ask for no bound where the engine's sources set one, which the engine states by saying nothing
-    /// </summary>
-    /// <param name="options">The options of the client</param>
-    /// <returns>The names of the options that cannot turn off what the defaults of <see cref="GrpcClient" /> set</returns>
-    internal static IEnumerable<string> CannotBeDisabled(GrpcClient options)
-    {
-      if (!Positive(options.KeepAliveTime))
-      {
-        yield return nameof(GrpcClient.KeepAliveTime);
-      }
-
-      if (!Positive(options.KeepAliveTimeInterval))
-      {
-        yield return nameof(GrpcClient.KeepAliveTimeInterval);
-      }
-
-      if (!Positive(options.MaxIdleTime))
-      {
-        yield return nameof(GrpcClient.MaxIdleTime);
-      }
     }
 
     // The proxy as the managed transport reads the three options: empty is the default, `none` and
@@ -224,10 +203,14 @@ namespace ArmoniK.Api.Client.Submitter
       }
     }
 
-    // A span that is not positive, the infinite one included, is no bound, which the engine states by
-    // saying nothing.
     private static bool Positive(TimeSpan span)
       => span > TimeSpan.Zero;
+
+    // The seconds of a span, zero for one that is not positive: none.
+    private static double Seconds(TimeSpan span)
+      => Positive(span)
+           ? span.TotalSeconds
+           : 0;
 
     private static bool IsEmpty(TlsOptions tls)
       => tls.Server is null && tls.Client is null && tls.OverrideTargetName is null;

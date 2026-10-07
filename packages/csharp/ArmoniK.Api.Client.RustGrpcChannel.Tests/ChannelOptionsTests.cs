@@ -167,10 +167,48 @@ public class ChannelOptionsTests
                            }),
                    Is.EqualTo(@"{""Grpc"":{""RateLimit"":{""Calls"":100,""PerSeconds"":0.25}}}"));
 
+  /// <summary>A zero is how an option turns off what an earlier source set, and it is sent as the zero it is.</summary>
+  [Test]
+  public void AZeroTurnsOffAndIsSent()
+  {
+    var options = new ChannelOptions
+                  {
+                    Transport = new TransportOptions
+                                {
+                                  TcpKeepalive = new TcpKeepaliveOptions
+                                                 {
+                                                   IdleSeconds = 0,
+                                                 },
+                                },
+                    Http2 = new Http2Options
+                            {
+                              KeepAliveIntervalSeconds = 0,
+                              IdleTimeoutSeconds       = 0,
+                            },
+                    Grpc = new GrpcOptions
+                           {
+                             DefaultDeadlineSeconds = 0,
+                             RateLimit = new RateLimitOptions
+                                         {
+                                           Calls = 0,
+                                         },
+                           },
+                  };
+
+    Assert.That(() => options.Validate(),
+                Throws.Nothing);
+    Assert.That(Encoding.UTF8.GetString(options.Encode()),
+                Does.Contain(@"""IdleSeconds"":0")
+                    .And.Contain(@"""KeepAliveIntervalSeconds"":0")
+                    .And.Contain(@"""IdleTimeoutSeconds"":0")
+                    .And.Contain(@"""DefaultDeadlineSeconds"":0")
+                    .And.Contain(@"""Calls"":0"));
+  }
+
   /// <summary>A rate limit that starts no request is refused before it is sent.</summary>
-  [TestCase(0,
+  [TestCase(-1,
             1.0,
-            "Calls has to be at least 1",
+            "Calls has to be at least 0",
             TestName = "{m}(no calls)")]
   [TestCase(1,
             0.0,

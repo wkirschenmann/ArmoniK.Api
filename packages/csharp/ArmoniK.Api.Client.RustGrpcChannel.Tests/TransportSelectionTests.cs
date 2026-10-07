@@ -399,22 +399,42 @@ public class TransportSelectionTests
                 Is.GreaterThan(0));
   }
 
-  /// <summary>Options that ask for no bound where a default sets one are named, since the engine cannot turn them off.</summary>
+  /// <summary>Options that ask for no bound where a default sets one state it as zero, so that they turn it off.</summary>
   [Test]
-  public void OptionsThatCannotTurnADefaultOffAreNamed()
+  public async Task OptionsThatAskForNoBoundTurnTheDefaultOff()
   {
     var options = new GrpcClient
                   {
+                    Endpoint      = Endpoint,
+                    Transport     = ClientTransport.Native,
                     KeepAliveTime = System.Threading.Timeout.InfiniteTimeSpan,
                     MaxIdleTime   = TimeSpan.Zero,
                   };
 
-    Assert.That(NativeClientOptions.CannotBeDisabled(options),
-                Is.EqualTo(new[]
-                           {
-                             nameof(GrpcClient.KeepAliveTime),
-                             nameof(GrpcClient.MaxIdleTime),
-                           }));
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  new GrpcClient())
+                                                                       .Encode()),
+                Does.Contain(@"""IdleSeconds"":0")
+                    .And.Contain(@"""IdleTimeoutSeconds"":0"));
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
+                                                                                  {
+                                                                                    RequestTimeout = TimeSpan.Zero,
+                                                                                  },
+                                                                                  new GrpcClient())
+                                                                       .Encode()),
+                Does.Contain(@"""DefaultDeadlineSeconds"":0"));
+
+    // The floor sets a keepalive with its interval, and the zero over it must not be refused
+    // for the interval that stays.
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "off",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+    Assert.That(reply.Text,
+                Is.EqualTo("off"));
   }
 
   /// <summary>The proxy words and a P12 bundle are translated as the managed transport reads them.</summary>

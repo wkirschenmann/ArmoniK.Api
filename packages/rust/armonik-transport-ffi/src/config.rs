@@ -482,14 +482,20 @@ mod tests {
             Duration::from_nanos(1)
         );
 
+        // Zero is "none", so that a later source can turn off a deadline an earlier one set; the
+        // least a deadline can be is still a nanosecond.
         assert_eq!(
             schema
                 .pointer("/$defs/GrpcOptions/properties/DefaultDeadlineSeconds/minimum")
                 .and_then(serde_json::Value::as_f64),
-            Some(1e-9)
+            Some(0.0)
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":0.0}}"#).default_deadline,
+            None
         );
         assert!(!admits(
-            r#"{"Grpc":{"DefaultDeadlineSeconds":0.0}}"#.to_owned()
+            r#"{"Grpc":{"DefaultDeadlineSeconds":5e-10}}"#.to_owned()
         ));
         assert!(!admits(
             r#"{"Grpc":{"DefaultDeadlineSeconds":18446744073709551616.0}}"#.to_owned()
@@ -563,24 +569,12 @@ mod tests {
         }
         for (pointer, document) in [
             (
-                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
-            ),
-            (
                 "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
                 r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
             ),
             (
-                "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
-                r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
-            ),
-            (
                 "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
                 r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
-            ),
-            (
-                "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
-                r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/InitialBackoffSeconds/minimum",
@@ -602,6 +596,36 @@ mod tests {
             let at = |value: f64| document.replace('N', &format!("{value:e}"));
             assert!(!admits(at(minimum / 2.0)), "{pointer}: below is admitted");
             assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
+        }
+
+        // These four state "none" as zero, which the schema's minimum is; what the engine admits
+        // above zero is its own bound, stated in the option's description.
+        for (pointer, document, least) in [
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
+                1.0,
+            ),
+            (
+                "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
+                r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
+                1e-9,
+            ),
+            (
+                "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
+                r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
+                1e-9,
+            ),
+        ] {
+            assert_eq!(
+                schema.pointer(pointer).and_then(serde_json::Value::as_f64),
+                Some(0.0),
+                "{pointer}"
+            );
+            let at = |value: f64| document.replace('N', &format!("{value:e}"));
+            assert!(admits(at(0.0)), "{pointer}: zero is refused");
+            assert!(admits(at(least)), "{pointer}: the least is refused");
+            assert!(!admits(at(least / 2.0)), "{pointer}: below is admitted");
         }
     }
 
@@ -698,9 +722,19 @@ mod tests {
             Some(RateLimitConfig::new(100, Duration::from_millis(250)))
         );
 
+        // Zero calls states no limit, over one an earlier source set, whatever else is stated.
+        assert_eq!(
+            config_of(br#"{"Grpc":{"RateLimit":{"Calls":0,"PerSeconds":1}}}"#).rate_limit,
+            None
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"RateLimit":{"Calls":0}}}"#).rate_limit,
+            None
+        );
+
         for (document, key) in [
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":0,"PerSeconds":1}}}"#[..],
+                &br#"{"Grpc":{"RateLimit":{"Calls":-1,"PerSeconds":1}}}"#[..],
                 "Grpc.RateLimit.Calls",
             ),
             (
@@ -730,7 +764,7 @@ mod tests {
                 ))
                 .and_then(serde_json::Value::as_f64)
         };
-        assert_eq!(minimum("Calls"), Some(1.0));
+        assert_eq!(minimum("Calls"), Some(0.0));
         assert_eq!(minimum("PerSeconds"), Some(1e-9));
     }
 

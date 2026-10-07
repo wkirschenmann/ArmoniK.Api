@@ -71,6 +71,11 @@ well as from JSON, so every host language gets the same result from the same sou
   an `IConfiguration` with the command-line provider alone, used inside the binding and never
   exposed. What it parses reaches the engine as pairs of a key's path and a text value, read as
   the environment's are, since a command line, like the environment, has only text.
+- **A key left out and a key set to 0 differ** (2026-10-07): a source that leaves an option out
+  leaves what an earlier source set, or the default, and a source that wants none says so with 0,
+  which `Transport.TcpKeepalive.IdleSeconds`, `Http2.KeepAliveIntervalSeconds`,
+  `Http2.IdleTimeoutSeconds`, `Grpc.DefaultDeadlineSeconds` and `Grpc.RateLimit.Calls` read as none
+  (decisions.md, "How an option is turned off", lists the options left as they are).
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's
   path, so that a misspelled key does not give the defaults with nothing to say so. The engine logs

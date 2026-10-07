@@ -82,16 +82,19 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   KeepAliveTime is the time after which the connection will be kept alive.
+    ///   The native transport reads a value that is zero, negative or infinite as no keepalive.
     /// </summary>
     public TimeSpan KeepAliveTime { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     ///   KeepAliveTimeInterval is the interval at which the connection will be kept alive.
+    ///   The native transport ignores a value that is not positive.
     /// </summary>
     public TimeSpan KeepAliveTimeInterval { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     ///   MaxIdleTime is the maximum idle time after which the connection will be closed.
+    ///   The native transport reads a value that is zero, negative or infinite as no limit.
     /// </summary>
     public TimeSpan MaxIdleTime { get; set; } = TimeSpan.FromMinutes(5);
 
@@ -118,6 +121,7 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   Timeout for grpc requests. Defaults to no timeout.
+    ///   The native transport reads a value that is zero, negative or infinite as no timeout.
     /// </summary>
     public TimeSpan RequestTimeout { get; set; } = Timeout.InfiniteTimeSpan;
 
