@@ -1516,9 +1516,10 @@ options generator renders no `Bind`; the `armonik` client loads the runtime's do
 were settled as the code has them: a file's section is found by the prefix as written, a path whose
 parts walk the nested sections, where the environment matches it without case; a `Document` is also
 `Default`, what a configuration with no source loads; and a YAML file of more than one document is
-refused. One is open: a `ChannelDefaults` delivery window stated in any source of a
-`NativeConfiguration` reaches no channel of the .NET binding, which sizes its rings from the window
-it sends.
+refused. The one open point, that a `ChannelDefaults` delivery window stated in any source of a
+`NativeConfiguration` reached no channel of the .NET binding, which sized its rings from the window it
+sent, was closed on 2026-10-07 by T6.8: the binding reads the effective window back from the engine,
+`ak_channel_delivery_window`.
 
 ### T6.15: The options a gRPC client is expected to have
 

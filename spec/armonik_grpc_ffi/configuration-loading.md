@@ -289,8 +289,10 @@ and types a value as it does the environment's; `LoadConfigFromObject` serialize
 document, writing only the options set, so that a default does not override an earlier source. No
 `IConfiguration` is taken or returned.
 
-A runtime created from a `NativeConfiguration` gives its channels no delivery window the binding can
-see: the engine reads every source, an object's document included, and a channel sizes its rings
-from the window it sends, its own options' or `DefaultDeliveryCredits`. A `ChannelDefaults` window
-stated in any of them therefore reaches no channel of the .NET binding; only
-`NativeRuntime.Create(RuntimeOptions)` gives the binding its defaults.
+The engine reads every source, an object's document included, so the binding does not know the
+delivery window a channel ends up with. It reads it back: once a channel is created, the binding asks
+the engine for the window the channel's own options and the runtime's `ChannelDefaults` settled
+(`ak_channel_delivery_window`, decided 2026-10-07) and sizes the channel's rings from the answer. A
+`ChannelDefaults` window stated in any source therefore reaches every channel of the .NET binding,
+and a window past what a ring can hold (`NativeRuntime.MaxDeliveryCredits`) is refused when the
+channel is created, whichever source stated it.

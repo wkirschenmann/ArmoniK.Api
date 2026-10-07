@@ -180,6 +180,102 @@ public class NativeConfigurationTests : EchoServerFixture
     }
   }
 
+  private static RuntimeOptions WithWindow(int window)
+    => new()
+       {
+         ChannelDefaults = new ChannelOptions
+                           {
+                             Grpc = new GrpcOptions
+                                    {
+                                      Host = new HostOptions
+                                             {
+                                               Receive = new HostReceiveOptions
+                                                         {
+                                                           Window = window,
+                                                         },
+                                             },
+                                    },
+                           },
+       };
+
+  /// <summary>A channel sizes its rings from the window the engine settles, whichever source stated the default.</summary>
+  [Test]
+  public async Task AChannelReadsItsWindowFromTheEngineWhateverSourceStatedTheDefault()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(WithWindow(7))))
+                    .ConfigureAwait(false);
+    await using (var channel = runtime.Channel(Endpoint))
+    {
+      Assert.That(channel.DeliveryCredits,
+                  Is.EqualTo(7),
+                  "an object");
+    }
+
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+                                                                                                                 {
+                                                                                                                   "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Host:Receive:Window=6",
+                                                                                                                 })))
+                .ConfigureAwait(false);
+    await using (var channel = runtime.Channel(Endpoint))
+    {
+      Assert.That(channel.DeliveryCredits,
+                  Is.EqualTo(6),
+                  "a command line");
+    }
+
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromFiles(File("window.json",
+                                                                                                             "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"ChannelDefaults\": { \"Grpc\": { \"Host\": { \"Receive\": { \"Window\": 5 } } } } } } } }"))))
+                .ConfigureAwait(false);
+    await using (var channel = runtime.Channel(Endpoint))
+    {
+      Assert.That(channel.DeliveryCredits,
+                  Is.EqualTo(5),
+                  "a file");
+    }
+  }
+
+  /// <summary>A channel's own window wins over the default, and with neither the engine's own is read back.</summary>
+  [Test]
+  public async Task AChannelsOwnWindowWinsAndWithNoneTheEnginesIsReadBack()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(WithWindow(7))))
+                    .ConfigureAwait(false);
+    await using (var channel = runtime.Channel(Endpoint,
+                                               2))
+    {
+      Assert.That(channel.DeliveryCredits,
+                  Is.EqualTo(2));
+    }
+
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(new RuntimeOptions())))
+                .ConfigureAwait(false);
+    await using (var channel = runtime.Channel(Endpoint))
+    {
+      Assert.That(channel.DeliveryCredits,
+                  Is.EqualTo(4));
+    }
+  }
+
+  /// <summary>A default no ring can hold is refused when the channel is made, and leaves the runtime usable.</summary>
+  [Test]
+  public async Task ADefaultWindowNoRingCanHoldIsRefusedAtTheChannel()
+  {
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+                                                                                                                     {
+                                                                                                                       $"--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Host:Receive:Window={NativeRuntime.MaxDeliveryCredits + 1}",
+                                                                                                                     })))
+                    .ConfigureAwait(false);
+
+    Assert.That(() => runtime.Channel(Endpoint),
+                Throws.InstanceOf<ArgumentOutOfRangeException>()
+                      .With.Message.Contains("Grpc.Host.Receive.Window"));
+
+    await using var channel = runtime.Channel(Endpoint,
+                                              3);
+    Assert.That(channel.DeliveryCredits,
+                Is.EqualTo(3));
+  }
+
   /// <summary>What the engine refuses in a source is refused when the runtime is created, by the source and the key, the value unquoted.</summary>
   [Test]
   public void AValueNotOfItsTypeIsRefusedAtTheCreateAndNotQuoted()

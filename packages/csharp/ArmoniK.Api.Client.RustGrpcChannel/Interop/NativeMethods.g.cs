@@ -172,6 +172,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  refused. That schema, `options.schema.json`, names each option with its type and, where it has
         ///  them, its range and default.
         ///
+        ///  ak_channel_delivery_window reads back the delivery window the channel ended up with.
+        ///
         ///  The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call
         ///  outstanding at once, each taking one credit, one place of the window - the terminal status takes
         ///  none, so a host holds at most one more - and the host chooses it because the host is what has
@@ -227,6 +229,22 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_channel_status", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_channel_state ak_channel_status(ulong channel);
+
+        /// <summary>
+        ///  The delivery window a channel was created with: Grpc.Host.Receive.Window as the channel's own
+        ///  document, the runtime's channel defaults or this library's default settled it. Fixed for the
+        ///  life of the channel.
+        ///
+        ///  A handle this library does not know is AK_STATUS_HANDLE_STALE, and a null out
+        ///  AK_STATUS_INVALID_ARG.
+        ///
+        ///  # Safety
+        ///
+        ///  `out` must be writable.
+        ///  `out_error` must be null or writable for an `ak_error`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_channel_delivery_window", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern ak_status ak_channel_delivery_window(ulong channel, uint* @out, ak_error* out_error);
 
         /// <summary>
         ///  Starts a call on a channel.

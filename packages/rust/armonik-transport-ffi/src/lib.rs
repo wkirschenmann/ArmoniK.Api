@@ -288,6 +288,8 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// refused. That schema, `options.schema.json`, names each option with its type and, where it has
 /// them, its range and default.
 ///
+/// ak_channel_delivery_window reads back the delivery window the channel ended up with.
+///
 /// The two windows mirror each other. Grpc.Host.Receive.Window bounds the payloads of one call
 /// outstanding at once, each taking one credit, one place of the window - the terminal status takes
 /// none, so a host holds at most one more - and the host chooses it because the host is what has
@@ -376,6 +378,31 @@ pub extern "C" fn ak_channel_status(channel: ak_handle) -> ak_channel_state {
             None => ak_channel_state::AK_CHANNEL_NONE,
         },
     )
+}
+
+/// The delivery window a channel was created with: Grpc.Host.Receive.Window as the channel's own
+/// document, the runtime's channel defaults or this library's default settled it. Fixed for the
+/// life of the channel.
+///
+/// A handle this library does not know is AK_STATUS_HANDLE_STALE, and a null out
+/// AK_STATUS_INVALID_ARG.
+///
+/// # Safety
+///
+/// `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_channel_delivery_window(
+    channel: ak_handle,
+    out: *mut u32,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        observe(tables::channels(), channel, out, |found| {
+            Ok::<_, ak_status>(u32::try_from(found.delivery_credits).unwrap_or(u32::MAX))
+        })
+    });
+    unsafe { refusal::answer(out_error, answered) }
 }
 
 /// Starts a call on a channel.

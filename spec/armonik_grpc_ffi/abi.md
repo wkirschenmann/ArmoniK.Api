@@ -361,6 +361,17 @@ rots; conformance tests and host assertions are its intended callers. Its
 `AK_STATUS_HANDLE_STALE` means the handle names no call - reclaimed, for a handle the host was
 given - which is to say the host owes nothing.
 
+#### A channel's delivery window
+
+`ak_channel_delivery_window(channel, &window, &error)` writes the delivery window the channel was
+created with: `Grpc.Host.Receive.Window` as the channel's own document and the runtime's channel
+defaults settle it between them, or the engine's own (four) when neither names one (decided
+2026-10-07, T6.8). A host sizes what it holds per call from the window, and a runtime created from
+sources states its `ChannelDefaults` where the host cannot see them, so the host reads the window
+back instead of assuming it. It is fixed for the life of the channel; `AK_STATUS_HANDLE_STALE`
+names a channel the library does not know, and a null `out` is `AK_STATUS_INVALID_ARG`. Additive:
+`AK_ABI_VERSION` stays 1, as it did for `ak_runtime_create_from`.
+
 #### Memory usage
 
 `ak_runtime_memory_usage` is the runtime's accounting, one number against the ceiling: the bytes
