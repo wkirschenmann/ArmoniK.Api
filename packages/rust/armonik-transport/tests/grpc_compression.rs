@@ -599,3 +599,263 @@ async fn the_receive_limit_is_on_the_inflated_message() {
         assert_eq!(messages[0].len(), eight_mib);
     }
 }
+
+/// What the engine logs, by the channel's own target: its level and message.
+#[derive(Clone, Default)]
+struct Logged(std::sync::Arc<std::sync::Mutex<Vec<(tracing::Level, String)>>>);
+
+impl Logged {
+    /// Logs from here to the end of the test are the ones this holds, on this thread: the tests
+    /// run on a current-thread runtime, so the engine's tasks run here too.
+    fn watch(&self) -> tracing::subscriber::DefaultGuard {
+        tracing::subscriber::set_default(self.clone())
+    }
+
+    fn at(&self, level: tracing::Level) -> Vec<String> {
+        let logged = self.0.lock().expect("the log");
+        logged
+            .iter()
+            .filter(|(at, _)| *at == level)
+            .map(|(_, text)| text.clone())
+            .collect()
+    }
+}
+
+impl tracing::Subscriber for Logged {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        metadata.target() == "armonik_transport"
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        struct Message(String);
+        impl tracing::field::Visit for Message {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    self.0 = format!("{value:?}");
+                }
+            }
+        }
+        let mut message = Message(String::new());
+        event.record(&mut message);
+        self.0
+            .lock()
+            .expect("the log")
+            .push((*event.metadata().level(), message.0));
+    }
+
+    fn enter(&self, _: &tracing::span::Id) {}
+
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+async fn echoed(channel: &GrpcChannel, method: &str, text: &[u8]) -> GrpcStatus {
+    let (_, messages, status) = unary(
+        channel,
+        CallStartOptions::new(method),
+        Bytes::copy_from_slice(text),
+    )
+    .await;
+    if status.code == GrpcStatusCode::Ok {
+        assert_eq!(messages, vec![Bytes::copy_from_slice(text)]);
+    }
+    status
+}
+
+/// A server that does not accept the channel's encoding fails the first call that reaches it, and
+/// says what it accepts: the calls after it send as they are, and succeed.
+#[tokio::test]
+async fn a_server_that_refuses_the_encoding_costs_one_call_and_then_the_channel_stops_compressing()
+{
+    let server = TestServer::start().await;
+    let text = b"abc".repeat(1000);
+
+    for encoding in ALL {
+        let channel = sending(&server.endpoint, encoding);
+
+        let first = echoed(&channel, ECHO, &text).await;
+        assert_eq!(
+            first.code,
+            GrpcStatusCode::Unimplemented,
+            "{encoding:?}: {first}"
+        );
+
+        for _ in 0..3 {
+            let next = echoed(&channel, ECHO, &text).await;
+            assert_eq!(next.code, GrpcStatusCode::Ok, "{encoding:?}: {next}");
+        }
+        let said = said_of(&channel, &[&text]).await;
+        assert_eq!(said, "encoding=none frames=0:3000", "{encoding:?}");
+    }
+}
+
+/// The server's list is what decides, not the refusal alone: one that accepts gzip alone tells a
+/// channel that sends zstd so, and the channel that sends gzip is not told anything.
+#[tokio::test]
+async fn the_channel_compresses_while_the_server_lists_its_encoding() {
+    let server = TestServer::start().await;
+    let text = b"abc".repeat(1000);
+
+    let zstd = sending(&server.endpoint, Encoding::Zstd);
+    let first = echoed(&zstd, ECHO_GZIP_ONLY, &text).await;
+    assert_eq!(first.code, GrpcStatusCode::Unimplemented, "{first}");
+    assert!(first.message.contains("zstd"), "{first}");
+    let next = echoed(&zstd, ECHO_GZIP_ONLY, &text).await;
+    assert_eq!(next.code, GrpcStatusCode::Ok, "{next}");
+
+    let gzip = sending(&server.endpoint, Encoding::Gzip);
+    for _ in 0..3 {
+        let status = echoed(&gzip, ECHO_GZIP_ONLY, &text).await;
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    }
+    let said = said_of(&gzip, &[&text]).await;
+    assert!(said.starts_with("encoding=gzip frames=1:"), "{said}");
+}
+
+/// The warning is the channel's, once: a server that goes on refusing, or a refusal learned again
+/// after the encoding was listed in between, does not say it again.
+#[tokio::test]
+async fn the_channel_says_once_that_the_server_does_not_list_its_encoding() {
+    let server = TestServer::start().await;
+    let logged = Logged::default();
+    let _watch = logged.watch();
+    let text = b"abc".repeat(1000);
+    let channel = sending(&server.endpoint, Encoding::Gzip);
+    let call = |method: String| {
+        let channel = channel.clone();
+        async move {
+            let (_, _, status) = unary(
+                &channel,
+                CallStartOptions::new(method),
+                Bytes::from_static(b"x"),
+            )
+            .await;
+            assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+        }
+    };
+    assert!(logged.at(tracing::Level::WARN).is_empty());
+
+    let first = echoed(&channel, ECHO, &text).await;
+    assert_eq!(first.code, GrpcStatusCode::Unimplemented, "{first}");
+    let warnings = logged.at(tracing::Level::WARN);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("does not list"), "{warnings:?}");
+
+    call("/raw/Accepts:identity".to_owned()).await;
+    call("/raw/Accepts:deflate,identity".to_owned()).await;
+    assert_eq!(logged.at(tracing::Level::WARN).len(), 1, "still the one");
+
+    call("/raw/Accepts:gzip,identity".to_owned()).await;
+    assert!(
+        logged
+            .at(tracing::Level::DEBUG)
+            .iter()
+            .any(|said| said.contains("compress their messages again")),
+        "the resume is said"
+    );
+    assert_eq!(
+        logged.at(tracing::Level::WARN).len(),
+        1,
+        "and is no warning"
+    );
+    call("/raw/Accepts:identity".to_owned()).await;
+    assert_eq!(
+        logged.at(tracing::Level::WARN).len(),
+        1,
+        "a second refusal on the channel is not a second warning"
+    );
+}
+
+/// A later answer that lists the encoding has the channel compress again, as a server that was
+/// upgraded in between would; one that does not list it, or says nothing, leaves it as it was.
+#[tokio::test]
+async fn the_channel_compresses_again_once_a_response_lists_the_encoding() {
+    let server = TestServer::start().await;
+    let text = b"abc".repeat(1000);
+    let channel = sending(&server.endpoint, Encoding::Gzip);
+    let compressing = || async { said_of(&channel, &[&text]).await };
+    let hears = |method: &'static str| {
+        let channel = channel.clone();
+        async move {
+            let (_, _, status) = unary(
+                &channel,
+                CallStartOptions::new(method),
+                Bytes::from_static(b"x"),
+            )
+            .await;
+            assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+        }
+    };
+
+    assert!(compressing().await.starts_with("encoding=gzip"));
+
+    let refused = echoed(&channel, ECHO, &text).await;
+    assert_eq!(refused.code, GrpcStatusCode::Unimplemented, "{refused}");
+    assert_eq!(compressing().await, "encoding=none frames=0:3000");
+
+    // A head that lists other encodings, or none at all, is no word on gzip.
+    hears("/raw/Accepts:deflate,zstd,identity").await;
+    hears("/raw/EchoHeaders").await;
+    assert_eq!(compressing().await, "encoding=none frames=0:3000");
+
+    hears("/raw/Accepts:zstd,GZIP,identity").await;
+    assert!(compressing().await.starts_with("encoding=gzip frames=1:"));
+
+    hears("/raw/Accepts:identity").await;
+    assert_eq!(compressing().await, "encoding=none frames=0:3000");
+}
+
+/// The head of a response that is not gRPC says nothing of what the server accepts.
+#[tokio::test]
+async fn a_response_that_is_not_grpc_teaches_the_channel_nothing() {
+    let server = TestServer::start().await;
+    let channel = sending(&server.endpoint, Encoding::Gzip);
+
+    let (_, _, status) = unary(
+        &channel,
+        CallStartOptions::new("/raw/NotGrpcThatLists"),
+        Bytes::from_static(b"x"),
+    )
+    .await;
+    assert_ne!(status.code, GrpcStatusCode::Ok, "{status}");
+
+    let said = said_of(&channel, &[&b"abc".repeat(1000)]).await;
+    assert!(said.starts_with("encoding=gzip frames=1:"), "{said}");
+}
+
+/// A call has its messages compressed and its header says so from the moment it starts: what the
+/// channel learns while it runs changes the calls that start after it.
+#[tokio::test]
+async fn a_call_keeps_the_encoding_it_started_with() {
+    let server = TestServer::start().await;
+    let channel = sending(&server.endpoint, Encoding::Gzip);
+    let text = b"abc".repeat(1000);
+
+    let (mut send, mut recv, _control) = channel
+        .start_call(CallStartOptions::new(FRAMES))
+        .expect("the call starts")
+        .split();
+    send.send_message(Bytes::from(text.clone()))
+        .await
+        .expect("sent");
+
+    let refused = echoed(&channel, ECHO, &text).await;
+    assert_eq!(refused.code, GrpcStatusCode::Unimplemented, "{refused}");
+
+    send.send_message(Bytes::from(text.clone()))
+        .await
+        .expect("sent");
+    let _ = send.end_send().await;
+    let (_, heard, status) = read_to_terminal(&mut recv).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    let said = String::from_utf8(heard.concat()).expect("text");
+    assert!(said.starts_with("encoding=gzip frames=1:"), "{said}");
+    assert_eq!(said.matches(",1:").count(), 1, "both compressed: {said}");
+}

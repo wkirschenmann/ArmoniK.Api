@@ -24,7 +24,7 @@ use crate::options::LARGEST_WINDOW;
 use super::call::{
     self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
 };
-use super::compression::{accept_header, distinct, Encoding};
+use super::compression::{accept_header, distinct, Encoding, SendEncoding};
 use super::contained::contained;
 use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
@@ -156,7 +156,7 @@ impl GrpcChannel {
                 delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
                 retry: config.retry,
-                send_encoding: config.send_encoding,
+                send: SendEncoding::new(config.send_encoding),
                 accept_header: accept_header(&accept_encodings),
                 accept_encodings,
                 replay,
@@ -179,7 +179,8 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let grpc_call = grpc_call.compressing(self.inner.send_encoding);
+        let encoding = self.inner.send.now();
+        let grpc_call = grpc_call.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -187,6 +188,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            encoding,
         };
         self.inner
             .spawner
@@ -207,7 +209,8 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let send = send.compressing(self.inner.send_encoding);
+        let encoding = self.inner.send.now();
+        let send = send.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -215,6 +218,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            encoding,
         };
         Ok((
             send,
@@ -243,6 +247,7 @@ impl GrpcChannel {
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
+            encoding: self.inner.send.now(),
         };
         Ok((
             request,
@@ -358,7 +363,8 @@ pub(crate) struct Inner {
     pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
     pub(crate) retry: Option<RetryConfig>,
-    pub(crate) send_encoding: Option<Encoding>,
+    /// The encoding calls send in, and whether the server is known to accept it.
+    pub(crate) send: SendEncoding,
     /// The encodings the channel accepts besides identity, each once, and what it advertises of them.
     accept_encodings: Vec<Encoding>,
     accept_header: HeaderValue,
@@ -484,6 +490,7 @@ impl Inner {
         answered: Answered,
         one_response: bool,
         body: RequestBody,
+        send: Option<Encoding>,
     ) -> tonic::client::Grpc<Http2> {
         let mut client = tonic::client::Grpc::with_origin(
             Http2 {
@@ -491,6 +498,7 @@ impl Inner {
                 answered,
                 one_response,
                 body: Some(body),
+                send,
             },
             self.endpoint.clone(),
         )
@@ -751,6 +759,9 @@ pub(crate) struct Http2 {
     /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
     /// from an empty stream of messages. Taken by the one request tonic's client sends.
     body: Option<RequestBody>,
+    /// What the call's messages are compressed with, decided when the call started: the header
+    /// has to say what its messages are, whatever the channel has learned since.
+    send: Option<Encoding>,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -781,6 +792,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let inner = Arc::clone(&self.inner);
         let answered = self.answered.clone();
         let one_response = self.one_response;
+        let send = self.send;
         match self.body.take() {
             Some(RequestBody::Framed(body)) => {
                 *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body));
@@ -793,7 +805,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         Box::pin(async move {
             request.headers_mut().extend(engine_headers(
                 &inner.user_agent,
-                inner.send_encoding,
+                send,
                 &inner.accept_header,
             ));
 
@@ -822,6 +834,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             answered.mark();
             response.headers_mut().remove(GRPC_STATUS_DETAILS);
             refuse_what_is_not_grpc(&response)?;
+            inner.send.learn(response.headers());
             forget_an_encoding_not_accepted(&mut response, &inner.accept_encodings);
             let response = refuse_a_message_behind_a_stated_status(response).await?;
 

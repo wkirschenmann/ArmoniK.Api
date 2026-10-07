@@ -18,7 +18,7 @@ use super::call::{
     ResponseSink,
 };
 use super::channel::Inner;
-use super::compression::compressed;
+use super::compression::{compressed, Encoding};
 use super::contained::contained;
 use super::metadata::Metadata;
 use super::request::RequestSlot;
@@ -82,6 +82,8 @@ pub(crate) struct Outgoing {
     pub(crate) deadline: Option<Instant>,
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
+    /// What the call's messages are compressed with, as the channel stood when the call started.
+    pub(crate) encoding: Option<Encoding>,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -330,6 +332,7 @@ async fn run<S: ResponseSink>(
         deadline,
         read_gate,
         one_response,
+        encoding,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -353,7 +356,7 @@ async fn run<S: ResponseSink>(
                 }
                 // Compressed once, here: every attempt sends the same bytes, and the replay is
                 // charged what is sent.
-                let request = match inner.send_encoding {
+                let request = match encoding {
                     Some(encoding) => {
                         match until_stopped(stop, compressed(encoding, request)).await {
                             Some(request) => request,
@@ -398,6 +401,7 @@ async fn run<S: ResponseSink>(
             deadline,
             read_gate.as_deref(),
             one_response,
+            encoding,
             &replay,
             stop,
             responding,
@@ -491,6 +495,7 @@ async fn attempt<S: ResponseSink>(
     deadline: Option<Instant>,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
+    encoding: Option<Encoding>,
     replay: &Sent,
     stop: &mut Stop,
     responding: &mut Responding<S>,
@@ -513,7 +518,7 @@ async fn attempt<S: ResponseSink>(
 
     // Each attempt's own: whether a response came is the last attempt's to say.
     responding.answered = Answered::default();
-    let mut client = inner.client(responding.answered.clone(), one_response, body);
+    let mut client = inner.client(responding.answered.clone(), one_response, body, encoding);
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {

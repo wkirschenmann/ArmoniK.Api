@@ -2406,8 +2406,12 @@ public sealed class GrpcSendOptions
   ///   <c>MaxMessageSize</c> is checked on a message before it is compressed.
   /// </summary>
   /// <remarks>
-  ///   The server has to accept the encoding: one that does not ends the call <c>UNIMPLEMENTED</c>,
-  ///   and there is no fallback to sending the messages as they are.
+  ///   The server has to accept the encoding, and says which it accepts in the
+  ///   <c>grpc-accept-encoding</c> of its responses. A response that lists encodings without this one
+  ///   stops the channel compressing: the calls that start after it send their messages as they
+  ///   are, and the channel logs a warning once. A later response that lists it has the channel
+  ///   compress again. A call that reached a server which does not accept the encoding ends
+  ///   <c>UNIMPLEMENTED</c> and is not sent again.
   ///   Defaults to none, the messages going out as they are.
   /// </remarks>
   [JsonPropertyName("Compression")]

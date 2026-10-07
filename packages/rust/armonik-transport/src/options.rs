@@ -1798,8 +1798,12 @@ pub struct GrpcSendOptions {
     /// `grpc-encoding`. A message that would not be smaller compressed is sent as it is, and
     /// `MaxMessageSize` is checked on a message before it is compressed.
     ///
-    /// The server has to accept the encoding: one that does not ends the call `UNIMPLEMENTED`,
-    /// and there is no fallback to sending the messages as they are.
+    /// The server has to accept the encoding, and says which it accepts in the
+    /// `grpc-accept-encoding` of its responses. A response that lists encodings without this one
+    /// stops the channel compressing: the calls that start after it send their messages as they
+    /// are, and the channel logs a warning once. A later response that lists it has the channel
+    /// compress again. A call that reached a server which does not accept the encoding ends
+    /// `UNIMPLEMENTED` and is not sent again.
     ///
     /// Defaults to none, the messages going out as they are.
     #[cfg_attr(

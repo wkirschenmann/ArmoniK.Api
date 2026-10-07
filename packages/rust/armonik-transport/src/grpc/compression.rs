@@ -6,10 +6,11 @@
 //! receiving is tonic's decoder, which inflates within the channel's receive limit.
 
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
 use flate2::write::{GzEncoder, ZlibEncoder};
-use http::HeaderValue;
+use http::{HeaderMap, HeaderValue};
 use tonic::codec::CompressionEncoding;
 
 use super::request::{FramedMessage, FRAME_PREFIX};
@@ -107,6 +108,113 @@ pub(crate) fn accept_header(accepted: &[Encoding]) -> HeaderValue {
     let mut names: Vec<&str> = accepted.iter().map(|encoding| encoding.name()).collect();
     names.push("identity");
     HeaderValue::from_str(&names.join(",")).expect("encoding names are ASCII tokens")
+}
+
+/// The header in which a server names the encodings it accepts.
+const ACCEPT_ENCODING: &str = "grpc-accept-encoding";
+
+/// Whether the `grpc-accept-encoding` of `headers` lists `encoding`; None when it has no such
+/// header, which says nothing of what the server accepts. The names are compared without case, as
+/// a list of tokens, and a value that is blank or not text is read as no header.
+fn lists(headers: &HeaderMap, encoding: Encoding) -> Option<bool> {
+    let mut seen = false;
+    for value in headers.get_all(ACCEPT_ENCODING) {
+        let Ok(text) = value.to_str() else { continue };
+        if text.trim().is_empty() {
+            continue;
+        }
+        seen = true;
+        if text
+            .split(',')
+            .any(|name| name.trim().eq_ignore_ascii_case(encoding.name()))
+        {
+            return Some(true);
+        }
+    }
+    seen.then_some(false)
+}
+
+/// The encoding a channel's calls send in, and what the server has said of accepting it.
+///
+/// A server states what it accepts in the `grpc-accept-encoding` of a response, and says it with
+/// the `UNIMPLEMENTED` that refuses an encoding it cannot read. While the last such header leaves
+/// the configured encoding out, calls that start send their messages as they are; a later one that
+/// lists it, as a server that has been upgraded would, has them compressed once more. A response
+/// without the header changes nothing. Behind a balancer whose backends differ, the state follows
+/// whichever answered last.
+///
+/// The state is two flags, read without a lock on every call and written when a response changes
+/// them. A call keeps what it was started with: the messages it has compressed and the header that
+/// names their encoding have to agree.
+pub(crate) struct SendEncoding {
+    configured: Option<Encoding>,
+    /// Whether the server's last word on what it accepts leaves the encoding out.
+    refused: AtomicBool,
+    /// Whether the channel has said so in a warning, which it does once.
+    warned: AtomicBool,
+}
+
+impl SendEncoding {
+    pub(crate) fn new(configured: Option<Encoding>) -> Self {
+        Self {
+            configured,
+            refused: AtomicBool::new(false),
+            warned: AtomicBool::new(false),
+        }
+    }
+
+    /// What a call that starts now sends in.
+    pub(crate) fn now(&self) -> Option<Encoding> {
+        self.configured
+            .filter(|_| !self.refused.load(Ordering::Relaxed))
+    }
+
+    /// Reads the head of a response, which may state what the server accepts.
+    pub(crate) fn learn(&self, headers: &HeaderMap) {
+        let Some(encoding) = self.configured else {
+            return;
+        };
+        let Some(listed) = lists(headers, encoding) else {
+            return;
+        };
+        // Nearly always the state already is what the head says, and nothing is written.
+        let refused = !listed;
+        if self.refused.load(Ordering::Relaxed) == refused {
+            return;
+        }
+        self.refused.store(refused, Ordering::Relaxed);
+        let name = encoding.name();
+        if listed {
+            tracing::debug!(
+                target: "armonik_transport",
+                encoding = name,
+                "the server lists the encoding in grpc-accept-encoding: calls compress their messages again"
+            );
+        } else if !self.warned.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                target: "armonik_transport",
+                encoding = name,
+                accepted = %accepted_text(headers),
+                "the server does not list the encoding in grpc-accept-encoding: calls send their messages uncompressed until a response lists it"
+            );
+        } else {
+            tracing::debug!(
+                target: "armonik_transport",
+                encoding = name,
+                "the server does not list the encoding in grpc-accept-encoding: calls send their messages uncompressed"
+            );
+        }
+    }
+}
+
+/// What `headers` say in `grpc-accept-encoding`, for a log line.
+fn accepted_text(headers: &HeaderMap) -> String {
+    headers
+        .get_all(ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// From this size a message is compressed on a blocking thread, where it does not hold up the
@@ -224,6 +332,82 @@ mod tests {
             ["gzip", "deflate", "zstd"],
             "tonic compares these names exactly"
         );
+    }
+
+    fn head(values: &[&str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(
+                ACCEPT_ENCODING,
+                HeaderValue::from_str(value).expect("a value"),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn a_server_lists_an_encoding_as_a_token_in_a_comma_separated_list() {
+        let gzip = |values: &[&str]| lists(&head(values), Encoding::Gzip);
+
+        assert_eq!(gzip(&[]), None, "no header says nothing");
+        assert_eq!(gzip(&["gzip"]), Some(true));
+        assert_eq!(gzip(&["identity,gzip"]), Some(true));
+        assert_eq!(
+            gzip(&["deflate, GZip ,zstd"]),
+            Some(true),
+            "spaces and case"
+        );
+        assert_eq!(
+            gzip(&["identity", "gzip"]),
+            Some(true),
+            "a second header line"
+        );
+        assert_eq!(gzip(&["identity"]), Some(false));
+        assert_eq!(
+            gzip(&["gzipped,xgzip,gzip2"]),
+            Some(false),
+            "a token, not a substring"
+        );
+        assert_eq!(gzip(&[""]), None, "a blank value is no word on anything");
+        assert_eq!(gzip(&[" ", "gzip"]), Some(true));
+
+        let mut unreadable = HeaderMap::new();
+        unreadable.insert(
+            ACCEPT_ENCODING,
+            HeaderValue::from_bytes(b"gz\xffip").expect("opaque bytes"),
+        );
+        assert_eq!(lists(&unreadable, Encoding::Gzip), None);
+    }
+
+    #[test]
+    fn what_a_channel_sends_in_follows_what_the_server_lists() {
+        let send = SendEncoding::new(Some(Encoding::Zstd));
+        assert_eq!(send.now(), Some(Encoding::Zstd));
+
+        send.learn(&head(&[]));
+        send.learn(&head(&["zstd,identity"]));
+        assert_eq!(send.now(), Some(Encoding::Zstd), "nothing says otherwise");
+
+        send.learn(&head(&["gzip,identity"]));
+        assert_eq!(send.now(), None, "the server does not list it");
+        send.learn(&head(&[]));
+        assert_eq!(
+            send.now(),
+            None,
+            "a head without the header changes nothing"
+        );
+
+        send.learn(&head(&["gzip,zstd,identity"]));
+        assert_eq!(send.now(), Some(Encoding::Zstd), "it is listed again");
+    }
+
+    #[test]
+    fn a_channel_that_sends_nothing_has_nothing_to_learn() {
+        let send = SendEncoding::new(None);
+
+        send.learn(&head(&["identity"]));
+
+        assert_eq!(send.now(), None);
     }
 
     #[test]

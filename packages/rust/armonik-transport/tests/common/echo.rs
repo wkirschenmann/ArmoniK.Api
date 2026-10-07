@@ -45,6 +45,9 @@ pub const FLAKY_CHAT: &str = "/armonik_transport.test.Echo/FlakyChat";
 /// Echoes through tonic, which inflates a request compressed with gzip, deflate or zstd and
 /// compresses its answer in the first of those the request's `grpc-accept-encoding` lists.
 pub const ECHO_COMPRESSED: &str = "/armonik_transport.test.Echo/EchoCompressed";
+/// Echoes through tonic, which accepts requests compressed with gzip and no other encoding, and
+/// answers one in another UNIMPLEMENTED with `grpc-accept-encoding: gzip,identity`.
+pub const ECHO_GZIP_ONLY: &str = "/armonik_transport.test.Echo/EchoGzipOnly";
 /// Reads the request whole and answers one message that says how it arrived: its `grpc-encoding`,
 /// and the flag and length on the wire of each message.
 pub const FRAMES: &str = "/armonik_transport.test.Echo/Frames";
@@ -382,6 +385,15 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
             .await;
     }
 
+    if path == ECHO_GZIP_ONLY {
+        return Grpc::new(BytesCodec)
+            .accept_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(usize::MAX)
+            .max_encoding_message_size(usize::MAX)
+            .unary(&mut Handler(echo), request.map(TonicBody::new))
+            .await;
+    }
+
     if path == FRAMES {
         return frames(request).await;
     }
@@ -685,6 +697,14 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 .header("content-type", "text/plain"),
             vec![Frame::data(Bytes::from_static(b"an ordinary web page"))],
         ),
+        // Not a gRPC response, whatever its headers say.
+        "NotGrpcThatLists" => (
+            hyper::Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/plain")
+                .header("grpc-accept-encoding", "identity"),
+            vec![Frame::data(Bytes::from_static(b"an ordinary web page"))],
+        ),
         "TooBig" => (
             grpc_head(),
             vec![Frame::data(announced_message(
@@ -743,6 +763,15 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 ],
             )
         }
+        // An answer whose head states what the server accepts: `Accepts:<value>` is the
+        // `grpc-accept-encoding` it carries.
+        case if case.starts_with("Accepts:") => (
+            grpc_head().header("grpc-accept-encoding", &case["Accepts:".len()..]),
+            vec![
+                Frame::data(grpc_message(0, b"ok")),
+                trailers(&[("grpc-status", "0")]),
+            ],
+        ),
         case if case.starts_with("ReplyThatDoesNotInflate:") => {
             let name = &case["ReplyThatDoesNotInflate:".len()..];
             (
