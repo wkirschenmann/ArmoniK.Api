@@ -307,8 +307,9 @@ reading the transport source code.
 
 ### Acceptance Criteria
 
-1. A configuration error (invalid endpoint, certificate not found, unknown option) is reported
-   immediately at channel creation with an explicit message.
+1. A configuration error (invalid endpoint, certificate not found) is reported immediately at
+   channel creation with an explicit message. An unknown option is not an error: it is logged,
+   with where it came from, and ignored (configuration-loading.md, decided 2026-10-07).
 2. A connection error (DNS, TCP, TLS handshake) is reported with the full cause (cause chain
    flattened into a single UTF-8 message).
 3. Error messages do not contain secrets (private key paths, passwords, certificate contents).
@@ -323,7 +324,8 @@ reading the transport source code.
    against its ceiling (`ak_runtime_memory_usage`). These two are the whole of what the ABI
    offers for observation; logs and traces are T10.1's.
 
-**Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today. Every
+**Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today, but for
+1's unknown option, which the engine refuses until T6.14 logs and ignores it. Every
 fallible entry point reports a family and a message through `out_error`. The .NET binding puts the
 message into its exceptions for channel and runtime creation, call start, runtime destruction and
 the half-close; the lend and the commit name their own constant refusals. A refused document or

@@ -1473,10 +1473,19 @@ under a prefix, and documents the host writes - in its own Rust, behind `ak_runt
 and in the `armonik` crate alike. The .NET binding takes no `IConfiguration`: it exposes
 `LoadConfigFromFiles`, `LoadConfigFromEnvironment`, `LoadConfigFromCommandLine` and
 `LoadConfigFromObject`, each adding a source, the command line parsed in .NET's idiom inside the
-binding.
+binding. `RuntimeOptions` moves to `armonik-transport` and gains `Endpoint`, which
+`ak_channel_create` takes when given an empty endpoint. An unknown key is logged through `tracing`
+and ignored, in every source and on every host. The schema keeps `additionalProperties: false`,
+which tells an editor of a file what the engine logs; the test that the schema and serde read the
+same names, `every_option_the_schema_declares_is_one_serde_reads`, asserts that nothing is logged
+as unknown, since serde no longer refuses what the two stop agreeing on. abi.md, architecture.md -
+its `additionalProperties` rule included - and formal-model.md, which describe the endpoint as an
+argument, `RuntimeOptions` as the FFI's and an unknown option as refused, follow with it; the
+done tasks of phase 3 in this file, which say the same, stay as the record of what they built.
 
 **Deliverable**: the same sources give the same options, or the same refusal, through the Rust
-loader and through the ABI, one set of fixtures driving both.
+loader and through the ABI, one set of fixtures driving both; the keys logged as unknown checked
+on the Rust loader, the ABI having no log to read before T10.1.
 
 ### T6.15: The options a gRPC client is expected to have
 
@@ -1538,7 +1547,7 @@ against the mock server in the five of CI's seven environments that need no syst
 store. `connect`, tonic's `channel` feature and `pub use armonik_transport as transport` are
 gone. `ClientConfig::channel_config` maps the options; `GrpcClient__Timeout` becomes the default
 deadline, which bounds a whole call where tonic's timeout bounded the wait for the response head.
-Whether it should bound only that wait is not decided.
+Decided on 2026-10-07: it bounds a whole call.
 
 This is also where the crate stops carrying two disjoint stacks. Until here the Rust client
 compiles fifteen mandatory dependencies where it compiled eight - `h2`, `http`, `http-body-util`,
@@ -1639,7 +1648,7 @@ one - and, as each is fixed in a release, the workaround it made unnecessary rem
 
 ### T10.1: What a host can see of the engine
 
-**Prerequisite**: T3.5
+**Prerequisite**: T3.5, and T6.14 for what the configuration loader ignores
 **Commit**: study, then whatever it concludes.
 
 The ABI lets a host observe two things - `ak_call_debt_of` and `ak_runtime_memory_usage` - and
@@ -1665,6 +1674,10 @@ What to settle:
 - **What is measured rather than logged.** Calls in flight, bytes in the ledger, dials, retries:
   counters a host can poll are cheaper than events it must consume, and the two observation
   points that exist are already that shape.
+- **What the configuration loader ignores.** An unknown key is ignored and logged (T6.14), which
+  is worth something only once the log reaches whoever wrote the key: an operator who misspelled
+  a variable reads it in the host's logs, or not at all. It is the first event this crossing has to
+  carry, with its source and its key's path, and never its value.
 - **What a secret must never reach.** The engine holds endpoints, proxy credentials and
   certificate paths. `safe_endpoint` exists because a URI can carry a password; a logging path
   that bypassed it would undo that.
@@ -1706,7 +1719,7 @@ T1.1 ─────────────→ T1.2 ←────────
                                                   T6.2 → T6.3 → T6.4
                                                   T6.6 → T6.9 → T6.12   (last, with the team)
 
-T6.13 → T7.1 → T6.14 → T6.8          T6.14 → T6.15          T6.16
+T6.13 → T7.1 → T6.14 → T6.8          T6.14 → T6.15          T6.14 → T10.1          T6.16
 ```
 
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
@@ -1732,5 +1745,6 @@ it is the one task of phase 3 that runs in parallel with T3.4 and T3.5.
 - **T6.2** (deadline) stands on T1.1 and T4.0: nothing about a timer waits on the option surface,
   but the field it adds waits on the struct being able to grow
 - **Phase 7 is next, from 2026-10-06**: phases 3 to 5 are done, and phase 6 keeps T6.8, T6.9,
-  T6.12 and the new T6.13 to T6.16. The order: T6.13, T7.1, T6.14, T6.8, then T6.15 and T6.16;
-  T6.9 last of all, and T6.12 after it.
+  T6.12 and the new T6.13 to T6.16. The order: T6.13, T7.1, T6.14, then T10.1, so that what the
+  loader logs reaches a host soon after it starts logging, T6.8, then T6.15 and T6.16; T6.9 last
+  of all, and T6.12 after it.
