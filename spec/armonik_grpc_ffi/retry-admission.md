@@ -305,8 +305,8 @@ unused.** Three gates, each answering one question:
 | Gate | Question | Bounds | Present when |
 |---|---|---|---|
 | per call: `MaxAttempts`, retryable codes, deadline, pushback | has this call tried enough? | one call's attempts | a retry policy |
-| health: sends against accepts over a window | is the server accepting what is sent? | retries, and the rate of starts | `Grpc.Adaptive` enabled (the default) |
-| ceiling: a GCRA cell | is there room under the configured rate? | starts per second, retries by what first attempts leave | `Grpc.RateLimit` |
+| health: sends against accepts over a window | is the server accepting what is sent? | retries, and the rate of starts | `Grpc.Rate.Adaptive` not `Off` (the default) |
+| ceiling: a GCRA cell | is there room under the configured rate? | starts per second, retries by what first attempts leave | `Grpc.Rate.Limit` |
 
 The configured rate limit is an upper bound on top of the estimate: while the server accepts, the
 estimate imposes nothing and the ceiling is the only limit; when it does not, the estimate's cap is
@@ -383,12 +383,13 @@ is in 4.12.
    failure too.
 2. **It caps the rate of starts.** While healthy there is no cap. When not healthy the channel may
    start `r_a = max(K * A / W', r_floor)` attempts a second, with `W'` the window or the age of the
-   estimate if younger and `r_floor` 0.5 a second: it sends at most `K` times what the server
-   accepts, per second, and never stops probing. A first attempt over the cap fails locally with
-   `UNAVAILABLE`, at once, as the SRE book rejects; a call that asked to wait for the connection, or
-   a channel configured to `DelayFirstAttempts`, waits for its turn of the adaptive cell instead, in
-   order, up to its deadline. A configured `Grpc.RateLimit` is a second, separate bound, taken after
-   the cap is passed (4.4).
+   estimate if younger and `r_floor` the `FloorPerSecond` option, 0.5 a second by default (the
+   lesser of it and the ceiling cell's rate, `Calls / PerSeconds`): it sends at most `K` times what
+   the server accepts, per second, and never stops probing. A first attempt over the cap fails
+   locally with `UNAVAILABLE`, at once, as the SRE book rejects; a call that asked to wait for the
+   connection, or a channel configured to `DelayFirstAttempts`, waits for its turn of the adaptive
+   cell instead, in order, up to its deadline. A configured `Grpc.Rate.Limit` is a second, separate
+   bound, taken after the cap is passed (4.4).
 3. **The per-call ceiling stays.** `MaxAttempts`, default 5, bounds one call whatever the estimate
    says (4.7).
 
@@ -418,7 +419,7 @@ Both caps are GCRA cells (section 2.6): a state `TAT`, nanoseconds since the cha
 emission interval `T`, and a depth `B`. The level in tokens at `now` is `L = B - max(0, TAT - now) /
 T`. A request conforms when `L >= 1`; taking the turn sets `TAT = max(TAT, now) + T`.
 
-- **The ceiling cell** exists with `Grpc.RateLimit`: `T = PerSeconds / Calls`, `B = Calls`.
+- **The ceiling cell** exists with `Grpc.Rate.Limit`: `T = PerSeconds / Calls`, `B = Calls`.
 - **The adaptive cell** exists only while the channel is unhealthy: `T = 1 / r_a`, `B = max(1,
   ceil(r_a))`, one second of burst at the lower rate, both read from the current `r_a` at each
   admission. It is created with `TAT = now` when the channel turns unhealthy and discarded when it
@@ -456,12 +457,12 @@ PerSeconds`, written `rate` below):
 | transparent resend | the peer never processed the request | as a first attempt | takes the turns | as a first attempt |
 | retry | health at the failure and after the backoff; the ceiling cell after the backoff; the call under its ceiling | healthy, and `L >= 1 + F` of the ceiling cell | takes a turn | refused: section 4.6 |
 
-With no rate limit there is no ceiling cell; with `Adaptive` disabled the health need is empty.
+With no rate limit there is no ceiling cell; with `Adaptive` `Off` the health need is empty.
 
 ### 4.6 A refused retry: two rules
 
 What happens to a retry that a gate refuses depends on whether a judgment of the server's health
-exists, that is whether `Adaptive` is enabled, which it is by default.
+exists, that is whether `Adaptive` is anything but `Off`, which it is by default.
 
 - **Without the estimate, only a maximum exists** (the ceiling cell and the per-call ceiling). This
   is what the branch builds. A retry refused for capacity is not sent and its call goes into its
@@ -473,7 +474,7 @@ exists, that is whether `Adaptive` is enabled, which it is by default.
   (and as A6 and every other stack surveyed do). Waiting for room is not needed to find out whether
   retrying is useful, and a call that cannot be served at once frees its replay memory and its
   caller. This is the rule in force by default, and it applies to a channel that sets only
-  `Grpc.RateLimit`: a call that fails while first attempts are using the rate ends at its first
+  `Grpc.Rate.Limit`: a call that fails while first attempts are using the rate ends at its first
   failure. Raise `Calls` if retries matter more.
 
 A limit slower than the backoff leaves no room for retries: with `Calls` 1 and `PerSeconds` 10 a
@@ -616,37 +617,60 @@ call by the policy's default; no `RateLimit` unless stated.
 | `RateLimit` 100 over 1 s, demand 100 a second | retries refused when no turn is left or someone waits | no retry once the level is under `1 + F`, 50; first attempts proceed at the rate |
 | one call that always fails `UNKNOWN`, deadline 1 hour | 5 attempts | 5 attempts in about 8 s at most; without the ceiling about 1,400, one every 2.5 s on average; five accepts per call lower `E` |
 
-### 4.12 Where the decisions run, and what they cost
+### 4.12 The two execution models
 
-Each channel the C ABI creates has its own thread running a current-thread tokio runtime
-(`AkRuntime::start_channel_thread`, `new_current_thread`); `GrpcChannel::new` is given that
-runtime's handle, and a call's driver is spawned on it (`spawner.spawn(...)` around
-`driver.drive(...)` in `armonik-transport-ffi/src/call/actor.rs`). The host thread that calls
-`ak_call_start` only builds the call and spawns. Every admission decision (the turn, the retry
-decision, the record at an attempt's end) happens in the driver task, on the channel's thread: there
-is one writer.
+The engine runs in two models, and the state is designed for both; neither is a fallback of the
+other.
 
-So on that path the state needs no read-modify-write. Its fields are plain integers in atomics
-accessed with relaxed loads and stores, which on x86-64 compile to ordinary moves where a
-read-modify-write is a locked instruction; the atomics are there only because the channel's `Inner`
-is shared as an `Arc` and read from other threads, the stats of T10.2 among them, which take a
-relaxed load and accept a slightly stale view that may mix fields of two moments. A record is a
-handful of such accesses, and an admission is one load of the health totals and, for a turn, a load
-and a store of a cell's `TAT`. The waiting queue of first attempts stays the async fair lock, which
-only a call that has to wait touches. The saving is that of x86-64: the 64-bit values (`TAT`, the
-totals) are not plain moves on 32-bit x86 or arm, where the relaxed access is still no dearer than
-the read-modify-write it replaces.
+**Model A, the C ABI: one current-thread runtime per channel.** Each channel the ABI creates has its
+own thread running a current-thread tokio runtime (`AkRuntime::start_channel_thread`,
+`new_current_thread`); `GrpcChannel::new` is given that runtime's handle, and a call's driver is
+spawned on it (a `spawner.spawn(...)` around `driver.drive(...)` in
+`armonik-transport-ffi/src/call/actor.rs`). The host thread that calls `ak_call_start` only builds
+the call and spawns. Every admission decision (the turn, the retry decision, the record at an
+attempt's end) happens in tasks on the channel's thread: one writer, so no read-modify-write is
+needed.
 
-Where the guarantee does not hold: `GrpcChannel::new` takes any runtime handle, and the `armonik`
-crate passes `Handle::current()`, which under a multi-thread runtime means driver tasks running at
-once on worker threads; and `prepare_call` hands the driver to its caller to run, on the channel's
-runtime by contract but not by type. So the state has two implementations of one interface, chosen
-when the channel is created from the handle's flavor (`Handle::runtime_flavor`, which the pinned
-tokio 1.52 has): **single-writer** for a current-thread runtime, as above; **shared** otherwise, the
-same fields behind one `std::sync::Mutex`, correct under any number of threads at the price of an
-uncontended lock per update, which a Rust host on a multi-thread runtime pays and the C ABI does
-not. A single-writer state that is written by two threads loses updates, so the estimate drifts; it
-cannot be unsound, because every access is atomic.
+**Model B, the `armonik` crate and any Rust host: a runtime of the host's choosing.** The crate
+calls `GrpcChannel::new(config, Handle::current())`, on a multi-thread runtime unless the host chose
+otherwise, and starts calls with `start_call`, which spawns each driver on that handle. The driver
+tasks of one channel then run on whichever worker is free, and several threads decide at once: the
+state is shared, and needs a lock or read-modify-writes.
+
+**One core, two word types.** The estimate, the ring and the cells are written once, as functions of
+the state and an `Instant`, over a word type with `get` and `set`:
+
+| | Model A: `Local` | Model B: `Shared` |
+|---|---|---|
+| Word | `AtomicU64`, accessed with relaxed `load` and `store` | `Cell<u64>` inside one `std::sync::Mutex` per channel |
+| One operation (a record, an admission) | plain loads and stores; no lock, no read-modify-write | one lock and unlock around the same loads and stores |
+| Another thread's read (the stats of T10.2) | a relaxed load per field; the view may be stale and may mix two moments | the lock |
+| Contention | none by construction | the channel's worker threads, only when they decide at the same instant; bounded by the call rate of one channel |
+| Cost on the hot path | on x86-64 an ordinary move for each access; on 32-bit x86 and arm a 64-bit access may be a compare-exchange loop, no dearer than the read-modify-write it replaces | an uncontended lock and unlock, two atomic read-modify-writes, on every platform |
+| If the assumption fails | updates are lost and the estimate drifts; no memory unsafety, every access is atomic | cannot fail: correct under any number of threads |
+
+The core never does a read-modify-write of its own; the lock of Model B makes each operation atomic
+as a whole, which Model A gets from having one writer. The waiting queue of first attempts is the
+async fair lock in both, and only a call that has to wait touches it.
+
+**How the model is chosen.** Once, when the channel is created, from `Handle::runtime_flavor()`
+(present in the pinned tokio 1.52): `CurrentThread` gives Model A, any other flavor Model B, so a
+flavor added later is safe by default. The state is an enum of the two held in `Inner`, matched on
+each operation (one predictable branch), not a generic parameter, so `Inner` and everything that
+holds it stay non-generic. There is no option. The `armonik` crate on a `current_thread` runtime, as
+`#[tokio::test]` gives, gets Model A as it should. The contract of `prepare_call` and
+`prepare_one_request_call` is that the driver they return runs on the channel's own runtime, as the
+C ABI does; a host that polls it from another thread breaks Model A's single writer, and the table's
+last row says what that costs.
+
+**The invariant of Model A**: admission and record are called only from the driver task, and the
+host thread that starts a call touches no admission state (`start_call` and `prepare_*` address the
+call, create its channels and, for `start_call`, spawn the driver). A build with the `test-hooks`
+feature records the thread of every write of a `Local` state and asserts that there is one.
+
+**Cost.** Neither model is measured here; a benchmark of both, on the C ABI unary path and on the
+`armonik` client with eight worker threads, is part of the task that builds the estimate, and it
+decides nothing but whether Model B needs a finer lock.
 
 ## 5. Honouring a service config's `retryPolicy`
 
@@ -660,7 +684,7 @@ naming that service-config field in its error.
 | `retryableStatusCodes` | the codes a call is tried again for | as written |
 | `initialBackoff`, `maxBackoff`, `backoffMultiplier` | the failure backoff | as written |
 | `maxAttempts` | the per-call ceiling | clamped to 5 by the mapping, as A6 requires of a reader; A6 requires at least 2, the engine's own option allows 1 (no retry) |
-| `retryThrottling.maxTokens`, `tokenRatio` | `Grpc.Adaptive.Multiplier` `1 + tokenRatio`, `Slack` `ceil(maxTokens / 2)` | the same failure share trips it (A6 when the failure share passes `r / (1 + r)`, the estimate when it passes `(K - 1) / K`); the rest differs, below |
+| `retryThrottling.maxTokens`, `tokenRatio` | `Grpc.Rate.Adaptive` as `On` with `Multiplier` `1 + tokenRatio` and `Slack` `ceil(maxTokens / 2)` | the same failure share trips it (A6 when the failure share passes `r / (1 + r)`, the estimate when it passes `(K - 1) / K`); the rest differs, below |
 | `hedgingPolicy` | refused by the loader | hedging is not wanted; ignoring it would change what a call costs the server |
 
 **`retryThrottling` is mapped, not run as written, and the two are not equivalent.** A6's bucket
@@ -675,27 +699,45 @@ by conjunction: a retry must pass every gate.
 ## 6. Option vocabulary
 
 Names under `Grpc.*` follow `options.rs`: PascalCase, `Seconds` for durations, every field optional
-with a default, a struct merging field by field.
+with a default, a struct merging field by field, and alternatives that exclude one another as an
+enum, which the schema renders as a `oneOf` of objects of one key (`true` for an alternative that
+carries nothing), as `Http2.Receive` does with `Fixed` and `Adaptive`, and the proxy with `None`,
+`System` and `Url`. A new group, `Grpc.Rate`, holds what bears on how fast calls start:
+
+    Grpc.Rate.Limit    { Calls, PerSeconds }            the ceiling: today's Grpc.RateLimit (Q12)
+    Grpc.Rate.Adaptive  { "On": { ... } } | { "Off": true }   the health estimate
+
+`Adaptive` is an option with two alternatives, as `Http2.Receive` has `Fixed` and `Adaptive`: `On`
+carries the parameters and `Off` carries nothing, so no reader checks pairs of keys. **When
+`Adaptive` is absent from the merged document it is `On` with every default**, so a channel and a
+`ChannelDefaults` that state nothing give the estimate. It merges as any alternative does
+(decisions.md, "Where a channel's defaults are set"): a channel and the defaults that state `On`
+merge their parameters field by field, so a channel that states `{"On": {"Multiplier": 3}}` keeps
+the defaults' `Slack`; one that states `Off` over the defaults' `On`, or the reverse, takes its
+alternative whole.
 
 | Option | Type | Default | Refused when |
 |---|---|---|---|
-| `Grpc.RateLimit.Calls` | int | none | below 1, or without `PerSeconds` (as built) |
-| `Grpc.RateLimit.PerSeconds` | seconds | none | not above 0, or without `Calls` (as built) |
+| `Grpc.Rate.Limit.Calls` | int | none | below 1, or without `PerSeconds` (as built) |
+| `Grpc.Rate.Limit.PerSeconds` | seconds | none | not above 0, or without `Calls` (as built) |
+| `Grpc.Rate.Adaptive` | `On` or `Off` | `On` | a document naming both |
+| `Grpc.Rate.Adaptive.On.Multiplier` (`K`) | number | 2 | not finite, below 1 or above 100 |
+| `Grpc.Rate.Adaptive.On.Slack` (`S`) | int | 10 | below 0 or above 1,000,000 |
+| `Grpc.Rate.Adaptive.On.WindowSeconds` (`W`) | seconds | 30 | below 0.012 (a slot of under a millisecond) or above 86,400 |
+| `Grpc.Rate.Adaptive.On.FloorPerSecond` | number | 0.5 | not finite, not above 0 (a floor of 0 stops the probing) or above 1,000,000 |
+| `Grpc.Rate.Adaptive.On.DelayFirstAttempts` | bool | `false` (Q2) | never |
 | `Grpc.Retry.MaxAttempts` | int | 5 | below 1 (as built) |
-| `Grpc.Adaptive.Enabled` | bool | `true` | never |
-| `Grpc.Adaptive.Multiplier` | number | 2 | not finite, or below 1 |
-| `Grpc.Adaptive.WindowSeconds` | seconds | 30 (Q1) | not above 0, or above 86400 |
-| `Grpc.Adaptive.Slack` | int | 10 | below 0 |
-| `Grpc.Adaptive.DelayFirstAttempts` | bool | `false` (Q2) | never |
 
-**To turn it off**, set `Grpc.Adaptive.Enabled` to `false`: the channel then has the per-call gate
-and the ceiling alone, with the first rule of 4.6. The other fields are validated always and read
-only when it is `true`, so a channel document may state them over defaults that enable it. The floor
-of 0.5 a second and the reserve `F` are constants, not options. `Calls` and `PerSeconds` give the
-ceiling `Calls / PerSeconds` and the burst `Calls`; a smaller burst at the same rate is a smaller
-`Calls` over a shorter `PerSeconds` (10 over 0.1 s is 100 a second with a burst of 10). The rest of
-`Grpc.Retry` stays. The group is `Adaptive` and not `Throttling` so as not to be taken for A6's
-`retryThrottling`, which it replaces and maps (section 5).
+A document that names both `On` and `Off` is refused as it is read. A value out of bounds is refused
+when the channel is created, naming its key, and the defaults' when the runtime is created, naming
+`ChannelDefaults`, as decisions.md has it. **To turn the estimate off**, set `Adaptive` to `{"Off":
+true}`: the channel then has the per-call gate and the ceiling alone, with the first rule of 4.6.
+The reserve `F` is a constant, not an option. `Calls` and `PerSeconds` give the ceiling `Calls /
+PerSeconds` and the burst `Calls`; a smaller burst at the same rate is a smaller `Calls` over a
+shorter `PerSeconds` (10 over 0.1 s is 100 a second with a burst of 10). The rest of `Grpc.Retry`
+stays. The control is `Adaptive` and not `Throttling` so as not to be taken for A6's
+`retryThrottling`, which it replaces and maps (section 5). It sits under `Rate`, though it also
+gates retries, because it is a rate: what the channel may start, by what the server accepts.
 
 **Why this is safe for a healthy server.** With the defaults nothing is imposed while `E <= S`, that
 is while the server has refused fewer than `S` more attempts than `K - 1` times its accepts over the
@@ -707,15 +749,15 @@ by retries as today (4.10).
 
 Proposals, each against the document it touches.
 
-1. **`Grpc.RateLimit` becomes GCRA** (decisions.md, "What a rate limit counts, and what a request
-   over it does"). Kept: what counts (every attempt, a stream once), arrival order, the end of a
-   waiting call by deadline or cancel, the limit being the channel's. Changed: no window; `Calls`
-   start at once after idle, then one every `PerSeconds / Calls`. This removes the burst of `2 *
-   Calls` at one instant, not the `2 * Calls` that can start over one `PerSeconds`. The cost the row
-   cites for a sliding window, a record per start, is not paid. The limit is now the ceiling of an
-   effective rate that the estimate may lower. The branch is amended to GCRA and the reserve before
-   it merges; its skip rule and counters stay as the first rule of 4.6, and its public type
-   (`RateLimitConfig`) and options do not change.
+1. **`Grpc.RateLimit` becomes GCRA** (`Grpc.Rate.Limit` if Q12 is accepted; decisions.md, "What a
+   rate limit counts, and what a request over it does"). Kept: what counts (every attempt, a stream
+   once), arrival order, the end of a waiting call by deadline or cancel, the limit being the
+   channel's. Changed: no window; `Calls` start at once after idle, then one every `PerSeconds /
+   Calls`. This removes the burst of `2 * Calls` at one instant, not the `2 * Calls` that can start
+   over one `PerSeconds`. The cost the row cites for a sliding window, a record per start, is not
+   paid. The limit is now the ceiling of an effective rate that the estimate may lower. The branch
+   is amended to GCRA and the reserve before it merges; its skip rule and counters stay as the first
+   rule of 4.6, and its public type (`RateLimitConfig`) and options do not change.
 2. **"A saturated limit skips retries (interim, until the retry budget)"** keeps its first rule for
    a channel that disables the estimate and gives way to the second, ending the call, by default:
    section 4.6. The branch's `try_admit`, which reads a mutex, goes.
@@ -734,6 +776,8 @@ Proposals, each against the document it touches.
    first attempts that waited, first attempts refused locally, retries refused by each gate, `R` and
    `A` over the window, `E`, the cap and the ceiling cell's level.
 9. **SPEC.MD** lists this document.
+10. **decisions.md's grouping row** ("How a channel's options are grouped") gains `Rate` among the
+    groups of `Grpc`, holding the limit and the adaptive control.
 
 ## 8. Questions for the user
 
@@ -753,7 +797,7 @@ wait-for-ready always waits.
 
 **Q3. Is the estimate on by default, and is a capacity refusal then final?** Recommendation: yes to
 both. The consequences: requirement 3.1 gains an exception (7.4); and a channel that sets only
-`Grpc.RateLimit` has a retry refused by the ceiling end its call, instead of skipping into the next
+`Grpc.Rate.Limit` has a retry refused by the ceiling end its call, instead of skipping into the next
 backoff (4.6). The `GrpcClient` this engine replaces has no throttle and no such rule.
 
 **Q4. Is the classification right, and is the plumbing wanted?** Recommendation: as in 4.2: refusals
@@ -782,9 +826,17 @@ GOAWAY it is the herd the limiter exists for.
 **Q10. Is a ramp after reopening wanted now?** Recommendation: not until a real control plane shows
 the step is too abrupt (4.9).
 
-**Q11. Is a mutex acceptable for a Rust host on a multi-thread runtime?** Recommendation: yes
-(4.12). The C ABI path, which the performance work targets, takes the single-writer path; a
-multi-thread host pays an uncontended lock per update.
+**Q11. Is the state model chosen from the runtime's flavor, with no option?** Recommendation: yes
+(4.12). Model A, the C ABI's, is lock-free and read-modify-write-free; Model B, a multi-thread Rust
+host's, pays an uncontended lock per decision. Both are to be built and tested (section 9), and a
+benchmark of both belongs to the task that builds the estimate.
+
+**Q12. Does `Grpc.RateLimit` move to `Grpc.Rate.Limit`?** Recommendation: yes, before the branch
+merges, so that one rate is not spread over two groups. The rename touches the five places a rename
+touches: the options type and its documentation, the two schemas, the generated C#, the loader's
+mapping of `GrpcClient__RateLimit` (T6.14), and the tests and the vocabulary test. While the option
+is unreleased that is a rename; after, it is a break. The alternative is to keep `Grpc.RateLimit`
+and put only `Adaptive` under `Grpc.Rate`.
 
 ## 9. Test plan
 
@@ -823,58 +875,72 @@ Estimate, unit tests with explicit instants:
 5. The cap: no cap while healthy; just past `S` it is within `S / W'` of the window's average send
    rate; it never falls under the floor; with `K` 1 the channel trips on rejections beyond `S`
    whatever it accepts.
-6. Single-writer and shared implementations give the same results on the same recorded run; a
-   multi-thread stress test of the shared one leaves the totals equal to the sum of the records.
-7. A channel created on a current-thread handle uses the single-writer state and on a multi-thread
-   handle the shared one.
+6. The core is generic over the word type, and each test above runs for both, `Local` and `Shared`,
+   from one body: the same recorded run gives the same decisions in both.
+7. Model A, a current-thread runtime, as the C ABI's: a channel created on it takes `Local`; its
+   channel tests run under `start_paused`; with the `test-hooks` feature a `Local` state records the
+   thread of every write and the test asserts there is one.
+8. Model B, a multi-thread runtime, as the `armonik` crate's: a channel created on it takes
+   `Shared`. `time::pause` needs a current-thread runtime, so its channel tests run in real time
+   with short windows (a `WindowSeconds` of 1.2 and a floor that keeps them under a second), and the
+   core is stressed from eight threads with a hand-driven clock: after any interleaving the totals
+   equal the sum of the records, and `E` and the cell's `TAT` equal those of one thread replaying
+   the same records in the order the lock gave them.
+9. The same scripted scenario, a server dead and then up, run under Model A with paused time and
+   under Model B on the hand-driven clock of test 8, classifies, trips and reopens in the same order
+   at the same instants.
 
 Cells, unit tests with explicit instants:
 
-8. From idle, `Calls` first attempts start at once and the next `T` later; no sequence starts more
-   than `B + t / T` in any interval `t` (G2, checked against a sliding log over generated runs).
-9. `Calls` requests at the end of one `PerSeconds` and `Calls` at the start of the next do not all
-   start at once.
-10. Reserve: with `B` 100 a retry at level 50 passes and at 49.9 is refused; with no first attempt
+10. From idle, `Calls` first attempts start at once and the next `T` later; no sequence starts more
+    than `B + t / T` in any interval `t` (G2, checked against a sliding log over generated runs).
+11. `Calls` requests at the end of one `PerSeconds` and `Calls` at the start of the next do not all
+    start at once.
+12. Reserve: with `B` 100 a retry at level 50 passes and at 49.9 is refused; with no first attempt
     between them, after any run of retries the level is at least `F`, so `F` first attempts that
     follow start at once (G1); with `Calls` 1 a retry passes when the cell is free; with `F` 0 a
     retry is refused while a first attempt waits.
-11. G3: first attempts at 0.6 of the rate, retries offered at the rate: admitted retries stay within
+13. G3: first attempts at 0.6 of the rate, retries offered at the rate: admitted retries stay within
     0.4 of it plus the burst.
-12. A waiting first attempt that gives up takes no turn and the next waiter starts when due, as
+14. A waiting first attempt that gives up takes no turn and the next waiter starts when due, as
     `a_call_that_stopped_waiting_takes_no_turn_and_holds_none_back` has it. A newcomer does not pass
     a waiter on the fast path.
-13. The adaptive cell is created at the moment the channel turns unhealthy, with no debt, and
+15. The adaptive cell is created at the moment the channel turns unhealthy, with no debt, and
     discarded when it turns healthy: a probe taken at the floor leaves nothing to wait for after the
     cap lifts.
 
 Channel, paused clock:
 
-14. A retry at the failure: healthy, it is considered; unhealthy, the call ends at once with its
+16. A retry at the failure: healthy, it is considered; unhealthy, the call ends at once with its
     status and no backoff is slept; unhealthy when its backoff ends, the same.
-15. With the estimate enabled a capacity refusal ends the call with its last status and sends
+17. With the estimate enabled a capacity refusal ends the call with its last status and sends
     nothing more; with it disabled the refusal takes the first rule of 4.6: nothing sent, the next
     backoff, a count toward `MaxAttempts`, no gap in `grpc-previous-rpc-attempts`.
-16. Poison call: a call that always fails `UNKNOWN`, deadline an hour, sends exactly `MaxAttempts`
+18. Poison call: a call that always fails `UNKNOWN`, deadline an hour, sends exactly `MaxAttempts`
     requests and ends `UNKNOWN`, and `E` falls by `MaxAttempts`.
-17. A slow limit (`Calls` 1, `PerSeconds` 10) refuses every retry; with the estimate disabled the
+19. A slow limit (`Calls` 1, `PerSeconds` 10) refuses every retry; with the estimate disabled the
     call skips until the ceiling is spent, with it enabled the call ends at its first failure.
-18. A server scripted dead for 60 s and then up: first attempts over the cap end `UNAVAILABLE`
+20. A server scripted dead for 60 s and then up: first attempts over the cap end `UNAVAILABLE`
     without a request, the server sees probes at the floor, and with `DelayFirstAttempts` they wait
     and end `DEADLINE_EXCEEDED` at their deadline having sent nothing; a call that asked to wait for
     ready waits in either case; and a call waiting for the adaptive turn has taken no ceiling turn,
     so when the cap lifts the ceiling cell is as full as it was.
-19. No rate limit, estimate enabled, server dead: the retries stop after `W / (n + 1)`, first
-    attempts go uncapped until the cap falls under the offered rate; with `Enabled` false none of
+21. No rate limit, estimate enabled, server dead: the retries stop after `W / (n + 1)`, first
+    attempts go uncapped until the cap falls under the offered rate; with `Adaptive` `Off` none of
     this happens and the channel is as today's.
-20. A GOAWAY with 50 calls in flight: the resends are paced by the ceiling cell and record nothing;
+22. A GOAWAY with 50 calls in flight: the resends are paced by the ceiling cell and record nothing;
     a `REFUSED_STREAM` records a reject.
-21. Wait-for-ready, with `Calls` 10 and `PerSeconds` 1: 50 calls waiting for a connection that opens
+23. Wait-for-ready, with `Calls` 10 and `PerSeconds` 1: 50 calls waiting for a connection that opens
     at `t` start ten at once and then one every 100 ms, and a waiting call holds no turn;
     `grpc-timeout` states what remains after the turn's wait.
-22. Mapping (host side): a service config's fields give the options of section 5, with `Multiplier`
+24. Mapping (host side): a service config's fields give the options of section 5, with `Multiplier`
     `1 + tokenRatio` and `Slack` `ceil(maxTokens / 2)`; `hedgingPolicy` is refused naming its field.
-23. Vocabulary: the new keys exist in the schema, the generated C# and the loader; an unknown
-    spelling is logged with its path; each refusal of section 6 is the engine's.
+25. Vocabulary: the new keys exist in the schema, the generated C# and the loader; an unknown
+    spelling is logged with its path; a channel stating `{"On": {"Multiplier": 3}}` over defaults
+    stating `On` keeps the defaults' `Slack`, `Off` over `On` and the reverse is taken whole, and an
+    `Adaptive` absent from the merged document is `On` with the defaults; a document naming `On` and
+    `Off` is refused as it is read, an out-of-bounds value when the channel is created, and the
+    defaults' naming `ChannelDefaults`.
 
 ## 10. Not proposed
 
