@@ -1,6 +1,6 @@
 //! How many RST_STREAM frames the engine sends: none for a call that ends as gRPC means it to, of
 //! any cardinality, nor for one whose response ends while its request is still open, which it
-//! half-closes; one for each call it stops - a cancel, a deadline, a failure of its own. A server
+//! half-closes; one for each stream it stops - a cancel, a deadline, a failure of its own. A server
 //! counting resets per connection, as rapid-reset defences do, sees only those.
 
 mod common;
@@ -351,9 +351,12 @@ async fn a_call_past_its_deadline_mid_request_is_reset_not_half_closed() {
         drop(send);
     }
     settled().await;
+    // A deadline that passes before the call's head is written opens no stream, so there is
+    // nothing to reset: the count is of the streams opened, not of the calls.
+    assert!(census.heads() > 0, "no call reached the server in time");
     assert_eq!(census.half_closes(), 0);
-    assert_eq!(census.resets(), 20);
-    assert_eq!(census.cancels(), 20);
+    assert_eq!(census.resets(), census.heads());
+    assert_eq!(census.cancels(), census.heads());
 }
 
 /// A call whose response is whole while its request is still open has its request half-closed
