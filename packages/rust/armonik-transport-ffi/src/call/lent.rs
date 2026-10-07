@@ -16,6 +16,12 @@ use crate::tagged::take_tagged;
 pub(super) const LENT_TAG: u64 = 0x414b_5f4c_454e_5400;
 const PAYLOAD_TAG: u64 = 0x414b_5f50_4159_4c00;
 
+/// What an arena keeps ahead of the bytes lent to the host: the gRPC prefix in its last five bytes,
+/// and three more, so that the host's bytes start on an eight-byte boundary where the allocation
+/// does - the system allocators align a block to 16 bytes on x64 and to 8 on x86 - and only the
+/// prefix is written unaligned. The message goes out from the prefix.
+pub(crate) const HEADROOM: usize = 8;
+
 /// What follows every lent buffer, checked when the buffer comes back: a host that wrote past
 /// its end wrote over this first.
 const SENTINEL: [u8; 8] = [0xde, 0xad, 0xbe, 0xef, 0xa5, 0x5a, 0xc3, 0x3c];
@@ -29,11 +35,11 @@ const SENTINEL: [u8; 8] = [0xde, 0xad, 0xbe, 0xef, 0xa5, 0x5a, 0xc3, 0x3c];
 pub(crate) struct Lent {
     pub(super) tag: u64,
     pub(super) call: Arc<CallState>,
-    /// The arena: `prefix` bytes kept for the message's gRPC prefix, the `len` bytes lent to the
-    /// host, then the sentinel. Its length is the prefix's until the host says
-    /// how many bytes it wrote, since the others are not this library's to read before then.
+    /// The arena: `headroom` bytes, the message's gRPC prefix in the last of them, the `len` bytes
+    /// lent to the host, then the sentinel. Its length is the headroom's until the host says how
+    /// many bytes it wrote, since the others are not this library's to read before then.
     pub(super) data: Vec<u8>,
-    pub(super) prefix: usize,
+    pub(super) headroom: usize,
     pub(super) len: usize,
     /// What the lend is charged: `len`, and the slack of a spare arena it took.
     pub(super) charged: usize,
@@ -50,11 +56,11 @@ impl Lent {
 
     /// The message is the `written` bytes the host wrote from the start of the buffer.
     pub(crate) fn seal(&mut self, written: usize) -> Result<(), Overrun> {
-        seal(&mut self.data, self.prefix, self.len, written)
+        seal(&mut self.data, self.headroom, self.len, written)
     }
 
     pub(crate) fn intact(&self) -> bool {
-        intact(&self.data, self.prefix, self.len)
+        intact(&self.data, self.headroom, self.len)
     }
 
     /// The call and the bytes it was charged, the arena forgotten rather than freed: past an
@@ -75,21 +81,22 @@ impl Lent {
 // The `Vec` and not a slice of it: the sentinel is in its spare capacity, past what a slice's
 // pointer may read.
 #[allow(clippy::ptr_arg)]
-fn intact(data: &Vec<u8>, prefix: usize, len: usize) -> bool {
+fn intact(data: &Vec<u8>, headroom: usize, len: usize) -> bool {
     // SAFETY: `arena` wrote the sentinel there, within the capacity it reserved, `Vec::as_ptr`
-    // reads the whole allocation, and this library writes nothing of its own past `prefix + len`.
-    let sentinel =
-        unsafe { std::slice::from_raw_parts(Vec::as_ptr(data).add(prefix + len), SENTINEL.len()) };
+    // reads the whole allocation, and this library writes nothing of its own past `headroom + len`.
+    let sentinel = unsafe {
+        std::slice::from_raw_parts(Vec::as_ptr(data).add(headroom + len), SENTINEL.len())
+    };
     sentinel == SENTINEL
 }
 
-fn seal(data: &mut Vec<u8>, prefix: usize, len: usize, written: usize) -> Result<(), Overrun> {
-    if written > len || !intact(data, prefix, len) {
+fn seal(data: &mut Vec<u8>, headroom: usize, len: usize, written: usize) -> Result<(), Overrun> {
+    if written > len || !intact(data, headroom, len) {
         return Err(Overrun);
     }
-    // SAFETY: the prefix is initialized here, the next `written` bytes by the host, which says it
+    // SAFETY: the headroom is initialized here, the next `written` bytes by the host, which says it
     // wrote them, and all of them are within the capacity `arena` reserved.
-    unsafe { data.set_len(prefix + written) };
+    unsafe { data.set_len(headroom + written) };
     Ok(())
 }
 
@@ -123,21 +130,21 @@ pub(crate) unsafe fn take_payload(owner: *mut c_void) -> Option<Box<Payload>> {
     unsafe { take_tagged(owner, PAYLOAD_TAG) }
 }
 
-/// What an arena of `prefix` and `len` bytes holds past them and the sentinel: a spare's slack.
-pub(super) fn slack(data: &Vec<u8>, prefix: usize, len: usize) -> usize {
-    data.capacity() - (prefix + len + SENTINEL.len())
+/// What an arena of `headroom` and `len` bytes holds past them and the sentinel: a spare's slack.
+pub(super) fn slack(data: &Vec<u8>, headroom: usize, len: usize) -> usize {
+    data.capacity() - (headroom + len + SENTINEL.len())
 }
 
-/// Room for `len` bytes after `prefix` zeroed ones, with the sentinel after them: a spare of the
+/// Room for `len` bytes after `headroom` zeroed ones, with the sentinel after them: a spare of the
 /// channel's if one fits and `spares` is given, else a new allocation. The `len` bytes are left
 /// as they are, a spare's as its last message left them: only what the host says it wrote is
 /// ever read.
 pub(super) fn arena(
-    prefix: usize,
+    headroom: usize,
     len: usize,
     spares: Option<&Spares>,
 ) -> Result<Vec<u8>, ak_status> {
-    let total = prefix
+    let total = headroom
         .checked_add(len)
         .and_then(|bytes| bytes.checked_add(SENTINEL.len()))
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;
@@ -152,11 +159,11 @@ pub(super) fn arena(
             data
         }
     };
-    data.resize(prefix, 0);
-    // SAFETY: the arena holds at least `prefix + len + SENTINEL.len()` bytes.
+    data.resize(headroom, 0);
+    // SAFETY: the arena holds at least `headroom + len + SENTINEL.len()` bytes.
     unsafe {
         data.as_mut_ptr()
-            .add(prefix + len)
+            .add(headroom + len)
             .copy_from_nonoverlapping(SENTINEL.as_ptr(), SENTINEL.len());
     }
     Ok(data)
@@ -191,8 +198,8 @@ pub(super) fn lend_payload(
 mod tests {
     use super::*;
 
-    fn arena(prefix: usize, len: usize) -> Result<Vec<u8>, ak_status> {
-        super::arena(prefix, len, None)
+    fn arena(headroom: usize, len: usize) -> Result<Vec<u8>, ak_status> {
+        super::arena(headroom, len, None)
     }
 
     /// A message is what the host says it wrote, up to what it was lent.
@@ -201,9 +208,9 @@ mod tests {
         let mut data = arena(5, 16).expect("an arena");
         assert_eq!(
             data, [0; 5],
-            "only the prefix is read before the host writes"
+            "only the headroom is read before the host writes"
         );
-        // SAFETY: within the 16 bytes lent after the prefix.
+        // SAFETY: within the 16 bytes lent after the headroom.
         unsafe {
             data.as_mut_ptr()
                 .add(5)
@@ -232,5 +239,17 @@ mod tests {
             5,
             1024 * 1024
         ));
+    }
+
+    /// The host's bytes start on an eight-byte boundary when the allocator's blocks do, as on the
+    /// target this runs on, and the headroom is a multiple of eight.
+    #[test]
+    fn the_bytes_lent_to_the_host_are_aligned() {
+        for len in [1, 5, 4096, 64 * 1024] {
+            let data = arena(HEADROOM, len).expect("an arena");
+            // SAFETY: the arena holds `HEADROOM + len` bytes and more.
+            let lent = unsafe { data.as_ptr().add(HEADROOM) };
+            assert_eq!(lent as usize % 8, 0, "{len} bytes lent at {lent:p}");
+        }
     }
 }

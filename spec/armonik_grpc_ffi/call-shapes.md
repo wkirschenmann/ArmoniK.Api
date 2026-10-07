@@ -101,9 +101,10 @@ the binding reports a unary call answered with more than one message.
   and those paths spawns the task. If one of the paths wins, the commit fills the slot, or is
   refused once the call has ended; if the commit wins, the path finds the task spawned and
   reaches it as it does today.
-- The buffer lent to a one-request call reserves five bytes ahead of what the host sees. The
-  commit writes the gRPC prefix there, and the buffer becomes the request's whole body: one
-  frame. An empty request has no buffer to frame in place: its body is the bare five-byte prefix.
+- The buffer lent to a one-request call reserves eight bytes ahead of what the host sees, so that
+  the host's bytes start aligned. The commit writes the gRPC prefix in the last five of them, and
+  the buffer from the prefix on becomes the request's whole body: one frame. An empty request has
+  no buffer to frame in place: its body is the bare five-byte prefix.
 - tonic's client still builds the request - the path, `content-type`, `te`, `grpc-timeout`, its
   sanitized headers, the origin's scheme and authority - and still reads the response head,
   Trailers-Only included. The call gives it an empty stream of messages, and the engine's own

@@ -2,9 +2,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use armonik_transport::grpc::{
-    CallControl, CallDriver, FramedMessage, OneRequest, SendHalf, FRAME_PREFIX,
-};
+use armonik_transport::grpc::{CallControl, CallDriver, FramedMessage, OneRequest, SendHalf};
 use tokio::sync::{mpsc, watch, Semaphore};
 
 use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
@@ -17,6 +15,7 @@ mod lent;
 mod start;
 mod turn;
 
+pub(crate) use lent::HEADROOM;
 use lent::{arena, slack, LENT_TAG};
 pub(crate) use lent::{keep, take_lent, take_payload, Lent};
 pub(crate) use start::{start_on, Shape};
@@ -276,10 +275,9 @@ impl CallState {
         }
 
         // The arena before the permit is spent: a refusal that left the ledger charged and the
-        // permit forgotten would be a send window that never opens again. The gRPC prefix is kept
-        // ahead of what the host writes, and the commit frames the message there.
-        let prefix = FRAME_PREFIX;
-        let mut data = match arena(prefix, len, Some(&self.channel.spares)) {
+        // permit forgotten would be a send window that never opens again. The headroom is kept
+        // ahead of what the host writes, and the commit frames the message in it.
+        let mut data = match arena(HEADROOM, len, Some(&self.channel.spares)) {
             Ok(data) => data,
             Err(status) => {
                 self.ledger.release_bytes(len);
@@ -289,7 +287,7 @@ impl CallState {
         // A lend is charged what backs it: a spare's slack beside the request, or, when the
         // ceiling has no room for that, an arena of its own.
         let mut charged = len;
-        let extra = slack(&data, prefix, len);
+        let extra = slack(&data, HEADROOM, len);
         if extra > 0 {
             if self.ledger.hold_more(extra) {
                 charged += extra;
@@ -297,7 +295,7 @@ impl CallState {
                 // Freed before the new one is allocated, so the two are never held at once. Only
                 // a charge made between the trim and this one leaves no room for the slack.
                 drop(std::mem::take(&mut data));
-                data = match arena(prefix, len, None) {
+                data = match arena(HEADROOM, len, None) {
                     Ok(data) => data,
                     Err(status) => {
                         self.ledger.release_bytes(len);
@@ -315,12 +313,12 @@ impl CallState {
             tag: LENT_TAG,
             call: Arc::clone(self),
             data,
-            prefix,
+            headroom: HEADROOM,
             len,
             charged,
         });
-        // SAFETY: `arena` reserved `prefix + len` bytes and more.
-        let ptr = unsafe { lent.data.as_mut_ptr().add(prefix) };
+        // SAFETY: `arena` reserved `HEADROOM + len` bytes and more.
+        let ptr = unsafe { lent.data.as_mut_ptr().add(HEADROOM) };
         Ok(ak_buffer {
             ptr,
             len,

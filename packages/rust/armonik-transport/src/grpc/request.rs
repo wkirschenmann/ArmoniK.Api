@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use tokio::sync::Notify;
 
 /// The bytes ahead of a gRPC message on the wire: its compression flag and its length.
@@ -11,32 +11,45 @@ pub const FRAME_PREFIX: usize = 5;
 #[derive(Debug)]
 pub struct FramedMessage(Bytes);
 
-/// Writes the prefix of the message after it; None when there is no room for it or the message
-/// no four-byte length carries.
-fn prefixed(buffer: &mut [u8]) -> Option<()> {
-    let len = u32::try_from(buffer.len().checked_sub(FRAME_PREFIX)?).ok()?;
-    buffer[0] = 0;
-    buffer[1..FRAME_PREFIX].copy_from_slice(&len.to_be_bytes());
-    Some(())
+/// Writes the prefix of the message that starts at `headroom` into the bytes just before it, and
+/// says where it starts; None when the headroom has no room for it, the buffer no message, or the
+/// message no four-byte length carries.
+fn prefixed(buffer: &mut [u8], headroom: usize) -> Option<usize> {
+    let at = headroom.checked_sub(FRAME_PREFIX)?;
+    let len = u32::try_from(buffer.len().checked_sub(headroom)?).ok()?;
+    buffer[at] = 0;
+    buffer[at + 1..headroom].copy_from_slice(&len.to_be_bytes());
+    Some(at)
 }
 
 impl FramedMessage {
     /// `buffer` holds the message after [`FRAME_PREFIX`] bytes kept for the prefix, which this
     /// writes. None when the buffer has no room for the prefix or the message no four-byte length
     /// carries.
-    pub fn in_place(mut buffer: Vec<u8>) -> Option<Self> {
-        prefixed(&mut buffer)?;
-        Some(Self(Bytes::from(buffer)))
+    pub fn in_place(buffer: Vec<u8>) -> Option<Self> {
+        Self::in_place_after(buffer, FRAME_PREFIX)
     }
 
-    /// As [`FramedMessage::in_place`], with `buffer` the owner of the message's bytes until the
-    /// last of them is dropped: what it does then is its own, such as going back to a pool.
-    pub fn in_place_owned<B>(mut buffer: B) -> Option<Self>
+    /// `buffer` holds the message after `headroom` bytes, the prefix written into the last
+    /// [`FRAME_PREFIX`] of them and the message going out from there. A headroom larger than the
+    /// prefix lets the message start at an offset of the caller's choosing, such as an aligned one.
+    pub fn in_place_after(mut buffer: Vec<u8>, headroom: usize) -> Option<Self> {
+        let at = prefixed(&mut buffer, headroom)?;
+        let mut bytes = Bytes::from(buffer);
+        bytes.advance(at);
+        Some(Self(bytes))
+    }
+
+    /// As [`FramedMessage::in_place_after`], with `buffer` the owner of the message's bytes until
+    /// the last of them is dropped: what it does then is its own, such as going back to a pool.
+    pub fn in_place_owned_after<B>(mut buffer: B, headroom: usize) -> Option<Self>
     where
         B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static,
     {
-        prefixed(buffer.as_mut())?;
-        Some(Self(Bytes::from_owner(buffer)))
+        let at = prefixed(buffer.as_mut(), headroom)?;
+        let mut bytes = Bytes::from_owner(buffer);
+        bytes.advance(at);
+        Some(Self(bytes))
     }
 
     /// A message the caller holds elsewhere, framed by a copy.
@@ -179,6 +192,20 @@ mod tests {
         assert!(FramedMessage::in_place(vec![0; FRAME_PREFIX - 1]).is_none());
     }
 
+    /// After a larger headroom, the prefix takes its last bytes and the message goes out from
+    /// there, the headroom's first bytes left behind.
+    #[test]
+    fn the_prefix_takes_the_end_of_a_larger_headroom() {
+        let mut buffer = vec![0xff; 8];
+        buffer.extend_from_slice(b"abc");
+        let framed = FramedMessage::in_place_after(buffer, 8).expect("room for the prefix");
+        assert_eq!(&framed.body()[..], &[0, 0, 0, 0, 3, b'a', b'b', b'c']);
+        assert_eq!(framed.len(), 3);
+
+        assert!(FramedMessage::in_place_after(vec![0; 8], FRAME_PREFIX - 1).is_none());
+        assert!(FramedMessage::in_place_after(vec![0; 7], 8).is_none());
+    }
+
     /// An owner holds the request's bytes until the last of them is dropped, and is dropped then.
     #[test]
     fn an_owned_request_is_dropped_with_its_last_bytes() {
@@ -200,9 +227,9 @@ mod tests {
         }
 
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let mut buffer = vec![0xff; FRAME_PREFIX];
+        let mut buffer = vec![0xff; 8];
         buffer.extend_from_slice(b"abc");
-        let framed = FramedMessage::in_place_owned(Owner(buffer, Arc::clone(&dropped)))
+        let framed = FramedMessage::in_place_owned_after(Owner(buffer, Arc::clone(&dropped)), 8)
             .expect("room for the prefix");
         let body = framed.body();
         assert_eq!(&body[..], &[0, 0, 0, 0, 3, b'a', b'b', b'c']);

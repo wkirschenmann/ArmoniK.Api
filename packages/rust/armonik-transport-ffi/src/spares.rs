@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use armonik_transport::grpc::FramedMessage;
 
+use crate::call::HEADROOM;
 use crate::held::Held;
 use crate::ledger::Ledger;
 
@@ -106,12 +107,13 @@ impl Spares {
         }
     }
 
-    /// `data` as a message, framed in place, its arena kept here once the message is done with.
+    /// `data` as a message after `HEADROOM` bytes, framed in place, its arena kept here once the
+    /// message is done with.
     pub(crate) fn framed(self: &Arc<Self>, data: Vec<u8>) -> Option<FramedMessage> {
         if data.capacity() < POOLED_FROM {
-            return FramedMessage::in_place(data);
+            return FramedMessage::in_place_after(data, HEADROOM);
         }
-        FramedMessage::in_place_owned(self.returning(data))
+        FramedMessage::in_place_owned_after(self.returning(data), HEADROOM)
     }
 
     #[cfg(test)]
@@ -246,7 +248,7 @@ mod tests {
         let ledger = Arc::new(Ledger::new(0, 0).expect("a valid ledger"));
         let spares = Spares::new(&ledger, 4);
         let mut data = arena(POOLED_FROM);
-        data.resize(10, 7);
+        data.resize(HEADROOM + 5, 7);
         let message = spares.framed(data).expect("room for the prefix");
         assert_eq!(message.len(), 5);
 

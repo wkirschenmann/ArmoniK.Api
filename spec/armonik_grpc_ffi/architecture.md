@@ -442,8 +442,8 @@ apply, and the host ends it by giving back what it holds or by cancelling.
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
 `len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
 lent and not yet freed, plus the length of every message received and not yet given back. Each lend
-gets an arena of `len` and a few bytes more, the gRPC prefix of a one-request call and the sentinel
-after it, and is charged `len`, the request. A lend of 64 KiB or more takes a spare of its channel's
+gets an arena of `len` and a few bytes more, eight ahead of it, the gRPC prefix in the last five,
+and the sentinel after it, and is charged `len`, the request. A lend of 64 KiB or more takes a spare of its channel's
 when one fits, at most an eighth larger, and is charged its slack too, what backs it; when the
 ceiling has no room for the slack, it allocates instead, as it does when no spare fits. The arena of
 a message the engine is done with goes back to its channel's spares, a few per buffer a call may
