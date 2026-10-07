@@ -871,7 +871,7 @@ public enum Place
 
     /// <summary>A list of the names of an enumeration is a settable list, copied, checked and bound.</summary>
     /// <remarks>
-    ///   A list is the one value a caller can change in place after handing it over, so the copy
+    ///   A list is a mutable reference a caller can change after handing it over, so the copy
     ///   makes a list of its own; each name is checked, since a cast makes any number one; and a
     ///   configuration binds it from its indexed entries.
     /// </remarks>

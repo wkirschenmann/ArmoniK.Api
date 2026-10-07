@@ -311,7 +311,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       }
     }
 
-    // The type of a group's property, nullable form excluded: a list is a settable one.
     private static string PropertyType(Option option)
       => option.Kind == OptionKind.EnumerationList
            ? ListOf(option.Type)
