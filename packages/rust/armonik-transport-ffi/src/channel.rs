@@ -221,7 +221,9 @@ pub(crate) fn create(
     }
     .parse()
     .map_err(|_| ENDPOINT_NOT_A_URI)?;
-    let settings = config::parse_over(owner.channel_defaults(), json).map_err(Refusal::config)?;
+    let (settings, effective) =
+        config::parse_effective(owner.channel_defaults(), json).map_err(Refusal::config)?;
+    config::log_channel(&endpoint, &effective, owner.channel_defaults());
     let delivery_credits = settings.delivery_credits();
     let max_sends_in_flight = settings.max_sends_in_flight();
     let connect_eagerly = settings.connect_eagerly();

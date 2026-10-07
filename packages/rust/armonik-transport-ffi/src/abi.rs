@@ -267,6 +267,63 @@ pub type ak_callback = Option<
     ),
 >;
 
+/// In ak_log_record.level: 1 is the most severe and 5 the most verbose. A host maps them to its
+/// own, and has no use for a value it does not know.
+pub const AK_LOG_ERROR: u32 = 1;
+pub const AK_LOG_WARN: u32 = 2;
+pub const AK_LOG_INFO: u32 = 3;
+pub const AK_LOG_DEBUG: u32 = 4;
+pub const AK_LOG_TRACE: u32 = 5;
+
+/// One field of a logged event: the name the engine gave it, and its value rendered as text. Both
+/// views are valid for the callback alone.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_log_field {
+    pub key: ak_bytes_in,
+    pub value: ak_bytes_in,
+}
+
+/// An event the engine logs, as the log callback receives it. Everything it points at is valid for
+/// the callback's duration only, and nothing of it is the host's to give back: a host that keeps
+/// a record copies it.
+///
+/// Starts with struct_size, the size of the record this library built: a host reads only the
+/// fields that lie within it. The text is UTF-8, and carries neither a source location nor a
+/// time, which the host's own logger stamps.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_log_record {
+    /// sizeof this record as this library defines it.
+    pub struct_size: u32,
+    /// An AK_LOG_ level.
+    pub level: u32,
+    /// What emitted it: the Rust module path, such as armonik_transport::grpc::channel, or h2.
+    pub target: ak_bytes_in,
+    /// The event's text.
+    pub message: ak_bytes_in,
+    /// How many fields `fields` points at.
+    pub field_count: usize,
+    /// The event's other values, in the order it names them. NULL when field_count is zero.
+    pub fields: *const ak_log_field,
+}
+
+/// Receives the engine's logs: one call per event the runtime's filter admits, as it happens, on
+/// the thread that logged it - this library's, or the host's own inside a downcall that logs, as
+/// the runtime's creation does for what its configuration's load logged. Given once, when the
+/// runtime is created, and never replaced or removed. Several threads may call it at once.
+///
+/// It keeps the runtime callback's contract: record the event where the host's own thread will
+/// find it, and return. It must not parse, take a lock the host's own code holds, run application
+/// code, or call this library: an event logged from inside it is dropped. A host whose logger runs
+/// application code copies the record into a queue of its own and writes it from a thread of its
+/// own.
+///
+/// The function and `log_ctx` stay callable until ak_runtime_destroy returns, or until the
+/// creation call returns when it is refused; nothing reaches them after.
+pub type ak_log_callback =
+    Option<unsafe extern "C" fn(log_ctx: *mut c_void, record: *const ak_log_record)>;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ak_runtime_config {
@@ -297,6 +354,12 @@ pub struct ak_runtime_config {
     /// alternative and is taken whole over another. Empty states none.
     /// Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
     pub channel_defaults_json: ak_bytes_in,
+    /// Receives the engine's logs, filtered by `info,h2=warn,hyper*=warn,tonic*=warn,tower*=warn`:
+    /// the runtime option Logging.Filter, which only ak_runtime_create_from loads, is the one way
+    /// to another. NULL for none.
+    pub log_callback: ak_log_callback,
+    /// Handed to `log_callback` with each record.
+    pub log_ctx: *mut c_void,
 }
 
 /// Where a source of ak_config is read from, in ak_config_source.kind.
@@ -361,6 +424,11 @@ pub struct ak_config {
     /// the configuration is read from. Empty is `GrpcClient`; with AK_CONFIG_NO_PREFIX it has to be
     /// empty.
     pub prefix: ak_bytes_in,
+    /// Receives the engine's logs, filtered by the runtime's option Logging.Filter; NULL for none.
+    /// NULL when the host's struct_size ends before this field.
+    pub log_callback: ak_log_callback,
+    /// Handed to `log_callback` with each record.
+    pub log_ctx: *mut c_void,
 }
 
 /// How far along a channel's closing is. A handle this library no longer knows reads as NONE,
@@ -509,17 +577,18 @@ pub(crate) unsafe trait Record: Copy {
     const RESERVED: bool = true;
 }
 
-// SAFETY: integers, and a view whose null pointer and zero length are an empty slice.
+// SAFETY: integers, views whose null pointer and zero length are an empty slice, and a callback
+// and a pointer whose null is none.
 unsafe impl Record for ak_runtime_config {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, memory_hard_ceiling);
     const FLAGS: u32 = 0;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
 }
 
-// SAFETY: integers, a pointer read only with the count beside it, and a view whose null pointer
-// and zero length are an empty slice.
+// SAFETY: integers, a pointer read only with the count beside it, a view whose null pointer and
+// zero length are an empty slice, and a callback whose null is none.
 unsafe impl Record for ak_config {
-    const FIRST_SIZE: usize = std::mem::size_of::<Self>();
+    const FIRST_SIZE: usize = std::mem::offset_of!(Self, log_callback);
     const FLAGS: u32 = AK_CONFIG_NO_PREFIX;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
     const RESERVED: bool = false;

@@ -66,6 +66,8 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_ceiling;
     let _: fn(&ak_runtime_config) -> &u64 = |config| &config.memory_hard_ceiling;
     let _: fn(&ak_runtime_config) -> &ak_bytes_in = |config| &config.channel_defaults_json;
+    let _: fn(&ak_runtime_config) -> &ak_log_callback = |config| &config.log_callback;
+    let _: fn(&ak_runtime_config) -> &*mut c_void = |config| &config.log_ctx;
 
     let _: fn(&ak_config) -> &u32 = |config| &config.struct_size;
     let _: fn(&ak_config) -> &u32 = |config| &config.version;
@@ -73,6 +75,18 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_config) -> &u32 = |config| &config.source_count;
     let _: fn(&ak_config) -> &*const ak_config_source = |config| &config.sources;
     let _: fn(&ak_config) -> &ak_bytes_in = |config| &config.prefix;
+    let _: fn(&ak_config) -> &ak_log_callback = |config| &config.log_callback;
+    let _: fn(&ak_config) -> &*mut c_void = |config| &config.log_ctx;
+
+    let _: fn(&ak_log_field) -> &ak_bytes_in = |field| &field.key;
+    let _: fn(&ak_log_field) -> &ak_bytes_in = |field| &field.value;
+
+    let _: fn(&ak_log_record) -> &u32 = |record| &record.struct_size;
+    let _: fn(&ak_log_record) -> &u32 = |record| &record.level;
+    let _: fn(&ak_log_record) -> &ak_bytes_in = |record| &record.target;
+    let _: fn(&ak_log_record) -> &ak_bytes_in = |record| &record.message;
+    let _: fn(&ak_log_record) -> &usize = |record| &record.field_count;
+    let _: fn(&ak_log_record) -> &*const ak_log_field = |record| &record.fields;
 
     let _: fn(&ak_config_source) -> &u32 = |source| &source.kind;
     let _: fn(&ak_config_source) -> &u32 = |source| &source.reserved;
@@ -119,7 +133,9 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_runtime_config, memory_ceiling), 16);
     assert_eq!(offset_of!(ak_runtime_config, memory_hard_ceiling), 24);
     assert_eq!(offset_of!(ak_runtime_config, channel_defaults_json), 32);
-    assert_eq!(size_of::<ak_runtime_config>(), 32 + 2 * PTR);
+    assert_eq!(offset_of!(ak_runtime_config, log_callback), 32 + 2 * PTR);
+    assert_eq!(offset_of!(ak_runtime_config, log_ctx), 32 + 3 * PTR);
+    assert_eq!(size_of::<ak_runtime_config>(), 32 + 4 * PTR);
 
     assert_eq!(offset_of!(ak_call_start_options, struct_size), 0);
     assert_eq!(offset_of!(ak_call_start_options, version), 4);
@@ -137,7 +153,43 @@ fn an_options_struct_starts_with_the_fields_that_version_it() {
     assert_eq!(offset_of!(ak_config, source_count), 12);
     assert_eq!(offset_of!(ak_config, sources), 16);
     assert_eq!(offset_of!(ak_config, prefix), 16 + PTR);
-    assert_eq!(size_of::<ak_config>(), 16 + 3 * PTR);
+    assert_eq!(offset_of!(ak_config, log_callback), 16 + 3 * PTR);
+    assert_eq!(offset_of!(ak_config, log_ctx), 16 + 4 * PTR);
+    assert_eq!(size_of::<ak_config>(), 16 + 5 * PTR);
+}
+
+#[test]
+fn a_log_record_starts_with_its_size_and_its_fields_are_borrowed_views() {
+    assert_eq!(offset_of!(ak_log_record, struct_size), 0);
+    assert_eq!(offset_of!(ak_log_record, level), 4);
+    assert_eq!(offset_of!(ak_log_record, target), 8);
+    assert_eq!(offset_of!(ak_log_record, message), 8 + 2 * PTR);
+    assert_eq!(offset_of!(ak_log_record, field_count), 8 + 4 * PTR);
+    assert_eq!(offset_of!(ak_log_record, fields), 8 + 5 * PTR);
+    assert_eq!(size_of::<ak_log_record>(), 8 + 6 * PTR);
+
+    assert_eq!(offset_of!(ak_log_field, key), 0);
+    assert_eq!(offset_of!(ak_log_field, value), 2 * PTR);
+    assert_eq!(size_of::<ak_log_field>(), 4 * PTR);
+    assert_eq!(align_of::<ak_log_field>(), PTR);
+}
+
+#[test]
+fn the_log_levels_are_the_numbers_the_header_gives_them() {
+    let header = header();
+    for (name, value) in [
+        ("AK_LOG_ERROR", AK_LOG_ERROR),
+        ("AK_LOG_WARN", AK_LOG_WARN),
+        ("AK_LOG_INFO", AK_LOG_INFO),
+        ("AK_LOG_DEBUG", AK_LOG_DEBUG),
+        ("AK_LOG_TRACE", AK_LOG_TRACE),
+    ] {
+        let declared = format!("#define {name} {value}");
+        assert!(
+            header.lines().any(|line| line.trim() == declared),
+            "the header does not say {declared}"
+        );
+    }
 }
 
 #[test]

@@ -100,6 +100,8 @@ const THRESHOLDS_CROSSED: Refusal = Refusal::fixed(
 
 impl AkRuntime {
     pub(crate) fn relinquish() {
+        // Before the claim is open to another runtime, whose sink this must not take away.
+        crate::log::detach();
         LIVE.store(false, Ordering::Release);
     }
 
@@ -355,10 +357,14 @@ impl AkRuntime {
 mod tests {
     use super::*;
 
-    /// Nothing else in this crate's unit tests touches `LIVE`, so these run without a lock of
-    /// their own; an integration test would need `ak_runtime_destroy` to give the claim back.
+    /// Nothing else in this crate's unit tests touches `LIVE`; the lock is the log's, since giving
+    /// the claim back detaches the log's sink, which another unit test attaches. An integration
+    /// test would need `ak_runtime_destroy` to give the claim back.
     #[test]
     fn a_claim_not_kept_is_given_back_however_the_holder_leaves() {
+        let _sink = crate::log::SINK_TESTS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let claim = Claim::take().expect("nothing holds it");
         assert!(Claim::take().is_none(), "one runtime at a time");
         drop(claim);
