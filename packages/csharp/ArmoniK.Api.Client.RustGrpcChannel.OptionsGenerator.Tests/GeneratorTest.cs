@@ -195,31 +195,6 @@ public sealed class Options
     Transport?.Validate();
   }
 
-  /// <summary>The options <paramref name=""section"" /> states, each key matched to one without case.</summary>
-  /// <param name=""section"">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref=""InvalidOperationException"">A key names no option, or holds what its option does not admit.</exception>
-  internal static Options Bind(IConfigurationSection section)
-  {
-    var bound = new Options();
-
-    foreach (var entry in OptionsConfiguration.Entries(section))
-    {
-      if (OptionsConfiguration.Is(entry,
-                                  ""Transport""))
-      {
-        bound.Transport = OptionsConfiguration.Holds(entry) ? TransportOptions.Bind(entry) : null;
-      }
-      else
-      {
-        throw OptionsConfiguration.Unknown(entry,
-                                           ""Options"");
-      }
-    }
-
-    return bound;
-  }
-
   /// <summary>The document the engine reads, as UTF-8.</summary>
   /// <returns>The options as JSON, without the ones left unset.</returns>
   /// <exception cref=""ArgumentOutOfRangeException"">An option is outside its bounds.</exception>
@@ -268,35 +243,7 @@ public sealed class TransportOptions
   {
     // The schema bounds nothing here.
   }
-
-  /// <summary>The options <paramref name=""section"" /> states, each key matched to one without case.</summary>
-  /// <param name=""section"">The section, whose every key has to name an option.</param>
-  /// <returns>The options, unset where the section states nothing.</returns>
-  /// <exception cref=""InvalidOperationException"">A key names no option, or holds what its option does not admit.</exception>
-  internal static TransportOptions Bind(IConfigurationSection section)
-  {
-    var bound = new TransportOptions();
-
-    foreach (var entry in OptionsConfiguration.Entries(section))
-    {
-      if (OptionsConfiguration.Is(entry,
-                                  ""Name""))
-      {
-        bound.Name = OptionsConfiguration.Text(entry);
-      }
-      else
-      {
-        throw OptionsConfiguration.Unknown(entry,
-                                           ""TransportOptions"");
-      }
-    }
-
-    return bound;
-  }
 }
-
-/// <summary>How the text of a configuration becomes the options above, and why it may not.</summary>
-internal static class OptionsConfiguration
 ";
 
       Assert.That(rendered,
@@ -308,10 +255,10 @@ internal static class OptionsConfiguration
     /// <remarks>
     ///   A Rust enum renders as a `oneOf`: of objects of one key for one whose variants carry
     ///   something, of constants for one whose variants carry nothing. The first is a closed
-    ///   hierarchy of records, with its binding and its writer; the second a C# enum.
+    ///   hierarchy of records, with its writer; the second a C# enum.
     /// </remarks>
     [Test]
-    public async Task AChoiceRendersItsRecordsBindingAndWriterToExactlyThisText()
+    public async Task AChoiceRendersItsRecordsAndWriterToExactlyThisText()
     {
       var rendered = await Render(Choice)
                        .ConfigureAwait(false);
@@ -377,65 +324,6 @@ public abstract record Verification
   /// <summary>Refuses a field outside the range the engine accepts.</summary>
   /// <exception cref=""ArgumentOutOfRangeException"">A field is outside its stated bounds.</exception>
   public abstract void Validate();
-
-  /// <summary>The alternative <paramref name=""section"" /> names by its one key, matched without case.</summary>
-  /// <param name=""section"">The section, which has to hold one key.</param>
-  /// <returns>The alternative, with the fields its key states.</returns>
-  /// <exception cref=""InvalidOperationException"">
-  ///   The section names no alternative or two, or one with a field it does not admit.
-  /// </exception>
-  internal static Verification Bind(IConfigurationSection section)
-  {
-    var alternative = OptionsConfiguration.Alternative(section,
-                                                       ""Verification"");
-
-    if (OptionsConfiguration.Is(alternative,
-                                ""Pinned""))
-    {
-      return new Pinned(OptionsConfiguration.Text(alternative));
-    }
-
-    if (OptionsConfiguration.Is(alternative,
-                                ""Store""))
-    {
-      string? path = null;
-      Place? where = null;
-
-      foreach (var entry in OptionsConfiguration.Entries(alternative))
-      {
-        if (OptionsConfiguration.Is(entry,
-                                    ""Where""))
-        {
-          where = OptionsConfiguration.Enumeration<Place>(entry);
-        }
-        else if (OptionsConfiguration.Is(entry,
-                                         ""Path""))
-        {
-          path = OptionsConfiguration.Text(entry);
-        }
-        else
-        {
-          throw OptionsConfiguration.Unknown(entry,
-                                             ""Verification.Store"");
-        }
-      }
-
-      return new Store(path ?? throw OptionsConfiguration.Missing(alternative,
-                                                                  ""Path""),
-                       where);
-    }
-
-    if (OptionsConfiguration.Is(alternative,
-                                ""Unchecked""))
-    {
-      OptionsConfiguration.Chosen(alternative);
-
-      return new Unchecked();
-    }
-
-    throw OptionsConfiguration.Unknown(alternative,
-                                       ""Verification"");
-  }
 }
 
 /// <summary>Writes a <see cref=""Verification"" /> as the engine reads one: an object whose one key names the alternative.</summary>
@@ -574,7 +462,7 @@ public enum Place
     [TestCase(@"{ ""description"": ""Group."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Inner"": { ""description"": ""Inner."", ""$ref"": ""#/$defs/Held"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "an alternative holds none",
               TestName = "AnAlternative_HoldingAGroup")]
-    [TestCase(@"{ ""description"": ""Plumbing."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Entry"": { ""description"": ""Entry."", ""type"": ""string"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
+    [TestCase(@"{ ""description"": ""Plumbing."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Writer"": { ""description"": ""Writer."", ""type"": ""string"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "declares already",
               TestName = "AnAlternative_FieldNamedLikeALocal")]
     public void AnAlternativeThisGeneratorHasNoRecordForIsRefused(string alternative,
@@ -626,28 +514,6 @@ public enum Place
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains("may leave unset"));
 
-    /// <summary>The reading declares what the rendered types call, and nothing they do not.</summary>
-    /// <remarks>A member nothing calls is code no build exercises, in a file nobody reads closely.</remarks>
-    [Test]
-    public async Task TheReadingDeclaresOnlyWhatTheTypesCall()
-    {
-      var rendered = await Render(Wrap($@"""Name"": {{ {Documented}""type"": ""string"" }}"))
-                       .ConfigureAwait(false);
-
-      Assert.Multiple(() =>
-                      {
-                        Assert.That(rendered,
-                                    Does.Contain("internal static string Text(IConfigurationSection section)"));
-                        Assert.That(rendered,
-                                    Does.Not.Contain("Int32(")
-                                        .And.Not.Contain("Alternative(")
-                                        .And.Not.Contain("Unreadable("));
-                        Assert.That(rendered,
-                                    Does.Not.Contain("using System.Globalization;"),
-                                    "nothing here parses a number");
-                      });
-    }
-
     /// <summary>A field the schema marks `writeOnly` is a secret: printed elided, and never quoted.</summary>
     /// <remarks>
     ///   A record prints every property in its ToString, which reaches logs and debuggers; and an
@@ -689,15 +555,13 @@ public enum Place
                         Assert.That(rendered,
                                     Does.Contain("public sealed record Empty : Verification"));
                         Assert.That(rendered,
-                                    Does.Contain("return new Empty();"));
-                        Assert.That(rendered,
                                     Does.Contain(@"writer.WriteStartObject(""Empty"");
         writer.WriteEndObject();".Replace("\r\n",
                                           "\n")));
                       });
     }
 
-    /// <summary>What the reading cannot tell apart, or a C# scope would confuse, is refused.</summary>
+    /// <summary>What the engine reads as one key, or a C# scope would confuse, is refused.</summary>
     [TestCase(@"""Unchecked""",
               @"""PINNED""",
               "differ at most in case",
@@ -710,16 +574,16 @@ public enum Place
               @"""const"": ""HERE""",
               "differ at most in case",
               TestName = "AName_EnumerationTwinsInCase")]
-    public void ANameTheBindingOrTheScopeCannotTellApartIsRefused(string from,
-                                                                  string to,
-                                                                  string said)
+    public void ANameTheEngineOrTheScopeCannotTellApartIsRefused(string from,
+                                                                 string to,
+                                                                 string said)
       => Assert.That(async () => await Render(Choice.Replace(from,
                                                              to))
                        .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
                            .With.Message.Contains(said));
 
-    /// <summary>Two options of a class that differ only in case are one key to a configuration.</summary>
+    /// <summary>Two options of a class that differ only in case are one key to the engine.</summary>
     [Test]
     public void TwoOptionsThatDifferOnlyInCaseAreRefused()
       => Assert.That(async () => await Render(Wrap($@"""Name"": {{ {Documented}""type"": ""string"" }}, ""NAME"": {{ {Documented}""type"": ""string"" }}"))
