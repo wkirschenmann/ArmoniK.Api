@@ -322,7 +322,7 @@ reading the transport source code.
    2 and 5, so the entry points that can fail take a detail argument.
 7. A host can observe what a call still holds (`ak_call_debt_of`) and what a runtime has lent
    against its ceiling (`ak_runtime_memory_usage`). These two are the whole of what the ABI
-   offers for observation; logs and traces are T10.1's.
+   offers for observation; logs, metrics and traces are T10.1 to T10.3's (observability.md).
 
 **Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today, but for
 1's unknown option, which the engine refuses until T6.14 logs and ignores it. Every
@@ -504,7 +504,8 @@ risk of drift between the two languages is removed.
 
 The following items are explicitly excluded from this version:
 
-- OpenTelemetry telemetry (logs, metrics, traces exported from native)
+- OpenTelemetry telemetry exported from native, to a collector of its own (what a host's own
+  pipeline sees of the engine is T10.1 to T10.3's, observability.md)
 - Hedging
 - Generic load balancing and service config
 - Configurable gRPC compression

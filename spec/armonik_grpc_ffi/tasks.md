@@ -1644,57 +1644,39 @@ one - and, as each is fixed in a release, the workaround it made unnecessary rem
 
 ---
 
-## Phase 10 — Logs and observation across the ABI
+## Phase 10 — Logs, metrics and traces across the ABI
 
-### T10.1: What a host can see of the engine
+### T10.1: What a host can see of the engine: logs and the effective configuration
 
-**Prerequisite**: T3.5, and T6.14 for what the configuration loader ignores
-**Commit**: study, then whatever it concludes.
+**Prerequisite**: T3.5, and T6.14, whose loader reads the filter's key this task adds and logs
+what it ignores
+**Commit**: as `observability.md` decides: `ak_runtime_set_log_callback` and
+`ak_runtime_set_log_filter`, each runtime with its own dispatcher, the load's events kept for the
+callback, the engine instrumented and its events catalogued, the effective configuration logged,
+and the .NET binding's optional `ILoggerFactory`, written from a thread of its own.
 
-The ABI lets a host observe two things - `ak_call_debt_of` and `ak_runtime_memory_usage` - and
-tells it nothing else. The engine has `tracing` spans and events inside it that reach nobody, so a
-deployment that misbehaves gives a .NET operator no more than a status code, and the questions an
-operator actually asks - which endpoint, which call, how long, why it retried - have no answer on
-that side of the boundary.
+**Deliverable**: an operator of a .NET host reads the engine's events and the effective
+configuration in its own logs, filtered as it chose; the keys T6.14 logs as unknown among them.
 
-It is recorded here rather than left implicit because the ABI is a contract: adding to it later
-is a header change, and the shape it takes should be chosen once rather than grown by accident.
+### T10.2: The engine's metrics
 
-What to settle:
+**Prerequisite**: T10.1, whose instrumentation counts what this reads
+**Commit**: as `observability.md` decides: one structure of counters and gauges, read per channel
+by `GrpcChannel::stats()` and per runtime by `ak_runtime_stats`, behind the .NET binding's
+`Meter`.
 
-- **How an event crosses.** A callback per event is the shape the rest of the ABI already uses,
-  and it has the same rule: it must not allocate on the host's behalf, and it must be total. The
-  alternative is a drained queue like the delivery ring, which costs a thread and buys batching.
-- **What an event carries.** A level, a target, a message, and structured fields - and fields are
-  where a C ABI gets expensive, because a `tracing` event's fields are typed and dynamic. A
-  rendered line is cheap and lossy; a field array is faithful and costs an allocation per event.
-- **Who filters, and where.** Filtering on the host side means every event crosses the boundary
-  including the ones nobody wants; filtering in the engine means the host has to be able to say
-  what it wants, which is another option and another call.
-- **What is measured rather than logged.** Calls in flight, bytes in the ledger, dials, retries:
-  counters a host can poll are cheaper than events it must consume, and the two observation
-  points that exist are already that shape.
-- **What the configuration loader ignores.** An unknown key is ignored and logged (T6.14), which
-  is worth something only once the log reaches whoever wrote the key: an operator who misspelled
-  a variable reads it in the host's logs, or not at all. It is the first event this crossing has to
-  carry, with its source and its key's path, and never its value.
-- **What a secret must never reach.** The engine holds endpoints, proxy credentials and
-  certificate paths. `safe_endpoint` exists because a URI can carry a password; a logging path
-  that bypassed it would undo that.
-- **The binding's own surface, which is the same decision.** `ArmoniK.Api.Client.RustGrpcChannel`
-  has no `ILogger`, no `EventSource` and no trace anywhere in it. Most of what it catches it does
-  report - a decode failure reaches the reader, an unreadable header reaches
-  `ResponseHeadersAsync`, a teardown that failed reaches whoever awaits the disposal and is kept
-  in `refused_` - and the two exceptions are both in the trampoline: a context handle that no
-  longer names a target, and a `Publish` that threw. Those two catches do not go, and are not the
-  defect: the trampoline runs on a tokio thread and an exception crossing back into Rust is
-  undefined behaviour, so the catch is the boundary. What is missing is that the boundary says
-  nothing, and a call stranded there is the one failure with no observer at all. Whether that is
-  an `EventSource` or an optional `ILoggerFactory` on `NativeRuntime.Create` is chosen
-  with the engine's own crossing rather than beside it - a host with two unrelated diagnostic
-  channels for one call is what deciding twice produces.
+**Deliverable**: a host's metrics pipeline sees the engine's counters with no polling code of its
+own.
 
-**Deliverable**: a decision recorded in the design, and the ABI extension it calls for.
+### T10.3: Traces
+
+**Prerequisite**: T10.1
+**Commit**: as `observability.md` decides: a W3C trace context at the end of
+`ak_call_start_options`, sent in the call's metadata; the engine's spans through the log
+callback; the .NET binding's `Activity` per call, the engine's spans its children.
+
+**Deliverable**: a .NET host's OpenTelemetry shows the same tree for a call whichever transport
+carries it, the engine's spans within it.
 
 ---
 
@@ -1719,7 +1701,8 @@ T1.1 ─────────────→ T1.2 ←────────
                                                   T6.2 → T6.3 → T6.4
                                                   T6.6 → T6.9 → T6.12   (last, with the team)
 
-T6.13 → T7.1 → T6.14 → T6.8          T6.14 → T6.15          T6.14 → T10.1          T6.16
+T6.13 → T7.1 → T6.14 → T6.8          T6.14 → T6.15          T6.16
+                T6.14 → T10.1 → T10.2, T10.3
 ```
 
 T4.1 is what unblocks phases 4 and 5 alike: the proxy needs the same connector the TLS work
@@ -1745,6 +1728,6 @@ it is the one task of phase 3 that runs in parallel with T3.4 and T3.5.
 - **T6.2** (deadline) stands on T1.1 and T4.0: nothing about a timer waits on the option surface,
   but the field it adds waits on the struct being able to grow
 - **Phase 7 is next, from 2026-10-06**: phases 3 to 5 are done, and phase 6 keeps T6.8, T6.9,
-  T6.12 and the new T6.13 to T6.16. The order: T6.13, T7.1, T6.14, then T10.1, so that what the
-  loader logs reaches a host soon after it starts logging, T6.8, then T6.15 and T6.16; T6.9 last
-  of all, and T6.12 after it.
+  T6.12 and the new T6.13 to T6.16. The order: T6.13, T7.1, T6.14, T6.8, then T10.1 to T10.3,
+  then T6.15 and T6.16; T6.9 last of all, and T6.12 after it. T6.8 comes before T10.1 by
+  scheduling, not by dependency.
