@@ -179,6 +179,34 @@ impl Host {
         })
     }
 
+    /// A runtime created from `config` by `ak_runtime_create`, which holds its options as fields.
+    pub fn from_runtime_config(config: &ak_runtime_config) -> Self {
+        let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());
+        let recorder = Arc::new(Recorder::default());
+        let lent = Arc::into_raw(Arc::clone(&recorder));
+        let mut runtime = AK_HANDLE_NONE;
+        let status = unsafe {
+            ak_runtime_create(
+                config,
+                Some(on_event),
+                lent as *mut c_void,
+                &mut runtime,
+                std::ptr::null_mut(),
+            )
+        };
+        if status != ak_status::AK_STATUS_OK {
+            drop(unsafe { Arc::from_raw(lent) });
+        }
+        assert_eq!(status, ak_status::AK_STATUS_OK);
+        recorder.watch_runtime(runtime);
+
+        Self {
+            runtime,
+            recorder,
+            _turn: turn,
+        }
+    }
+
     pub fn connected() -> Connected {
         Connected::with_ceiling(0)
     }
@@ -422,6 +450,8 @@ fn try_create_runtime_record(
             ptr: channel_defaults.as_ptr(),
             len: channel_defaults.len(),
         },
+        log_callback: None,
+        log_ctx: std::ptr::null_mut(),
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {

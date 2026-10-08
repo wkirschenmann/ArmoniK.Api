@@ -43,6 +43,31 @@ public class AbiLayoutTests
                    Is.EqualTo(2 * Ptr));
 
   [Test]
+  public void ALogRecordStartsWithItsSizeAndItsFieldsAreBorrowedViews()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Marshal.SizeOf<ak_log_record>(),
+                                     Is.EqualTo(8 + 6 * Ptr));
+                         Assert.That(Offset<ak_log_record>("struct_size"),
+                                     Is.EqualTo(0));
+                         Assert.That(Offset<ak_log_record>("level"),
+                                     Is.EqualTo(4));
+                         Assert.That(Offset<ak_log_record>("target"),
+                                     Is.EqualTo(8));
+                         Assert.That(Offset<ak_log_record>("message"),
+                                     Is.EqualTo(8 + 2 * Ptr));
+                         Assert.That(Offset<ak_log_record>("field_count"),
+                                     Is.EqualTo(8 + 4 * Ptr));
+                         Assert.That(Offset<ak_log_record>("fields"),
+                                     Is.EqualTo(8 + 5 * Ptr));
+
+                         Assert.That(Marshal.SizeOf<ak_log_field>(),
+                                     Is.EqualTo(4 * Ptr));
+                         Assert.That(Offset<ak_log_field>("value"),
+                                     Is.EqualTo(2 * Ptr));
+                       });
+
+  [Test]
   public void AnOwnedViewAndALentBufferHaveTheSameShape()
     => Assert.Multiple(() =>
                        {
@@ -101,7 +126,7 @@ public class AbiLayoutTests
     => Assert.Multiple(() =>
                        {
                          Assert.That(Marshal.SizeOf<ak_runtime_config>(),
-                                     Is.EqualTo(32 + 2 * Ptr));
+                                     Is.EqualTo(32 + 4 * Ptr));
                          Assert.That(Offset<ak_runtime_config>("struct_size"),
                                      Is.EqualTo(0));
                          Assert.That(Offset<ak_runtime_config>("version"),
@@ -116,6 +141,10 @@ public class AbiLayoutTests
                                      Is.EqualTo(24));
                          Assert.That(Offset<ak_runtime_config>("channel_defaults_json"),
                                      Is.EqualTo(32));
+                         Assert.That(Offset<ak_runtime_config>("log_callback"),
+                                     Is.EqualTo(32 + 2 * Ptr));
+                         Assert.That(Offset<ak_runtime_config>("log_ctx"),
+                                     Is.EqualTo(32 + 3 * Ptr));
 
                          Assert.That(Marshal.SizeOf<ak_call_start_options>(),
                                      Is.EqualTo(16 + 4 * Ptr + 8));
@@ -141,7 +170,7 @@ public class AbiLayoutTests
     => Assert.Multiple(() =>
                        {
                          Assert.That(Marshal.SizeOf<ak_config>(),
-                                     Is.EqualTo(16 + 3 * Ptr));
+                                     Is.EqualTo(16 + 5 * Ptr));
                          Assert.That(Offset<ak_config>("struct_size"),
                                      Is.EqualTo(0));
                          Assert.That(Offset<ak_config>("version"),
@@ -154,6 +183,10 @@ public class AbiLayoutTests
                                      Is.EqualTo(16));
                          Assert.That(Offset<ak_config>("prefix"),
                                      Is.EqualTo(16 + Ptr));
+                         Assert.That(Offset<ak_config>("log_callback"),
+                                     Is.EqualTo(16 + 3 * Ptr));
+                         Assert.That(Offset<ak_config>("log_ctx"),
+                                     Is.EqualTo(16 + 4 * Ptr));
 
                          Assert.That(Marshal.SizeOf<ak_config_source>(),
                                      Is.EqualTo(8 + 2 * Ptr));

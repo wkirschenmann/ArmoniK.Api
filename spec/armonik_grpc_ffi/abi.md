@@ -70,15 +70,16 @@ The schema is the source of truth for:
 
 The runtime's options have a schema of their own, `runtime.schema.json`, generated from
 `armonik-transport`'s `options::RuntimeOptions` under its `schema` feature: `Endpoint`, the server a
-channel created with an empty endpoint reaches, the two memory ceilings, and `ChannelDefaults`. It
+channel created with an empty endpoint reaches, the two memory ceilings, `ChannelDefaults`, and
+`Logging`, whose `Filter` selects the engine's logs. It
 is the document `ak_runtime_create_from` loads from the sources an `ak_config` lists - files, the
 environment, pairs and documents, a later one over an earlier one (configuration-loading.md) - and
 the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
-as the fields of `ak_runtime_config`, the case of one document with no endpoint, and its zero
-ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
+as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
+its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
 from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
 declares is ignored rather than refused, in every source and in a channel's own document, and logged
-by the engine through `tracing`, which reaches no host before T10.1.
+by the engine through `tracing`, at info, which reaches the host's log callback (observability.md).
 
 `ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
 option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`. A
@@ -295,6 +296,18 @@ with the acquittal and not with the bytes.
 field is a use-after-free. That is the floor, not the policy: the .NET binding holds it longer
 and releases it after `ak_runtime_destroy` returns, which needs no reasoning about which event
 was last.
+
+#### The log callback
+
+The engine's logs reach the host through a callback given when the runtime is created, in the
+fields `log_callback` and `log_ctx` appended to `ak_runtime_config` and to `ak_config`
+(observability.md has the reasons). It is never replaced or removed. Unlike the runtime's context
+it is not tied to the runtime's last event: `log_ctx` and the function stay valid until
+`ak_runtime_destroy` returns, because the engine's threads are gone by quiescence and the destroy
+waits for a delivery a host's own thread has under way, and delivers nothing after. A refused
+creation delivers what its configuration's load logged, then the same: nothing after the call
+returns. The events a creation logs are delivered on the host's own thread, inside the call. The
+callback must not call this library, and an event logged from inside it is dropped.
 
 #### Calls
 

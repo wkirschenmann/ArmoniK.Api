@@ -7,6 +7,7 @@ use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_st
 use crate::channel::AkChannel;
 use crate::host::Host;
 use crate::ledger::Ledger;
+use crate::log::{self, Sink};
 use crate::refusal::Refusal;
 use crate::runtime::{AkRuntime, Claim};
 use crate::tables;
@@ -15,31 +16,46 @@ pub(crate) fn create_runtime(
     memory_ceiling: u64,
     memory_hard_ceiling: u64,
     channel_defaults: &[u8],
+    sink: Option<Sink>,
     host: Host,
 ) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
-    // After the claim, so a second runtime is refused as one whatever its defaults say.
+    // After the claim, so a second runtime is refused as one whatever its defaults say, and
+    // logs nothing to the callback of the one that lives.
+    let loading = log::begin(sink);
     let mut options = RuntimeOptions::default();
     options.memory_ceiling = (memory_ceiling != 0).then_some(memory_ceiling);
     options.memory_hard_ceiling = (memory_hard_ceiling != 0).then_some(memory_hard_ceiling);
-    options.channel_defaults =
-        crate::config::defaults(channel_defaults).map_err(Refusal::config)?;
+    let defaults = crate::config::defaults(channel_defaults);
+    loading.settle(None);
+    options.channel_defaults = defaults.map_err(Refusal::config)?;
     start(claim, options, host)
 }
 
 pub(crate) fn create_runtime_from(
     configuration: &Configuration,
+    sink: Option<Sink>,
     host: Host,
 ) -> Result<ak_handle, Refusal> {
     let claim = Claim::take().ok_or(ak_status::AK_STATUS_INVALID_STATE)?;
     // After the claim, as ak_runtime_create reads its defaults after it: a second runtime is
     // refused as one, and its sources are not read.
-    let options = crate::config::runtime(configuration).map_err(Refusal::config)?;
+    let loading = log::begin(sink);
+    let loaded = crate::config::runtime(configuration);
+    // What a refused load logged is delivered too, by the default filter.
+    loading.settle(
+        loaded
+            .as_ref()
+            .ok()
+            .and_then(|options| options.logging.filter.as_deref()),
+    );
+    let options = loaded.map_err(Refusal::config)?;
     start(claim, options, host)
 }
 
 fn start(claim: Claim, options: RuntimeOptions, host: Host) -> Result<ak_handle, Refusal> {
     let runtime = AkRuntime::new(options, host)?;
+    crate::config::log_runtime(runtime.options());
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;

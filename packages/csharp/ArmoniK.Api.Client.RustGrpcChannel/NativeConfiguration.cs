@@ -24,10 +24,11 @@ using System.Text.Json;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel;
 
-/// <summary>Where the engine reads a runtime's options from, for <see cref="NativeRuntime.Create(NativeConfiguration)" />.</summary>
+/// <summary>Where the engine reads a runtime's options from, for <see cref="NativeRuntime.Create(NativeConfiguration,ILoggerFactory)" />.</summary>
 /// <remarks>
 ///   <para>
 ///     Each load adds a source, and the engine reads them in the order they were added when the

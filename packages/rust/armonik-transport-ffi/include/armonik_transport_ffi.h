@@ -58,6 +58,20 @@
 #include <stdint.h>
 
 /**
+ * In ak_log_record.level: 1 is the most severe and 5 the most verbose. A host maps them to its
+ * own, and has no use for a value it does not know.
+ */
+#define AK_LOG_ERROR 1
+
+#define AK_LOG_WARN 2
+
+#define AK_LOG_INFO 3
+
+#define AK_LOG_DEBUG 4
+
+#define AK_LOG_TRACE 5
+
+/**
  * In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
  */
 #define AK_CONFIG_NO_PREFIX 1
@@ -441,6 +455,68 @@ typedef struct {
     size_t len;
 } ak_bytes_in;
 
+/**
+ * One field of a logged event: the name the engine gave it, and its value rendered as text. Both
+ * views are valid for the callback alone.
+ */
+typedef struct {
+    ak_bytes_in key;
+    ak_bytes_in value;
+} ak_log_field;
+
+/**
+ * An event the engine logs, as the log callback receives it. Everything it points at is valid for
+ * the callback's duration only, and nothing of it is the host's to give back: a host that keeps
+ * a record copies it.
+ *
+ * Starts with struct_size, the size of the record this library built: a host reads only the
+ * fields that lie within it. The text is UTF-8, and carries neither a source location nor a
+ * time, which the host's own logger stamps.
+ */
+typedef struct {
+    /**
+     * sizeof this record as this library defines it.
+     */
+    uint32_t struct_size;
+    /**
+     * An AK_LOG_ level.
+     */
+    uint32_t level;
+    /**
+     * What emitted it: the Rust module path, such as armonik_transport::grpc::channel, or h2.
+     */
+    ak_bytes_in target;
+    /**
+     * The event's text.
+     */
+    ak_bytes_in message;
+    /**
+     * How many fields `fields` points at.
+     */
+    size_t field_count;
+    /**
+     * The event's other values, in the order it names them. NULL when field_count is zero.
+     */
+    const ak_log_field *fields;
+} ak_log_record;
+
+/**
+ * Receives the engine's logs: one call per event the runtime's filter admits, as it happens, on
+ * the thread that logged it - this library's, or the host's own inside a downcall that logs, as
+ * the runtime's creation does for what its configuration's load logged. Given once, when the
+ * runtime is created, and never replaced or removed. Several threads may call it at once.
+ *
+ * It keeps the runtime callback's contract: record the event where the host's own thread will
+ * find it, and return. It must not parse, take a lock the host's own code holds, run application
+ * code, or call this library: an event logged from inside it is dropped. A host whose logger runs
+ * application code copies the record into a queue of its own and writes it from a thread of its
+ * own.
+ *
+ * The function and `log_ctx` stay callable until ak_runtime_destroy returns, or until the
+ * creation call returns when it is refused; nothing reaches them after.
+ */
+typedef void (*ak_log_callback)(void *log_ctx, const ak_log_record *record);
+
 typedef struct {
     uint32_t struct_size;
     /**
@@ -481,6 +557,16 @@ typedef struct {
      * Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
      */
     ak_bytes_in channel_defaults_json;
+    /**
+     * Receives the engine's logs, filtered by `*=warn,armonik_transport*=info`: the runtime option
+     * Logging.Filter, which only ak_runtime_create_from loads, is the one way to another. NULL for
+     * none.
+     */
+    ak_log_callback log_callback;
+    /**
+     * Handed to `log_callback` with each record.
+     */
+    void *log_ctx;
 } ak_runtime_config;
 
 /**
@@ -623,6 +709,15 @@ typedef struct {
      * has to be empty.
      */
     ak_bytes_in prefix;
+    /**
+     * Receives the engine's logs, filtered by the runtime's option Logging.Filter; NULL for none.
+     * NULL when the host's struct_size ends before this field.
+     */
+    ak_log_callback log_callback;
+    /**
+     * Handed to `log_callback` with each record.
+     */
+    void *log_ctx;
 } ak_config;
 
 typedef struct {
@@ -724,7 +819,9 @@ extern "C" {
  * # Safety
  *
  * `config` and `out` must be valid for their types, and `callback` must stay callable with
- * `runtime_ctx` until the runtime's last event.
+ * `runtime_ctx` until the runtime's last event. `config.log_callback`, when it is set, must stay
+ * callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until this call returns
+ * when it refuses.
  * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_runtime_create(const ak_runtime_config *config,
@@ -751,7 +848,9 @@ ak_status ak_runtime_create(const ak_runtime_config *config,
  *
  * `config` and `out` must be valid for their types, `config.sources` must point at
  * `source_count` sources unless that is zero, and every byte view at its length. `callback` must
- * stay callable with `runtime_ctx` until the runtime's last event.
+ * stay callable with `runtime_ctx` until the runtime's last event. `config.log_callback`, when it
+ * is set, must stay callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until
+ * this call returns when it refuses.
  * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_runtime_create_from(const ak_config *config,

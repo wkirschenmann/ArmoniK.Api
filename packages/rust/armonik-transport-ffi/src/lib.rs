@@ -11,6 +11,7 @@ pub mod hooks;
 mod host;
 mod ledger;
 mod lifecycle;
+mod log;
 mod refusal;
 mod registry;
 mod runtime;
@@ -116,7 +117,9 @@ unsafe fn observe<T, V, R: Into<Refusal>>(
 /// # Safety
 ///
 /// `config` and `out` must be valid for their types, and `callback` must stay callable with
-/// `runtime_ctx` until the runtime's last event.
+/// `runtime_ctx` until the runtime's last event. `config.log_callback`, when it is set, must stay
+/// callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until this call returns
+/// when it refuses.
 /// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_runtime_create(
@@ -140,6 +143,7 @@ pub unsafe extern "C" fn ak_runtime_create(
                     config.memory_ceiling,
                     config.memory_hard_ceiling,
                     defaults,
+                    log::Sink::new(config.log_callback, config.log_ctx),
                     Host::new(callback, runtime_ctx),
                 ),
             )
@@ -171,7 +175,9 @@ const NULL_ARGUMENT: Refusal = Refusal::fixed(
 ///
 /// `config` and `out` must be valid for their types, `config.sources` must point at
 /// `source_count` sources unless that is zero, and every byte view at its length. `callback` must
-/// stay callable with `runtime_ctx` until the runtime's last event.
+/// stay callable with `runtime_ctx` until the runtime's last event. `config.log_callback`, when it
+/// is set, must stay callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until
+/// this call returns when it refuses.
 /// `out_error` must be null or writable for an `ak_error`.
 #[no_mangle]
 pub unsafe extern "C" fn ak_runtime_create_from(
@@ -191,7 +197,11 @@ pub unsafe extern "C" fn ak_runtime_create_from(
         unsafe {
             hand_over(
                 out,
-                lifecycle::create_runtime_from(&configuration, Host::new(callback, runtime_ctx)),
+                lifecycle::create_runtime_from(
+                    &configuration,
+                    log::Sink::new(config.log_callback, config.log_ctx),
+                    Host::new(callback, runtime_ctx),
+                ),
             )
         }
     });

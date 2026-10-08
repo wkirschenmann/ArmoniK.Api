@@ -41,6 +41,8 @@ fn config(sources: &[ak_config_source], prefix: &[u8], flags: u32) -> ak_config 
         source_count: sources.len() as u32,
         sources: sources.as_ptr(),
         prefix: view(prefix),
+        log_callback: None,
+        log_ctx: std::ptr::null_mut(),
     }
 }
 
@@ -223,7 +225,7 @@ fn a_malformed_structure_is_refused_before_any_source_is_read() {
     let mut versioned = config(&sources, b"", 0);
     versioned.version = 1;
     let mut short = config(&sources, b"", 0);
-    short.struct_size -= 1;
+    short.struct_size = std::mem::offset_of!(ak_config, log_callback) as u32 - 1;
     let mut no_sources = config(&sources, b"", 0);
     no_sources.sources = std::ptr::null();
     for (what, malformed) in [

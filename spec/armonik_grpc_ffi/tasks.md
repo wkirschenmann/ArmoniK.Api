@@ -1785,13 +1785,23 @@ one - and, as each is fixed in a release, the workaround it made unnecessary rem
 
 **Prerequisite**: T3.5, and T6.14, whose loader reads the filter's key this task adds and logs
 what it ignores
-**Commit**: as `observability.md` decides: `ak_runtime_set_log_callback` and
-`ak_runtime_set_log_filter`, each runtime with its own dispatcher, the load's events kept for the
-callback, the engine instrumented and its events catalogued, the effective configuration logged,
-and the .NET binding's optional `ILoggerFactory`, written from a thread of its own.
+**Commit**: as `observability.md` decides: a log callback and its context among the fields of
+`ak_runtime_config` and `ak_config`, given when the runtime is created and never replaced; the
+filter, `Logging.Filter`, set once at creation and matched by path segment; one process-wide
+dispatcher; the load's events kept on the creating thread and delivered on it; the engine
+instrumented and its events catalogued; the effective configuration logged, with a test that finds
+no secret in it; and the .NET binding's optional `ILoggerFactory`, written from a thread of its own
+through a bounded queue.
 
 **Deliverable**: an operator of a .NET host reads the engine's events and the effective
 configuration in its own logs, filtered as it chose; the keys T6.14 logs as unknown among them.
+
+**Status**: done. Delivered in `observability.md`'s terms, with a filter that matches by path
+segment and a `*` for a text prefix, a default of `*=warn,armonik_transport*=info` that a filter the
+user gives replaces whole, a target it does not cover being off, and no field for the filter in
+`ak_runtime_config`: it is `Logging.Filter` of the loader's options.
+The costs measured are in `observability.md`: 0.2 to 0.3 ns for an event the filter rejects, 74
+to 138 ns for one delivered.
 
 ### T10.2: The engine's metrics
 
@@ -1808,8 +1818,8 @@ code of its own.
 **Prerequisite**: T10.1
 **Commit**: as `observability.md` decides: a W3C trace context in `ak_call_start_options`, sent
 in the call's metadata; the engine's spans, those configured and only while a callback is
-registered, through `ak_runtime_set_trace_callback`; the .NET binding's `Activity` per call, the
-engine's spans its children.
+given, through a trace callback given when the runtime is created, as the log callback is; the
+.NET binding's `Activity` per call, the engine's spans its children.
 
 **Deliverable**: a .NET host's OpenTelemetry shows the same tree for a call whichever transport
 carries it, the engine's spans within it.

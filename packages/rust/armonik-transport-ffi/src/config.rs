@@ -189,23 +189,72 @@ const NOT_UTF8: Refusal = Refusal::fixed(
 );
 
 /// Reads a channel's document over the runtime's defaults, as `ChannelOptions::over` merges
-/// them. A refusal the channel's document earns alone is the one reported, in its own terms;
-/// only one it does not is the merge's.
-pub(crate) fn parse_over(
+/// them, and answers the settings and the options they were made from. A refusal the channel's
+/// document earns alone is the one reported, in its own terms; only one it does not is the
+/// merge's.
+pub(crate) fn parse_effective(
     defaults: Option<&ChannelOptions>,
     json: &[u8],
-) -> Result<ChannelSettings, ConfigRefusal> {
+) -> Result<(ChannelSettings, ChannelOptions), ConfigRefusal> {
     let own = read(json)?;
     let Some(defaults) = defaults else {
-        return settle(own);
+        return settle(own.clone()).map(|settings| (settings, own));
     };
     // What the document gets wrong by itself is refused before any merge is made, by the
     // document's own path: such a refusal does not depend on the defaults.
     own.check().map_err(ConfigRefusal::Option)?;
-    settle(own.clone().over(defaults)).map_err(|merged| match settle(own) {
-        Err(alone) => alone,
-        Ok(_) => ConfigRefusal::Merged(Box::new(merged)),
-    })
+    let merged = own.clone().over(defaults);
+    match settle(merged.clone()) {
+        Ok(settings) => Ok((settings, merged)),
+        Err(refused) => Err(match settle(own) {
+            Err(alone) => alone,
+            Ok(_) => ConfigRefusal::Merged(Box::new(refused)),
+        }),
+    }
+}
+
+/// What a runtime was created with, logged once: every option, each as its own type renders it, so
+/// that a password and a proxy's credentials show redacted and a certificate shows as the path it
+/// names.
+pub(crate) fn log_runtime(options: &RuntimeOptions) {
+    tracing::info!(
+        endpoint = options
+            .endpoint
+            .as_deref()
+            .and_then(|endpoint| endpoint.parse::<Uri>().ok())
+            .map(|endpoint| armonik_transport::safe_endpoint(&endpoint)),
+        memory_ceiling = options.memory_ceiling,
+        memory_hard_ceiling = options.memory_hard_ceiling,
+        channel_defaults = ?options.channel_defaults,
+        log_filter = options
+            .logging
+            .filter
+            .as_deref()
+            .unwrap_or(crate::log::DEFAULT_FILTER),
+        "the runtime's effective configuration"
+    );
+}
+
+/// What a channel was created with, merged over the runtime's defaults, logged as `log_runtime`
+/// logs the runtime's - unless the merge is the defaults themselves, which the runtime's log has
+/// said.
+pub(crate) fn log_channel(
+    endpoint: &Uri,
+    options: &ChannelOptions,
+    defaults: Option<&ChannelOptions>,
+) {
+    let inherited = match defaults {
+        Some(defaults) => options == defaults,
+        None => *options == ChannelOptions::default(),
+    };
+    if inherited {
+        return;
+    }
+    tracing::info!(
+        endpoint = %armonik_transport::safe_endpoint(endpoint),
+        options = ?options,
+        "the channel's effective configuration"
+    );
 }
 
 /// A document read alone, as a channel with no runtime defaults reads it.
@@ -238,16 +287,25 @@ mod tests {
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
     use armonik_transport::options::LARGEST_WINDOW;
 
+    /// `parse_effective`, for the tests that read the settings alone.
+    fn parse_over(
+        defaults: Option<&ChannelOptions>,
+        json: &[u8],
+    ) -> Result<ChannelSettings, ConfigRefusal> {
+        parse_effective(defaults, json).map(|(settings, _)| settings)
+    }
+
     fn config_of(json: &[u8]) -> GrpcChannelConfig {
         let settings = parse(json).expect("valid");
         settings.into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
     }
 
-    /// Every option of the runtime's schema but the endpoint is a field of `ak_runtime_config`,
-    /// so that `ak_runtime_create` takes what `ak_runtime_create_from` loads; the endpoint is what
-    /// a channel names itself there.
+    /// Every option of the runtime's schema but the endpoint and the logging filter is a field of
+    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads;
+    /// the endpoint is what a channel names itself there, and the filter is given through the
+    /// loader's options alone.
     #[test]
-    fn every_runtime_option_but_the_endpoint_is_a_field_of_the_config() {
+    fn every_runtime_option_but_the_endpoint_and_the_filter_is_a_field_of_the_config() {
         let schema: serde_json::Value =
             serde_json::from_str(&armonik_transport::options::runtime_schema())
                 .expect("the schema is a document");
@@ -270,7 +328,11 @@ mod tests {
                 ptr: std::ptr::null(),
                 len: 0,
             },
+            log_callback: None,
+            log_ctx: std::ptr::null_mut(),
         };
+        // Logging.Filter is no field: a filter other than the default is only loaded, and
+        // ak_runtime_create has no sources to load it from.
         let _ = (
             config.memory_ceiling,
             config.memory_hard_ceiling,
@@ -281,6 +343,7 @@ mod tests {
             [
                 "ChannelDefaults",
                 "Endpoint",
+                "Logging",
                 "MemoryCeiling",
                 "MemoryHardCeiling"
             ]

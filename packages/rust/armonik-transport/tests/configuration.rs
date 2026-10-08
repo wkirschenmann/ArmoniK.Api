@@ -130,3 +130,21 @@ fn a_channel_document_logs_what_it_does_not_declare() {
     assert_eq!(loaded.grpc.user_agent.as_deref(), Some("armonik"));
     assert_eq!(logged.keys(), ["Grpc.UserAgnt"]);
 }
+
+/// The logging filter is a key of the runtime's options, and a host's own `Logging` section, read
+/// with no prefix, holds keys the loader does not know.
+#[test]
+fn the_logging_filter_loads_and_a_hosts_logging_section_is_an_unknown_key() {
+    let logged = Logged::default();
+    let subscriber = tracing_subscriber::registry().with(logged.clone());
+    let loaded: Result<RuntimeOptions, ConfigRefusal> =
+        tracing::subscriber::with_default(subscriber, || {
+            Configuration::with_prefix("")
+                .document(r#"{"Logging":{"Filter":"h2=debug","LogLevel":{"Default":"Debug"}}}"#)
+                .load()
+        });
+
+    let loaded = loaded.expect("an unknown key is no refusal");
+    assert_eq!(loaded.logging.filter.as_deref(), Some("h2=debug"));
+    assert_eq!(logged.keys(), ["Logging.LogLevel"]);
+}

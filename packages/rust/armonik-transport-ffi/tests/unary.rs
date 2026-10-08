@@ -1106,6 +1106,8 @@ fn a_runtime_config_carries_the_same_head_as_call_options() {
             ptr: std::ptr::null(),
             len: 0,
         },
+        log_callback: None,
+        log_ctx: std::ptr::null_mut(),
     };
     let mut runtime = AK_HANDLE_NONE;
     let status = unsafe {

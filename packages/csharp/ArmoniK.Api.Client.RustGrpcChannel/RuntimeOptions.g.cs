@@ -36,8 +36,8 @@ internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
 }
 
 /// <summary>
-///   What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
-///   channel takes where its own state none.
+///   What a caller may set on the runtime: the endpoint, the memory ceilings, the options every
+///   channel takes where its own state none, and what the engine logs.
 /// </summary>
 public sealed class RuntimeOptions
 {
@@ -62,6 +62,9 @@ public sealed class RuntimeOptions
     ChannelDefaults = other.ChannelDefaults is null
                         ? null
                         : new ChannelOptions(other.ChannelDefaults);
+    Logging = other.Logging is null
+                ? null
+                : new LoggingOptions(other.Logging);
   }
 
   /// <summary>
@@ -108,6 +111,12 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public ChannelOptions? ChannelDefaults { get; set; }
 
+  /// <summary>What the engine reports of itself to the host.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Logging")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public LoggingOptions? Logging { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -134,6 +143,7 @@ public sealed class RuntimeOptions
     }
 
     ChannelDefaults?.Validate();
+    Logging?.Validate();
   }
 
   /// <summary>The document the engine reads, as UTF-8.</summary>
@@ -149,5 +159,57 @@ public sealed class RuntimeOptions
 
     return JsonSerializer.SerializeToUtf8Bytes(this,
                                                RuntimeOptionsJsonContext.Default.RuntimeOptions);
+  }
+}
+
+/// <summary>Which of the engine's log events a host receives.</summary>
+/// <remarks>Ignored by a Rust host.</remarks>
+public sealed class LoggingOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public LoggingOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public LoggingOptions(LoggingOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Filter = other.Filter;
+  }
+
+  /// <summary>
+  ///   Which events are reported: comma-separated directives, each a level for every target
+  ///   (<c>warn</c>, or <c>*=warn</c>), a target and its level (<c>h2=debug</c>), or a target alone, which is all
+  ///   its levels. A target covers itself and the modules below it - <c>h2</c> covers <c>h2::proto</c>, not
+  ///   <c>h2x</c> - and <c>target*</c> covers every target that starts with the text: <c>hyper*</c> covers
+  ///   <c>hyper</c> and <c>hyper_util</c>. The most specific directive that covers an event decides: the
+  ///   longest target, and at the same length the one without <c>*</c>. A filter replaces the default
+  ///   whole, and a target none of its directives covers is off: <c>armonik_transport=debug</c> alone
+  ///   reports that target and nothing else, <c>*=off</c> alone reports nothing, and a word that is no
+  ///   level is a target nothing emits. A level for every target, as <c>*=warn</c> states it, covers
+  ///   the rest. A directive that is not understood is ignored with a warning, and a filter with
+  ///   none that is understood, an empty one included, is the default. Read when the runtime is
+  ///   created.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to <c>*=warn,armonik_transport*=info</c>: warnings from every target, and the engine's
+  ///   own events - the targets that start with <c>armonik_transport</c> - at information.
+  /// </remarks>
+  [JsonPropertyName("Filter")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string? Filter { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    // The schema bounds nothing here.
   }
 }

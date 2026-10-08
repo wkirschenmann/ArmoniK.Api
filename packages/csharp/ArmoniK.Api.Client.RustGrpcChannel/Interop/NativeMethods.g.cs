@@ -35,6 +35,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
 
         /// <summary>
+        ///  In ak_log_record.level: 1 is the most severe and 5 the most verbose. A host maps them to its
+        ///  own, and has no use for a value it does not know.
+        /// </summary>
+        internal const uint AK_LOG_ERROR = 1;
+        internal const uint AK_LOG_WARN = 2;
+        internal const uint AK_LOG_INFO = 3;
+        internal const uint AK_LOG_DEBUG = 4;
+        internal const uint AK_LOG_TRACE = 5;
+        /// <summary>
         ///  In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
         /// </summary>
         internal const uint AK_CONFIG_NO_PREFIX = 1;
@@ -90,7 +99,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  # Safety
         ///
         ///  `config` and `out` must be valid for their types, and `callback` must stay callable with
-        ///  `runtime_ctx` until the runtime's last event.
+        ///  `runtime_ctx` until the runtime's last event. `config.log_callback`, when it is set, must stay
+        ///  callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until this call returns
+        ///  when it refuses.
         ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -114,7 +125,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///
         ///  `config` and `out` must be valid for their types, `config.sources` must point at
         ///  `source_count` sources unless that is zero, and every byte view at its length. `callback` must
-        ///  stay callable with `runtime_ctx` until the runtime's last event.
+        ///  stay callable with `runtime_ctx` until the runtime's last event. `config.log_callback`, when it
+        ///  is set, must stay callable with `config.log_ctx` until `ak_runtime_destroy` returns, or until
+        ///  this call returns when it refuses.
         ///  `out_error` must be null or writable for an `ak_error`.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_create_from", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -514,6 +527,55 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         public ak_host_debt host_debt;
     }
 
+    /// <summary>
+    ///  One field of a logged event: the name the engine gave it, and its value rendered as text. Both
+    ///  views are valid for the callback alone.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_log_field
+    {
+        public ak_bytes_in key;
+        public ak_bytes_in value;
+    }
+
+    /// <summary>
+    ///  An event the engine logs, as the log callback receives it. Everything it points at is valid for
+    ///  the callback's duration only, and nothing of it is the host's to give back: a host that keeps
+    ///  a record copies it.
+    ///
+    ///  Starts with struct_size, the size of the record this library built: a host reads only the
+    ///  fields that lie within it. The text is UTF-8, and carries neither a source location nor a
+    ///  time, which the host's own logger stamps.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_log_record
+    {
+        /// <summary>
+        ///  sizeof this record as this library defines it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  An AK_LOG_ level.
+        /// </summary>
+        public uint level;
+        /// <summary>
+        ///  What emitted it: the Rust module path, such as armonik_transport::grpc::channel, or h2.
+        /// </summary>
+        public ak_bytes_in target;
+        /// <summary>
+        ///  The event's text.
+        /// </summary>
+        public ak_bytes_in message;
+        /// <summary>
+        ///  How many fields `fields` points at.
+        /// </summary>
+        public nuint field_count;
+        /// <summary>
+        ///  The event's other values, in the order it names them. NULL when field_count is zero.
+        /// </summary>
+        public ak_log_field* fields;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct ak_runtime_config
     {
@@ -556,6 +618,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
         /// </summary>
         public ak_bytes_in channel_defaults_json;
+        /// <summary>
+        ///  Receives the engine's logs, filtered by `*=warn,armonik_transport*=info`: the runtime option
+        ///  Logging.Filter, which only ak_runtime_create_from loads, is the one way to another. NULL for
+        ///  none.
+        /// </summary>
+        public void* log_callback;
+        /// <summary>
+        ///  Handed to `log_callback` with each record.
+        /// </summary>
+        public void* log_ctx;
     }
 
     /// <summary>
@@ -614,6 +686,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  has to be empty.
         /// </summary>
         public ak_bytes_in prefix;
+        /// <summary>
+        ///  Receives the engine's logs, filtered by the runtime's option Logging.Filter; NULL for none.
+        ///  NULL when the host's struct_size ends before this field.
+        /// </summary>
+        public void* log_callback;
+        /// <summary>
+        ///  Handed to `log_callback` with each record.
+        /// </summary>
+        public void* log_ctx;
     }
 
     [StructLayout(LayoutKind.Sequential)]

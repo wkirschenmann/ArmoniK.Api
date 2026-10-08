@@ -325,7 +325,8 @@ reading the transport source code.
    offers for observation; logs, metrics and traces are T10.1 to T10.3's (observability.md).
 
 **Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today. 1's unknown
-option is ignored and logged through `tracing` since T6.14, the log reaching a host with T10.1.
+option is ignored and logged through `tracing`, the log reaching a host through its log callback
+(observability.md).
 Every fallible entry point reports a family and a message through `out_error`. The .NET binding puts
 the message into its exceptions for channel and runtime creation, call start, runtime destruction
 and the half-close; the lend and the commit name their own constant refusals. A refused document or

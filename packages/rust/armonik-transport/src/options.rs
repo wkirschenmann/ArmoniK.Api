@@ -2363,8 +2363,8 @@ impl ChannelOptions {
     }
 }
 
-/// What a caller may set on the runtime: the endpoint, the memory ceilings, and the options every
-/// channel takes where its own state none.
+/// What a caller may set on the runtime: the endpoint, the memory ceilings, the options every
+/// channel takes where its own state none, and what the engine logs.
 #[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -2408,6 +2408,41 @@ pub struct RuntimeOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "ChannelOptions"))]
     pub channel_defaults: Option<ChannelOptions>,
+
+    /// What the engine reports of itself to the host.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[serde(default)]
+    pub logging: LoggingOptions,
+}
+
+/// Which of the engine's log events a host receives.
+///
+/// Ignored by a Rust host.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct LoggingOptions {
+    /// Which events are reported: comma-separated directives, each a level for every target
+    /// (`warn`, or `*=warn`), a target and its level (`h2=debug`), or a target alone, which is all
+    /// its levels. A target covers itself and the modules below it - `h2` covers `h2::proto`, not
+    /// `h2x` - and `target*` covers every target that starts with the text: `hyper*` covers
+    /// `hyper` and `hyper_util`. The most specific directive that covers an event decides: the
+    /// longest target, and at the same length the one without `*`. A filter replaces the default
+    /// whole, and a target none of its directives covers is off: `armonik_transport=debug` alone
+    /// reports that target and nothing else, `*=off` alone reports nothing, and a word that is no
+    /// level is a target nothing emits. A level for every target, as `*=warn` states it, covers
+    /// the rest. A directive that is not understood is ignored with a warning, and a filter with
+    /// none that is understood, an empty one included, is the default. Read when the runtime is
+    /// created.
+    ///
+    /// Defaults to `*=warn,armonik_transport*=info`: warnings from every target, and the engine's
+    /// own events - the targets that start with `armonik_transport` - at information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub filter: Option<String>,
 }
 
 /// The endpoint is printed elided, since it may carry a password.
@@ -2418,6 +2453,7 @@ impl std::fmt::Debug for RuntimeOptions {
             .field("memory_ceiling", &self.memory_ceiling)
             .field("memory_hard_ceiling", &self.memory_hard_ceiling)
             .field("channel_defaults", &self.channel_defaults)
+            .field("logging", &self.logging)
             .finish()
     }
 }
@@ -2427,7 +2463,9 @@ over_fields!(RuntimeOptions {
     memory_ceiling,
     memory_hard_ceiling,
     channel_defaults,
+    logging,
 });
+over_fields!(LoggingOptions { filter });
 
 impl crate::configuration::Document for ChannelOptions {
     fn over(self, earlier: Self) -> Self {

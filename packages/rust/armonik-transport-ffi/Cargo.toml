@@ -20,6 +20,10 @@ name = "armonik_transport_ffi"
 armonik-transport = { path = "../armonik-transport" }
 bytes.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+# The engine's events, which this library receives as the process's default subscriber when its
+# host is not Rust, and hands to the host's log callback.
+tracing.workspace = true
+tracing-core.workspace = true
 
 [features]
 # Points where a test holds a host thread inside a downcall, counts of the channels' threads and

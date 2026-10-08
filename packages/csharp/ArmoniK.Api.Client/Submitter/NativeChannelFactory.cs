@@ -47,6 +47,10 @@ namespace ArmoniK.Api.Client.Submitter
   ///     The engine refuses a value outside its bounds, such as a keepalive under a second, when the channel is
   ///     opened.
   ///   </para>
+  ///   <para>
+  ///     The engine's own logs go to the <see cref="ILoggerFactory" /> of the call that starts it. The engine's
+  ///     filter, <c>ArmoniK__Client__Grpc__Logging__Filter</c> in the environment, selects what reaches it.
+  ///   </para>
   /// </remarks>
   [PublicAPI]
   public sealed class NativeChannelFactory
@@ -77,6 +81,10 @@ namespace ArmoniK.Api.Client.Submitter
     ///   Ignored, and logged, when the engine is already running.
     /// </param>
     /// <param name="logger">Optional logger</param>
+    /// <param name="loggerFactory">
+    ///   Where the engine's own logs go, when this call starts it; ignored when it is running. The factory has to
+    ///   outlive the engine, which writes to it until <see cref="ShutdownAsync" /> ends.
+    /// </param>
     /// <returns>A <see cref="NativeChannel" />, which the caller disposes</returns>
     /// <exception cref="ArgumentNullException"><paramref name="options" /> is null</exception>
     /// <exception cref="ArgumentOutOfRangeException">An option is outside the bounds the engine admits</exception>
@@ -88,9 +96,10 @@ namespace ArmoniK.Api.Client.Submitter
     /// <remarks>
     ///   An empty <see cref="GrpcClient.Endpoint" /> is the <c>Endpoint</c> of the engine's options.
     /// </remarks>
-    public ChannelBase CreateChannel(GrpcClient options,
-                                     string[]?  commandLine = null,
-                                     ILogger?   logger      = null)
+    public ChannelBase CreateChannel(GrpcClient      options,
+                                     string[]?       commandLine   = null,
+                                     ILogger?        logger        = null,
+                                     ILoggerFactory? loggerFactory = null)
     {
       if (options is null)
       {
@@ -119,7 +128,8 @@ namespace ArmoniK.Api.Client.Submitter
         if (runtime_ is null)
         {
           runtime_ = Start(commandLine,
-                           logger);
+                           logger,
+                           loggerFactory);
         }
         else if (commandLine is not null)
         {
@@ -160,8 +170,9 @@ namespace ArmoniK.Api.Client.Submitter
 
     // The defaults of GrpcClient are the floor, so that an option no source states is what the managed
     // transport would use.
-    private static NativeRuntime Start(string[]? commandLine,
-                                       ILogger?  logger)
+    private static NativeRuntime Start(string[]?       commandLine,
+                                       ILogger?        logger,
+                                       ILoggerFactory? loggerFactory)
     {
       var configuration = new NativeConfiguration().LoadConfigFromObject(new RuntimeOptions
                                                                          {
@@ -189,7 +200,8 @@ namespace ArmoniK.Api.Client.Submitter
         }
       }
 
-      return NativeRuntime.Create(configuration);
+      return NativeRuntime.Create(configuration,
+                                  loggerFactory);
     }
   }
 }

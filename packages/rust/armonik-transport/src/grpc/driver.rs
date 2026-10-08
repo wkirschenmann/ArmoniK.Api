@@ -462,6 +462,11 @@ async fn run<S: ResponseSink>(
             None => false,
         };
         if again && replay.supersede().whole {
+            tracing::debug!(
+                method = %path,
+                reason = unprocessed.map(|reason| reason.to_string()).unwrap_or_default(),
+                "the request never reached the peer's application, and is sent again"
+            );
             continue;
         }
         previous += 1;
@@ -502,6 +507,13 @@ async fn run<S: ResponseSink>(
         if !replay.supersede().retryable {
             return status;
         }
+        tracing::debug!(
+            method = %path,
+            attempt = previous,
+            code = ?status.code,
+            wait_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+            "the call failed and is retried after a backoff"
+        );
         if until_stopped(stop, tokio::time::sleep(wait))
             .await
             .is_none()

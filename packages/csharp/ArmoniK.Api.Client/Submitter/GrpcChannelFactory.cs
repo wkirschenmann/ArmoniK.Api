@@ -457,7 +457,11 @@ namespace ArmoniK.Api.Client.Submitter
     /// </summary>
     /// <param name="optionsGrpcClient">Options for the creation of the channel</param>
     /// <param name="logger">Optional logger</param>
-    /// <param name="loggerFactory">Optional loggerFactory</param>
+    /// <param name="loggerFactory">
+    ///   Optional loggerFactory. For <see cref="ClientTransport.Native" /> it also receives the logs of the native
+    ///   engine, if this call starts it, until <see cref="NativeChannelFactory.ShutdownAsync" /> ends, so it has to
+    ///   outlive the engine
+    /// </param>
     /// <returns>
     ///   A <see cref="GrpcChannel" /> for <see cref="ClientTransport.Managed" />, as <see cref="CreateChannel" /> makes
     ///   it; a native channel opened by <see cref="NativeChannelFactory.Instance" /> for
@@ -485,7 +489,8 @@ namespace ArmoniK.Api.Client.Submitter
         case ClientTransport.Native:
           return NativeChannelFactory.Instance.CreateChannel(optionsGrpcClient,
                                                              null,
-                                                             logger ?? loggerFactory?.CreateLogger<NativeChannelFactory>());
+                                                             logger ?? loggerFactory?.CreateLogger<NativeChannelFactory>(),
+                                                             loggerFactory);
         default:
           throw new ArgumentOutOfRangeException(nameof(optionsGrpcClient),
                                                 optionsGrpcClient.Transport,

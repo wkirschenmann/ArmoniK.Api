@@ -141,6 +141,8 @@ dependencies = [
  "tokio",
  "tonic",
  "tower-service",
+ "tracing",
+ "tracing-core",
  "zstd",
 ]
 

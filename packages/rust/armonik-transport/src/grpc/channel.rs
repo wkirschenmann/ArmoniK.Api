@@ -155,6 +155,7 @@ impl GrpcChannel {
             .simultaneous_calls_per_connection
             .unwrap_or(usize::MAX);
         let connector = TransportConnector::new(config.transport)?;
+        tracing::debug!(endpoint = %safe_endpoint(&endpoint), "channel created");
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -312,6 +313,7 @@ impl GrpcChannel {
         if self.inner.closed.send_replace(true) {
             return;
         }
+        tracing::debug!(endpoint = %safe_endpoint(&self.inner.endpoint), "channel closed");
 
         // Each call holds a sender of its own, so a session closes once its calls are done.
         self.inner.sessions().open.clear();
@@ -672,6 +674,7 @@ impl Inner {
         // Contained, because a panic here would leave the dial listed with no task behind it, and
         // every caller waiting on it would wait for good.
         let dialled = contained(async {
+            tracing::debug!(endpoint = %safe_endpoint(&self.endpoint), "dialling");
             #[cfg(feature = "test-hooks")]
             crate::hooks::run_in_dial();
 
@@ -683,6 +686,21 @@ impl Inner {
             .await
         })
         .await;
+
+        // Before the sessions' lock, which no event is emitted under: a host's log callback runs
+        // inside the emitting call.
+        match &dialled {
+            Some(Ok(_)) => {}
+            Some(Err(error)) => tracing::warn!(
+                endpoint = %safe_endpoint(&self.endpoint),
+                %error,
+                "the dial failed"
+            ),
+            None => tracing::error!(
+                endpoint = %safe_endpoint(&self.endpoint),
+                "the engine panicked while dialling"
+            ),
+        }
 
         let mut sessions = self.sessions();
         let Some(at) = sessions.dials.iter().position(|dial| dial.id == id) else {
@@ -730,8 +748,9 @@ impl Inner {
                 }
             })
             .await;
-            if let Err(error) = ended {
-                tracing::debug!(%endpoint, %error, "the HTTP/2 session ended");
+            match ended {
+                Ok(()) => tracing::debug!(%endpoint, "the HTTP/2 session closed"),
+                Err(error) => tracing::debug!(%endpoint, %error, "the HTTP/2 session ended"),
             }
         });
 
@@ -759,6 +778,7 @@ impl Inner {
         sessions.backoff.succeeded();
         self.opened.send_modify(|opened| *opened += 1);
         drop(sessions);
+        tracing::debug!(endpoint = %safe_endpoint(&self.endpoint), "the HTTP/2 session opened");
         if let Some(idle_timeout) = self.idle_timeout {
             self.spawner.spawn(close_when_idle(
                 Arc::downgrade(&self),
