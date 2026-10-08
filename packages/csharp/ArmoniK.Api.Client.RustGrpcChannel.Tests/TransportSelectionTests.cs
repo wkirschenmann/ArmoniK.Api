@@ -174,31 +174,9 @@ public class TransportSelectionTests
                                                                           .Encode()),
                    Does.Contain(@"""Unverified"""));
 
-  /// <summary>An initial backoff past the default maximum travels with the maximum, raised to it.</summary>
+  /// <summary>Only the backoff that is set is sent, and the engine checks the pair once the options are merged.</summary>
   [Test]
-  public async Task TheBackoffsAreTranslatedAsAPair()
-  {
-    var options = new GrpcClient
-                  {
-                    Endpoint       = Endpoint,
-                    Transport      = ClientTransport.Native,
-                    InitialBackOff = TimeSpan.FromSeconds(10),
-                  };
-
-    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
-                                                                                  true)
-                                                                       .Encode()),
-                Does.Contain(@"""InitialBackoffSeconds"":10")
-                    .And.Contain(@"""MaxBackoffSeconds"":10"));
-
-    // The engine refuses a maximum below the initial one, so creating the channel fails if only
-    // the initial one is sent.
-    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
-  }
-
-  /// <summary>A backoff that is not stated is left to the engine's sources, unless the stated one would pass it.</summary>
-  [Test]
-  public void AnUnstatedBackoffIsSentOnlyWhenTheStatedOnePassesIt()
+  public void OnlyTheBackoffThatIsSetIsSent()
   {
     string Encoded(GrpcClient options)
       => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
@@ -209,34 +187,87 @@ public class TransportSelectionTests
                     {
                       Assert.That(Encoded(new GrpcClient
                                           {
-                                            InitialBackOff = TimeSpan.FromSeconds(2),
+                                            InitialBackOff = TimeSpan.FromSeconds(10),
                                           }),
-                                  Does.Contain(@"""InitialBackoffSeconds"":2")
-                                      .And.Not.Contain("MaxBackoffSeconds"),
-                                  "an initial one under the default maximum travels alone");
-                      Assert.That(Encoded(new GrpcClient
-                                          {
-                                            MaxBackOff = TimeSpan.FromSeconds(30),
-                                          }),
-                                  Does.Contain(@"""MaxBackoffSeconds"":30")
-                                      .And.Not.Contain("InitialBackoffSeconds"),
-                                  "a maximum over the default initial one travels alone");
+                                  Does.Contain(@"""InitialBackoffSeconds"":10")
+                                      .And.Not.Contain("MaxBackoffSeconds"));
                       Assert.That(Encoded(new GrpcClient
                                           {
                                             MaxBackOff = TimeSpan.FromSeconds(0.5),
                                           }),
                                   Does.Contain(@"""MaxBackoffSeconds"":0.5")
-                                      .And.Contain(@"""InitialBackoffSeconds"":0.5"),
-                                  "an initial one above a stated maximum is lowered to it");
+                                      .And.Not.Contain("InitialBackoffSeconds"));
                       Assert.That(Encoded(new GrpcClient
                                           {
                                             InitialBackOff = TimeSpan.FromSeconds(10),
                                             MaxBackOff     = TimeSpan.FromSeconds(3),
                                           }),
                                   Does.Contain(@"""InitialBackoffSeconds"":10")
-                                      .And.Contain(@"""MaxBackoffSeconds"":10"),
-                                  "two stated bounds that cross are sent with the maximum raised");
+                                      .And.Contain(@"""MaxBackoffSeconds"":3"),
+                                  "two bounds that cross are sent as they are set");
                     });
+  }
+
+  /// <summary>An initial backoff above the maximum the options hold once merged is refused naming both keys, and one under it is not.</summary>
+  [Test]
+  public async Task AnInitialBackoffAboveTheMergedMaximumIsRefusedNamingBothKeys()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint       = Endpoint,
+                    Transport      = ClientTransport.Native,
+                    InitialBackOff = TimeSpan.FromSeconds(10),
+                  };
+
+    // The defaults of GrpcClient state a maximum of 5 s, which the initial backoff passes.
+    Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
+                Throws.InstanceOf<ArgumentException>()
+                      .With.Message.Contains("Grpc.Retry.InitialBackoffSeconds")
+                      .And.Message.Contains("Grpc.Retry.MaxBackoffSeconds")
+                      .And.Message.Contains("incoherent"));
+    await NativeChannelFactory.Instance.ShutdownAsync()
+                              .ConfigureAwait(false);
+
+    // The environment's maximum of 60 s is in the options by the time the channel is made.
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__Retry__MaxBackoffSeconds";
+    Environment.SetEnvironmentVariable(name,
+                                       "60");
+    try
+    {
+      await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+  }
+
+  /// <summary>Incoherent defaults in the environment start the engine, and only a channel that keeps them is refused.</summary>
+  [Test]
+  public void IncoherentDefaultsStartTheEngineAndRefuseAChannelThatKeepsThem()
+  {
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__RateLimit__Calls";
+    Environment.SetEnvironmentVariable(name,
+                                       "5");
+    try
+    {
+      var options = new GrpcClient
+                    {
+                      Endpoint  = Endpoint,
+                      Transport = ClientTransport.Native,
+                    };
+      Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
+                  Throws.InstanceOf<ArgumentException>()
+                        .With.Message.Contains("Grpc.RateLimit.Calls")
+                        .And.Message.Contains("Grpc.RateLimit.PerSeconds"),
+                  "the runtime was created, and the channel is refused");
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
   }
 
   /// <summary>Two channels are open on the engine the factory owns, and after a shutdown the next channel starts another.</summary>
@@ -573,6 +604,58 @@ public class TransportSelectionTests
                       .ResponseAsync.ConfigureAwait(false);
     Assert.That(reply.Text,
                 Is.EqualTo("off"));
+  }
+
+  /// <summary>The keepalive counts whole seconds, rounded up, so that a span that is positive is never none.</summary>
+  [Test]
+  public void TheKeepaliveIsSentInWholeSeconds()
+  {
+    var encoded = System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
+                                                                                    {
+                                                                                      KeepAliveTime         = TimeSpan.FromMilliseconds(500),
+                                                                                      KeepAliveTimeInterval = TimeSpan.FromMilliseconds(1500),
+                                                                                    },
+                                                                                    true)
+                                                                         .Encode());
+    Assert.That(encoded,
+                Does.Contain(@"""IdleSeconds"":1")
+                    .And.Contain(@"""IntervalSeconds"":2"));
+  }
+
+  /// <summary>An interval the engine cannot honour is carried on, and refused when the channel is made, naming the key.</summary>
+  [Test]
+  public void AnIntervalThatIsNotPositiveBesideAKeepaliveIsRefusedWhenTheChannelIsMade()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint              = Endpoint,
+                    Transport             = ClientTransport.Native,
+                    KeepAliveTimeInterval = System.Threading.Timeout.InfiniteTimeSpan,
+                  };
+
+    Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
+                Throws.InstanceOf<ArgumentException>()
+                      .With.Message.Contains("IntervalSeconds has to be at least 1"));
+  }
+
+  /// <summary>Turning the keepalive off with an interval that is off too is what a caller writes, and is not refused.</summary>
+  [Test]
+  public async Task ABothInfiniteKeepaliveTurnsItOff()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint              = Endpoint,
+                    Transport             = ClientTransport.Native,
+                    KeepAliveTime         = System.Threading.Timeout.InfiniteTimeSpan,
+                    KeepAliveTimeInterval = System.Threading.Timeout.InfiniteTimeSpan,
+                  };
+
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  true)
+                                                                       .Encode()),
+                Does.Contain(@"""IdleSeconds"":0")
+                    .And.Not.Contain("IntervalSeconds"));
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
   }
 
   /// <summary>The proxy words and a P12 bundle are translated as the managed transport reads them.</summary>

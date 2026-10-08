@@ -44,7 +44,7 @@ namespace ArmoniK.Api.Client.Submitter
   ///     defaults, and they win over the engine's sources: a certificate or a proxy differs from one channel to the
   ///     next. The TLS verification, the certificates and the target name have no neutral value, so an empty or
   ///     false one sends nothing.
-  ///     The engine refuses a value outside its bounds, such as a keepalive under a second, when the channel is
+  ///     The engine refuses a value outside its bounds, such as a keepalive interval of zero, when the channel is
   ///     opened.
   ///   </para>
   /// </remarks>

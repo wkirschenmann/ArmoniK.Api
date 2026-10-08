@@ -69,11 +69,12 @@ pub(crate) fn defaults(json: &[u8]) -> Result<Option<ChannelOptions>, ConfigRefu
     Ok(Some(options))
 }
 
-/// Refuses channel defaults a channel's own document would be refused for.
+/// Refuses channel defaults a channel's own document would be refused for, except for options
+/// that cannot hold together: a channel can still override those, so they are said in the log and
+/// the runtime is created.
 fn admit_defaults(options: &ChannelOptions) -> Result<(), ConfigRefusal> {
-    settle(options.clone())
-        .map(drop)
-        .map_err(|refused| ConfigRefusal::Defaults(Box::new(refused)))
+    ChannelSettings::settle_defaults(options.clone())
+        .map_err(|refused| ConfigRefusal::Defaults(Box::new(ConfigRefusal::Settled(refused))))
 }
 
 /// Loads a runtime's options from the sources a host listed, and refuses what the runtime could
@@ -203,9 +204,18 @@ pub(crate) fn parse_over(
     // document's own path: such a refusal does not depend on the defaults.
     own.check().map_err(ConfigRefusal::Option)?;
     settle(own.clone().over(defaults)).map_err(|merged| match settle(own) {
-        Err(alone) => alone,
-        Ok(_) => ConfigRefusal::Merged(Box::new(merged)),
+        // Options that cannot hold together are a fact of the merge: alone, a document may well
+        // lack what the defaults give it.
+        Err(alone) if !is_incoherence(&alone) => alone,
+        _ => ConfigRefusal::Merged(Box::new(merged)),
     })
+}
+
+fn is_incoherence(refused: &ConfigRefusal) -> bool {
+    matches!(
+        refused,
+        ConfigRefusal::Settled(SettingRefusal::Incoherent(_))
+    )
 }
 
 /// A document read alone, as a channel with no runtime defaults reads it.
@@ -533,6 +543,15 @@ mod tests {
                 "/$defs/TcpKeepaliveOptions/properties/Retries/minimum",
                 r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
             ),
+            // Whole seconds, as the operating system counts them, and zero is none.
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
+            ),
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
+            ),
             (
                 "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
                 r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":N}}}}"#,
@@ -569,10 +588,6 @@ mod tests {
         }
         for (pointer, document) in [
             (
-                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
-            ),
-            (
                 "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
                 r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
             ),
@@ -598,14 +613,9 @@ mod tests {
             assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
         }
 
-        // These three state "none" as zero, which the schema's minimum is; what the engine admits
-        // above zero is its own bound, stated in the option's description.
+        // These two state "none" as zero, which the schema's minimum is; what the engine admits
+        // above zero is its own bound, a nanosecond, stated in the option's description.
         for (pointer, document, least) in [
-            (
-                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
-                1.0,
-            ),
             (
                 "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
                 r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
@@ -743,11 +753,11 @@ mod tests {
             ),
             (
                 &br#"{"Grpc":{"RateLimit":{"Calls":1}}}"#[..],
-                "Grpc.RateLimit.PerSeconds",
+                "Grpc.RateLimit.Calls and Grpc.RateLimit.PerSeconds are incoherent",
             ),
             (
                 &br#"{"Grpc":{"RateLimit":{"PerSeconds":1}}}"#[..],
-                "Grpc.RateLimit.Calls",
+                "Grpc.RateLimit.Calls and Grpc.RateLimit.PerSeconds are incoherent",
             ),
         ] {
             let refused = parse(document).err().expect("refused").to_string();
@@ -1104,6 +1114,29 @@ mod tests {
             said.ends_with("once merged over the runtime's ChannelDefaults"),
             "{said}"
         );
+    }
+
+    /// Options that cannot hold together once merged are refused as the merge's, naming the merged
+    /// keys, whether or not the channel's document is incoherent alone; one the defaults complete
+    /// is admitted.
+    #[test]
+    fn incoherence_is_a_fact_of_the_merge() {
+        let incoherent =
+            defaults(br#"{"Grpc":{"RateLimit":{"Calls":5}}}"#).expect("a warning only");
+        // Incoherent alone and merged: refused as the merge's.
+        let Err(refused) = parse_over(incoherent.as_ref(), b"{}") else {
+            panic!("incoherent defaults kept by the channel are admitted");
+        };
+        let said = refused.to_string();
+        assert!(said.contains("Grpc.RateLimit.PerSeconds"), "{said}");
+        assert!(
+            said.ends_with("once merged over the runtime's ChannelDefaults"),
+            "{said}"
+        );
+        // A document that is incoherent alone and completed by the defaults is admitted.
+        let window = defaults(br#"{"Grpc":{"RateLimit":{"PerSeconds":2}}}"#).expect("valid");
+        assert!(parse(br#"{"Grpc":{"RateLimit":{"Calls":5}}}"#).is_err());
+        parse_over(window.as_ref(), br#"{"Grpc":{"RateLimit":{"Calls":5}}}"#).expect("completed");
     }
 
     /// Another alternative than the default's, stated by the channel, replaces it whole.
