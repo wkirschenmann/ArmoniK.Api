@@ -405,6 +405,67 @@ public enum Place
                                               "\n")));
     }
 
+    private const string Listed = @"{
+  ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
+  ""title"": ""Options"",
+  ""description"": ""What a caller may set."",
+  ""type"": ""object"",
+  ""properties"": {""Codes"": { ""description"": ""Which statuses."", ""$ref"": ""#/$defs/Codes"" }},
+  ""additionalProperties"": false,
+  ""$defs"": {
+    ""Codes"": {
+      ""description"": ""Which statuses a call is retried for."",
+      ""oneOf"": [
+        { ""description"": ""Any."", ""type"": ""object"", ""properties"": { ""Any"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Any""] },
+        { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } } }, ""additionalProperties"": false, ""required"": [""List""] }
+      ]
+    },
+    ""Status"": {
+      ""description"": ""A status."",
+      ""oneOf"": [
+        { ""description"": ""Missing."", ""type"": ""string"", ""const"": ""NOT_FOUND"" },
+        { ""description"": ""Past the end."", ""type"": ""string"", ""const"": ""OUT_OF_RANGE"" }
+      ]
+    }
+  }
+}";
+
+    /// <summary>A list of the names of an enumeration is a read-only list of that enum, copied, compared and written by its names.</summary>
+    [Test]
+    public async Task AListOfNamesBecomesAReadOnlyListOfAnEnum()
+    {
+      var rendered = await Render(Listed)
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("public sealed record List(global::System.Collections.Generic.IReadOnlyList<Status> Value) : Codes")
+                      .And.Contain("new global::System.Collections.Generic.List<Status>(Value ?? throw new ArgumentNullException(nameof(Value))).AsReadOnly();")
+                      .And.Contain("public bool Equals(List? other)")
+                      .And.Contain("global::System.Linq.Enumerable.SequenceEqual(Value, other.Value)")
+                      .And.Contain("writer.WriteStartArray(\"List\");")
+                      .And.Contain("writer.WriteStringValue(item.ToString());")
+                      .And.Contain("value.Where(item => !Enum.IsDefined(typeof(Status), item))")
+                      .And.Contain("using System.Linq;")
+                      .And.Contain("builder.Append(\"[\" + string.Join(\", \", Value) + \"]\");")
+                      .And.Contain("  NOT_FOUND,")
+                      .And.Contain("  OUT_OF_RANGE,"));
+    }
+
+    /// <summary>An array is a list of names or it is refused: nothing else of this vocabulary is a list.</summary>
+    [TestCase(@"{ ""type"": ""array"", ""items"": { ""type"": ""string"" } }",
+              "enumeration",
+              TestName = "{m}(strings)")]
+    [TestCase(@"{ ""type"": ""array"" }",
+              "items",
+              TestName = "{m}(no items)")]
+    public void AnArrayThatIsNotAListOfNamesIsRefused(string list,
+                                                      string reason)
+      => Assert.That(async () => await Render(Listed.Replace(@"{ ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } }",
+                                                             list))
+                                   .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains(reason));
+
     private const string Choice = @"{
   ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
   ""title"": ""Options"",

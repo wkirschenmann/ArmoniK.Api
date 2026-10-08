@@ -490,6 +490,40 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
              };
     }
 
+    // What an alternative that is a list holds: the names of an enumeration, as `Value`.
+    private static Option ReadNames(TypeDeclaration payload,
+                                    string description,
+                                    string what,
+                                    List<(TypeDeclaration Declaration, string Name)> nested)
+    {
+      var items = payload.ArrayItemsType();
+
+      if (items is null)
+      {
+        throw new NotSupportedException($"`{what}` is an array that states no `items`, and this generator types a list by its items.");
+      }
+
+      var item = Resolve(items.ReducedType);
+
+      if (!IsChoice(item) || !IsEnumeration(item))
+      {
+        throw new NotSupportedException($"`{what}` is a list of something other than the names of an enumeration, which this generator has no list for.");
+      }
+
+      var typeName = NameOf(item,
+                            false);
+      nested.Add((item, typeName));
+
+      return new Option
+             {
+               Name        = "Value",
+               Description = description,
+               Type        = typeName,
+               Kind        = OptionKind.EnumerationList,
+               Required    = true,
+             };
+    }
+
     private static bool IsSecret(TypeDeclaration declaration)
       => Keyword(declaration,
                  "writeOnly") is { ValueKind: JsonValueKind.True };
@@ -628,6 +662,25 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       var type = Keyword(payload,
                          "type")
                  ?.GetString();
+
+      // The names of an enumeration, bare: the one list an alternative holds, which is a value of
+      // its own and so is copied, and compared by what it names, when the record is made.
+      if (type == "array")
+      {
+        return new Alternative
+               {
+                 Name        = name,
+                 Description = description,
+                 Shape       = AlternativeShape.Value,
+                 Fields = new[]
+                          {
+                            ReadNames(payload,
+                                      description,
+                                      $"{choice}.{name}",
+                                      nested),
+                          },
+               };
+      }
 
       if (type == "object" || payload.HasPropertyDeclarations)
       {
