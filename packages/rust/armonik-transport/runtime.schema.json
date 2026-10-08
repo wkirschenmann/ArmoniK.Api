@@ -600,11 +600,12 @@
           "format": "int32",
           "minimum": 0
         },
-        "StreamBufferSize": {
-          "description": "How many bytes of one call's request may be queued in the session, waiting to be written,\nbefore its next part is handed over. A part is handed over whole once fewer bytes than this\nare queued, and the peer's window has room, so up to one part more than this is queued.\n\nDefaults to 1048576, 1 MiB.",
+        "StreamBufferKiB": {
+          "description": "How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be\nwritten, before its next part is handed over. A part is handed over whole once fewer bytes\nthan this are queued, and the peer's window has room, so up to one part more than this is\nqueued.\n\nDefaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's\nbuffer is counted in 32 bits.",
           "type": "integer",
           "format": "int32",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 4194303
         },
         "FramesPerWrite": {
           "description": "How many DATA frames of the peer's largest size one queued part of a request may span,\nwritten one after the other in one write: a large message then goes out in fewer, larger\nwrites. Above 1, a call reset while its part is being written can still send up to this\nmany frames less one before its reset, and a PING or a SETTINGS acknowledgement queued\nbehind DATA waits for this many times more of it. Above 1 needs an engine built against\nthe h2-batch patch (`packages/rust/patches/h2-batch`), and is refused otherwise. At most\n256.\n\nDefaults to 1.",
@@ -613,14 +614,37 @@
           "minimum": 1,
           "maximum": 256
         },
-        "MaxHeaderListSize": {
-          "description": "The most bytes the headers of one request may take, counted as RFC 9113 counts a header\nlist for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the\npseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED\nbefore anything is sent. It bounds what is sent, never what is received.\n\nDefaults to none: no request is refused for its headers.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+        "HeaderListBytes": {
+          "description": "How many bytes the headers of one request may take. It bounds what is sent, never what is\nreceived.\n\nDefaults to `\"Unbounded\"`.",
+          "$ref": "#/$defs/HeaderListBytes"
         }
       },
       "additionalProperties": false
+    },
+    "HeaderListBytes": {
+      "description": "How many bytes the headers of one request may take.",
+      "oneOf": [
+        {
+          "description": "No request is refused for its headers.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many bytes, counted as RFC 9113 counts a header list for\nSETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header\nfields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before\nanything is sent.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "Http2ReceiveOptions": {
       "description": "What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or\nwindows that grow with what the link carries.",
@@ -649,14 +673,14 @@
       "description": "HTTP/2 flow-control windows of fixed sizes.",
       "type": "object",
       "properties": {
-        "StreamWindowSize": {
+        "StreamWindowBytes": {
           "description": "How many bytes of one call the peer may send ahead of what is read.\n\nDefaults to 2097152, 2 MiB.",
           "type": "integer",
           "format": "int32",
           "minimum": 1
         },
-        "ConnectionWindowSize": {
-          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
+        "ConnectionWindowBytes": {
+          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowBytes` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
           "type": "integer",
           "format": "int32",
           "minimum": 65535
@@ -673,10 +697,9 @@
           "type": "string",
           "minLength": 1
         },
-        "DefaultDeadlineSeconds": {
-          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not\nonly the wait for the response's head. A call's own deadline takes its place, and a call\nthat states none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds, or 0 for none, over a deadline an earlier source set.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "Deadline": {
+          "description": "The deadline of a call that states none.\n\nDefaults to `\"None\"`, a call waiting as long as its answer takes.",
+          "$ref": "#/$defs/Deadline"
         },
         "Retry": {
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.\nA call its peer never processed goes again besides, whatever `MaxAttempts` is, while every\nmessage it sent is kept.",
@@ -700,6 +723,30 @@
         }
       },
       "additionalProperties": false
+    },
+    "Deadline": {
+      "description": "The deadline of a call that states none, counted from its start.",
+      "oneOf": [
+        {
+          "description": "The call has none: it waits as long as its answer takes.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "The call ends `DEADLINE_EXCEEDED` once this many seconds have passed, at least a\nnanosecond, the finest duration the engine holds, and the server is told what was left of\nit when the call started as `grpc-timeout`. It bounds the whole call, a streaming one\nincluded, and not only the wait for the response's head. A call's own deadline takes its\nplace.",
+          "type": "object",
+          "properties": {
+            "Default": {
+              "$ref": "#/$defs/Seconds",
+              "minimum": 1e-9
+            }
+          },
+          "required": [
+            "Default"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "RetryOptions": {
       "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the\nreader and what the call sent is still kept for the replay.",
@@ -895,21 +942,112 @@
       "description": "What a call sends to the server.",
       "type": "object",
       "properties": {
-        "MaxMessageSize": {
-          "description": "The largest message this client will send, in bytes. A larger one ends its call\n`RESOURCE_EXHAUSTED`, and none of it is sent.\n\nDefaults to none, any message a call is given going out. Zero is refused: it admits only\nempty messages.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+        "MessageSizeKiB": {
+          "description": "The largest message this client will send. A larger one ends its call\n`RESOURCE_EXHAUSTED`, and none of it is sent.\n\nDefaults to `\"Unbounded\"`, any message a call is given going out.",
+          "$ref": "#/$defs/SendMessageSizeKiB"
         },
         "Compression": {
-          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to none, the messages going out as they are, which `None` says too, over an\nencoding an earlier source set.",
-          "$ref": "#/$defs/MessageEncoding"
+          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MessageSizeKiB` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to `\"None\"`, the messages going out as they are.",
+          "$ref": "#/$defs/SendCompression"
         }
       },
       "additionalProperties": false
     },
+    "SendMessageSizeKiB": {
+      "description": "The largest message a call sends.",
+      "oneOf": [
+        {
+          "description": "No message is refused for its size.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many KiB (1024 bytes), counted before the message is compressed.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SendCompression": {
+      "description": "How the messages a call sends are compressed.",
+      "oneOf": [
+        {
+          "description": "No compression, `identity` on the wire: the messages go out as they are and no\n`grpc-encoding` is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "RFC 1952 gzip, `gzip` on the wire.",
+          "type": "string",
+          "const": "Gzip"
+        },
+        {
+          "description": "gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw\nRFC 1951 stream.",
+          "type": "string",
+          "const": "Deflate"
+        },
+        {
+          "description": "RFC 8878 Zstandard, `zstd` on the wire.",
+          "type": "string",
+          "const": "Zstd"
+        }
+      ]
+    },
+    "GrpcReceiveOptions": {
+      "description": "What a call accepts from the server.",
+      "type": "object",
+      "properties": {
+        "MessageSizeKiB": {
+          "description": "The largest message this client will accept.\n\nDefaults to 4096, 4 MiB, as `{\"Max\": 4096}`.",
+          "$ref": "#/$defs/ReceiveMessageSizeKiB"
+        },
+        "Compression": {
+          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MessageSizeKiB` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`. `identity`\nis always accepted.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessageEncoding"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReceiveMessageSizeKiB": {
+      "description": "The largest message a call accepts.",
+      "oneOf": [
+        {
+          "description": "No message is refused for its size.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many KiB (1024 bytes), counted once the message is decompressed.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "MessageEncoding": {
-      "description": "How the messages of a call are compressed.",
+      "description": "An encoding the messages of a call may be compressed in.",
       "oneOf": [
         {
           "description": "RFC 1952 gzip, `gzip` on the wire.",
@@ -925,33 +1063,8 @@
           "description": "RFC 8878 Zstandard, `zstd` on the wire.",
           "type": "string",
           "const": "Zstd"
-        },
-        {
-          "description": "No compression, `identity` on the wire: the messages go out as they are and no\n`grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the\ncompression off. It names no encoding to accept, and a list of them refuses it.",
-          "type": "string",
-          "const": "None"
         }
       ]
-    },
-    "GrpcReceiveOptions": {
-      "description": "What a call accepts from the server.",
-      "type": "object",
-      "properties": {
-        "MaxMessageSize": {
-          "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
-        },
-        "Compression": {
-          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is\nrefused here: `identity` is always accepted.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/MessageEncoding"
-          }
-        }
-      },
-      "additionalProperties": false
     },
     "HostOptions": {
       "description": "What crosses between the host and the engine on each call, one way and the other.",

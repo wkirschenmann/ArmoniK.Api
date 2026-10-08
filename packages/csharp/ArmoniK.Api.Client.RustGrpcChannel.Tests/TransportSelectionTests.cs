@@ -454,7 +454,7 @@ public class TransportSelectionTests
   {
     // A deadline of a nanosecond ends every call before it is answered, so what the channel does
     // says which of the two the engine read.
-    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__DefaultDeadlineSeconds";
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__Deadline__Default";
     Environment.SetEnvironmentVariable(name,
                                        "1e-9");
     try
@@ -671,7 +671,7 @@ public class TransportSelectionTests
                                                                                   },
                                                                                   true)
                                                                        .Encode()),
-                Does.Contain(@"""DefaultDeadlineSeconds"":0"));
+                Does.Contain(@"""Deadline"":""None"""));
 
     // The floor sets a keepalive with its interval, and the None over it is not refused for the
     // interval that stays.
@@ -855,7 +855,7 @@ public class TransportSelectionTests
                                       .And.Contain(@"""ClientCertificate"":{""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}}")
                                       .And.Contain(@"""Url"":{""Address"":""http://proxy.test:3128"",""Username"":""user""}")
                                       .And.Contain(@"""MaxAttempts"":3")
-                                      .And.Contain(@"""DefaultDeadlineSeconds"":7"));
+                                      .And.Contain(@"""Deadline"":{""Default"":7}"));
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient(),
                                                                                                     false)
                                                                                          .Encode()),

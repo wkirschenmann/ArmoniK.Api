@@ -174,7 +174,7 @@
       "ArmoniKFixture__Endpoint": "http://environment.test:6",
       "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection__limit": "4",
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
-      "ArmoniKFixture__ChannelDefaults__Grpc__DefaultDeadlineSeconds": "2.5",
+      "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
       "ArmoniKFixture__MemoryCeiling": "8192",
       "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
       "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
@@ -188,7 +188,7 @@
       "ChannelDefaults": {
         "Transport": { "Tls": { "ServerCertificates": "None" } },
         "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
-        "Grpc": { "DefaultDeadlineSeconds": 2.5 }
+        "Grpc": { "Deadline": { "Default": 2.5 } }
       }
     },
     "unknown": ["ChannelDefaults.Http2.Nope"]

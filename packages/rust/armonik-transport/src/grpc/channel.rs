@@ -908,7 +908,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                         GrpcStatusCode::ResourceExhausted,
                         format!(
                             "the request's header list is {size} bytes, over the {limit} allowed by \
-                             Http2.Send.MaxHeaderListSize"
+                             Http2.Send.HeaderListBytes"
                         ),
                     )));
                 }

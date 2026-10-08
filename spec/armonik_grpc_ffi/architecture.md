@@ -242,7 +242,7 @@ channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
 
-**Request headers are bounded where they are built.** With `Http2.Send.MaxHeaderListSize`, a
+**Request headers are bounded where they are built.** With `Http2.Send.HeaderListBytes`, a
 call whose header list - counted as RFC 9113 counts one - is past the limit ends
 RESOURCE_EXHAUSTED before a connection is taken: nginx answers such a header by closing the
 connection, which ends every call on it, and the channel refuses the one call instead.
@@ -1349,7 +1349,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
-| `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |
+| `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
 | `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Grpc.Retry.*` |
 

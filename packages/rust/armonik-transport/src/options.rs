@@ -34,6 +34,9 @@ use crate::http2::{
 /// of the two; `a_window_the_schema_admits_is_one_a_semaphore_admits` is what keeps that true.
 pub const LARGEST_WINDOW: i32 = 536_870_910;
 
+/// The most KiB a stream's send buffer may hold: the session counts it in 32 bits.
+pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
+
 /// A duration, in seconds.
 ///
 /// Seconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory
@@ -1080,14 +1083,23 @@ pub struct Http2SendOptions {
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
 
-    /// How many bytes of one call's request may be queued in the session, waiting to be written,
-    /// before its next part is handed over. A part is handed over whole once fewer bytes than this
-    /// are queued, and the peer's window has room, so up to one part more than this is queued.
+    /// How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
+    /// written, before its next part is handed over. A part is handed over whole once fewer bytes
+    /// than this are queued, and the peer's window has room, so up to one part more than this is
+    /// queued.
     ///
-    /// Defaults to 1048576, 1 MiB.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub stream_buffer_size: Option<i32>,
+    /// Defaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's
+    /// buffer is counted in 32 bits.
+    #[serde(
+        default,
+        rename = "StreamBufferKiB",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "i32", range(min = 1, max = LARGEST_STREAM_BUFFER_KIB))
+    )]
+    pub stream_buffer_kib: Option<i32>,
 
     /// How many DATA frames of the peer's largest size one queued part of a request may span,
     /// written one after the other in one write: a large message then goes out in fewer, larger
@@ -1105,15 +1117,32 @@ pub struct Http2SendOptions {
     )]
     pub frames_per_write: Option<i32>,
 
-    /// The most bytes the headers of one request may take, counted as RFC 9113 counts a header
-    /// list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
-    /// pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
-    /// before anything is sent. It bounds what is sent, never what is received.
+    /// How many bytes the headers of one request may take. It bounds what is sent, never what is
+    /// received.
     ///
-    /// Defaults to none: no request is refused for its headers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_header_list_size: Option<i32>,
+    /// Defaults to `"Unbounded"`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "HeaderListBytes"))]
+    pub header_list_bytes: Option<HeaderListBytes>,
+}
+
+/// How many bytes the headers of one request may take.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum HeaderListBytes {
+    /// No request is refused for its headers.
+    Unbounded,
+
+    /// At most this many bytes, counted as RFC 9113 counts a header list for
+    /// SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+    /// fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+    /// anything is sent.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1143,16 +1172,16 @@ pub struct Http2FixedWindows {
     /// Defaults to 2097152, 2 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub stream_window_size: Option<i32>,
+    pub stream_window_bytes: Option<i32>,
 
     /// How many bytes the peer may send ahead of what is read, across every call of the channel.
-    /// A call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop
+    /// A call its host does not read holds up to `StreamWindowBytes` of it, so enough of them stop
     /// the others receiving. At least 65535, the window every connection starts with.
     ///
     /// Defaults to 5242880, 5 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
-    pub connection_window_size: Option<i32>,
+    pub connection_window_bytes: Option<i32>,
 }
 
 /// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
@@ -1623,14 +1652,6 @@ fn coherently<C>(converted: Converted<C>) -> Result<C, OptionRefusal> {
 
 impl std::error::Error for OptionRefusal {}
 
-/// Whether a number of seconds states that there is none: zero.
-///
-/// An option left out leaves what an earlier source set, so the only way for a later source to
-/// turn a feature off is to say so.
-pub(crate) fn is_off(seconds: Seconds) -> bool {
-    seconds.0 == 0.0
-}
-
 /// A number of seconds as a duration, refused below `least`, above `most`, and past what a
 /// `Duration` holds; none when no number is stated.
 fn duration(
@@ -1665,6 +1686,18 @@ fn stated_duration(
         return Err(refused());
     }
     Duration::try_from(seconds).map_err(|_| refused())
+}
+
+/// A size in KiB as the bytes it is, refused below 1. A size past what an address holds is the
+/// largest one.
+fn kibibytes(key: &str, kib: i32) -> Result<usize, OptionRefusal> {
+    if kib < 1 {
+        return Err(OptionRefusal::new(
+            key,
+            format!("{kib} has to be at least 1"),
+        ));
+    }
+    Ok((kib as usize).saturating_mul(1024))
 }
 
 /// The bytes of a file a path option names.
@@ -1888,14 +1921,14 @@ impl Http2Options {
                     let fixed = FixedWindows::default();
                     ReceiveWindows::Fixed(FixedWindows {
                         stream: window(
-                            "Receive.Fixed.StreamWindowSize",
-                            windows.stream_window_size,
+                            "Receive.Fixed.StreamWindowBytes",
+                            windows.stream_window_bytes,
                             1,
                             fixed.stream,
                         )?,
                         connection: window(
-                            "Receive.Fixed.ConnectionWindowSize",
-                            windows.connection_window_size,
+                            "Receive.Fixed.ConnectionWindowBytes",
+                            windows.connection_window_bytes,
                             65_535,
                             fixed.connection,
                         )?,
@@ -1929,15 +1962,15 @@ impl Http2Options {
                 }
                 Some(bytes) => bytes as usize,
             },
-            send_buffer: match self.send.stream_buffer_size {
+            send_buffer: match self.send.stream_buffer_kib {
                 None => defaults.send_buffer,
-                Some(size) if size < 1 => {
+                Some(kib) if kib > LARGEST_STREAM_BUFFER_KIB => {
                     return Err(OptionRefusal::new(
-                        "Send.StreamBufferSize",
-                        format!("{size} has to be at least 1"),
+                        "Send.StreamBufferKiB",
+                        format!("{kib} has to be at most {LARGEST_STREAM_BUFFER_KIB}"),
                     ))
                 }
-                Some(size) => size as usize,
+                Some(kib) => kibibytes("Send.StreamBufferKiB", kib)?,
             },
             frames_per_write: match self.send.frames_per_write {
                 None => defaults.frames_per_write,
@@ -1957,15 +1990,15 @@ impl Http2Options {
                 }
                 Some(frames) => frames as usize,
             },
-            max_header_list_size: match self.send.max_header_list_size {
-                None => defaults.max_header_list_size,
-                Some(size) if size < 1 => {
+            max_header_list_size: match &self.send.header_list_bytes {
+                None | Some(HeaderListBytes::Unbounded) => None,
+                Some(HeaderListBytes::Max(size)) if *size < 1 => {
                     return Err(OptionRefusal::new(
-                        "Send.MaxHeaderListSize",
+                        "Send.HeaderListBytes.Max",
                         format!("{size} has to be at least 1"),
                     ))
                 }
-                Some(size) => Some(size as usize),
+                Some(HeaderListBytes::Max(size)) => Some(*size as usize),
             },
         })
     }
@@ -2013,20 +2046,16 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub user_agent: Option<String>,
 
-    /// The deadline of a call that states none, counted from its start: the call ends
-    /// `DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the
-    /// call started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not
-    /// only the wait for the response's head. A call's own deadline takes its place, and a call
-    /// that states none takes this one.
+    /// The deadline of a call that states none.
     ///
-    /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-    /// finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`, a call waiting as long as its answer takes.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub default_deadline_seconds: Option<Seconds>,
+    #[cfg_attr(feature = "schema", schemars(with = "Deadline"))]
+    pub deadline: Option<Deadline>,
 
     /// When a failed call is sent again.
     ///
@@ -2061,7 +2090,29 @@ pub struct GrpcOptions {
     pub host: HostOptions,
 }
 
-/// How the messages of a call are compressed.
+/// The deadline of a call that states none, counted from its start.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Deadline {
+    /// The call has none: it waits as long as its answer takes.
+    None,
+
+    /// The call ends `DEADLINE_EXCEEDED` once this many seconds have passed, at least a
+    /// nanosecond, the finest duration the engine holds, and the server is told what was left of
+    /// it when the call started as `grpc-timeout`. It bounds the whole call, a streaming one
+    /// included, and not only the wait for the response's head. A call's own deadline takes its
+    /// place.
+    Default(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Seconds", extend("minimum" = 1e-9))
+        )]
+        Seconds,
+    ),
+}
+
+/// An encoding the messages of a call may be compressed in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -2073,40 +2124,56 @@ pub enum MessageEncoding {
     Deflate,
     /// RFC 8878 Zstandard, `zstd` on the wire.
     Zstd,
-    /// No compression, `identity` on the wire: the messages go out as they are and no
-    /// `grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the
-    /// compression off. It names no encoding to accept, and a list of them refuses it.
-    None,
 }
 
 impl MessageEncoding {
+    /// The engine's encoding of the same name.
+    pub fn encoding(self) -> crate::grpc::Encoding {
+        match self {
+            Self::Gzip => crate::grpc::Encoding::Gzip,
+            Self::Deflate => crate::grpc::Encoding::Deflate,
+            Self::Zstd => crate::grpc::Encoding::Zstd,
+        }
+    }
+}
+
+/// How the messages a call sends are compressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum SendCompression {
+    /// No compression, `identity` on the wire: the messages go out as they are and no
+    /// `grpc-encoding` is sent.
+    None,
+    /// RFC 1952 gzip, `gzip` on the wire.
+    Gzip,
+    /// gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+    /// RFC 1951 stream.
+    Deflate,
+    /// RFC 8878 Zstandard, `zstd` on the wire.
+    Zstd,
+}
+
+impl SendCompression {
     /// The engine's encoding of the same name, none for `None`.
     pub fn encoding(self) -> Option<crate::grpc::Encoding> {
         match self {
+            Self::None => None,
             Self::Gzip => Some(crate::grpc::Encoding::Gzip),
             Self::Deflate => Some(crate::grpc::Encoding::Deflate),
             Self::Zstd => Some(crate::grpc::Encoding::Zstd),
-            Self::None => None,
         }
     }
 }
 
 impl GrpcReceiveOptions {
-    /// The encodings this client accepts besides `identity`, in the order stated. `None` is
-    /// refused: `identity` is always accepted, and an empty list says that there is no other.
-    pub fn accepted_encodings(&self) -> Result<Vec<crate::grpc::Encoding>, OptionRefusal> {
+    /// The encodings this client accepts besides `identity`, in the order stated: `identity` is
+    /// always accepted, and an empty list says that there is no other.
+    pub fn accepted_encodings(&self) -> Vec<crate::grpc::Encoding> {
         self.compression
             .iter()
             .flatten()
-            .map(|encoding| {
-                encoding.encoding().ok_or_else(|| {
-                    OptionRefusal::new(
-                        "Compression",
-                        "None names no encoding to accept: identity is always accepted, and an \
-                         empty list accepts no other",
-                    )
-                })
-            })
+            .map(|encoding| encoding.encoding())
             .collect()
     }
 }
@@ -2118,18 +2185,22 @@ impl GrpcReceiveOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcSendOptions {
-    /// The largest message this client will send, in bytes. A larger one ends its call
+    /// The largest message this client will send. A larger one ends its call
     /// `RESOURCE_EXHAUSTED`, and none of it is sent.
     ///
-    /// Defaults to none, any message a call is given going out. Zero is refused: it admits only
-    /// empty messages.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_message_size: Option<i32>,
+    /// Defaults to `"Unbounded"`, any message a call is given going out.
+    #[serde(
+        default,
+        rename = "MessageSizeKiB",
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "SendMessageSizeKiB"))]
+    pub message_size_kib: Option<SendMessageSizeKiB>,
 
     /// The encoding the messages of a call are compressed with, which the call states as
     /// `grpc-encoding`. A message that would not be smaller compressed is sent as it is, and
-    /// `MaxMessageSize` is checked on a message before it is compressed.
+    /// `MessageSizeKiB` is checked on a message before it is compressed.
     ///
     /// The server has to accept the encoding, and says which it accepts in the
     /// `grpc-accept-encoding` of its responses. A response that lists encodings without this one
@@ -2138,11 +2209,54 @@ pub struct GrpcSendOptions {
     /// compress again. A call that reached a server which does not accept the encoding ends
     /// `UNIMPLEMENTED` and is not sent again.
     ///
-    /// Defaults to none, the messages going out as they are, which `None` says too, over an
-    /// encoding an earlier source set.
+    /// Defaults to `"None"`, the messages going out as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
-    pub compression: Option<MessageEncoding>,
+    #[cfg_attr(feature = "schema", schemars(with = "SendCompression"))]
+    pub compression: Option<SendCompression>,
+}
+
+/// The largest message a call sends.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum SendMessageSizeKiB {
+    /// No message is refused for its size.
+    Unbounded,
+
+    /// At most this many KiB (1024 bytes), counted before the message is compressed.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+}
+
+/// The largest message a call accepts.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ReceiveMessageSizeKiB {
+    /// No message is refused for its size.
+    Unbounded,
+
+    /// At most this many KiB (1024 bytes), counted once the message is decompressed.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+}
+
+impl SendMessageSizeKiB {
+    /// The limit in bytes, none for no limit.
+    pub fn limit(&self) -> Result<Option<usize>, OptionRefusal> {
+        match self {
+            Self::Unbounded => Ok(None),
+            Self::Max(kib) => kibibytes("Max", *kib).map(Some),
+        }
+    }
+}
+
+impl ReceiveMessageSizeKiB {
+    /// The limit in bytes, the largest there is for no limit.
+    pub fn limit(&self) -> Result<usize, OptionRefusal> {
+        match self {
+            Self::Unbounded => Ok(usize::MAX),
+            Self::Max(kib) => kibibytes("Max", *kib),
+        }
+    }
 }
 
 /// What a call accepts from the server.
@@ -2152,21 +2266,24 @@ pub struct GrpcSendOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcReceiveOptions {
-    /// The largest message this client will accept, in bytes.
+    /// The largest message this client will accept.
     ///
-    /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-    /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-    /// at all.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_message_size: Option<i32>,
+    /// Defaults to 4096, 4 MiB, as `{"Max": 4096}`.
+    #[serde(
+        default,
+        rename = "MessageSizeKiB",
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "ReceiveMessageSizeKiB"))]
+    pub message_size_kib: Option<ReceiveMessageSizeKiB>,
 
     /// The encodings besides `identity` that this client accepts for the messages of an answer,
     /// which it states as `grpc-accept-encoding` in the order given, `identity` last. A server
     /// may then compress what it sends, in the first of them that it knows. A name given twice
-    /// counts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A
-    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is
-    /// refused here: `identity` is always accepted.
+    /// counts at its first place. `MessageSizeKiB` bounds a message once it is decompressed. A
+    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `identity`
+    /// is always accepted.
     ///
     /// Defaults to none, only `identity` being accepted, which an empty list says too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2280,6 +2397,7 @@ over_values!(
     Password,
     StoreLocation,
     MessageEncoding,
+    SendCompression,
     Vec<MessageEncoding>,
     CredentialedUrl,
     Vec<RetryableStatus>,
@@ -2595,9 +2713,21 @@ over_fields!(TransportOptions {
     proxy,
     connect_eagerly,
 });
+over_variants!(Deadline {
+    None;
+    Default,
+});
+over_variants!(SendMessageSizeKiB {
+    Unbounded;
+    Max,
+});
+over_variants!(ReceiveMessageSizeKiB {
+    Unbounded;
+    Max,
+});
 over_fields!(GrpcOptions {
     user_agent,
-    default_deadline_seconds,
+    deadline,
     retry,
     rate,
     send,
@@ -2605,11 +2735,11 @@ over_fields!(GrpcOptions {
     host,
 });
 over_fields!(GrpcSendOptions {
-    max_message_size,
+    message_size_kib,
     compression,
 });
 over_fields!(GrpcReceiveOptions {
-    max_message_size,
+    message_size_kib,
     compression,
 });
 over_fields!(HostOptions { send, receive });
@@ -2655,15 +2785,19 @@ over_fields!(Http2Options {
     send,
     receive,
 });
+over_variants!(HeaderListBytes {
+    Unbounded;
+    Max,
+});
 over_fields!(Http2SendOptions {
     coalescing_bytes,
-    stream_buffer_size,
+    stream_buffer_kib,
     frames_per_write,
-    max_header_list_size,
+    header_list_bytes,
 });
 over_fields!(Http2FixedWindows {
-    stream_window_size,
-    connection_window_size,
+    stream_window_bytes,
+    connection_window_bytes,
 });
 over_variants!(Http2ReceiveOptions {
     Adaptive;
@@ -4155,13 +4289,13 @@ mod tests {
             simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(1)),
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
-                stream_buffer_size: Some(4096),
+                stream_buffer_kib: Some(4),
                 frames_per_write: Some(1),
-                max_header_list_size: Some(8192),
+                header_list_bytes: Some(HeaderListBytes::Max(8192)),
             },
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(1024),
-                connection_window_size: Some(65_535),
+                stream_window_bytes: Some(1024),
+                connection_window_bytes: Some(65_535),
             })),
         }
         .to_config()
@@ -4169,7 +4303,7 @@ mod tests {
         assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
         assert_eq!(config.simultaneous_calls_per_connection, Some(1));
         assert_eq!(config.write_coalescing, 0);
-        assert_eq!(config.send_buffer, 4096);
+        assert_eq!(config.send_buffer, 4096, "KiB are counted in bytes");
         assert_eq!(config.max_header_list_size, Some(8192));
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
@@ -4189,14 +4323,14 @@ mod tests {
 
         let refused = Http2Options {
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                connection_window_size: Some(65_534),
+                connection_window_bytes: Some(65_534),
                 ..Http2FixedWindows::default()
             })),
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("below the window every connection starts with");
-        assert_eq!(refused.key(), "Receive.Fixed.ConnectionWindowSize");
+        assert_eq!(refused.key(), "Receive.Fixed.ConnectionWindowBytes");
 
         let refused = Http2Options {
             send: Http2SendOptions {
@@ -4211,14 +4345,35 @@ mod tests {
 
         let refused = Http2Options {
             send: Http2SendOptions {
-                stream_buffer_size: Some(0),
+                stream_buffer_kib: Some(0),
                 ..Http2SendOptions::default()
             },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a buffer that never takes a byte");
-        assert_eq!(refused.key(), "Send.StreamBufferSize");
+        assert_eq!(refused.key(), "Send.StreamBufferKiB");
+
+        let refused = Http2Options {
+            send: Http2SendOptions {
+                stream_buffer_kib: Some(LARGEST_STREAM_BUFFER_KIB + 1),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a buffer the session cannot count");
+        assert_eq!(refused.key(), "Send.StreamBufferKiB");
+        let largest = Http2Options {
+            send: Http2SendOptions {
+                stream_buffer_kib: Some(LARGEST_STREAM_BUFFER_KIB),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect("the largest buffer");
+        assert_eq!(largest.send_buffer, u32::MAX as usize - 1023);
 
         let refused = Http2Options {
             simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(0)),
@@ -4230,14 +4385,25 @@ mod tests {
 
         let refused = Http2Options {
             send: Http2SendOptions {
-                max_header_list_size: Some(0),
+                header_list_bytes: Some(HeaderListBytes::Max(0)),
                 ..Http2SendOptions::default()
             },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a header list no request fits");
-        assert_eq!(refused.key(), "Send.MaxHeaderListSize");
+        assert_eq!(refused.key(), "Send.HeaderListBytes.Max");
+
+        let unbounded = Http2Options {
+            send: Http2SendOptions {
+                header_list_bytes: Some(HeaderListBytes::Unbounded),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect("no bound");
+        assert_eq!(unbounded.max_header_list_size, None);
 
         for (frames, why) in [(0, "between 1 and"), (257, "between 1 and")] {
             let refused = Http2Options {
@@ -4293,7 +4459,7 @@ mod tests {
                     ..Http2Ping::new(Seconds(10.0))
                 })),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                    stream_window_size: Some(70_000),
+                    stream_window_bytes: Some(70_000),
                     ..Http2FixedWindows::default()
                 })),
                 ..Http2Options::default()
@@ -4305,7 +4471,7 @@ mod tests {
             http2: Http2Options {
                 keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                    stream_window_size: Some(80_000),
+                    stream_window_bytes: Some(80_000),
                     ..Http2FixedWindows::default()
                 })),
                 ..Http2Options::default()
@@ -4327,10 +4493,88 @@ mod tests {
         assert_eq!(
             merged.http2.receive,
             Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(80_000),
+                stream_window_bytes: Some(80_000),
                 ..Http2FixedWindows::default()
             }))
         );
+    }
+
+    /// A size in KiB, a bound in bytes and a deadline are read under the names the schema spells,
+    /// the acronym's capital included, and a state is a variant: a key spelled otherwise would be
+    /// read past, and the value never taken.
+    #[test]
+    fn the_sizes_and_the_deadline_are_read_under_their_names_and_merged_as_variants() {
+        let options: ChannelOptions = crate::configuration::Configuration::with_prefix("")
+            .document(
+                r#"{"Grpc":{"Deadline":{"Default":2.5},
+                    "Send":{"MessageSizeKiB":{"Max":2},"Compression":"Zstd"},
+                    "Receive":{"MessageSizeKiB":"Unbounded"}},
+                   "Http2":{"Send":{"StreamBufferKiB":3,"HeaderListBytes":{"Max":8192}}}}"#,
+            )
+            .load()
+            .expect("a document");
+        assert_eq!(options.grpc.deadline, Some(Deadline::Default(Seconds(2.5))));
+        assert_eq!(
+            options.grpc.send.message_size_kib,
+            Some(SendMessageSizeKiB::Max(2))
+        );
+        assert_eq!(options.grpc.send.compression, Some(SendCompression::Zstd));
+        assert_eq!(
+            options.grpc.receive.message_size_kib,
+            Some(ReceiveMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(options.http2.send.stream_buffer_kib, Some(3));
+        assert_eq!(
+            options.http2.send.header_list_bytes,
+            Some(HeaderListBytes::Max(8192))
+        );
+
+        // A later source takes the other variant whole, or the default's where it states none.
+        let none = ChannelOptions {
+            grpc: GrpcOptions {
+                deadline: Some(Deadline::None),
+                send: GrpcSendOptions {
+                    message_size_kib: Some(SendMessageSizeKiB::Unbounded),
+                    compression: Some(SendCompression::None),
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let over = none.over(&options);
+        assert_eq!(over.grpc.deadline, Some(Deadline::None));
+        assert_eq!(
+            over.grpc.send.message_size_kib,
+            Some(SendMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(over.grpc.send.compression, Some(SendCompression::None));
+        assert_eq!(
+            over.grpc.receive.message_size_kib,
+            Some(ReceiveMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(over.http2.send.stream_buffer_kib, Some(3));
+
+        // A size past what an address holds is the largest one.
+        assert_eq!(
+            SendMessageSizeKiB::Max(i32::MAX).limit().expect("a limit"),
+            Some((i32::MAX as usize).saturating_mul(1024))
+        );
+        assert_eq!(
+            ReceiveMessageSizeKiB::Unbounded.limit().expect("a limit"),
+            usize::MAX
+        );
+        for refused in [
+            r#"{"Deadline":{"Default":"2"}}"#,
+            r#"{"Deadline":"Default"}"#,
+            r#"{"Deadline":{"None":true}}"#,
+            r#"{"Send":{"MessageSizeKiB":"Max"}}"#,
+            r#"{"Send":{"Compression":{"Gzip":true}}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<GrpcOptions>(refused).is_err(),
+                "{refused}"
+            );
+        }
     }
 
     /// The two directions are stated apart, an encoding that is not named is refused, and a
@@ -4340,26 +4584,26 @@ mod tests {
         let read = |json: &str| serde_json::from_str::<ChannelOptions>(json);
 
         let sending = read(r#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("gzip is named");
-        assert_eq!(sending.grpc.send.compression, Some(MessageEncoding::Gzip));
+        assert_eq!(sending.grpc.send.compression, Some(SendCompression::Gzip));
         assert_eq!(sending.grpc.receive.compression, None);
 
         for (name, encoding, wire) in [
             (
                 "Gzip",
-                MessageEncoding::Gzip,
+                SendCompression::Gzip,
                 Some(crate::grpc::Encoding::Gzip),
             ),
             (
                 "Deflate",
-                MessageEncoding::Deflate,
+                SendCompression::Deflate,
                 Some(crate::grpc::Encoding::Deflate),
             ),
             (
                 "Zstd",
-                MessageEncoding::Zstd,
+                SendCompression::Zstd,
                 Some(crate::grpc::Encoding::Zstd),
             ),
-            ("None", MessageEncoding::None, None),
+            ("None", SendCompression::None, None),
         ] {
             let sends = read(&format!(
                 r#"{{"Grpc":{{"Send":{{"Compression":"{name}"}}}}}}"#
@@ -4375,6 +4619,7 @@ mod tests {
             r#"{"Grpc":{"Send":{"Compression":["Gzip"]}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":["gzip"]}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":["None"]}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":["Gzip","Brotli"]}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
@@ -4426,7 +4671,7 @@ mod tests {
         };
         let fixed = Http2Options {
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(70_000),
+                stream_window_bytes: Some(70_000),
                 ..Http2FixedWindows::default()
             })),
             ..Http2Options::default()

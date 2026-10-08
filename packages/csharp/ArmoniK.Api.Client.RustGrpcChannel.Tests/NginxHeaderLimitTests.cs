@@ -26,7 +26,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 /// <summary>Request headers past what nginx takes.</summary>
 /// <remarks>
 ///   nginx closes a connection whose request carries a header past `large_client_header_buffers`,
-///   and every call on it with it. `Http2.Send.MaxHeaderListSize` refuses such a request on the
+///   and every call on it with it. `Http2.Send.HeaderListBytes` refuses such a request on the
 ///   channel, so that it ends alone, with nothing sent and no connection used for it.
 /// </remarks>
 [TestFixture]
@@ -125,7 +125,9 @@ public class NginxHeaderLimitTests : EchoServerFixture
                                      {
                                        Send = new Http2SendOptions
                                               {
-                                                MaxHeaderListSize = limit,
+                                                HeaderListBytes = limit is int bytes
+                                                                    ? new HeaderListBytes.Max(bytes)
+                                                                    : new HeaderListBytes.Unbounded(),
                                               },
                                      },
                            });

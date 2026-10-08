@@ -298,15 +298,15 @@ public class ChannelOptionsTests
                 Is.EqualTo(@"{""Transport"":{""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":5}}},""Http2"":{""KeepAlive"":{""Ping"":{""IntervalSeconds"":10}},""IdleTimeout"":{""After"":300},""SimultaneousCallsPerConnection"":{""Limit"":1}}}"));
   }
 
-  /// <summary>A zero is how the deadline and the rate limit turn off what an earlier source set, and it is sent as the zero it is.</summary>
+  /// <summary>A deadline of none and a rate limit of zero turn off what an earlier source set, and are sent as they are.</summary>
   [Test]
-  public void AZeroTurnsOffAndIsSent()
+  public void ANoneAndAZeroTurnOffAndAreSent()
   {
     var options = new ChannelOptions
                   {
                     Grpc = new GrpcOptions
                            {
-                             DefaultDeadlineSeconds = 0,
+                             Deadline = new Deadline.None(),
                              Rate = new RateOptions
                                     {
                                       Limit = new RateLimitOptions
@@ -320,7 +320,7 @@ public class ChannelOptionsTests
     Assert.That(() => options.Validate(),
                 Throws.Nothing);
     Assert.That(Encoding.UTF8.GetString(options.Encode()),
-                Does.Contain(@"""DefaultDeadlineSeconds"":0")
+                Does.Contain(@"""Deadline"":""None""")
                     .And.Contain(@"""Calls"":0"));
   }
 
@@ -367,12 +367,12 @@ public class ChannelOptionsTests
                                   {
                                     Receive = new GrpcReceiveOptions
                                               {
-                                                MaxMessageSize = 0,
+                                                MessageSizeKiB = new ReceiveMessageSizeKiB.Max(0),
                                               },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("MaxMessageSize has to be at least 1"));
+                         .With.Message.Contains("Value has to be at least 1"));
 
   /// <summary>And the size the schema admits has no upper bound to run into.</summary>
   [Test]
@@ -383,11 +383,11 @@ public class ChannelOptionsTests
                                     {
                                       Receive = new GrpcReceiveOptions
                                                 {
-                                                  MaxMessageSize = int.MaxValue,
+                                                  MessageSizeKiB = new ReceiveMessageSizeKiB.Max(int.MaxValue),
                                                 },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""Receive"":{""MaxMessageSize"":2147483647}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Receive"":{""MessageSizeKiB"":{""Max"":2147483647}}}}"));
 
   /// <summary>A copy shares nothing with what it copied, one group down included.</summary>
   /// <remarks>
@@ -473,10 +473,10 @@ public class ChannelOptionsTests
                                              {
                                                Http2 = new Http2Options
                                                        {
-                                                         Receive = new Http2ReceiveOptions.Fixed(StreamWindowSize: 70000),
+                                                         Receive = new Http2ReceiveOptions.Fixed(StreamWindowBytes: 70000),
                                                        },
                                              }),
-                                     Is.EqualTo(@"{""Http2"":{""Receive"":{""Fixed"":{""StreamWindowSize"":70000}}}}"));
+                                     Is.EqualTo(@"{""Http2"":{""Receive"":{""Fixed"":{""StreamWindowBytes"":70000}}}}"));
                        });
 
   /// <summary>A field's bounds are checked through the group holding its alternative.</summary>

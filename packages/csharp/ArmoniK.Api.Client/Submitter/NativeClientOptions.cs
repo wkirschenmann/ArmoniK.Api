@@ -160,7 +160,9 @@ namespace ArmoniK.Api.Client.Submitter
                  };
       if (Stated(nameof(GrpcClient.RequestTimeout)))
       {
-        grpc.DefaultDeadlineSeconds = Seconds(options.RequestTimeout);
+        grpc.Deadline = Positive(options.RequestTimeout)
+                          ? new Deadline.Default(options.RequestTimeout.TotalSeconds)
+                          : new Deadline.None();
       }
 
       return new NativeChannelOptions
@@ -205,12 +207,6 @@ namespace ArmoniK.Api.Client.Submitter
     private static int WholeSeconds(TimeSpan span)
       => (int)Math.Min(Math.Ceiling(span.TotalSeconds),
                        int.MaxValue);
-
-    // The seconds of a span, zero for one that is not positive: none.
-    private static double Seconds(TimeSpan span)
-      => Positive(span)
-           ? span.TotalSeconds
-           : 0;
 
     private static bool IsEmpty(TlsOptions tls)
       => tls.ServerCertificates is null && tls.ClientCertificate is null;

@@ -177,7 +177,7 @@ async fn write_until_closed(
                     // Withholding it instead would break the header's "exactly once per accepted
                     // send" and hang a host waiting for its acquittal.
                     //
-                    // `MessageTooLarge`, a message past `Grpc.Send.MaxMessageSize`, is the same: the
+                    // `MessageTooLarge`, a message past `Grpc.Send.MessageSizeKiB`, is the same: the
                     // call ends RESOURCE_EXHAUSTED, which its terminal reports. The lend cannot
                     // refuse it, since the host may write less than it asks for.
                     //

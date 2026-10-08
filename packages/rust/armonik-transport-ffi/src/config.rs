@@ -396,10 +396,12 @@ mod tests {
 
         let config = config_of(b"{}");
         assert_eq!(
-            stated("/$defs/GrpcReceiveOptions/properties/MaxMessageSize/description"),
+            stated("/$defs/GrpcReceiveOptions/properties/MessageSizeKiB/description") * 1024.0,
             config.max_recv_message_size as f64
         );
         assert_eq!(config.max_send_message_size, None);
+        assert_eq!(config.send_encoding, None);
+        assert_eq!(config.transport.http2.max_header_list_size, None);
         assert_eq!(
             stated("/$defs/HostReceiveOptions/properties/CoalescingBytes/description"),
             config.delivery_coalescing as f64
@@ -417,11 +419,11 @@ mod tests {
             panic!("fixed windows by default: {:?}", http2.receive_windows);
         };
         assert_eq!(
-            stated("/$defs/Http2FixedWindows/properties/StreamWindowSize/description"),
+            stated("/$defs/Http2FixedWindows/properties/StreamWindowBytes/description"),
             windows.stream as f64
         );
         assert_eq!(
-            stated("/$defs/Http2FixedWindows/properties/ConnectionWindowSize/description"),
+            stated("/$defs/Http2FixedWindows/properties/ConnectionWindowBytes/description"),
             windows.connection as f64
         );
         assert_eq!(
@@ -429,7 +431,7 @@ mod tests {
             http2.write_coalescing as f64
         );
         assert_eq!(
-            stated("/$defs/Http2SendOptions/properties/StreamBufferSize/description"),
+            stated("/$defs/Http2SendOptions/properties/StreamBufferKiB/description") * 1024.0,
             http2.send_buffer as f64
         );
         assert_eq!(
@@ -484,12 +486,16 @@ mod tests {
                 &["Grpc", "Host", "Send", "Window"][..],
             ),
             (
-                "/$defs/GrpcSendOptions/properties/MaxMessageSize",
-                &["Grpc", "Send", "MaxMessageSize"][..],
+                "/$defs/SendMessageSizeKiB/oneOf/1/properties/Max",
+                &["Grpc", "Send", "MessageSizeKiB", "Max"][..],
             ),
             (
-                "/$defs/GrpcReceiveOptions/properties/MaxMessageSize",
-                &["Grpc", "Receive", "MaxMessageSize"][..],
+                "/$defs/ReceiveMessageSizeKiB/oneOf/1/properties/Max",
+                &["Grpc", "Receive", "MessageSizeKiB", "Max"][..],
+            ),
+            (
+                "/$defs/HeaderListBytes/oneOf/1/properties/Max",
+                &["Http2", "Send", "HeaderListBytes", "Max"][..],
             ),
             (
                 "/$defs/HostReceiveOptions/properties/CoalescingBytes",
@@ -555,26 +561,28 @@ mod tests {
             Duration::from_nanos(1)
         );
 
-        // Zero is "none", so that a later source can turn off a deadline an earlier one set; the
-        // least a deadline can be is still a nanosecond.
+        // A deadline is at least a nanosecond, and `None` is the way to have none.
         assert_eq!(
             schema
-                .pointer("/$defs/GrpcOptions/properties/DefaultDeadlineSeconds/minimum")
+                .pointer("/$defs/Deadline/oneOf/1/properties/Default/minimum")
                 .and_then(serde_json::Value::as_f64),
-            Some(0.0)
+            Some(1e-9)
         );
         assert_eq!(
-            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":0.0}}"#).default_deadline,
+            config_of(br#"{"Grpc":{"Deadline":"None"}}"#).default_deadline,
             None
         );
         assert!(!admits(
-            r#"{"Grpc":{"DefaultDeadlineSeconds":5e-10}}"#.to_owned()
+            r#"{"Grpc":{"Deadline":{"Default":0.0}}}"#.to_owned()
         ));
         assert!(!admits(
-            r#"{"Grpc":{"DefaultDeadlineSeconds":18446744073709551616.0}}"#.to_owned()
+            r#"{"Grpc":{"Deadline":{"Default":5e-10}}}"#.to_owned()
+        ));
+        assert!(!admits(
+            r#"{"Grpc":{"Deadline":{"Default":18446744073709551616.0}}}"#.to_owned()
         ));
         assert_eq!(
-            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":1e-9}}"#).default_deadline,
+            config_of(br#"{"Grpc":{"Deadline":{"Default":1e-9}}}"#).default_deadline,
             Some(Duration::from_nanos(1))
         );
         assert_eq!(config_of(b"{}").default_deadline, None);
@@ -620,20 +628,20 @@ mod tests {
                 r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":N}}}"#,
             ),
             (
-                "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":N}}}}"#,
+                "/$defs/Http2FixedWindows/properties/StreamWindowBytes/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowBytes":N}}}}"#,
             ),
             (
-                "/$defs/Http2FixedWindows/properties/ConnectionWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":N}}}}"#,
+                "/$defs/Http2FixedWindows/properties/ConnectionWindowBytes/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowBytes":N}}}}"#,
             ),
             (
                 "/$defs/Http2SendOptions/properties/CoalescingBytes/minimum",
                 r#"{"Http2":{"Send":{"CoalescingBytes":N}}}"#,
             ),
             (
-                "/$defs/Http2SendOptions/properties/StreamBufferSize/minimum",
-                r#"{"Http2":{"Send":{"StreamBufferSize":N}}}"#,
+                "/$defs/Http2SendOptions/properties/StreamBufferKiB/minimum",
+                r#"{"Http2":{"Send":{"StreamBufferKiB":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/MaxAttempts/minimum",
@@ -727,7 +735,7 @@ mod tests {
                 }},
                 "Http2": {{
                     "KeepAlive": {{ "Ping": {{ "IntervalSeconds": 10, "TimeoutSeconds": 2.5, "WhileIdle": true }} }},
-                    "Receive": {{ "Fixed": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }} }}
+                    "Receive": {{ "Fixed": {{ "StreamWindowBytes": 1048576, "ConnectionWindowBytes": 3145728 }} }}
                 }}
             }}"#
         );
@@ -860,14 +868,31 @@ mod tests {
         // Every other size is a channel that refuses some messages; zero refuses all but the
         // empty ones, which is a configuration with no use.
         for way in ["Send", "Receive"] {
-            let document =
-                |max: i32| format!(r#"{{"Grpc":{{"{way}":{{"MaxMessageSize":{max}}}}}}}"#);
+            let document = |max: i32| {
+                format!(r#"{{"Grpc":{{"{way}":{{"MessageSizeKiB":{{"Max":{max}}}}}}}}}"#)
+            };
             assert!(parse(document(0).as_bytes()).is_err(), "{way}");
             assert!(parse(document(1).as_bytes()).is_ok(), "{way}");
         }
         assert_eq!(
-            config_of(br#"{"Grpc":{"Send":{"MaxMessageSize":7}}}"#).max_send_message_size,
-            Some(7)
+            config_of(br#"{"Grpc":{"Send":{"MessageSizeKiB":{"Max":7}}}}"#).max_send_message_size,
+            Some(7 * 1024)
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"MessageSizeKiB":{"Max":7}}}}"#)
+                .max_recv_message_size,
+            7 * 1024
+        );
+        assert_eq!(config_of(b"{}").max_send_message_size, None);
+        assert_eq!(config_of(b"{}").max_recv_message_size, 4 * 1024 * 1024);
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Send":{"MessageSizeKiB":"Unbounded"}}}"#).max_send_message_size,
+            None
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"MessageSizeKiB":"Unbounded"}}}"#)
+                .max_recv_message_size,
+            usize::MAX
         );
     }
 
@@ -931,8 +956,8 @@ mod tests {
             &br#"{"Grpc":{"Receive":{"Compression":["Gzip","None"]}}}"#[..],
         ] {
             let refused = parse(document).err().expect("refused").to_string();
-            assert!(refused.starts_with("Grpc.Receive.Compression"), "{refused}");
-            assert!(refused.contains("identity is always accepted"), "{refused}");
+            assert!(refused.contains("Grpc.Receive.Compression"), "{refused}");
+            assert!(refused.contains("it names none of Gzip"), "{refused}");
         }
         assert_eq!(
             config_of(br#"{"Grpc":{"Receive":{"Compression":[]}}}"#).accept_encodings,
@@ -1037,12 +1062,12 @@ mod tests {
                 "Grpc.Host.Send.Window",
             ),
             (
-                &br#"{"Grpc":{"Send":{"MaxMessageSize":0}}}"#[..],
-                "Grpc.Send.MaxMessageSize",
+                &br#"{"Grpc":{"Send":{"MessageSizeKiB":{"Max":0}}}}"#[..],
+                "Grpc.Send.MessageSizeKiB.Max",
             ),
             (
-                &br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#[..],
-                "Grpc.Receive.MaxMessageSize",
+                &br#"{"Grpc":{"Receive":{"MessageSizeKiB":{"Max":0}}}}"#[..],
+                "Grpc.Receive.MessageSizeKiB.Max",
             ),
             (
                 &br#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":-1}}}}"#[..],
@@ -1070,8 +1095,8 @@ mod tests {
                 "Transport.TcpKeepalive.Probe",
             ),
             (
-                &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":65534}}}}"#[..],
-                "Http2.Receive.Fixed.ConnectionWindowSize",
+                &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowBytes":65534}}}}"#[..],
+                "Http2.Receive.Fixed.ConnectionWindowBytes",
             ),
             (
                 &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
@@ -1147,12 +1172,12 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}},"Receive":{"Fixed":{"StreamWindowSize":70000}}}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}},"Receive":{"Fixed":{"StreamWindowBytes":70000}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
             defaults.as_ref(),
-            br#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":80000}}}}"#,
+            br#"{"Http2":{"Receive":{"Fixed":{"StreamWindowBytes":80000}}}}"#,
         )
         .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);

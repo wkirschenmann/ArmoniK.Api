@@ -1560,9 +1560,9 @@ public sealed class Http2SendOptions
     }
 
     CoalescingBytes = other.CoalescingBytes;
-    StreamBufferSize = other.StreamBufferSize;
+    StreamBufferKiB = other.StreamBufferKiB;
     FramesPerWrite = other.FramesPerWrite;
-    MaxHeaderListSize = other.MaxHeaderListSize;
+    HeaderListBytes = other.HeaderListBytes;
   }
 
   /// <summary>
@@ -1577,14 +1577,18 @@ public sealed class Http2SendOptions
   public int? CoalescingBytes { get; set; }
 
   /// <summary>
-  ///   How many bytes of one call's request may be queued in the session, waiting to be written,
-  ///   before its next part is handed over. A part is handed over whole once fewer bytes than this
-  ///   are queued, and the peer's window has room, so up to one part more than this is queued.
+  ///   How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
+  ///   written, before its next part is handed over. A part is handed over whole once fewer bytes
+  ///   than this are queued, and the peer's window has room, so up to one part more than this is
+  ///   queued.
   /// </summary>
-  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
-  [JsonPropertyName("StreamBufferSize")]
+  /// <remarks>
+  ///   Defaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's
+  ///   buffer is counted in 32 bits.
+  /// </remarks>
+  [JsonPropertyName("StreamBufferKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? StreamBufferSize { get; set; }
+  public int? StreamBufferKiB { get; set; }
 
   /// <summary>
   ///   How many DATA frames of the peer's largest size one queued part of a request may span,
@@ -1601,15 +1605,13 @@ public sealed class Http2SendOptions
   public int? FramesPerWrite { get; set; }
 
   /// <summary>
-  ///   The most bytes the headers of one request may take, counted as RFC 9113 counts a header
-  ///   list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
-  ///   pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
-  ///   before anything is sent. It bounds what is sent, never what is received.
+  ///   How many bytes the headers of one request may take. It bounds what is sent, never what is
+  ///   received.
   /// </summary>
-  /// <remarks>Defaults to none: no request is refused for its headers.</remarks>
-  [JsonPropertyName("MaxHeaderListSize")]
+  /// <remarks>Defaults to <c>"Unbounded"</c>.</remarks>
+  [JsonPropertyName("HeaderListBytes")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxHeaderListSize { get; set; }
+  public HeaderListBytes? HeaderListBytes { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -1622,11 +1624,11 @@ public sealed class Http2SendOptions
                                             "CoalescingBytes has to be at least 0.");
     }
 
-    if (StreamBufferSize is int streamBufferSize && streamBufferSize < 1)
+    if (StreamBufferKiB is int streamBufferKiB && (streamBufferKiB < 1 || streamBufferKiB > 4194303))
     {
-      throw new ArgumentOutOfRangeException(nameof(StreamBufferSize),
-                                            streamBufferSize,
-                                            "StreamBufferSize has to be at least 1.");
+      throw new ArgumentOutOfRangeException(nameof(StreamBufferKiB),
+                                            streamBufferKiB,
+                                            "StreamBufferKiB has to be at least 1 and at most 4194303.");
     }
 
     if (FramesPerWrite is int framesPerWrite && (framesPerWrite < 1 || framesPerWrite > 256))
@@ -1636,11 +1638,98 @@ public sealed class Http2SendOptions
                                             "FramesPerWrite has to be at least 1 and at most 256.");
     }
 
-    if (MaxHeaderListSize is int maxHeaderListSize && maxHeaderListSize < 1)
+    HeaderListBytes?.Validate();
+  }
+}
+
+/// <summary>How many bytes the headers of one request may take.</summary>
+[JsonConverter(typeof(HeaderListBytesJsonConverter))]
+public abstract record HeaderListBytes
+{
+  private HeaderListBytes()
+  {
+  }
+
+  /// <summary>No request is refused for its headers.</summary>
+  public sealed record Unbounded : HeaderListBytes
+  {
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(MaxHeaderListSize),
-                                            maxHeaderListSize,
-                                            "MaxHeaderListSize has to be at least 1.");
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   At most this many bytes, counted as RFC 9113 counts a header list for
+  ///   SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+  ///   fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+  ///   anything is sent.
+  /// </summary>
+  /// <param name="Value">
+  ///   At most this many bytes, counted as RFC 9113 counts a header list for
+  ///   SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+  ///   fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+  ///   anything is sent.
+  /// </param>
+  public sealed record Max(int Value) : HeaderListBytes
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="HeaderListBytes" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class HeaderListBytesJsonConverter : JsonConverter<HeaderListBytes>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override HeaderListBytes? Read(ref Utf8JsonReader reader,
+                                        Type typeToConvert,
+                                        JsonSerializerOptions options)
+    => throw new NotSupportedException("HeaderListBytes is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             HeaderListBytes value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  HeaderListBytes written)
+  {
+    switch (written)
+    {
+      case HeaderListBytes.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case HeaderListBytes.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
@@ -1657,34 +1746,34 @@ public abstract record Http2ReceiveOptions
   }
 
   /// <summary>Windows of fixed sizes, announced as the session opens.</summary>
-  /// <param name="StreamWindowSize">
+  /// <param name="StreamWindowBytes">
   ///   How many bytes of one call the peer may send ahead of what is read.
   ///   Defaults to 2097152, 2 MiB.
   /// </param>
-  /// <param name="ConnectionWindowSize">
+  /// <param name="ConnectionWindowBytes">
   ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
-  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
+  ///   A call its host does not read holds up to <c>StreamWindowBytes</c> of it, so enough of them stop
   ///   the others receiving. At least 65535, the window every connection starts with.
   ///   Defaults to 5242880, 5 MiB.
   /// </param>
-  public sealed record Fixed(int? StreamWindowSize = null,
-                             int? ConnectionWindowSize = null) : Http2ReceiveOptions
+  public sealed record Fixed(int? StreamWindowBytes = null,
+                             int? ConnectionWindowBytes = null) : Http2ReceiveOptions
   {
     /// <inheritdoc />
     public override void Validate()
     {
-      if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+      if (StreamWindowBytes is int streamWindowBytes && streamWindowBytes < 1)
       {
-        throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
-                                              streamWindowSize,
-                                              "StreamWindowSize has to be at least 1.");
+        throw new ArgumentOutOfRangeException(nameof(StreamWindowBytes),
+                                              streamWindowBytes,
+                                              "StreamWindowBytes has to be at least 1.");
       }
 
-      if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
+      if (ConnectionWindowBytes is int connectionWindowBytes && connectionWindowBytes < 65535)
       {
-        throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
-                                              connectionWindowSize,
-                                              "ConnectionWindowSize has to be at least 65535.");
+        throw new ArgumentOutOfRangeException(nameof(ConnectionWindowBytes),
+                                              connectionWindowBytes,
+                                              "ConnectionWindowBytes has to be at least 65535.");
       }
     }
   }
@@ -1738,16 +1827,16 @@ internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2Rece
         writer.WriteStartObject();
         writer.WriteStartObject("Fixed");
 
-        if (@fixed.StreamWindowSize is int streamWindowSize)
+        if (@fixed.StreamWindowBytes is int streamWindowBytes)
         {
-          writer.WriteNumber("StreamWindowSize",
-                             streamWindowSize);
+          writer.WriteNumber("StreamWindowBytes",
+                             streamWindowBytes);
         }
 
-        if (@fixed.ConnectionWindowSize is int connectionWindowSize)
+        if (@fixed.ConnectionWindowBytes is int connectionWindowBytes)
         {
-          writer.WriteNumber("ConnectionWindowSize",
-                             connectionWindowSize);
+          writer.WriteNumber("ConnectionWindowBytes",
+                             connectionWindowBytes);
         }
 
         writer.WriteEndObject();
@@ -1786,7 +1875,7 @@ public sealed class GrpcOptions
     }
 
     UserAgent = other.UserAgent;
-    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
+    Deadline = other.Deadline;
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
@@ -1810,20 +1899,11 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
 
-  /// <summary>
-  ///   The deadline of a call that states none, counted from its start: the call ends
-  ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
-  ///   call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one included, and not
-  ///   only the wait for the response's head. A call's own deadline takes its place, and a call
-  ///   that states none takes this one.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-  ///   finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
-  /// </remarks>
-  [JsonPropertyName("DefaultDeadlineSeconds")]
+  /// <summary>The deadline of a call that states none.</summary>
+  /// <remarks>Defaults to <c>"None"</c>, a call waiting as long as its answer takes.</remarks>
+  [JsonPropertyName("Deadline")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? DefaultDeadlineSeconds { get; set; }
+  public Deadline? Deadline { get; set; }
 
   /// <summary>When a failed call is sent again.</summary>
   /// <remarks>
@@ -1870,18 +1950,106 @@ public sealed class GrpcOptions
                                             "UserAgent has to be at least 1 character long.");
     }
 
-    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 0 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
-                                            defaultDeadlineSeconds,
-                                            "DefaultDeadlineSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
+    Deadline?.Validate();
     Retry?.Validate();
     Rate?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
+  }
+}
+
+/// <summary>The deadline of a call that states none, counted from its start.</summary>
+[JsonConverter(typeof(DeadlineJsonConverter))]
+public abstract record Deadline
+{
+  private Deadline()
+  {
+  }
+
+  /// <summary>The call has none: it waits as long as its answer takes.</summary>
+  public sealed record None : Deadline
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   The call ends <c>DEADLINE_EXCEEDED</c> once this many seconds have passed, at least a
+  ///   nanosecond, the finest duration the engine holds, and the server is told what was left of
+  ///   it when the call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one
+  ///   included, and not only the wait for the response's head. A call's own deadline takes its
+  ///   place.
+  /// </summary>
+  /// <param name="Value">
+  ///   The call ends <c>DEADLINE_EXCEEDED</c> once this many seconds have passed, at least a
+  ///   nanosecond, the finest duration the engine holds, and the server is told what was left of
+  ///   it when the call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one
+  ///   included, and not only the wait for the response's head. A call's own deadline takes its
+  ///   place.
+  /// </param>
+  public sealed record Default(double Value) : Deadline
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is double value && (value < 1E-09 || value >= 1.8446744073709552E+19 || double.IsNaN(value) || double.IsInfinity(value)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Deadline" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class DeadlineJsonConverter : JsonConverter<Deadline>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Deadline? Read(ref Utf8JsonReader reader,
+                                 Type typeToConvert,
+                                 JsonSerializerOptions options)
+    => throw new NotSupportedException("Deadline is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Deadline value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Deadline written)
+  {
+    switch (written)
+    {
+      case Deadline.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Deadline.Default @default:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Default",
+                           @default.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
   }
 }
 
@@ -2346,26 +2514,23 @@ public sealed class GrpcSendOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxMessageSize = other.MaxMessageSize;
+    MessageSizeKiB = other.MessageSizeKiB;
     Compression = other.Compression;
   }
 
   /// <summary>
-  ///   The largest message this client will send, in bytes. A larger one ends its call
+  ///   The largest message this client will send. A larger one ends its call
   ///   <c>RESOURCE_EXHAUSTED</c>, and none of it is sent.
   /// </summary>
-  /// <remarks>
-  ///   Defaults to none, any message a call is given going out. Zero is refused: it admits only
-  ///   empty messages.
-  /// </remarks>
-  [JsonPropertyName("MaxMessageSize")]
+  /// <remarks>Defaults to <c>"Unbounded"</c>, any message a call is given going out.</remarks>
+  [JsonPropertyName("MessageSizeKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxMessageSize { get; set; }
+  public SendMessageSizeKiB? MessageSizeKiB { get; set; }
 
   /// <summary>
   ///   The encoding the messages of a call are compressed with, which the call states as
   ///   <c>grpc-encoding</c>. A message that would not be smaller compressed is sent as it is, and
-  ///   <c>MaxMessageSize</c> is checked on a message before it is compressed.
+  ///   <c>MessageSizeKiB</c> is checked on a message before it is compressed.
   /// </summary>
   /// <remarks>
   ///   The server has to accept the encoding, and says which it accepts in the
@@ -2374,37 +2539,119 @@ public sealed class GrpcSendOptions
   ///   are, and the channel logs a warning once. A later response that lists it has the channel
   ///   compress again. A call that reached a server which does not accept the encoding ends
   ///   <c>UNIMPLEMENTED</c> and is not sent again.
-  ///   Defaults to none, the messages going out as they are, which <c>None</c> says too, over an
-  ///   encoding an earlier source set.
+  ///   Defaults to <c>"None"</c>, the messages going out as they are.
   /// </remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public MessageEncoding? Compression { get; set; }
+  public SendCompression? Compression { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
-                                            maxMessageSize,
-                                            "MaxMessageSize has to be at least 1.");
-    }
-
-    if (Compression is MessageEncoding compression && !Enum.IsDefined(typeof(MessageEncoding), compression))
+    if (Compression is SendCompression compression && !Enum.IsDefined(typeof(SendCompression), compression))
     {
       throw new ArgumentOutOfRangeException(nameof(Compression),
                                             compression,
-                                            "Compression has to be a name MessageEncoding declares.");
+                                            "Compression has to be a name SendCompression declares.");
+    }
+
+    MessageSizeKiB?.Validate();
+  }
+}
+
+/// <summary>The largest message a call sends.</summary>
+[JsonConverter(typeof(SendMessageSizeKiBJsonConverter))]
+public abstract record SendMessageSizeKiB
+{
+  private SendMessageSizeKiB()
+  {
+  }
+
+  /// <summary>No message is refused for its size.</summary>
+  public sealed record Unbounded : SendMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>At most this many KiB (1024 bytes), counted before the message is compressed.</summary>
+  /// <param name="Value">At most this many KiB (1024 bytes), counted before the message is compressed.</param>
+  public sealed record Max(int Value) : SendMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="SendMessageSizeKiB" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class SendMessageSizeKiBJsonConverter : JsonConverter<SendMessageSizeKiB>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override SendMessageSizeKiB? Read(ref Utf8JsonReader reader,
+                                           Type typeToConvert,
+                                           JsonSerializerOptions options)
+    => throw new NotSupportedException("SendMessageSizeKiB is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             SendMessageSizeKiB value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  SendMessageSizeKiB written)
+  {
+    switch (written)
+    {
+      case SendMessageSizeKiB.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case SendMessageSizeKiB.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
 
-/// <summary>How the messages of a call are compressed.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
-public enum MessageEncoding
+/// <summary>How the messages a call sends are compressed.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SendCompression>))]
+public enum SendCompression
 {
+  /// <summary>
+  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
+  ///   <c>grpc-encoding</c> is sent.
+  /// </summary>
+  None,
+
   /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
   Gzip,
 
@@ -2416,13 +2663,6 @@ public enum MessageEncoding
 
   /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
   Zstd,
-
-  /// <summary>
-  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
-  ///   <c>grpc-encoding</c> is sent. Stated over an encoding an earlier source set, it turns the
-  ///   compression off. It names no encoding to accept, and a list of them refuses it.
-  /// </summary>
-  None,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -2443,29 +2683,25 @@ public sealed class GrpcReceiveOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxMessageSize = other.MaxMessageSize;
+    MessageSizeKiB = other.MessageSizeKiB;
     Compression = other.Compression is null
                     ? null
                     : new global::System.Collections.Generic.List<MessageEncoding>(other.Compression);
   }
 
-  /// <summary>The largest message this client will accept, in bytes.</summary>
-  /// <remarks>
-  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-  ///   at all.
-  /// </remarks>
-  [JsonPropertyName("MaxMessageSize")]
+  /// <summary>The largest message this client will accept.</summary>
+  /// <remarks>Defaults to 4096, 4 MiB, as <c>{"Max": 4096}</c>.</remarks>
+  [JsonPropertyName("MessageSizeKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxMessageSize { get; set; }
+  public ReceiveMessageSizeKiB? MessageSizeKiB { get; set; }
 
   /// <summary>
   ///   The encodings besides <c>identity</c> that this client accepts for the messages of an answer,
   ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
   ///   may then compress what it sends, in the first of them that it knows. A name given twice
-  ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
-  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>None</c> is
-  ///   refused here: <c>identity</c> is always accepted.
+  ///   counts at its first place. <c>MessageSizeKiB</c> bounds a message once it is decompressed. A
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>identity</c>
+  ///   is always accepted.
   /// </summary>
   /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]
@@ -2476,13 +2712,6 @@ public sealed class GrpcReceiveOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
-                                            maxMessageSize,
-                                            "MaxMessageSize has to be at least 1.");
-    }
-
     if (Compression is { } compression)
     {
       var compressionUndeclared = compression.Where(item => !Enum.IsDefined(typeof(MessageEncoding), item))
@@ -2496,7 +2725,108 @@ public sealed class GrpcReceiveOptions
                                               "Compression has to be names MessageEncoding declares.");
       }
     }
+
+    MessageSizeKiB?.Validate();
   }
+}
+
+/// <summary>The largest message a call accepts.</summary>
+[JsonConverter(typeof(ReceiveMessageSizeKiBJsonConverter))]
+public abstract record ReceiveMessageSizeKiB
+{
+  private ReceiveMessageSizeKiB()
+  {
+  }
+
+  /// <summary>No message is refused for its size.</summary>
+  public sealed record Unbounded : ReceiveMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>At most this many KiB (1024 bytes), counted once the message is decompressed.</summary>
+  /// <param name="Value">At most this many KiB (1024 bytes), counted once the message is decompressed.</param>
+  public sealed record Max(int Value) : ReceiveMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="ReceiveMessageSizeKiB" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class ReceiveMessageSizeKiBJsonConverter : JsonConverter<ReceiveMessageSizeKiB>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ReceiveMessageSizeKiB? Read(ref Utf8JsonReader reader,
+                                              Type typeToConvert,
+                                              JsonSerializerOptions options)
+    => throw new NotSupportedException("ReceiveMessageSizeKiB is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ReceiveMessageSizeKiB value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ReceiveMessageSizeKiB written)
+  {
+    switch (written)
+    {
+      case ReceiveMessageSizeKiB.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case ReceiveMessageSizeKiB.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>An encoding the messages of a call may be compressed in.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
+public enum MessageEncoding
+{
+  /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
+  Gzip,
+
+  /// <summary>
+  ///   gRPC's <c>deflate</c>: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+  ///   RFC 1951 stream.
+  /// </summary>
+  Deflate,
+
+  /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
+  Zstd,
 }
 
 /// <summary>What crosses between the host and the engine on each call, one way and the other.</summary>
