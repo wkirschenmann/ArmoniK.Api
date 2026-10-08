@@ -179,11 +179,6 @@ pub struct GrpcChannelConfig {
     /// What the channel keeps of the messages its calls sent, for a retry and
     /// for a call its peer never processed to be sent again.
     pub replay: ReplayConfig,
-    /// How many requests start in a window of time, a retry's included; a
-    /// request over it waits for the next window, except a retry the policy
-    /// chose, which is skipped to its next backoff and counts as an attempt.
-    /// None starts them as made. No option reaches it.
-    pub rate_limit: Option<RateLimitConfig>,
     /// How the channel judges the health of its server, and stops retries and
     /// caps the rate of first attempts by it; see `AdaptiveConfig`. None judges
     /// nothing. On by default.
@@ -212,7 +207,7 @@ pub struct GrpcChannelConfig {
     /// again, logged at debug as a further refusal is. Behind a balancer whose
     /// backends differ, the state follows whichever answered last. A call
     /// chooses its encoding when its first attempt has taken its turn at the
-    /// channel's gates, and compresses nothing before: one that waits for its turn
+    /// cap of the throttle, and compresses nothing before: one that waits for its turn
     /// and is ended there has compressed nothing. It keeps the encoding it
     /// chose, so its messages and its `grpc-encoding` agree through a retry;
     /// one sent compressed to a server
@@ -233,16 +228,6 @@ pub struct GrpcChannelConfig {
 /// zlib structure of RFC 1950, as gRPC means it) and `zstd` (RFC 8878).
 #[non_exhaustive]
 pub enum Encoding { Gzip, Deflate, Zstd }
-
-/// At most `calls` requests start in a window of `per`; a request over it
-/// waits for the next window, except a retry the policy chose, which is
-/// skipped. The windows are fixed, so up to twice `calls` can start within `per`
-/// across a boundary. Refused when the channel is created if `calls` is 0 or
-/// `per` is zero.
-pub struct RateLimitConfig {
-    pub calls: usize,
-    pub per: Duration,
-}
 
 pub struct RetryConfig {
     pub max_attempts: u32,          // total (initial + retries)

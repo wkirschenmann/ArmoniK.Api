@@ -22,7 +22,6 @@ use tokio::time::Instant;
 use super::cause::{self, Cause};
 use super::error::GrpcChannelConfigError;
 use super::origin::{Origin, Pushback};
-use super::rate_limit::{RateLimitConfig, RateLimiter};
 use super::status::GrpcStatusCode;
 
 /// How a channel judges the health of its server, and what it does about it.
@@ -522,37 +521,30 @@ impl Adaptive {
     }
 }
 
-/// Everything that decides whether an attempt starts: the configured limit, which counts starts, and
-/// the adaptive estimate, which judges what the server accepts. The driver of a call asks this and
-/// nothing else.
+/// Everything that decides whether an attempt starts: the adaptive estimate, which judges what the
+/// server accepts. The driver of a call asks this and nothing else.
 pub(crate) struct Admission {
-    limiter: Option<RateLimiter>,
     adaptive: Option<Adaptive>,
 }
 
 impl Admission {
-    pub(crate) fn new(limit: Option<RateLimitConfig>, adaptive: Option<AdaptiveConfig>) -> Self {
+    pub(crate) fn new(adaptive: Option<AdaptiveConfig>) -> Self {
         Self {
-            limiter: limit.map(RateLimiter::new),
             adaptive: adaptive.map(Adaptive::new),
         }
     }
 
-    /// Whether a first attempt may have to wait for its turn: there is a configured limit, or the
-    /// rate is capped or has first attempts queued.
+    /// Whether a first attempt may have to wait for its turn: the rate is capped or has first
+    /// attempts queued.
     pub(crate) fn may_wait(&self) -> bool {
-        self.limiter.is_some() || self.adaptive.as_ref().is_some_and(Adaptive::busy)
+        self.adaptive.as_ref().is_some_and(Adaptive::busy)
     }
 
     /// Completes when a first attempt, or a resend of a request its peer never processed, may start,
-    /// having taken its turn at each gate in turn: the cap of the estimate first, and then the
-    /// configured limit.
+    /// having taken its turn at the cap of the estimate.
     pub(crate) async fn first_attempt(&self) {
         if let Some(adaptive) = &self.adaptive {
             adaptive.admit_first().await;
-        }
-        if let Some(limiter) = &self.limiter {
-            limiter.admit().await;
         }
     }
 
@@ -560,11 +552,6 @@ impl Admission {
     /// failure and again when the backoff has passed.
     pub(crate) fn retries_open(&self) -> bool {
         self.adaptive.as_ref().is_none_or(Adaptive::retries_open)
-    }
-
-    /// Takes the turn a retry needs of the configured limit, if it is free now.
-    pub(crate) fn retry_turn(&self) -> bool {
-        self.limiter.as_ref().is_none_or(RateLimiter::try_admit)
     }
 
     /// Counts an attempt that went out and ended, as what its origin, code and pushback say.

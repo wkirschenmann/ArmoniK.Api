@@ -1,17 +1,18 @@
-//! When a call's messages are compressed: after its first attempt has taken its turn at the rate
-//! limit, so that a call that waits has compressed nothing, and the encoding is the one the
+//! When a call's messages are compressed: after its first attempt has taken its turn at the cap of
+//! the throttle, so that a call that waits has compressed nothing, and the encoding is the one the
 //! channel knows by then.
 //!
 //! The count of compressions is the process's, so the tests hold one lock and run one at a time.
 
 mod common;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use armonik_transport::grpc::{
     CallStartOptions, Deadline, Encoding, FramedMessage, GrpcChannel, GrpcChannelConfig,
-    GrpcStatus, GrpcStatusCode, RateLimitConfig, ResponseHead, ResponseSink,
+    GrpcStatus, GrpcStatusCode, MetadataValue, ResponseHead, ResponseSink,
 };
 use armonik_transport::hooks;
 use armonik_transport::http2::TransportConfig;
@@ -25,14 +26,42 @@ fn one_at_a_time() -> MutexGuard<'static, ()> {
     ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A channel that sends gzip and starts one request in each window of `window`.
-fn limited(endpoint: &str, window: Duration) -> GrpcChannel {
+static KEYS: AtomicUsize = AtomicUsize::new(0);
+
+/// A channel that sends gzip, and whose rate stays capped: a call the server answers
+/// RESOURCE_EXHAUSTED is overload, which caps a channel that allows no failure, and with a
+/// throttle multiplier of 1 what the server accepts does not lift the cap. The cap is the floor,
+/// a call in each `spacing`, until something is accepted, so the first call that takes its turn
+/// owes `spacing` before the next.
+async fn capped(endpoint: &str, spacing: Duration) -> GrpcChannel {
     let mut config = GrpcChannelConfig::new(TransportConfig::new(
         Uri::try_from(endpoint).expect("an endpoint"),
     ));
     config.send_encoding = Some(Encoding::Gzip);
-    config.rate_limit = Some(RateLimitConfig::new(1, window));
-    channel_with(config).expect("a channel")
+    let mut adaptive = config.adaptive.take().expect("a judgment by default");
+    adaptive.slack = 0;
+    adaptive.throttle_multiplier = 1.0;
+    adaptive.floor_per_second = 1.0 / spacing.as_secs_f64();
+    config.adaptive = Some(adaptive);
+    let channel = channel_with(config).expect("a channel");
+
+    let mut options = CallStartOptions::new(FLAKY);
+    let key = format!("turn-{}", KEYS.fetch_add(1, Ordering::SeqCst));
+    for (name, value) in [
+        ("x-flaky-key", key.as_str()),
+        ("x-fail-times", "1000"),
+        ("x-fail-code", "8"),
+    ] {
+        options
+            .metadata
+            .append(name, MetadataValue::Ascii(value.to_owned()))
+            .expect("a header");
+    }
+    let (_, _, status) = unary(&channel, options, Bytes::from_static(b"x")).await;
+    assert_eq!(status.code, GrpcStatusCode::ResourceExhausted, "{status}");
+    let state = channel.adaptive_state().expect("a channel that judges");
+    assert!(state.cap_per_second.is_some(), "{state:?}");
+    channel
 }
 
 fn with_deadline(method: &str, after: Duration) -> CallStartOptions {
@@ -117,7 +146,7 @@ fn squeezable() -> Vec<u8> {
 async fn a_call_that_waits_for_its_turn_compresses_nothing_when_its_deadline_ends_it() {
     let _alone = one_at_a_time();
     let server = TestServer::start().await;
-    let channel = limited(&server.endpoint, Duration::from_secs(30));
+    let channel = capped(&server.endpoint, Duration::from_secs(30)).await;
     let message = squeezable();
     let before = hooks::compressions();
 
@@ -164,10 +193,10 @@ async fn a_call_that_waits_for_its_turn_compresses_nothing_when_its_deadline_end
 async fn a_call_cancelled_while_it_waits_for_its_turn_compresses_nothing() {
     let _alone = one_at_a_time();
     let server = TestServer::start().await;
-    let channel = limited(&server.endpoint, Duration::from_secs(30));
+    let channel = capped(&server.endpoint, Duration::from_secs(30)).await;
     let message = squeezable();
 
-    // The one turn of the window.
+    // The first turn of the cap, taken at the floor rate.
     let (first, _) = streamed(&channel, CallStartOptions::new(FRAMES), b"x").await;
     assert!(!first.is_empty());
     let before = hooks::compressions();
@@ -196,7 +225,7 @@ async fn a_call_queued_while_the_channel_learns_the_server_lacks_the_encoding_go
     let message = squeezable();
 
     // A one-request call.
-    let channel = limited(&server.endpoint, Duration::from_millis(1500));
+    let channel = capped(&server.endpoint, Duration::from_millis(1500)).await;
     let (taught, queued) = tokio::join!(
         one_request(
             &channel,
@@ -215,7 +244,7 @@ async fn a_call_queued_while_the_channel_learns_the_server_lacks_the_encoding_go
     assert!(!seen.contains("grpc-encoding"), "{seen}");
 
     // A call that streams.
-    let channel = limited(&server.endpoint, Duration::from_millis(1500));
+    let channel = capped(&server.endpoint, Duration::from_millis(1500)).await;
     let (taught, queued) = tokio::join!(
         one_request(
             &channel,
@@ -233,7 +262,7 @@ async fn a_call_queued_while_the_channel_learns_the_server_lacks_the_encoding_go
     );
 
     // And one that is queued while the channel knows nothing against it goes out compressed.
-    let channel = limited(&server.endpoint, Duration::from_millis(1500));
+    let channel = capped(&server.endpoint, Duration::from_millis(1500)).await;
     let (_, queued) = tokio::join!(
         one_request(&channel, CallStartOptions::new("/raw/EchoHeaders"), b"x"),
         streamed(&channel, CallStartOptions::new(FRAMES), &message),

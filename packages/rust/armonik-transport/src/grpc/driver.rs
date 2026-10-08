@@ -359,111 +359,91 @@ async fn run<S: ResponseSink>(
         .map(|policy| policy.initial_backoff)
         .unwrap_or_default();
     let mut previous = 0u32;
-    // Retries skipped for want of a turn: they count in `previous` but were never sent.
-    let mut skipped = 0u32;
     let mut unsent_again = false;
     let mut refused_again = false;
-    // What the previous attempt failed with, and where that came from, while the attempt about to
-    // start is the policy's retry.
-    let mut retry_of: Option<(GrpcStatus, Origin)> = None;
+    // Whether the attempt about to start is the policy's retry, which takes no turn: it is sent
+    // only while `retries_open` finds the server accepting what is sent.
+    let mut retrying = false;
     loop {
         // Before the attempt reads what is left of the deadline, so that `grpc-timeout` states what
-        // remains after the wait. A retry the policy chose takes a turn only if one is free, and
-        // otherwise is skipped: it counts as an attempt that failed as the last one did, and the
-        // call goes on to its next backoff. A first attempt, and a resend of a request its peer
-        // never processed, wait their turn; a call whose deadline passes while it waits ends
+        // remains after the wait. A first attempt, and a resend of a request its peer never
+        // processed, wait their turn; a call whose deadline passes while it waits ends
         // DEADLINE_EXCEEDED.
-        let skip = match retry_of.take() {
-            Some((status, origin)) => (!inner.admission.retry_turn()).then_some((status, origin)),
-            None => {
-                // A call that waits for a connection takes its turn once there is one, when it has a
-                // turn to wait for, so that the calls waiting for a connection hold none, and do not
-                // all start together when it opens. A connection that fails in between makes the request a resend, with a turn
-                // of its own.
-                if wait_for_ready
-                    && inner.admission.may_wait()
-                    && until_stopped(stop, inner.connected()).await.is_none()
-                {
-                    return GrpcStatus::cancelled();
-                }
-                if until_stopped(stop, inner.admission.first_attempt())
-                    .await
-                    .is_none()
-                {
-                    return GrpcStatus::cancelled();
-                }
-                None
+        if !std::mem::take(&mut retrying) {
+            // A call that waits for a connection takes its turn once there is one, when it has a
+            // turn to wait for, so that the calls waiting for a connection hold none, and do not
+            // all start together when it opens. A connection that fails in between makes the
+            // request a resend, with a turn of its own.
+            if wait_for_ready
+                && inner.admission.may_wait()
+                && until_stopped(stop, inner.connected()).await.is_none()
+            {
+                return GrpcStatus::cancelled();
             }
-        };
+            if until_stopped(stop, inner.admission.first_attempt())
+                .await
+                .is_none()
+            {
+                return GrpcStatus::cancelled();
+            }
+        }
         let Ended {
             status,
             pushback,
             unprocessed,
             origin,
-        } = match skip {
-            Some((status, origin)) => {
-                skipped += 1;
-                Ended {
-                    status,
-                    pushback: Pushback::Unsaid,
-                    unprocessed: None,
-                    origin,
+        } = {
+            let first = encoding.is_none();
+            let chosen = *encoding.get_or_insert_with(|| inner.send.now());
+            if let Some(Sent::Stream(stream)) = &replay {
+                if first {
+                    stream.compress_with(chosen);
                 }
-            }
-            None => {
-                let first = encoding.is_none();
-                let chosen = *encoding.get_or_insert_with(|| inner.send.now());
-                if let Some(Sent::Stream(stream)) = &replay {
-                    if first {
-                        stream.compress_with(chosen);
-                    }
-                } else if let Some(request) = held.take() {
-                    // Compressed once, here: every attempt sends the same bytes, and the replay
-                    // is charged what is sent.
-                    let request = match chosen {
-                        Some(encoding) => {
-                            match until_stopped(stop, compressed(encoding, request)).await {
-                                Some(request) => request,
-                                None => return GrpcStatus::cancelled(),
-                            }
+            } else if let Some(request) = held.take() {
+                // Compressed once, here: every attempt sends the same bytes, and the replay
+                // is charged what is sent.
+                let request = match chosen {
+                    Some(encoding) => {
+                        match until_stopped(stop, compressed(encoding, request)).await {
+                            Some(request) => request,
+                            None => return GrpcStatus::cancelled(),
                         }
-                        None => request,
-                    };
-                    replay = Some(Sent::One(OneReplay::new(
-                        request.body(),
-                        replay_limit,
-                        Arc::clone(&inner.replay),
-                    )));
-                }
-                let sent = replay
-                    .as_ref()
-                    .expect("the replay is made by the first attempt");
-                // Only attempts that went out are previous ones: a skip sent nothing.
-                let mut headers = metadata.clone();
-                if previous > skipped {
-                    headers.insert(PREVIOUS_ATTEMPTS, (previous - skipped).into());
-                }
-                let ended = attempt(
-                    inner,
-                    path.clone(),
-                    headers,
-                    sent.attempt(),
-                    deadline,
-                    read_gate.as_deref(),
-                    one_response,
-                    wait_for_ready,
-                    chosen,
-                    sent,
-                    stop,
-                    responding,
-                )
-                .await;
-                ended.report();
-                inner
-                    .admission
-                    .record(&ended.origin, ended.status.code, ended.pushback);
-                ended
+                    }
+                    None => request,
+                };
+                replay = Some(Sent::One(OneReplay::new(
+                    request.body(),
+                    replay_limit,
+                    Arc::clone(&inner.replay),
+                )));
             }
+            let sent = replay
+                .as_ref()
+                .expect("the replay is made by the first attempt");
+            let mut headers = metadata.clone();
+            if previous > 0 {
+                headers.insert(PREVIOUS_ATTEMPTS, previous.into());
+            }
+            let ended = attempt(
+                inner,
+                path.clone(),
+                headers,
+                sent.attempt(),
+                deadline,
+                read_gate.as_deref(),
+                one_response,
+                wait_for_ready,
+                chosen,
+                sent,
+                stop,
+                responding,
+            )
+            .await;
+            ended.report();
+            inner
+                .admission
+                .record(&ended.origin, ended.status.code, ended.pushback);
+            ended
         };
         // gRFC A6's transparent retry: a request the peer's application never saw goes again at
         // once, whatever the policy, and counts as no attempt. Once a call for each way of not
@@ -479,10 +459,9 @@ async fn run<S: ResponseSink>(
             }
             None => false,
         };
-        // A retry skipped for want of a turn follows an attempt that went out, and so a replay.
         let sent = replay
             .as_ref()
-            .expect("an attempt went out before one could fail or be skipped");
+            .expect("an attempt went out before one could fail");
         if again && sent.supersede().whole {
             continue;
         }
@@ -542,7 +521,7 @@ async fn run<S: ResponseSink>(
         if !inner.admission.retries_open() {
             return status;
         }
-        retry_of = Some((status, origin));
+        retrying = true;
     }
 }
 
@@ -556,7 +535,7 @@ struct Ended {
 }
 
 impl Ended {
-    /// An end that is the engine's own: a cancel, a limit, a refusing sink, a retry skipped.
+    /// An end that is the engine's own: a cancel, a limit, a refusing sink.
     fn local(status: GrpcStatus) -> Self {
         Self {
             status,

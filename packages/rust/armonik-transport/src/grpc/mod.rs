@@ -10,7 +10,6 @@ mod error;
 mod executor;
 mod metadata;
 mod origin;
-mod rate_limit;
 mod request;
 mod retry;
 mod status;
@@ -30,7 +29,6 @@ pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 // Public only through `hooks::Attempt`, so that h2 and http types stay out of the API.
 #[cfg(feature = "test-hooks")]
 pub use origin::{Origin, Pushback};
-pub use rate_limit::RateLimitConfig;
 pub use request::{FramedMessage, OneRequest, FRAME_PREFIX};
 pub use retry::{default_failures, ReplayConfig, RetryConfig};
 pub use status::{GrpcStatus, GrpcStatusCode};

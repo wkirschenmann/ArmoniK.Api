@@ -1580,7 +1580,7 @@ is less), in order, never under the floor. Two lists of failures, `TransientList
 (`AdaptiveConfig::transient` and `overload`, sets of `Cause`); there is no preset and no choice
 between classifications. `GrpcChannelConfig::adaptive` carries it, `ChannelSettings` settles it, and
 the driver asks one `Admission` seam for the turn of a first attempt, for the gate of a retry and to
-count an attempt, so that the fixed limit of the engine and the estimate are two gates behind it. A
+count an attempt. A
 call that waits for a connection takes its turn once there is one. `grpc/admission.rs` has the
 classification, the ring and the cell with unit tests on explicit instants, the figures of the
 research (a transient outage stops retries between 5 and 9 s and never caps the rate, an overload
@@ -1657,11 +1657,13 @@ options generator renders such a list in a record. `Replay` is `MaxPerCallKiB` a
 and for a call its peer never processed, which is sent again with no policy too. `GrpcClient`'s
 translation states `None` for a `MaxAttempts` of 1, and `ExponentialBackoff` with what it states
 otherwise, `FailureList` among it; the `armonik` crate reads the loader. `Grpc.Rate.Limit` and
-`Grpc.Retry.Codes` with its presets are deleted from the options; the engine's own `rate_limit` stays,
-reached by no option. The engine's `RetryConfig` still admits a `max_attempts` of 1, which the tests
-of transparent retries use. decisions.md has the reasons. A change a release note carries:
+`Grpc.Retry.Codes` with its presets are deleted from the options, and the engine's fixed limiter with them.
+The engine's `RetryConfig` still admits a `max_attempts` of 1, which the tests
+of transparent retries use. decisions.md has the reasons. Changes a release note carries:
 `RetryConfig::default` retries `UNAVAILABLE`, a dial and a connection failure, with a backoff of 5 to
-120 seconds, which concerns the direct users of `RustGrpcChannel` and the `armonik` crate.
+120 seconds, and `GrpcChannelConfig::rate_limit`, `RateLimitConfig` and
+`GrpcChannelConfigError::RateLimit` are gone, which concerns the direct users of `RustGrpcChannel`
+and the `armonik` crate.
 
 **Error origins: done in the engine.** Each attempt that goes out and fails carries its `Origin`
 beside its status, `Unprocessed::Refused` is split into `REFUSED_STREAM` and a stream a GOAWAY left
@@ -1669,17 +1671,11 @@ unprocessed, and the pushback is read on every failed attempt. It is the prerequ
 estimate and changes nothing a caller sees. `tests/grpc_origins.rs` records each origin through
 `hooks::on_attempt`; contract.md states what a GOAWAY that processed the stream leaves.
 
-**`Rate.Limit`: done in the engine, deleted from the options 2026-10-08.** `GrpcChannelConfig.rate_limit`
-holds `Calls` requests that start in a window of `PerSeconds`, as tower's `RateLimit` has it: a call's
-first attempt over the limit waits for the next window. A request is an attempt, so a retry counts
-and a stream counts once; waiting calls are let through in order; a waiting call ends
-`DEADLINE_EXCEEDED` at its deadline and `CANCELLED` when cancelled or when its channel closes, and
-holds no turn. A retry the policy chooses does not wait: with no turn free it is skipped and goes to
-its next backoff, and skipped attempts count toward `maxAttempts`. A transparent resend waits its
-turn, as A6's exemption from throttling is read. The windows are fixed, so up to twice `Calls`
-requests can start within `PerSeconds` across a boundary. `tests/grpc_rate_limit.rs` covers each of
-these but the boundary burst. No option reaches the limiter since the options review: only the
-throttle governs the rate of calls, and the limiter goes with a later cleanup of the engine.
+**`Rate.Limit`: deleted, 2026-10-08.** The option and the engine's fixed-window limiter
+(`GrpcChannelConfig::rate_limit`, with the turn a retry took of it) are gone: only the throttle
+governs the rate of calls, and a retry takes no turn. A call chooses its compression after its first
+attempt has taken its turn, which is the throttle's cap; `tests/grpc_compression_turn.rs` holds
+calls at the cap. decisions.md has the reasons.
 
 ### T6.16: The host's buffers, several at once and resizable
 

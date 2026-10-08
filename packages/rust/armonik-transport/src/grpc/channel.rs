@@ -32,7 +32,6 @@ use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
 use super::origin::Origin;
-use super::rate_limit::RateLimitConfig;
 use super::request::OneRequest;
 use super::retry::{AttemptMessages, ChannelReplay, ReplayConfig, RequestBody, RetryConfig};
 use super::status::{Failure, GrpcStatus, GrpcStatusCode};
@@ -72,11 +71,6 @@ pub struct GrpcChannelConfig {
     /// takes the first listed. A repeated encoding counts at its first place. Empty accepts none: a
     /// message compressed in any other encoding ends its call `INTERNAL`.
     pub accept_encodings: Vec<Encoding>,
-    /// How many requests the channel starts in a window of time; a request over it waits for the
-    /// next window, except a retry the retry policy chose, which is skipped: it counts as an
-    /// attempt and the call goes on to its next backoff. With none, requests start as they are
-    /// made.
-    pub rate_limit: Option<RateLimitConfig>,
     /// How the channel judges the health of its server, and caps the rate of first attempts and stops
     /// retries by it. None judges nothing: every retry the policy chooses is sent. On by default.
     pub adaptive: Option<AdaptiveConfig>,
@@ -96,7 +90,6 @@ impl GrpcChannelConfig {
             replay: ReplayConfig::default(),
             send_encoding: None,
             accept_encodings: Vec::new(),
-            rate_limit: None,
             adaptive: Some(AdaptiveConfig::default()),
         }
     }
@@ -135,9 +128,6 @@ impl GrpcChannel {
 
         if let Some(retry) = &config.retry {
             retry.admissible()?;
-        }
-        if let Some(rate_limit) = &config.rate_limit {
-            rate_limit.admissible()?;
         }
         if let Some(adaptive) = &config.adaptive {
             adaptive.admissible()?;
@@ -180,7 +170,7 @@ impl GrpcChannel {
                 send: SendEncoding::new(config.send_encoding),
                 accept_header: accept_header(&accept_encodings),
                 accept_encodings,
-                admission: Admission::new(config.rate_limit, config.adaptive),
+                admission: Admission::new(config.adaptive),
                 replay,
                 idle_timeout,
                 max_header_list_size,
@@ -404,8 +394,7 @@ pub(crate) struct Inner {
     /// The encodings the channel accepts besides identity, each once, and what it advertises of them.
     accept_encodings: Vec<Encoding>,
     accept_header: HeaderValue,
-    /// What decides whether an attempt starts: the configured rate limit, and the estimate of what
-    /// the server accepts.
+    /// What decides whether an attempt starts: the estimate of what the server accepts.
     pub(crate) admission: Admission,
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,

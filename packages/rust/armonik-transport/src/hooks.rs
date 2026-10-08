@@ -113,9 +113,8 @@ pub fn in_dial(hook: Option<Hook>) {
     set(&IN_DIAL, hook);
 }
 
-/// Runs `hook` at the end of every attempt that went out, a call's first, a retry or a resend. An
-/// attempt skipped for want of a turn went nowhere, and one the call's deadline cuts short is not
-/// told. `None` removes it.
+/// Runs `hook` at the end of every attempt that went out, a call's first, a retry or a resend. One
+/// the call's deadline cuts short is not told. `None` removes it.
 pub fn on_attempt(hook: Option<AttemptHook>) {
     *ON_ATTEMPT.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
