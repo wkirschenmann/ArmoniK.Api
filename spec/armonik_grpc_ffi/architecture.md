@@ -1351,7 +1351,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
 | `InitialBackOff` etc. | `Grpc.Retry.*` |
 
-`Grpc.RateLimit` and `Grpc.Retry` agree: a retry that finds no turn free is skipped to its next
+`Grpc.Rate.Limit` and `Grpc.Retry` agree: a retry that finds no turn free is skipped to its next
 backoff and counts toward `Grpc.Retry.MaxAttempts`, and a call's first attempt waits for its turn.
 
 ---

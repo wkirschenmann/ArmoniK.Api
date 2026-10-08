@@ -48,6 +48,7 @@ pub(crate) struct Answered(Arc<Seen>);
 struct Seen {
     response: AtomicBool,
     ended: AtomicBool,
+    stated: AtomicBool,
 }
 
 impl Answered {
@@ -68,10 +69,22 @@ impl Answered {
         self.0.ended.load(Ordering::Acquire)
     }
 
+    pub(crate) fn mark_stated(&self) {
+        self.0.stated.store(true, Ordering::Release);
+    }
+
+    /// Whether the peer's trailers, or its Trailers-Only head, state a status that was passed on
+    /// to tonic: the status tonic then gives is the peer's, and not one made up from an end of
+    /// stream or one this side refuses with.
+    pub(crate) fn stated(&self) -> bool {
+        self.0.stated.load(Ordering::Acquire)
+    }
+
     /// Forgets the attempt before, which an attempt's own response then answers for.
     pub(crate) fn reset(&self) {
         self.0.response.store(false, Ordering::Release);
         self.0.ended.store(false, Ordering::Release);
+        self.0.stated.store(false, Ordering::Release);
     }
 }
 

@@ -401,11 +401,14 @@ public class UnaryTests : EchoServerFixture
                                               {
                                                 Grpc = new GrpcOptions
                                                        {
-                                                         RateLimit = new RateLimitOptions
-                                                                     {
-                                                                       Calls      = 1,
-                                                                       PerSeconds = 60,
-                                                                     },
+                                                         Rate = new RateOptions
+                                                                {
+                                                                  Limit = new RateLimitOptions
+                                                                          {
+                                                                            Calls      = 1,
+                                                                            PerSeconds = 60,
+                                                                          },
+                                                                },
                                                        },
                                               });
     var client = Client(channel);

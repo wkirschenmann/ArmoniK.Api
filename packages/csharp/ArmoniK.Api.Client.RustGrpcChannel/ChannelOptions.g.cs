@@ -1490,9 +1490,9 @@ public sealed class GrpcOptions
     Retry = other.Retry is null
               ? null
               : new RetryOptions(other.Retry);
-    RateLimit = other.RateLimit is null
-                  ? null
-                  : new RateLimitOptions(other.RateLimit);
+    Rate = other.Rate is null
+             ? null
+             : new RateOptions(other.Rate);
     Send = other.Send is null
              ? null
              : new GrpcSendOptions(other.Send);
@@ -1527,19 +1527,19 @@ public sealed class GrpcOptions
 
   /// <summary>When a failed call is sent again.</summary>
   /// <remarks>
-  ///   Defaults to <c>{}</c>: five attempts in all, as <c>GrpcClient</c> has them. A call its peer never
-  ///   processed goes again besides, whatever <c>MaxAttempts</c> is, while every message it sent is
-  ///   kept.
+  ///   Defaults to <c>{}</c>: five attempts in all, with <c>GrpcClient</c>'s backoff, for UNAVAILABLE alone.
+  ///   A call its peer never processed goes again besides, whatever <c>MaxAttempts</c> is, while every
+  ///   message it sent is kept.
   /// </remarks>
   [JsonPropertyName("Retry")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryOptions? Retry { get; set; }
 
-  /// <summary>How many requests the channel starts in a window of time.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
-  [JsonPropertyName("RateLimit")]
+  /// <summary>How fast the channel starts calls.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets no limit: requests start as they are made.</remarks>
+  [JsonPropertyName("Rate")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RateLimitOptions? RateLimit { get; set; }
+  public RateOptions? Rate { get; set; }
 
   /// <summary>What a call sends to the server.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1578,7 +1578,7 @@ public sealed class GrpcOptions
     }
 
     Retry?.Validate();
-    RateLimit?.Validate();
+    Rate?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
@@ -1588,8 +1588,8 @@ public sealed class GrpcOptions
 /// <summary>
 ///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
 ///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
-///   <c>MaxBackoffSeconds</c>, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
-///   the reader and what the call sent is still kept for the replay.
+///   <c>MaxBackoffSeconds</c>, for the statuses <c>Codes</c> names, while no response head has reached the
+///   reader and what the call sent is still kept for the replay.
 /// </summary>
 public sealed class RetryOptions
 {
@@ -1611,6 +1611,7 @@ public sealed class RetryOptions
     MaxAttempts = other.MaxAttempts;
     InitialBackoffSeconds = other.InitialBackoffSeconds;
     MaxBackoffSeconds = other.MaxBackoffSeconds;
+    Codes = other.Codes;
     BackoffMultiplier = other.BackoffMultiplier;
     CallReplayBytes = other.CallReplayBytes;
     ChannelReplayBytes = other.ChannelReplayBytes;
@@ -1636,6 +1637,12 @@ public sealed class RetryOptions
   [JsonPropertyName("MaxBackoffSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? MaxBackoffSeconds { get; set; }
+
+  /// <summary>The statuses a call is tried again for.</summary>
+  /// <remarks>Defaults to <c>{"GoogleRpc": true}</c>: UNAVAILABLE alone.</remarks>
+  [JsonPropertyName("Codes")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RetryCodes? Codes { get; set; }
 
   /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
   /// <remarks>Defaults to 1.5.</remarks>
@@ -1703,6 +1710,255 @@ public sealed class RetryOptions
                                             channelReplayBytes,
                                             "ChannelReplayBytes has to be at least 0.");
     }
+
+    Codes?.Validate();
+  }
+}
+
+/// <summary>The statuses a call is tried again for.</summary>
+[JsonConverter(typeof(RetryCodesJsonConverter))]
+public abstract record RetryCodes
+{
+  private RetryCodes()
+  {
+  }
+
+  /// <summary>UNAVAILABLE alone, which is what <c>google.rpc.Code</c> advises for retrying the same call.</summary>
+  /// <remarks>
+  ///   ABORTED is for the caller to start its unit of work again, not to repeat the call, and
+  ///   UNKNOWN is a status from an error space the client does not know.
+  /// </remarks>
+  public sealed record GoogleRpc : RetryCodes
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET <c>GrpcClient</c> default.</summary>
+  public sealed record GrpcClient : RetryCodes
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
+  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
+  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  /// </summary>
+  /// <param name="Value">
+  ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
+  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
+  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  /// </param>
+  public sealed record List(global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value) : RetryCodes
+  {
+    /// <summary>
+    ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
+    ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
+    ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+    /// </summary>
+    public global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value { get; init; } = new global::System.Collections.Generic.List<RetryableStatus>(Value ?? throw new ArgumentNullException(nameof(Value))).AsReadOnly();
+
+    /// <inheritdoc />
+    public bool Equals(List? other)
+      => other is not null && global::System.Linq.Enumerable.SequenceEqual(Value, other.Value);
+
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+      var hash = 17;
+      foreach (var item in Value)
+      {
+        hash = hash * 31 + item.GetHashCode();
+      }
+
+      return hash;
+    }
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is { } value)
+      {
+        var valueUndeclared = value.Where(item => !Enum.IsDefined(typeof(RetryableStatus), item))
+                                   .ToList();
+
+        if (valueUndeclared.Count > 0)
+        {
+          throw new ArgumentOutOfRangeException(nameof(Value),
+                                                string.Join(", ",
+                                                            valueUndeclared),
+                                                "Value has to be names RetryableStatus declares.");
+        }
+      }
+    }
+
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("Value = ");
+      builder.Append("[" + string.Join(", ", Value) + "]");
+
+      return true;
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="RetryCodes" /> as the engine reads one: an object whose one key names the alternative.</summary>
+internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override RetryCodes? Read(ref Utf8JsonReader reader,
+                                   Type typeToConvert,
+                                   JsonSerializerOptions options)
+    => throw new NotSupportedException("RetryCodes is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             RetryCodes value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  RetryCodes written)
+  {
+    writer.WriteStartObject();
+
+    switch (written)
+    {
+      case RetryCodes.GoogleRpc:
+      {
+        writer.WriteBoolean("GoogleRpc",
+                            true);
+        break;
+      }
+
+      case RetryCodes.GrpcClient:
+      {
+        writer.WriteBoolean("GrpcClient",
+                            true);
+        break;
+      }
+
+      case RetryCodes.List list:
+      {
+        writer.WriteStartArray("List");
+        foreach (var item in list.Value)
+        {
+          writer.WriteStringValue(item.ToString());
+        }
+        writer.WriteEndArray();
+        break;
+      }
+    }
+
+    writer.WriteEndObject();
+  }
+}
+
+/// <summary>The name of a gRPC status a call may fail with, as gRFC A6 spells it.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RetryableStatus>))]
+public enum RetryableStatus
+{
+  /// <summary>The call was cancelled, which a retry would undo.</summary>
+  CANCELLED,
+
+  /// <summary>A status from an error space the client does not know, or an error with no status.</summary>
+  UNKNOWN,
+
+  /// <summary>The request is past a valid range.</summary>
+  OUT_OF_RANGE,
+
+  /// <summary>The server does not implement the method.</summary>
+  UNIMPLEMENTED,
+
+  /// <summary>An invariant of the server is broken.</summary>
+  INTERNAL,
+
+  /// <summary>The service is unavailable, which is transient.</summary>
+  UNAVAILABLE,
+
+  /// <summary>Data is lost or corrupt.</summary>
+  DATA_LOSS,
+
+  /// <summary>The request has no valid credentials.</summary>
+  UNAUTHENTICATED,
+
+  /// <summary>The request is wrong whatever the state of the server.</summary>
+  INVALID_ARGUMENT,
+
+  /// <summary>The deadline passed before the call ended.</summary>
+  DEADLINE_EXCEEDED,
+
+  /// <summary>Something the request names does not exist.</summary>
+  NOT_FOUND,
+
+  /// <summary>Something the request creates exists already.</summary>
+  ALREADY_EXISTS,
+
+  /// <summary>The caller may not do this.</summary>
+  PERMISSION_DENIED,
+
+  /// <summary>A quota or a resource is exhausted.</summary>
+  RESOURCE_EXHAUSTED,
+
+  /// <summary>The system is not in the state the request needs.</summary>
+  FAILED_PRECONDITION,
+
+  /// <summary>A conflict, such as a failed sequencer check or a transaction abort.</summary>
+  ABORTED,
+}
+
+/// <summary>How fast a channel starts calls.</summary>
+public sealed class RateOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public RateOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public RateOptions(RateOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    Limit = other.Limit is null
+              ? null
+              : new RateLimitOptions(other.Limit);
+  }
+
+  /// <summary>How many requests the channel starts in a window of time.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
+  [JsonPropertyName("Limit")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public RateLimitOptions? Limit { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    Limit?.Validate();
   }
 }
 

@@ -74,7 +74,7 @@ well as from JSON, so every host language gets the same result from the same sou
 - **A key left out and a key set to 0 differ** (2026-10-07): a source that leaves an option out
   leaves what an earlier source set, or the default, and a source that wants none says so with 0,
   which `Transport.TcpKeepalive.IdleSeconds`, `Http2.KeepAliveIntervalSeconds`,
-  `Http2.IdleTimeoutSeconds`, `Grpc.DefaultDeadlineSeconds` and `Grpc.RateLimit.Calls` read as none
+  `Http2.IdleTimeoutSeconds`, `Grpc.DefaultDeadlineSeconds` and `Grpc.Rate.Limit.Calls` read as none
   (decisions.md, "How an option is turned off", lists the options left as they are).
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's

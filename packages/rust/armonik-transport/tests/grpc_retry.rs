@@ -85,6 +85,35 @@ async fn a_code_the_policy_does_not_name_is_not_retried() {
     assert_eq!(flaky_seen("denied").len(), 1);
 }
 
+/// The default policy retries what `google.rpc.Code` advises, UNAVAILABLE alone; the codes of
+/// `GrpcClient` are `RetryConfig::grpc_client`'s.
+#[tokio::test]
+async fn aborted_and_unknown_are_retried_by_the_grpc_client_codes_and_not_by_the_default() {
+    let server = TestServer::start().await;
+    let standard = retrying(&server.endpoint, |_| {});
+    let grpc_client = retrying(&server.endpoint, |retry| {
+        retry.retryable_codes = RetryConfig::grpc_client().retryable_codes;
+    });
+
+    for (name, code, expected) in [
+        ("aborted", "10", GrpcStatusCode::Aborted),
+        ("unknown", "2", GrpcStatusCode::Unknown),
+    ] {
+        let key = format!("default-{name}");
+        let options = flaky_options(&key, 1, &[("x-fail-code", code)]);
+        let (_, status) = call(&standard, options, b"x").await;
+        assert_eq!(status.code, expected, "{key}: {status}");
+        assert_eq!(flaky_seen(&key).len(), 1, "{key}");
+
+        let key = format!("preset-{name}");
+        let options = flaky_options(&key, 1, &[("x-fail-code", code)]);
+        let (messages, status) = call(&grpc_client, options, b"x").await;
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{key}: {status}");
+        assert_eq!(messages, vec![Bytes::from_static(b"x")], "{key}");
+        assert_eq!(flaky_seen(&key).len(), 2, "{key}");
+    }
+}
+
 #[tokio::test]
 async fn the_attempts_stop_at_the_policys_maximum() {
     let server = TestServer::start().await;

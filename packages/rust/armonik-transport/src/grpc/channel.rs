@@ -30,10 +30,11 @@ use super::contained::contained;
 use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
+use super::origin::Origin;
 use super::rate_limit::{RateLimitConfig, RateLimiter};
 use super::request::OneRequest;
 use super::retry::{AttemptMessages, ChannelReplay, RequestBody, RetryConfig};
-use super::status::{GrpcStatus, GrpcStatusCode, Unprocessed};
+use super::status::{Failure, GrpcStatus, GrpcStatusCode};
 use crate::utils::safe_endpoint;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
@@ -924,7 +925,14 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                         ChannelError::DialPanicked { .. } => {
                             worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
                         }
-                        error => worded(GrpcStatus::unreachable(error)),
+                        // A dial that failed is the connection's, or the handshake's; one that
+                        // could not be tried is the engine's own.
+                        error => Failure::of(if error.is_connection_failure() {
+                            Origin::Dial
+                        } else {
+                            Origin::Local
+                        })
+                        .on(GrpcStatus::unreachable(error)),
                     })?;
             // A call counts on its session until hyper is done with its request too: a call whose
             // response ends first keeps its request open, and its stream, until the driver
@@ -933,11 +941,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             let request =
                 request.map(|body| tonic::body::Body::new(LeasedBody { body, _lease: held }));
             let mut response = sender.send_request(request).await.map_err(|error| {
-                let mut status = worded(GrpcStatus::request_lost(&error));
-                if let Some(unprocessed) = Unprocessed::of(&error) {
-                    status.set_source(Arc::new(unprocessed));
-                }
-                status
+                Failure::of_request(&error).on(GrpcStatus::request_lost(&error))
             })?;
             answered.mark();
             // A response whose head ended it: the Trailers-Only shape, or an HTTP error with no body.
@@ -1073,7 +1077,7 @@ fn worded(status: GrpcStatus) -> tonic::Status {
 }
 
 fn broke(error: hyper::Error) -> tonic::Status {
-    worded(GrpcStatus::stream_broke(&error))
+    Failure::of(Origin::Broke).on(GrpcStatus::stream_broke(&error))
 }
 
 /// The response body as tonic's decoder reads it, with the checks tonic does not make.
@@ -1225,6 +1229,9 @@ impl Body for ResponseBody {
             ))));
         }
         trailers.remove(GRPC_STATUS_DETAILS);
+        if trailers.contains_key("grpc-status") {
+            this.answered.mark_stated();
+        }
         Poll::Ready(Some(Ok(Frame::trailers(trailers))))
     }
 
@@ -1245,21 +1252,30 @@ impl Body for ResponseBody {
 fn refuse_what_is_not_grpc(response: &http::Response<Incoming>) -> Result<(), tonic::Status> {
     let headers = response.headers();
     let status = response.status();
+    let from = |mut refused: tonic::Status, origin| {
+        refused.set_source(Arc::new(Failure::of(origin)));
+        refused
+    };
     if status != StatusCode::OK {
-        return Err(tonic::Status::from_header_map(headers).unwrap_or_else(|| {
-            tonic::Status::with_metadata(
-                http_code(status),
-                format!(
-                    "the peer answered HTTP {} rather than gRPC",
-                    status.as_u16()
+        return Err(match tonic::Status::from_header_map(headers) {
+            Some(stated) => from(stated, Origin::Server),
+            None => from(
+                tonic::Status::with_metadata(
+                    http_code(status),
+                    format!(
+                        "the peer answered HTTP {} rather than gRPC",
+                        status.as_u16()
+                    ),
+                    MetadataMap::from_headers(headers.clone()),
                 ),
-                MetadataMap::from_headers(headers.clone()),
-            )
-        }));
+                Origin::Http(status),
+            ),
+        });
     }
     if !speaks_grpc(headers) {
-        return Err(tonic::Status::internal(
-            "the peer answered HTTP 200 without a gRPC content type",
+        return Err(from(
+            tonic::Status::internal("the peer answered HTTP 200 without a gRPC content type"),
+            Origin::Http(status),
         ));
     }
     Ok(())
@@ -1305,6 +1321,7 @@ async fn refuse_a_message_behind_a_stated_status(
         }
     }
     answered.mark_ended();
+    answered.mark_stated();
     Ok(response)
 }
 

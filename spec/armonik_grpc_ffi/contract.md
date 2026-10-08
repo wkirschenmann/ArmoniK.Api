@@ -239,7 +239,7 @@ pub struct RetryConfig {
     pub initial_backoff: Duration,
     pub max_backoff: Duration,
     pub backoff_multiplier: f64,
-    pub retryable_codes: Vec<GrpcStatusCode>,
+    pub retryable_codes: Vec<GrpcStatusCode>, // default: UNAVAILABLE alone; RetryConfig::grpc_client() has the three of GrpcClient
     pub call_replay_bytes: usize,    // what one call keeps for a replay, whatever it sends
     pub channel_replay_bytes: usize, // what every call of the channel keeps together
 }
@@ -437,7 +437,16 @@ under it, goes again the same way, also once a call: A6 allows until the deadlin
 with none would turn into a loop of dials. Both replay what the call kept, so a call with no policy,
 which keeps none, goes again only if it had sent nothing. Not specified yet: the per-channel
 retry throttle, which A6 makes optional. The policy is the channel's for every
-method, as `GrpcClient` configures it, where gRPC would allow one per method.
+method, as `GrpcClient` configures it, where gRPC would allow one per method; its codes are
+`UNAVAILABLE` unless `Grpc.Retry.Codes` says otherwise, and `GrpcClient`'s three are its `GrpcClient`
+preset.
+
+**Where an attempt ended.** Several origins share one code: `UNAVAILABLE` is the server's own, a
+proxy's 503, a dial that failed, a refused stream and a GOAWAY. So each attempt that goes out and
+fails carries its `Origin` beside its status (see its documentation), and the `Pushback` its server
+stated, which is read after the head too. A stream a GOAWAY named as processed ends with the
+connection's own error, and its origin is the connection's. A caller sees nothing of it: the
+origin is logged at `debug` and told to a test by `hooks::on_attempt`.
 
 ---
 

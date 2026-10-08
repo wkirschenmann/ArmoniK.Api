@@ -5,11 +5,26 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use crate::grpc::{GrpcStatusCode, Origin, Pushback};
+
 /// What a hook runs on the thread that reaches it.
 pub type Hook = Arc<dyn Fn() + Send + Sync>;
 
+/// An attempt that went out and ended: where its end came from, its code, and what its server
+/// said of a retry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attempt {
+    pub origin: Origin,
+    pub code: GrpcStatusCode,
+    pub pushback: Pushback,
+}
+
+/// What a hook runs on the thread that ends an attempt.
+pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
+
 static IN_DRIVER: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
+static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
 
@@ -41,6 +56,27 @@ pub fn in_driver(hook: Option<Hook>) {
 /// Runs `hook` at the start of every dial, before the connection is opened. `None` removes it.
 pub fn in_dial(hook: Option<Hook>) {
     set(&IN_DIAL, hook);
+}
+
+/// Runs `hook` at the end of every attempt that went out, a call's first, a retry or a resend. An
+/// attempt skipped for want of a turn went nowhere, and one the call's deadline cuts short is not
+/// told. `None` removes it.
+pub fn on_attempt(hook: Option<AttemptHook>) {
+    *ON_ATTEMPT.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+pub(crate) fn attempt_ended(origin: &Origin, code: GrpcStatusCode, pushback: Pushback) {
+    let hook = ON_ATTEMPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if let Some(hook) = hook {
+        hook(&Attempt {
+            origin: origin.clone(),
+            code,
+            pushback,
+        });
+    }
 }
 
 pub(crate) fn run_in_driver() {

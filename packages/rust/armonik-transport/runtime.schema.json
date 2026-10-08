@@ -587,12 +587,12 @@
           "minimum": 0.0
         },
         "Retry": {
-          "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
+          "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.\nA call its peer never processed goes again besides, whatever `MaxAttempts` is, while every\nmessage it sent is kept.",
           "$ref": "#/$defs/RetryOptions"
         },
-        "RateLimit": {
-          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
-          "$ref": "#/$defs/RateLimitOptions"
+        "Rate": {
+          "description": "How fast the channel starts calls.\n\nDefaults to `{}`, which sets no limit: requests start as they are made.",
+          "$ref": "#/$defs/RateOptions"
         },
         "Send": {
           "description": "What a call sends to the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -610,7 +610,7 @@
       "additionalProperties": false
     },
     "RetryOptions": {
-      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached\nthe reader and what the call sent is still kept for the replay.",
+      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the\nreader and what the call sent is still kept for the replay.",
       "type": "object",
       "properties": {
         "MaxAttempts": {
@@ -629,6 +629,10 @@
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         },
+        "Codes": {
+          "description": "The statuses a call is tried again for.\n\nDefaults to `{\"GoogleRpc\": true}`: UNAVAILABLE alone.",
+          "$ref": "#/$defs/RetryCodes"
+        },
         "BackoffMultiplier": {
           "description": "What each bound is multiplied by; 1 retries at a fixed bound.\n\nDefaults to 1.5.",
           "type": "number",
@@ -646,6 +650,149 @@
           "type": "integer",
           "format": "int32",
           "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetryCodes": {
+      "description": "The statuses a call is tried again for.",
+      "oneOf": [
+        {
+          "description": "UNAVAILABLE alone, which is what `google.rpc.Code` advises for retrying the same call.\n\nABORTED is for the caller to start its unit of work again, not to repeat the call, and\nUNKNOWN is a status from an error space the client does not know.",
+          "type": "object",
+          "properties": {
+            "GoogleRpc": {
+              "const": true
+            }
+          },
+          "required": [
+            "GoogleRpc"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.",
+          "type": "object",
+          "properties": {
+            "GrpcClient": {
+              "const": true
+            }
+          },
+          "required": [
+            "GrpcClient"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least\none is needed, and a channel with none is refused when it is created: set `MaxAttempts` to\n1 to retry nothing. `OK` is not a status a call fails with.",
+          "type": "object",
+          "properties": {
+            "List": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RetryableStatus"
+              }
+            }
+          },
+          "required": [
+            "List"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "RetryableStatus": {
+      "description": "The name of a gRPC status a call may fail with, as gRFC A6 spells it.",
+      "oneOf": [
+        {
+          "description": "The call was cancelled, which a retry would undo.",
+          "type": "string",
+          "const": "CANCELLED"
+        },
+        {
+          "description": "A status from an error space the client does not know, or an error with no status.",
+          "type": "string",
+          "const": "UNKNOWN"
+        },
+        {
+          "description": "The request is wrong whatever the state of the server.",
+          "type": "string",
+          "const": "INVALID_ARGUMENT"
+        },
+        {
+          "description": "The deadline passed before the call ended.",
+          "type": "string",
+          "const": "DEADLINE_EXCEEDED"
+        },
+        {
+          "description": "Something the request names does not exist.",
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "description": "Something the request creates exists already.",
+          "type": "string",
+          "const": "ALREADY_EXISTS"
+        },
+        {
+          "description": "The caller may not do this.",
+          "type": "string",
+          "const": "PERMISSION_DENIED"
+        },
+        {
+          "description": "A quota or a resource is exhausted.",
+          "type": "string",
+          "const": "RESOURCE_EXHAUSTED"
+        },
+        {
+          "description": "The system is not in the state the request needs.",
+          "type": "string",
+          "const": "FAILED_PRECONDITION"
+        },
+        {
+          "description": "A conflict, such as a failed sequencer check or a transaction abort.",
+          "type": "string",
+          "const": "ABORTED"
+        },
+        {
+          "description": "The request is past a valid range.",
+          "type": "string",
+          "const": "OUT_OF_RANGE"
+        },
+        {
+          "description": "The server does not implement the method.",
+          "type": "string",
+          "const": "UNIMPLEMENTED"
+        },
+        {
+          "description": "An invariant of the server is broken.",
+          "type": "string",
+          "const": "INTERNAL"
+        },
+        {
+          "description": "The service is unavailable, which is transient.",
+          "type": "string",
+          "const": "UNAVAILABLE"
+        },
+        {
+          "description": "Data is lost or corrupt.",
+          "type": "string",
+          "const": "DATA_LOSS"
+        },
+        {
+          "description": "The request has no valid credentials.",
+          "type": "string",
+          "const": "UNAUTHENTICATED"
+        }
+      ]
+    },
+    "RateOptions": {
+      "description": "How fast a channel starts calls.",
+      "type": "object",
+      "properties": {
+        "Limit": {
+          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
+          "$ref": "#/$defs/RateLimitOptions"
         }
       },
       "additionalProperties": false

@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 using NUnit.Framework;
@@ -151,6 +152,86 @@ public class ChannelOptionsTests
                    Throws.TypeOf<ArgumentOutOfRangeException>()
                          .With.Message.Contains("ConnectTimeoutSeconds"));
 
+  private static ChannelOptions Retrying(RetryCodes codes)
+    => new()
+       {
+         Grpc = new GrpcOptions
+                {
+                  Retry = new RetryOptions
+                          {
+                            Codes = codes,
+                          },
+                },
+       };
+
+  /// <summary>The retryable statuses are an alternative: a preset names its set, and a list names each status.</summary>
+  [Test]
+  public void TheRetryCodesAreWrittenAsTheAlternativeThatIsChosen()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Encoded(Retrying(new RetryCodes.GoogleRpc())),
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GoogleRpc"":true}}}}"));
+                         Assert.That(Encoded(Retrying(new RetryCodes.GrpcClient())),
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GrpcClient"":true}}}}"));
+                         Assert.That(Encoded(Retrying(new RetryCodes.List(new[]
+                                                                          {
+                                                                            RetryableStatus.UNAVAILABLE,
+                                                                            RetryableStatus.DEADLINE_EXCEEDED,
+                                                                          }))),
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""List"":[""UNAVAILABLE"",""DEADLINE_EXCEEDED""]}}}}"));
+                       });
+
+  /// <summary>A list of statuses is a value: equal to one that names the same, and a copy of what it was given.</summary>
+  [Test]
+  public void AListOfRetryableStatusesIsAValueAndKeepsWhatItWasGiven()
+  {
+    var given = new List<RetryableStatus>
+                {
+                  RetryableStatus.ABORTED,
+                };
+    var list = new RetryCodes.List(given);
+    given.Add(RetryableStatus.UNKNOWN);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(list.Value,
+                                  Is.EqualTo(new[]
+                                             {
+                                               RetryableStatus.ABORTED,
+                                             }),
+                                  "the record holds its own copy");
+                      Assert.That(list,
+                                  Is.EqualTo(new RetryCodes.List(new[]
+                                                                 {
+                                                                   RetryableStatus.ABORTED,
+                                                                 })));
+                      Assert.That(list.GetHashCode(),
+                                  Is.EqualTo(new RetryCodes.List(new[]
+                                                                 {
+                                                                   RetryableStatus.ABORTED,
+                                                                 }).GetHashCode()));
+                      Assert.That(list,
+                                  Is.Not.EqualTo(new RetryCodes.List(new[]
+                                                                     {
+                                                                       RetryableStatus.UNKNOWN,
+                                                                     })));
+                      Assert.That(list.ToString(),
+                                  Does.Contain("[ABORTED]"));
+                      Assert.That(() => new RetryCodes.List(null!),
+                                  Throws.TypeOf<ArgumentNullException>());
+                    });
+  }
+
+  /// <summary>A number that is no status is refused before it is sent.</summary>
+  [Test]
+  public void ARetryListOfAnUndefinedStatusIsRefusedBeforeItIsSent()
+    => Assert.That(() => Retrying(new RetryCodes.List(new[]
+                                                      {
+                                                        (RetryableStatus)99,
+                                                      })).Encode(),
+                   Throws.TypeOf<ArgumentOutOfRangeException>()
+                         .With.Message.Contains("RetryableStatus"));
+
   /// <summary>A rate limit is two options of one group, written under the channel's calls.</summary>
   [Test]
   public void ARateLimitIsAGroupOfTwoOptions()
@@ -158,14 +239,17 @@ public class ChannelOptionsTests
                            {
                              Grpc = new GrpcOptions
                                     {
-                                      RateLimit = new RateLimitOptions
-                                                  {
-                                                    Calls      = 100,
-                                                    PerSeconds = 0.25,
-                                                  },
+                                      Rate = new RateOptions
+                                             {
+                                               Limit = new RateLimitOptions
+                                                       {
+                                                         Calls      = 100,
+                                                         PerSeconds = 0.25,
+                                                       },
+                                             },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""RateLimit"":{""Calls"":100,""PerSeconds"":0.25}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Rate"":{""Limit"":{""Calls"":100,""PerSeconds"":0.25}}}}"));
 
   /// <summary>A zero is how an option turns off what an earlier source set, and it is sent as the zero it is.</summary>
   [Test]
@@ -188,10 +272,13 @@ public class ChannelOptionsTests
                     Grpc = new GrpcOptions
                            {
                              DefaultDeadlineSeconds = 0,
-                             RateLimit = new RateLimitOptions
-                                         {
-                                           Calls = 0,
-                                         },
+                             Rate = new RateOptions
+                                    {
+                                      Limit = new RateLimitOptions
+                                              {
+                                                Calls = 0,
+                                              },
+                                    },
                            },
                   };
 
@@ -221,11 +308,14 @@ public class ChannelOptionsTests
                          {
                            Grpc = new GrpcOptions
                                   {
-                                    RateLimit = new RateLimitOptions
-                                                {
-                                                  Calls      = calls,
-                                                  PerSeconds = perSeconds,
-                                                },
+                                    Rate = new RateOptions
+                                           {
+                                             Limit = new RateLimitOptions
+                                                     {
+                                                       Calls      = calls,
+                                                       PerSeconds = perSeconds,
+                                                     },
+                                           },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()

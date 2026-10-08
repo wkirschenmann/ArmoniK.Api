@@ -778,39 +778,70 @@ mod tests {
     }
 
     #[test]
+    fn the_retry_codes_reach_the_engine_and_a_list_naming_none_is_refused() {
+        use armonik_transport::grpc::GrpcStatusCode;
+
+        let codes = |document: &[u8]| {
+            config_of(document)
+                .retry
+                .expect("a retry policy")
+                .retryable_codes
+        };
+        assert_eq!(codes(b"{}"), [GrpcStatusCode::Unavailable]);
+        assert_eq!(
+            codes(br#"{"Grpc":{"Retry":{"Codes":{"GrpcClient":true}}}}"#),
+            [
+                GrpcStatusCode::Unavailable,
+                GrpcStatusCode::Aborted,
+                GrpcStatusCode::Unknown
+            ]
+        );
+        assert_eq!(
+            codes(br#"{"Grpc":{"Retry":{"Codes":{"List":["ABORTED"]}}}}"#),
+            [GrpcStatusCode::Aborted]
+        );
+
+        let refused = parse(br#"{"Grpc":{"Retry":{"Codes":{"List":[]}}}}"#)
+            .err()
+            .expect("refused")
+            .to_string();
+        assert!(refused.starts_with("Grpc.Retry.Codes.List"), "{refused}");
+    }
+
+    #[test]
     fn the_rate_limit_reaches_the_engine_and_a_limit_that_starts_nothing_is_refused() {
         assert_eq!(config_of(b"{}").rate_limit, None);
         assert_eq!(
-            config_of(br#"{"Grpc":{"RateLimit":{"Calls":100,"PerSeconds":0.25}}}"#).rate_limit,
+            config_of(br#"{"Grpc":{"Rate":{"Limit":{"Calls":100,"PerSeconds":0.25}}}}"#).rate_limit,
             Some(RateLimitConfig::new(100, Duration::from_millis(250)))
         );
 
         // Zero calls states no limit, over one an earlier source set, whatever else is stated.
         assert_eq!(
-            config_of(br#"{"Grpc":{"RateLimit":{"Calls":0,"PerSeconds":1}}}"#).rate_limit,
+            config_of(br#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":1}}}}"#).rate_limit,
             None
         );
         assert_eq!(
-            config_of(br#"{"Grpc":{"RateLimit":{"Calls":0}}}"#).rate_limit,
+            config_of(br#"{"Grpc":{"Rate":{"Limit":{"Calls":0}}}}"#).rate_limit,
             None
         );
 
         for (document, key) in [
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":-1,"PerSeconds":1}}}"#[..],
-                "Grpc.RateLimit.Calls",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":-1,"PerSeconds":1}}}}"#[..],
+                "Grpc.Rate.Limit.Calls",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":1,"PerSeconds":0}}}"#[..],
-                "Grpc.RateLimit.PerSeconds",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1,"PerSeconds":0}}}}"#[..],
+                "Grpc.Rate.Limit.PerSeconds",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"Calls":1}}}"#[..],
-                "Grpc.RateLimit.PerSeconds",
+                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1}}}}"#[..],
+                "Grpc.Rate.Limit.PerSeconds",
             ),
             (
-                &br#"{"Grpc":{"RateLimit":{"PerSeconds":1}}}"#[..],
-                "Grpc.RateLimit.Calls",
+                &br#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#[..],
+                "Grpc.Rate.Limit.Calls",
             ),
         ] {
             let refused = parse(document).err().expect("refused").to_string();

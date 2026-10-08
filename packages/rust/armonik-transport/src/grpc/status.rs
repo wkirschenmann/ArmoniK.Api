@@ -3,6 +3,7 @@ use http::header::HeaderMap;
 use tonic::Code;
 
 use super::metadata::Metadata;
+use super::origin::Origin;
 
 /// The code a gRPC status carries. `tonic::Code` is that set, and redeclaring it here would only
 /// be a second spelling of the same seventeen values.
@@ -114,32 +115,32 @@ fn reset_reason(error: &hyper::Error) -> Option<h2::Reason> {
     h2.reason().filter(|_| !(h2.is_go_away() && h2.is_remote()))
 }
 
-/// The source of a status whose request the peer's application never saw.
+/// How a request its peer's application never saw was not seen.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Unprocessed {
     /// hyper dropped it before sending it, its connection closing under it.
     Unsent,
-    /// The peer's HTTP/2 layer refused the stream, or its GOAWAY left the stream unprocessed.
-    Refused,
+    /// The peer's HTTP/2 layer refused the stream, with REFUSED_STREAM.
+    RefusedStream,
+    /// The peer's GOAWAY left the stream unprocessed.
+    GoAway,
 }
 
 impl Unprocessed {
-    pub(crate) fn of(error: &hyper::Error) -> Option<Self> {
-        if error.is_canceled() {
-            return Some(Self::Unsent);
+    /// What an origin says of whether the peer's application saw the request.
+    ///
+    /// h2 gives a stream the peer's GOAWAY as its error only when the stream is past the last one
+    /// that GOAWAY says it processes, or opened after it; a stream it processes ends on whatever
+    /// closes the connection.
+    pub(crate) fn of(origin: &Origin) -> Option<Self> {
+        match origin {
+            Origin::Unsent => Some(Self::Unsent),
+            Origin::Reset(reason) if *reason == h2::Reason::REFUSED_STREAM => {
+                Some(Self::RefusedStream)
+            }
+            Origin::GoAway => Some(Self::GoAway),
+            _ => None,
         }
-        let h2 = h2_error(error)?;
-        let refused = h2.is_reset() && h2.reason() == Some(h2::Reason::REFUSED_STREAM);
-        // h2 gives a stream the peer's GOAWAY as its error only when the stream is past the last
-        // one that GOAWAY says it processes, or opened after it; a stream it processes ends on
-        // whatever closes the connection.
-        (h2.is_remote() && (h2.is_go_away() || refused)).then_some(Self::Refused)
-    }
-
-    pub(crate) fn marked(status: &tonic::Status) -> Option<Self> {
-        std::error::Error::source(status)?
-            .downcast_ref::<Self>()
-            .copied()
     }
 }
 
@@ -147,12 +148,81 @@ impl std::fmt::Display for Unprocessed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Unsent => "the request was never sent",
-            Self::Refused => "the peer did not process the request",
+            Self::RefusedStream => "the peer refused the stream",
+            Self::GoAway => "the peer's GOAWAY left the request unprocessed",
         })
     }
 }
 
-impl std::error::Error for Unprocessed {}
+/// What a status that did not come from the server's trailers carries beside its code, as the
+/// source of the `tonic::Status` it travels in: where the attempt ended, and whether its peer's
+/// application ever saw the request.
+#[derive(Clone, Debug)]
+pub(crate) struct Failure {
+    pub(crate) origin: Origin,
+    pub(crate) unprocessed: Option<Unprocessed>,
+}
+
+impl Failure {
+    pub(crate) fn of(origin: Origin) -> Self {
+        Self {
+            origin,
+            unprocessed: None,
+        }
+    }
+
+    /// The failure of a request hyper could not send or lost.
+    pub(crate) fn of_request(error: &hyper::Error) -> Self {
+        let origin = Origin::of_request(error);
+        Self {
+            unprocessed: Unprocessed::of(&origin),
+            origin,
+        }
+    }
+
+    pub(crate) fn marked(status: &tonic::Status) -> Option<Self> {
+        std::error::Error::source(status)?
+            .downcast_ref::<Self>()
+            .cloned()
+    }
+
+    /// The status, in the type tonic's client carries it in, marked with this failure.
+    pub(crate) fn on(self, status: GrpcStatus) -> tonic::Status {
+        let mut status = tonic::Status::new(status.code, status.message);
+        status.set_source(std::sync::Arc::new(self));
+        status
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.origin.describe())?;
+        match self.unprocessed {
+            Some(unprocessed) => write!(f, ": {unprocessed}"),
+            None => Ok(()),
+        }
+    }
+}
+
+impl std::error::Error for Failure {}
+
+impl Origin {
+    /// Where the loss of a request came from, read off the hyper error.
+    ///
+    /// The peer's GOAWAY is its own origin, apart from a reset: it ends every stream past the last
+    /// one it processes, whatever the reason it gives. A reset is the peer's. What ends with no
+    /// reason, or with a protocol error this side detected, is the connection.
+    pub(crate) fn of_request(error: &hyper::Error) -> Self {
+        if error.is_canceled() {
+            return Self::Unsent;
+        }
+        match h2_error(error) {
+            Some(h2) if h2.is_remote() && h2.is_go_away() => Self::GoAway,
+            Some(h2) if h2.is_remote() => h2.reason().map_or(Self::Connection, Self::Reset),
+            _ => Self::Connection,
+        }
+    }
+}
 
 /// hyper's error and the h2 error behind it: hyper's own says only "http2 error", and a reason
 /// the code does not carry is read nowhere else.
@@ -199,7 +269,7 @@ mod tests {
     /// cancelled.
     #[tokio::test]
     async fn a_request_no_connection_took_is_unsent() {
-        use super::Unprocessed;
+        use super::{Origin, Unprocessed};
         use hyper_util::rt::{TokioExecutor, TokioIo};
 
         let (io, _peer) = tokio::io::duplex(4096);
@@ -214,11 +284,32 @@ mod tests {
             ))
             .await
             .expect_err("no connection to take it");
+        let origin = Origin::of_request(&error);
+        assert_eq!(origin, Origin::Unsent, "{error}");
         assert_eq!(
-            Unprocessed::of(&error),
+            Unprocessed::of(&origin),
             Some(Unprocessed::Unsent),
             "{error}"
         );
+    }
+
+    /// The failure rides as the source of the status tonic carries, and a status the engine did not
+    /// mark has none.
+    #[test]
+    fn a_failure_travels_as_the_source_of_a_status() {
+        use super::{Failure, GrpcStatus, GrpcStatusCode, Origin, Unprocessed};
+
+        let status = Failure {
+            origin: Origin::Dial,
+            unprocessed: Some(Unprocessed::GoAway),
+        }
+        .on(GrpcStatus::new(GrpcStatusCode::Unavailable, "no dial"));
+
+        let read = Failure::marked(&status).expect("marked");
+        assert_eq!(read.origin, Origin::Dial);
+        assert_eq!(read.unprocessed, Some(Unprocessed::GoAway));
+        assert_eq!(status.code(), tonic::Code::Unavailable);
+        assert!(Failure::marked(&tonic::Status::unavailable("no mark")).is_none());
     }
 
     /// The table, reason by reason, without a `hyper::Error` - which has no public constructor,
