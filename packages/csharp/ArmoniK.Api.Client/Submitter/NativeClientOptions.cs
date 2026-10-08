@@ -92,16 +92,22 @@ namespace ArmoniK.Api.Client.Submitter
       }
 
       // A span that is not positive, the infinite one included, is none, which the engine reads as
-      // zero: stated, it turns off what the sources below set, as left out it would leave it.
+      // zero: set, it turns off what the sources below set, as left out it would leave it. The
+      // keepalive counts whole seconds, rounded up so that a positive span is never zero.
       var keepalive = new TcpKeepaliveOptions();
       if (Stated(nameof(GrpcClient.KeepAliveTime)))
       {
-        keepalive.IdleSeconds = Seconds(options.KeepAliveTime);
+        keepalive.IdleSeconds = Positive(options.KeepAliveTime)
+                                  ? WholeSeconds(options.KeepAliveTime)
+                                  : 0;
       }
 
-      if (Stated(nameof(GrpcClient.KeepAliveTimeInterval)) && Positive(options.KeepAliveTimeInterval))
+      // The interval is sent as it is set, whatever it is, so that the engine refuses one it cannot
+      // honour when the channel is created, naming the key. A keepalive that is off reads none of
+      // it, and an interval that is not positive beside it is what a caller turning it off writes.
+      if (Stated(nameof(GrpcClient.KeepAliveTimeInterval)) && (Positive(options.KeepAliveTimeInterval) || Positive(options.KeepAliveTime)))
       {
-        keepalive.IntervalSeconds = options.KeepAliveTimeInterval.TotalSeconds;
+        keepalive.IntervalSeconds = WholeSeconds(options.KeepAliveTimeInterval);
       }
 
       if (keepalive.IdleSeconds is not null || keepalive.IntervalSeconds is not null)
@@ -130,38 +136,16 @@ namespace ArmoniK.Api.Client.Submitter
         retry.MaxAttempts = options.MaxAttempts;
       }
 
-      // Each bound when it is stated. The engine refuses a maximum below the initial one, though,
-      // so the bound that is not stated is sent too when the other would pass it: grpc-dotnet draws
-      // its first delay up to the initial backoff and caps the later ones at the maximum, so a
-      // maximum below the initial one is raised to it, and an initial one above a stated maximum is
-      // lowered to it.
-      var initial = options.InitialBackOff.TotalSeconds;
-      var maximum = options.MaxBackOff.TotalSeconds;
-      var initialStated = Stated(nameof(GrpcClient.InitialBackOff));
-      var maximumStated = Stated(nameof(GrpcClient.MaxBackOff));
-      if (initialStated)
+      // Only the bounds that are set: the engine checks the pair once the options are merged, and
+      // refuses an initial backoff above the maximum then, naming both keys.
+      if (Stated(nameof(GrpcClient.InitialBackOff)))
       {
-        retry.InitialBackoffSeconds = initial;
+        retry.InitialBackoffSeconds = options.InitialBackOff.TotalSeconds;
       }
 
-      if (maximumStated)
+      if (Stated(nameof(GrpcClient.MaxBackOff)))
       {
-        retry.MaxBackoffSeconds = initialStated
-                                    ? Math.Max(initial,
-                                               maximum)
-                                    : maximum;
-      }
-
-      if (initial > maximum)
-      {
-        if (initialStated && !maximumStated)
-        {
-          retry.MaxBackoffSeconds = initial;
-        }
-        else if (maximumStated && !initialStated)
-        {
-          retry.InitialBackoffSeconds = maximum;
-        }
+        retry.MaxBackoffSeconds = options.MaxBackOff.TotalSeconds;
       }
 
       if (Stated(nameof(GrpcClient.BackoffMultiplier)))
@@ -214,6 +198,12 @@ namespace ArmoniK.Api.Client.Submitter
 
     private static bool Positive(TimeSpan span)
       => span > TimeSpan.Zero;
+
+    // The whole seconds of a span, rounded up, and as the engine counts: a value out of its bounds is
+    // the engine's to refuse.
+    private static int WholeSeconds(TimeSpan span)
+      => (int)Math.Min(Math.Ceiling(span.TotalSeconds),
+                       int.MaxValue);
 
     // The seconds of a span, zero for one that is not positive: none.
     private static double Seconds(TimeSpan span)

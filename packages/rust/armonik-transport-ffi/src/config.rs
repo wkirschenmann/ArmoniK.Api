@@ -69,11 +69,12 @@ pub(crate) fn defaults(json: &[u8]) -> Result<Option<ChannelOptions>, ConfigRefu
     Ok(Some(options))
 }
 
-/// Refuses channel defaults a channel's own document would be refused for.
+/// Refuses channel defaults a channel's own document would be refused for, except for options
+/// that cannot hold together: a channel can still override those, so they are said in the log and
+/// the runtime is created.
 fn admit_defaults(options: &ChannelOptions) -> Result<(), ConfigRefusal> {
-    settle(options.clone())
-        .map(drop)
-        .map_err(|refused| ConfigRefusal::Defaults(Box::new(refused)))
+    ChannelSettings::settle_defaults(options.clone())
+        .map_err(|refused| ConfigRefusal::Defaults(Box::new(ConfigRefusal::Settled(refused))))
 }
 
 /// Loads a runtime's options from the sources a host listed, and refuses what the runtime could
@@ -190,8 +191,8 @@ const NOT_UTF8: Refusal = Refusal::fixed(
 
 /// Reads a channel's document over the runtime's defaults, as `ChannelOptions::over` merges
 /// them, and answers the settings and the options they were made from. A refusal the channel's
-/// document earns alone is the one reported, in its own terms; only one it does not is the
-/// merge's.
+/// document earns alone is the one reported, in its own terms; one it does not is the merge's, and
+/// so is an incoherence, whatever the document says alone.
 pub(crate) fn parse_effective(
     defaults: Option<&ChannelOptions>,
     json: &[u8],
@@ -207,8 +208,10 @@ pub(crate) fn parse_effective(
     match settle(merged.clone()) {
         Ok(settings) => Ok((settings, merged)),
         Err(refused) => Err(match settle(own) {
-            Err(alone) => alone,
-            Ok(_) => ConfigRefusal::Merged(Box::new(refused)),
+            // Options that cannot hold together are a fact of the merge: alone, a document may
+            // well lack what the defaults give it.
+            Err(alone) if !is_incoherence(&alone) => alone,
+            _ => ConfigRefusal::Merged(Box::new(refused)),
         }),
     }
 }
@@ -255,6 +258,13 @@ pub(crate) fn log_channel(
         options = ?options,
         "the channel's effective configuration"
     );
+}
+
+fn is_incoherence(refused: &ConfigRefusal) -> bool {
+    matches!(
+        refused,
+        ConfigRefusal::Settled(SettingRefusal::Incoherent(_))
+    )
 }
 
 /// A document read alone, as a channel with no runtime defaults reads it.
@@ -596,6 +606,15 @@ mod tests {
                 "/$defs/TcpKeepaliveOptions/properties/Retries/minimum",
                 r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
             ),
+            // Whole seconds, as the operating system counts them, and zero is none.
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
+            ),
+            (
+                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
+            ),
             (
                 "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
                 r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":N}}}}"#,
@@ -632,10 +651,6 @@ mod tests {
         }
         for (pointer, document) in [
             (
-                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
-            ),
-            (
                 "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
                 r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
             ),
@@ -661,14 +676,9 @@ mod tests {
             assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
         }
 
-        // These three state "none" as zero, which the schema's minimum is; what the engine admits
-        // above zero is its own bound, stated in the option's description.
+        // These two state "none" as zero, which the schema's minimum is; what the engine admits
+        // above zero is its own bound, a nanosecond, stated in the option's description.
         for (pointer, document, least) in [
-            (
-                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
-                1.0,
-            ),
             (
                 "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
                 r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
@@ -837,11 +847,11 @@ mod tests {
             ),
             (
                 &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1}}}}"#[..],
-                "Grpc.Rate.Limit.PerSeconds",
+                "Grpc.Rate.Limit.Calls and Grpc.Rate.Limit.PerSeconds are incoherent",
             ),
             (
                 &br#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#[..],
-                "Grpc.Rate.Limit.Calls",
+                "Grpc.Rate.Limit.Calls and Grpc.Rate.Limit.PerSeconds are incoherent",
             ),
         ] {
             let refused = parse(document).err().expect("refused").to_string();
@@ -905,6 +915,46 @@ mod tests {
 
         assert!(parse(br#"{"Grpc":{"Send":{"Compression":"Brotli"}}}"#).is_err());
         assert!(parse(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#).is_err());
+    }
+
+    /// `None` sends no compression, over an encoding the defaults state, and is no encoding to
+    /// accept.
+    #[test]
+    fn none_turns_the_send_compression_off_and_names_nothing_to_accept() {
+        let none = config_of(br#"{"Grpc":{"Send":{"Compression":"None"}}}"#);
+        assert_eq!(none.send_encoding, None);
+
+        let defaults =
+            defaults(br#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("valid defaults");
+        let kept = parse_over(defaults.as_ref(), b"{}").expect("the default's");
+        assert_eq!(
+            kept.into_channel_config("http://127.0.0.1:1".parse().expect("a uri"))
+                .send_encoding,
+            Some(Encoding::Gzip)
+        );
+        let off = parse_over(
+            defaults.as_ref(),
+            br#"{"Grpc":{"Send":{"Compression":"None"}}}"#,
+        )
+        .expect("None over Gzip");
+        assert_eq!(
+            off.into_channel_config("http://127.0.0.1:1".parse().expect("a uri"))
+                .send_encoding,
+            None
+        );
+
+        for document in [
+            &br#"{"Grpc":{"Receive":{"Compression":["None"]}}}"#[..],
+            &br#"{"Grpc":{"Receive":{"Compression":["Gzip","None"]}}}"#[..],
+        ] {
+            let refused = parse(document).err().expect("refused").to_string();
+            assert!(refused.starts_with("Grpc.Receive.Compression"), "{refused}");
+            assert!(refused.contains("identity is always accepted"), "{refused}");
+        }
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"Compression":[]}}}"#).accept_encodings,
+            vec![]
+        );
     }
 
     #[test]
@@ -1198,6 +1248,33 @@ mod tests {
             said.ends_with("once merged over the runtime's ChannelDefaults"),
             "{said}"
         );
+    }
+
+    /// Options that cannot hold together once merged are refused as the merge's, naming the merged
+    /// keys, whether or not the channel's document is incoherent alone; one the defaults complete
+    /// is admitted.
+    #[test]
+    fn incoherence_is_a_fact_of_the_merge() {
+        let incoherent =
+            defaults(br#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#).expect("a warning only");
+        // Incoherent alone and merged: refused as the merge's.
+        let Err(refused) = parse_over(incoherent.as_ref(), b"{}") else {
+            panic!("incoherent defaults kept by the channel are admitted");
+        };
+        let said = refused.to_string();
+        assert!(said.contains("Grpc.Rate.Limit.PerSeconds"), "{said}");
+        assert!(
+            said.ends_with("once merged over the runtime's ChannelDefaults"),
+            "{said}"
+        );
+        // A document that is incoherent alone and completed by the defaults is admitted.
+        let window = defaults(br#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":2}}}}"#).expect("valid");
+        assert!(parse(br#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#).is_err());
+        parse_over(
+            window.as_ref(),
+            br#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#,
+        )
+        .expect("completed");
     }
 
     /// Another alternative than the default's, stated by the channel, replaces it whole.

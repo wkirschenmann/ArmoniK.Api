@@ -893,41 +893,42 @@ impl std::fmt::Debug for Password {
 
 /// The socket's keepalive, off unless `IdleSeconds` is set.
 ///
-/// Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
+/// Each duration is a whole number of seconds, which is what the socket option holds.
 /// An `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then
-/// `IntervalSeconds` and `Retries` set nothing.
+/// `IntervalSeconds` and `Retries` are not read: they are what that source left.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TcpKeepaliveOptions {
-    /// How long the connection may be idle before the first probe, from a second to 32767, the
-    /// most Linux holds, or 0 for no keepalive.
+    /// How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
+    /// the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
     ///
     /// Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-    /// the option leaves that source's value, and a value between 0 and 1 is refused.
+    /// the option leaves that source's value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0, "maximum" = 32767.0))
+        schemars(with = "i32", range(min = 0, max = 32767))
     )]
-    pub idle_seconds: Option<Seconds>,
+    pub idle_seconds: Option<i32>,
 
-    /// How long between two probes, from a second to 32767. Defaults to the operating system's.
+    /// How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
+    /// system's.
     ///
-    /// Refused without `IdleSeconds`, and ignored when that is 0.
+    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
+        schemars(with = "i32", range(min = 1, max = 32767))
     )]
-    pub interval_seconds: Option<Seconds>,
+    pub interval_seconds: Option<i32>,
 
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
     ///
-    /// Refused without `IdleSeconds`, and ignored when that is 0.
+    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
     pub retries: Option<i32>,
@@ -1132,7 +1133,7 @@ pub struct RetryOptions {
     )]
     pub initial_backoff_seconds: Option<Seconds>,
 
-    /// What the bound grows to and no further; refused below `InitialBackoffSeconds`.
+    /// What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.
     ///
     /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1306,8 +1307,15 @@ impl RetryableStatus {
 }
 
 impl RetryOptions {
-    /// The policy these options name, each unset one at its default.
+    /// The policy these options name, each unset one at its default, refused where they are
+    /// incoherent.
     pub fn to_config(&self) -> Result<RetryConfig, OptionRefusal> {
+        coherently(self.convert())
+    }
+
+    /// The policy, and the incoherence instead of a refusal for it: the maximum backoff is then
+    /// raised to the initial one.
+    pub(crate) fn convert(&self) -> Converted<RetryConfig> {
         let defaults = RetryConfig::default();
         let count = |key: &str, asked: Option<i32>, least: i32, default: usize| match asked {
             None => Ok(default),
@@ -1324,13 +1332,15 @@ impl RetryOptions {
             None,
         )?
         .unwrap_or(defaults.initial_backoff);
-        let max_backoff = duration("MaxBackoffSeconds", self.max_backoff_seconds, 1e-9, None)?
+        let mut max_backoff = duration("MaxBackoffSeconds", self.max_backoff_seconds, 1e-9, None)?
             .unwrap_or(defaults.max_backoff);
+        let mut incoherent = Vec::new();
         if max_backoff < initial_backoff {
-            return Err(OptionRefusal::new(
-                "MaxBackoffSeconds",
-                "it is below InitialBackoffSeconds, the bound the backoff starts from",
+            incoherent.push(OptionRefusal::incoherent(
+                &["InitialBackoffSeconds", "MaxBackoffSeconds"],
+                "the initial backoff is above the maximum, which the backoff grows to and no further",
             ));
+            max_backoff = initial_backoff;
         }
         let backoff_multiplier = match self.backoff_multiplier {
             None => defaults.backoff_multiplier,
@@ -1346,7 +1356,7 @@ impl RetryOptions {
             None => defaults.retryable_codes.clone(),
             Some(codes) => codes.to_config()?,
         };
-        Ok(RetryConfig {
+        let config = RetryConfig {
             retryable_codes,
             max_attempts: count(
                 "MaxAttempts",
@@ -1370,7 +1380,8 @@ impl RetryOptions {
                 defaults.channel_replay_bytes,
             )?,
             ..defaults
-        })
+        };
+        Ok((config, incoherent))
     }
 }
 
@@ -1412,14 +1423,14 @@ pub struct RateOptions {
 pub struct RateLimitOptions {
     /// The requests that start in one window, or 0 for no limit, over one an earlier source set.
     ///
-    /// Refused without `PerSeconds`, unless it is 0, which ignores `PerSeconds`.
+    /// Incoherent without `PerSeconds`, unless it is 0, which leaves `PerSeconds` unread.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub calls: Option<i32>,
 
     /// How long a window lasts.
     ///
-    /// Refused without `Calls`, unless `Calls` is 0.
+    /// Incoherent without `Calls`, unless `Calls` is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -1429,32 +1440,38 @@ pub struct RateLimitOptions {
 }
 
 impl RateLimitOptions {
-    /// The limit these options name, none when they name none.
+    /// The limit these options name, none when they name none, refused where they are
+    /// incoherent.
     pub fn to_config(&self) -> Result<Option<RateLimitConfig>, OptionRefusal> {
-        if self.calls == Some(0) {
-            return Ok(None);
-        }
+        coherently(self.convert())
+    }
+
+    /// The limit, and the incoherence instead of a refusal for it: there is then no limit. Every
+    /// value stated is checked, whether or not it is read.
+    pub(crate) fn convert(&self) -> Converted<Option<RateLimitConfig>> {
         let calls = match self.calls {
             None => None,
-            Some(calls) if calls < 1 => {
+            Some(calls) if calls < 0 => {
                 return Err(OptionRefusal::new(
                     "Calls",
-                    format!("{calls} has to be at least 1"),
+                    format!("{calls} has to be at least 0"),
                 ))
             }
             Some(calls) => Some(calls as usize),
         };
         let per = duration("PerSeconds", self.per_seconds, 1e-9, None)?;
         match (calls, per) {
-            (Some(calls), Some(per)) => Ok(Some(RateLimitConfig::new(calls, per))),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err(OptionRefusal::new(
-                "PerSeconds",
-                "it is needed with Calls, which counts requests in a window of it",
-            )),
-            (None, Some(_)) => Err(OptionRefusal::new(
-                "Calls",
-                "it is needed with PerSeconds, the window it counts requests in",
+            // Zero calls is no limit, whatever window an earlier source stated: that window is
+            // unread, and not an incoherence.
+            (Some(0), _) => Ok((None, Vec::new())),
+            (Some(calls), Some(per)) => Ok((Some(RateLimitConfig::new(calls, per)), Vec::new())),
+            (None, None) => Ok((None, Vec::new())),
+            (Some(_), None) | (None, Some(_)) => Ok((
+                None,
+                vec![OptionRefusal::incoherent(
+                    &["Calls", "PerSeconds"],
+                    "a limit is the requests that start in a window, and one is stated without the other",
+                )],
             )),
         }
     }
@@ -1464,6 +1481,9 @@ impl RateLimitOptions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionRefusal {
     key: String,
+    /// The other keys of an incoherence, which names the options that cannot all hold.
+    with: Vec<String>,
+    incoherent: bool,
     why: String,
 }
 
@@ -1471,6 +1491,20 @@ impl OptionRefusal {
     fn new(key: &str, why: impl Into<String>) -> Self {
         Self {
             key: key.to_owned(),
+            with: Vec::new(),
+            incoherent: false,
+            why: why.into(),
+        }
+    }
+
+    /// Options that cannot all hold once the options are merged: each is valid, the set of them
+    /// is not. A channel's options with one are refused, and a runtime's defaults with one are
+    /// said, since a channel can still state another.
+    fn incoherent(keys: &[&str], why: impl Into<String>) -> Self {
+        Self {
+            key: keys[0].to_owned(),
+            with: keys[1..].iter().map(|key| (*key).to_owned()).collect(),
+            incoherent: true,
             why: why.into(),
         }
     }
@@ -1480,6 +1514,12 @@ impl OptionRefusal {
     pub fn under(self, unit: &str) -> Self {
         Self {
             key: format!("{unit}.{}", self.key),
+            with: self
+                .with
+                .into_iter()
+                .map(|key| format!("{unit}.{key}"))
+                .collect(),
+            incoherent: self.incoherent,
             why: self.why,
         }
     }
@@ -1487,11 +1527,52 @@ impl OptionRefusal {
     pub fn key(&self) -> &str {
         &self.key
     }
+
+    /// The keys the refusal names: one, or the several of an incoherence.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.key.as_str()).chain(self.with.iter().map(String::as_str))
+    }
+
+    /// Whether the options are each valid and cannot hold together, as opposed to one being wrong
+    /// by itself.
+    #[cfg(test)]
+    pub(crate) fn is_incoherence(&self) -> bool {
+        self.incoherent
+    }
 }
 
 impl std::fmt::Display for OptionRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} is refused: {}", self.key, self.why)
+        if self.incoherent {
+            let keys: Vec<&str> = self.keys().collect();
+            let (last, first) = keys.split_last().expect("an incoherence names its keys");
+            if first.is_empty() {
+                write!(f, "{last} is incoherent: {}", self.why)
+            } else {
+                write!(
+                    f,
+                    "{} and {last} are incoherent: {}",
+                    first.join(", "),
+                    self.why
+                )
+            }
+        } else {
+            write!(f, "{} is refused: {}", self.key, self.why)
+        }
+    }
+}
+
+/// What a unit's options became, and the incoherences among them. A unit that is incoherent still
+/// has a config, which leaves out or adjusts what cannot hold together, so that the caller may use
+/// it and say the incoherences.
+pub(crate) type Converted<C> = Result<(C, Vec<OptionRefusal>), OptionRefusal>;
+
+/// A conversion that has to be coherent: the first incoherence is the refusal.
+fn coherently<C>(converted: Converted<C>) -> Result<C, OptionRefusal> {
+    let (config, incoherent) = converted?;
+    match incoherent.into_iter().next() {
+        Some(first) => Err(first),
+        None => Ok(config),
     }
 }
 
@@ -1679,20 +1760,25 @@ impl TlsOptions {
 }
 
 impl TcpKeepaliveOptions {
+    /// The socket's keepalive these options name, refused where they are incoherent.
     pub fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
-        // Stated as zero, there is none and what goes with it is not read: the options a source
-        // set for a keepalive that a later one turns off.
-        if self.idle_seconds.is_some_and(is_off) {
-            return Ok(TcpConfig {
-                keepalive: None,
-                keepalive_interval: None,
-                keepalive_retries: None,
-            });
-        }
-        let keepalive = duration("IdleSeconds", self.idle_seconds, 1.0, Some(32767.0))?;
-        let keepalive_interval =
-            duration("IntervalSeconds", self.interval_seconds, 1.0, Some(32767.0))?;
-        let keepalive_retries = match self.retries {
+        coherently(self.convert())
+    }
+
+    /// The keepalive, and the incoherences instead of a refusal for them: the probes then stay
+    /// off. Every value stated is checked, whether or not it is read.
+    pub(crate) fn convert(&self) -> Converted<TcpConfig> {
+        let whole = |key: &str, asked: Option<i32>, least: i32, most: i32| match asked {
+            Some(seconds) if !(least..=most).contains(&seconds) => Err(OptionRefusal::new(
+                key,
+                format!("{seconds} has to be from {least} to {most}"),
+            )),
+            Some(seconds) => Ok(Some(u64::try_from(seconds).unwrap_or(0))),
+            None => Ok(None),
+        };
+        let idle = whole("IdleSeconds", self.idle_seconds, 0, 32767)?;
+        let interval = whole("IntervalSeconds", self.interval_seconds, 1, 32767)?;
+        let retries = match self.retries {
             None => None,
             Some(retries) if !(1..=127).contains(&retries) => {
                 return Err(OptionRefusal::new(
@@ -1702,25 +1788,43 @@ impl TcpKeepaliveOptions {
             }
             Some(retries) => Some(retries as u32),
         };
-        if keepalive.is_none() {
-            for (key, set) in [
-                ("IntervalSeconds", keepalive_interval.is_some()),
-                ("Retries", keepalive_retries.is_some()),
-            ] {
-                if set {
-                    return Err(OptionRefusal::new(
-                        key,
-                        "it needs IdleSeconds, without which the probes start at the operating \
-                         system's idle time",
-                    ));
+        let off = TcpConfig {
+            keepalive: None,
+            keepalive_interval: None,
+            keepalive_retries: None,
+        };
+        match idle {
+            // Zero is none, and the others are what an earlier source left: unread, and not an
+            // incoherence, since turning the keepalive off over a source that set them is what
+            // zero is for.
+            Some(0) => Ok((off, Vec::new())),
+            Some(seconds) => Ok((
+                TcpConfig {
+                    keepalive: Some(Duration::from_secs(seconds)),
+                    keepalive_interval: interval.map(Duration::from_secs),
+                    keepalive_retries: retries,
+                },
+                Vec::new(),
+            )),
+            None => {
+                let mut keys = vec!["IdleSeconds"];
+                if interval.is_some() {
+                    keys.push("IntervalSeconds");
                 }
+                if retries.is_some() {
+                    keys.push("Retries");
+                }
+                let incoherent = if keys.len() > 1 {
+                    vec![OptionRefusal::incoherent(
+                        &keys,
+                        "the probes start at the operating system's idle time without IdleSeconds",
+                    )]
+                } else {
+                    Vec::new()
+                };
+                Ok((off, incoherent))
             }
         }
-        Ok(TcpConfig {
-            keepalive,
-            keepalive_interval,
-            keepalive_retries,
-        })
     }
 }
 
@@ -1943,16 +2047,41 @@ pub enum MessageEncoding {
     Deflate,
     /// RFC 8878 Zstandard, `zstd` on the wire.
     Zstd,
+    /// No compression, `identity` on the wire: the messages go out as they are and no
+    /// `grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the
+    /// compression off. It names no encoding to accept, and a list of them refuses it.
+    None,
 }
 
 impl MessageEncoding {
-    /// The engine's encoding of the same name.
-    pub fn encoding(self) -> crate::grpc::Encoding {
+    /// The engine's encoding of the same name, none for `None`.
+    pub fn encoding(self) -> Option<crate::grpc::Encoding> {
         match self {
-            Self::Gzip => crate::grpc::Encoding::Gzip,
-            Self::Deflate => crate::grpc::Encoding::Deflate,
-            Self::Zstd => crate::grpc::Encoding::Zstd,
+            Self::Gzip => Some(crate::grpc::Encoding::Gzip),
+            Self::Deflate => Some(crate::grpc::Encoding::Deflate),
+            Self::Zstd => Some(crate::grpc::Encoding::Zstd),
+            Self::None => None,
         }
+    }
+}
+
+impl GrpcReceiveOptions {
+    /// The encodings this client accepts besides `identity`, in the order stated. `None` is
+    /// refused: `identity` is always accepted, and an empty list says that there is no other.
+    pub fn accepted_encodings(&self) -> Result<Vec<crate::grpc::Encoding>, OptionRefusal> {
+        self.compression
+            .iter()
+            .flatten()
+            .map(|encoding| {
+                encoding.encoding().ok_or_else(|| {
+                    OptionRefusal::new(
+                        "Compression",
+                        "None names no encoding to accept: identity is always accepted, and an \
+                         empty list accepts no other",
+                    )
+                })
+            })
+            .collect()
     }
 }
 
@@ -1983,7 +2112,8 @@ pub struct GrpcSendOptions {
     /// compress again. A call that reached a server which does not accept the encoding ends
     /// `UNIMPLEMENTED` and is not sent again.
     ///
-    /// Defaults to none, the messages going out as they are.
+    /// Defaults to none, the messages going out as they are, which `None` says too, over an
+    /// encoding an earlier source set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
     pub compression: Option<MessageEncoding>,
@@ -2009,7 +2139,8 @@ pub struct GrpcReceiveOptions {
     /// which it states as `grpc-accept-encoding` in the order given, `identity` last. A server
     /// may then compress what it sends, in the first of them that it knows. A name given twice
     /// counts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A
-    /// message compressed in an encoding that is not listed ends its call `INTERNAL`.
+    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is
+    /// refused here: `identity` is always accepted.
     ///
     /// Defaults to none, only `identity` being accepted, which an empty list says too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3196,24 +3327,32 @@ mod tests {
     #[test]
     fn a_unit_refusal_is_named_from_where_the_unit_is_embedded() {
         let refused = TcpKeepaliveOptions {
-            interval_seconds: Some(Seconds(5.0)),
+            interval_seconds: Some(5),
             ..TcpKeepaliveOptions::default()
         }
         .to_config()
         .expect_err("an interval with no keepalive")
         .under("Transport.TcpKeepalive");
-        assert_eq!(refused.key(), "Transport.TcpKeepalive.IntervalSeconds");
+        assert_eq!(refused.key(), "Transport.TcpKeepalive.IdleSeconds");
+        assert_eq!(
+            refused.keys().collect::<Vec<_>>(),
+            [
+                "Transport.TcpKeepalive.IdleSeconds",
+                "Transport.TcpKeepalive.IntervalSeconds"
+            ]
+        );
+        assert!(refused.is_incoherence());
         assert!(!refused.to_string().contains("  "), "{refused}");
         assert!(refused
             .to_string()
-            .starts_with("Transport.TcpKeepalive.IntervalSeconds"));
+            .starts_with("Transport.TcpKeepalive.IdleSeconds and "));
     }
 
     #[test]
     fn the_keepalive_options_become_the_socket_configuration() {
         let config = TcpKeepaliveOptions {
-            idle_seconds: Some(Seconds(30.0)),
-            interval_seconds: Some(Seconds(5.0)),
+            idle_seconds: Some(30),
+            interval_seconds: Some(5),
             retries: Some(3),
         }
         .to_config()
@@ -3224,7 +3363,7 @@ mod tests {
 
         for refused in [
             TcpKeepaliveOptions {
-                idle_seconds: Some(Seconds(0.5)),
+                idle_seconds: Some(-1),
                 ..TcpKeepaliveOptions::default()
             },
             TcpKeepaliveOptions {
@@ -3232,16 +3371,16 @@ mod tests {
                 ..TcpKeepaliveOptions::default()
             },
             TcpKeepaliveOptions {
-                idle_seconds: Some(Seconds(30.0)),
+                idle_seconds: Some(30),
                 retries: Some(0),
                 ..TcpKeepaliveOptions::default()
             },
             TcpKeepaliveOptions {
-                idle_seconds: Some(Seconds(32768.0)),
+                idle_seconds: Some(32768),
                 ..TcpKeepaliveOptions::default()
             },
             TcpKeepaliveOptions {
-                idle_seconds: Some(Seconds(30.0)),
+                idle_seconds: Some(30),
                 retries: Some(128),
                 ..TcpKeepaliveOptions::default()
             },
@@ -3257,8 +3396,8 @@ mod tests {
         let earlier = ChannelOptions {
             transport: TransportOptions {
                 tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(Seconds(30.0)),
-                    interval_seconds: Some(Seconds(5.0)),
+                    idle_seconds: Some(30),
+                    interval_seconds: Some(5),
                     retries: Some(3),
                 },
                 ..TransportOptions::default()
@@ -3282,7 +3421,7 @@ mod tests {
         let zeros = ChannelOptions {
             transport: TransportOptions {
                 tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(Seconds(0.0)),
+                    idle_seconds: Some(0),
                     ..TcpKeepaliveOptions::default()
                 },
                 ..TransportOptions::default()
@@ -3331,7 +3470,7 @@ mod tests {
     #[test]
     fn a_value_between_zero_and_the_least_an_option_admits_is_refused() {
         assert!(TcpKeepaliveOptions {
-            idle_seconds: Some(Seconds(0.5)),
+            idle_seconds: Some(-1),
             ..TcpKeepaliveOptions::default()
         }
         .to_config()
@@ -3356,7 +3495,7 @@ mod tests {
         .is_err());
         assert!(
             TcpKeepaliveOptions {
-                interval_seconds: Some(Seconds(5.0)),
+                interval_seconds: Some(5),
                 ..TcpKeepaliveOptions::default()
             }
             .to_config()
@@ -3413,7 +3552,7 @@ mod tests {
                     initial_backoff_seconds: Some(Seconds(10.0)),
                     ..RetryOptions::default()
                 },
-                "MaxBackoffSeconds",
+                "InitialBackoffSeconds",
             ),
             (
                 RetryOptions {
@@ -3713,7 +3852,7 @@ mod tests {
                     calls: Some(5),
                     per_seconds: None,
                 },
-                "PerSeconds",
+                "Calls",
             ),
             (
                 RateLimitOptions {
@@ -3952,13 +4091,22 @@ mod tests {
         assert_eq!(sending.grpc.receive.compression, None);
 
         for (name, encoding, wire) in [
-            ("Gzip", MessageEncoding::Gzip, crate::grpc::Encoding::Gzip),
+            (
+                "Gzip",
+                MessageEncoding::Gzip,
+                Some(crate::grpc::Encoding::Gzip),
+            ),
             (
                 "Deflate",
                 MessageEncoding::Deflate,
-                crate::grpc::Encoding::Deflate,
+                Some(crate::grpc::Encoding::Deflate),
             ),
-            ("Zstd", MessageEncoding::Zstd, crate::grpc::Encoding::Zstd),
+            (
+                "Zstd",
+                MessageEncoding::Zstd,
+                Some(crate::grpc::Encoding::Zstd),
+            ),
+            ("None", MessageEncoding::None, None),
         ] {
             let sends = read(&format!(
                 r#"{{"Grpc":{{"Send":{{"Compression":"{name}"}}}}}}"#

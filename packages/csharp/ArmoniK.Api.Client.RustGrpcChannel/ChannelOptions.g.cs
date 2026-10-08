@@ -784,9 +784,9 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
 
 /// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
 /// <remarks>
-///   Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
+///   Each duration is a whole number of seconds, which is what the socket option holds.
 ///   An <c>IdleSeconds</c> of 0 states that there is none, over what an earlier source set, and then
-///   <c>IntervalSeconds</c> and <c>Retries</c> set nothing.
+///   <c>IntervalSeconds</c> and <c>Retries</c> are not read: they are what that source left.
 /// </remarks>
 public sealed class TcpKeepaliveOptions
 {
@@ -811,28 +811,31 @@ public sealed class TcpKeepaliveOptions
   }
 
   /// <summary>
-  ///   How long the connection may be idle before the first probe, from a second to 32767, the
-  ///   most Linux holds, or 0 for no keepalive.
+  ///   How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
+  ///   the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
   /// </summary>
   /// <remarks>
   ///   Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-  ///   the option leaves that source's value, and a value between 0 and 1 is refused.
+  ///   the option leaves that source's value.
   /// </remarks>
   [JsonPropertyName("IdleSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? IdleSeconds { get; set; }
+  public int? IdleSeconds { get; set; }
 
-  /// <summary>How long between two probes, from a second to 32767. Defaults to the operating system's.</summary>
-  /// <remarks>Refused without <c>IdleSeconds</c>, and ignored when that is 0.</remarks>
+  /// <summary>
+  ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
+  ///   system's.
+  /// </summary>
+  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
   [JsonPropertyName("IntervalSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? IntervalSeconds { get; set; }
+  public int? IntervalSeconds { get; set; }
 
   /// <summary>
   ///   How many probes go unanswered before the connection is dropped, at most 127, the most
   ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
   /// </summary>
-  /// <remarks>Refused without <c>IdleSeconds</c>, and ignored when that is 0.</remarks>
+  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
   [JsonPropertyName("Retries")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? Retries { get; set; }
@@ -841,18 +844,18 @@ public sealed class TcpKeepaliveOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (IdleSeconds is double idleSeconds && (idleSeconds < 0 || idleSeconds > 32767 || idleSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleSeconds) || double.IsInfinity(idleSeconds)))
+    if (IdleSeconds is int idleSeconds && (idleSeconds < 0 || idleSeconds > 32767))
     {
       throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
                                             idleSeconds,
-                                            "IdleSeconds has to be at least 0 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
+                                            "IdleSeconds has to be at least 0 and at most 32767.");
     }
 
-    if (IntervalSeconds is double intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767 || intervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(intervalSeconds) || double.IsInfinity(intervalSeconds)))
+    if (IntervalSeconds is int intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767))
     {
       throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
                                             intervalSeconds,
-                                            "IntervalSeconds has to be at least 1 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
+                                            "IntervalSeconds has to be at least 1 and at most 32767.");
     }
 
     if (Retries is int retries && (retries < 1 || retries > 127))
@@ -1632,7 +1635,7 @@ public sealed class RetryOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? InitialBackoffSeconds { get; set; }
 
-  /// <summary>What the bound grows to and no further; refused below <c>InitialBackoffSeconds</c>.</summary>
+  /// <summary>What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.</summary>
   /// <remarks>Defaults to 5.</remarks>
   [JsonPropertyName("MaxBackoffSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2001,13 +2004,13 @@ public sealed class RateLimitOptions
   }
 
   /// <summary>The requests that start in one window, or 0 for no limit, over one an earlier source set.</summary>
-  /// <remarks>Refused without <c>PerSeconds</c>, unless it is 0, which ignores <c>PerSeconds</c>.</remarks>
+  /// <remarks>Incoherent without <c>PerSeconds</c>, unless it is 0, which leaves <c>PerSeconds</c> unread.</remarks>
   [JsonPropertyName("Calls")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? Calls { get; set; }
 
   /// <summary>How long a window lasts.</summary>
-  /// <remarks>Refused without <c>Calls</c>, unless <c>Calls</c> is 0.</remarks>
+  /// <remarks>Incoherent without <c>Calls</c>, unless <c>Calls</c> is 0.</remarks>
   [JsonPropertyName("PerSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? PerSeconds { get; set; }
@@ -2078,7 +2081,8 @@ public sealed class GrpcSendOptions
   ///   are, and the channel logs a warning once. A later response that lists it has the channel
   ///   compress again. A call that reached a server which does not accept the encoding ends
   ///   <c>UNIMPLEMENTED</c> and is not sent again.
-  ///   Defaults to none, the messages going out as they are.
+  ///   Defaults to none, the messages going out as they are, which <c>None</c> says too, over an
+  ///   encoding an earlier source set.
   /// </remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2119,6 +2123,13 @@ public enum MessageEncoding
 
   /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
   Zstd,
+
+  /// <summary>
+  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
+  ///   <c>grpc-encoding</c> is sent. Stated over an encoding an earlier source set, it turns the
+  ///   compression off. It names no encoding to accept, and a list of them refuses it.
+  /// </summary>
+  None,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -2160,7 +2171,8 @@ public sealed class GrpcReceiveOptions
   ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
   ///   may then compress what it sends, in the first of them that it knows. A name given twice
   ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
-  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>.
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>None</c> is
+  ///   refused here: <c>identity</c> is always accepted.
   /// </summary>
   /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]

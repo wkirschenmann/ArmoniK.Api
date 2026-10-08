@@ -36,11 +36,42 @@ pub struct ChannelSettings {
     proxy: ProxyConfig,
     retry: RetryConfig,
     rate_limit: Option<RateLimitConfig>,
+    accept_encodings: Vec<crate::grpc::Encoding>,
 }
 
 impl ChannelSettings {
-    /// Settles the options, refusing exactly what the schema refuses, and saying over which key.
+    /// Settles the options, refusing what the schema refuses, and saying over which key; `None` in
+    /// the list of encodings to accept is refused too.
+    ///
+    /// Options that cannot hold together are refused as well, naming each: a channel's options are
+    /// settled once they are merged, and then nothing can state another.
     pub fn settle(options: ChannelOptions) -> Result<Self, SettingRefusal> {
+        let (settled, incoherent) = Self::settle_leniently(options)?;
+        if incoherent.is_empty() {
+            Ok(settled)
+        } else {
+            Err(SettingRefusal::Incoherent(incoherent))
+        }
+    }
+
+    /// Admits the channel defaults of a runtime, which a channel's own options can still
+    /// override: a value wrong by itself is refused, and what cannot hold together is said in the
+    /// log, naming each key.
+    pub fn settle_defaults(options: ChannelOptions) -> Result<(), SettingRefusal> {
+        let (_, incoherent) = Self::settle_leniently(options)?;
+        for incoherence in &incoherent {
+            tracing::warn!(
+                "the channel defaults of the runtime are incoherent, which a channel can still \
+                 override: {incoherence}"
+            );
+        }
+        Ok(())
+    }
+
+    /// The settings, and what cannot hold together instead of a refusal for it.
+    fn settle_leniently(
+        options: ChannelOptions,
+    ) -> Result<(Self, Vec<OptionRefusal>), SettingRefusal> {
         let window = |key: &'static str, asked: Option<i32>| match asked {
             Some(value) if !(1..=LARGEST_WINDOW).contains(&value) => {
                 Err(SettingRefusal::Window { key, value })
@@ -110,11 +141,16 @@ impl ChannelSettings {
             .tls
             .load()
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.Tls")))?;
-        let tcp = options
+        let mut incoherent = Vec::new();
+        let mut converted = |found: Vec<OptionRefusal>, unit: &str| {
+            incoherent.extend(found.into_iter().map(|refused| refused.under(unit)));
+        };
+        let (tcp, found) = options
             .transport
             .tcp_keepalive
-            .to_config()
+            .convert()
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.TcpKeepalive")))?;
+        converted(found, "Transport.TcpKeepalive");
         let http2 = options
             .http2
             .to_config()
@@ -128,27 +164,37 @@ impl ChannelSettings {
                 ProxyOptions::to_config,
             )
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.Proxy")))?;
-        let retry = grpc
+        let (retry, found) = grpc
             .retry
-            .to_config()
+            .convert()
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
-        let rate_limit = grpc
+        converted(found, "Grpc.Retry");
+        let accept_encodings = grpc
+            .receive
+            .accepted_encodings()
+            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Receive")))?;
+        let (rate_limit, found) = grpc
             .rate
             .limit
-            .to_config()
+            .convert()
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Rate.Limit")))?;
+        converted(found, "Grpc.Rate.Limit");
 
-        Ok(Self {
-            options,
-            connect_timeout,
-            default_deadline,
-            tls,
-            tcp,
-            http2,
-            proxy,
-            retry,
-            rate_limit,
-        })
+        Ok((
+            Self {
+                options,
+                connect_timeout,
+                default_deadline,
+                tls,
+                tcp,
+                http2,
+                proxy,
+                retry,
+                rate_limit,
+                accept_encodings,
+            },
+            incoherent,
+        ))
     }
 
     /// How many of a call's payloads the host may hold at once.
@@ -196,15 +242,8 @@ impl ChannelSettings {
         if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
-        config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
-        config.accept_encodings = grpc
-            .receive
-            .compression
-            .iter()
-            .flatten()
-            .copied()
-            .map(MessageEncoding::encoding)
-            .collect();
+        config.send_encoding = grpc.send.compression.and_then(MessageEncoding::encoding);
+        config.accept_encodings = self.accept_encodings;
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }
@@ -231,6 +270,8 @@ pub enum SettingRefusal {
     Seconds { key: &'static str, seconds: f64 },
     /// An option of a unit the engine converts, a file it names included.
     Option(OptionRefusal),
+    /// Options that are each valid and cannot hold together, each incoherence naming its keys.
+    Incoherent(Vec<OptionRefusal>),
 }
 
 impl fmt::Display for SettingRefusal {
@@ -253,6 +294,15 @@ impl fmt::Display for SettingRefusal {
                 "{key} is {seconds}, and has to be at least 1e-9 and less than 2^64"
             ),
             Self::Option(refused) => refused.fmt(f),
+            Self::Incoherent(found) => {
+                for (index, refused) in found.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str("; ")?;
+                    }
+                    refused.fmt(f)?;
+                }
+                Ok(())
+            }
         }
     }
 }

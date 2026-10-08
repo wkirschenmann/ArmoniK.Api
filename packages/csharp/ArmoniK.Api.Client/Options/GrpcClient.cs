@@ -196,7 +196,8 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   KeepAliveTimeInterval is the interval at which the connection will be kept alive.
-    ///   The native transport ignores a value that is not positive.
+    ///   The native transport refuses a value that is not positive, when the channel is created, unless
+    ///   KeepAliveTime is not positive either, which turns the keepalive off.
     /// </summary>
     public TimeSpan KeepAliveTimeInterval
     {

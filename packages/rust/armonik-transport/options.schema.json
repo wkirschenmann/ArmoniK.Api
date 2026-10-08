@@ -289,23 +289,25 @@
       ]
     },
     "TcpKeepaliveOptions": {
-      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.\nAn `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then\n`IntervalSeconds` and `Retries` set nothing.",
+      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is a whole number of seconds, which is what the socket option holds.\nAn `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then\n`IntervalSeconds` and `Retries` are not read: they are what that source left.",
       "type": "object",
       "properties": {
         "IdleSeconds": {
-          "description": "How long the connection may be idle before the first probe, from a second to 32767, the\nmost Linux holds, or 0 for no keepalive.\n\nDefaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,\nthe option leaves that source's value, and a value between 0 and 1 is refused.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0,
-          "maximum": 32767.0
+          "description": "How many whole seconds the connection may be idle before the first probe, from 1 to 32767,\nthe most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.\n\nDefaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,\nthe option leaves that source's value.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0,
+          "maximum": 32767
         },
         "IntervalSeconds": {
-          "description": "How long between two probes, from a second to 32767. Defaults to the operating system's.\n\nRefused without `IdleSeconds`, and ignored when that is 0.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 1.0,
-          "maximum": 32767.0
+          "description": "How many whole seconds between two probes, from 1 to 32767. Defaults to the operating\nsystem's.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 32767
         },
         "Retries": {
-          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nRefused without `IdleSeconds`, and ignored when that is 0.",
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
@@ -593,7 +595,7 @@
           "minimum": 1e-9
         },
         "MaxBackoffSeconds": {
-          "description": "What the bound grows to and no further; refused below `InitialBackoffSeconds`.\n\nDefaults to 5.",
+          "description": "What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.\n\nDefaults to 5.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         },
@@ -770,13 +772,13 @@
       "type": "object",
       "properties": {
         "Calls": {
-          "description": "The requests that start in one window, or 0 for no limit, over one an earlier source set.\n\nRefused without `PerSeconds`, unless it is 0, which ignores `PerSeconds`.",
+          "description": "The requests that start in one window, or 0 for no limit, over one an earlier source set.\n\nIncoherent without `PerSeconds`, unless it is 0, which leaves `PerSeconds` unread.",
           "type": "integer",
           "format": "int32",
           "minimum": 0
         },
         "PerSeconds": {
-          "description": "How long a window lasts.\n\nRefused without `Calls`, unless `Calls` is 0.",
+          "description": "How long a window lasts.\n\nIncoherent without `Calls`, unless `Calls` is 0.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         }
@@ -794,7 +796,7 @@
           "minimum": 1
         },
         "Compression": {
-          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to none, the messages going out as they are.",
+          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to none, the messages going out as they are, which `None` says too, over an\nencoding an earlier source set.",
           "$ref": "#/$defs/MessageEncoding"
         }
       },
@@ -817,6 +819,11 @@
           "description": "RFC 8878 Zstandard, `zstd` on the wire.",
           "type": "string",
           "const": "Zstd"
+        },
+        {
+          "description": "No compression, `identity` on the wire: the messages go out as they are and no\n`grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the\ncompression off. It names no encoding to accept, and a list of them refuses it.",
+          "type": "string",
+          "const": "None"
         }
       ]
     },
@@ -831,7 +838,7 @@
           "minimum": 1
         },
         "Compression": {
-          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
+          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is\nrefused here: `identity` is always accepted.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/MessageEncoding"
