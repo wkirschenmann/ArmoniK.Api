@@ -204,20 +204,20 @@ impl Drop for Kept {
 }
 
 impl Replay {
-    /// `live`, kept up to `call_limit` and the channel's total; a call with no retry keeps
-    /// nothing, being committed from the start.
+    /// `live`, kept up to `call_limit` bytes and the channel's total, whether or not the call has a
+    /// retry policy: a call that sends past either is committed. A limit of 0 keeps nothing.
     pub(crate) fn new(
         live: RequestMessages,
-        call_limit: Option<usize>,
+        call_limit: usize,
         channel: Arc<ChannelReplay>,
     ) -> Self {
         Self(Arc::new(Mutex::new(Kept {
             live,
             messages: Vec::new(),
             bytes: 0,
-            call_limit: call_limit.unwrap_or(0),
+            call_limit,
             channel,
-            committed: call_limit.is_none(),
+            committed: false,
             lost: false,
             ended: false,
             attempt: 0,
@@ -318,13 +318,9 @@ pub(crate) struct OneReplay {
 }
 
 impl OneReplay {
-    pub(crate) fn new(
-        request: Bytes,
-        call_limit: Option<usize>,
-        channel: Arc<ChannelReplay>,
-    ) -> Self {
+    pub(crate) fn new(request: Bytes, call_limit: usize, channel: Arc<ChannelReplay>) -> Self {
         let len = request.len();
-        let kept = call_limit.is_some_and(|limit| len <= limit) && channel.reserve(len);
+        let kept = len <= call_limit && channel.reserve(len);
         Self {
             request,
             channel,
@@ -507,7 +503,7 @@ mod tests {
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
-        let replay = Replay::new(live, Some(64), Arc::clone(&channel));
+        let replay = Replay::new(live, 64, Arc::clone(&channel));
 
         send.send_message(Bytes::from_static(b"one"))
             .await
@@ -547,7 +543,7 @@ mod tests {
         let (_closed, closed) = watch::channel(false);
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
-        let replay = Replay::new(live, Some(64), Arc::new(ChannelReplay::new(1024)));
+        let replay = Replay::new(live, 64, Arc::new(ChannelReplay::new(1024)));
 
         let message = FramedMessage::copy_of(b"one").expect("a message");
         let framed = message.body().as_ptr();
@@ -568,7 +564,7 @@ mod tests {
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
-        let replay = Replay::new(live, Some(64), Arc::clone(&channel));
+        let replay = Replay::new(live, 64, Arc::clone(&channel));
 
         for message in [&b"one"[..], b"two"] {
             send.send_message(Bytes::from_static(message))
@@ -609,7 +605,7 @@ mod tests {
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
-        let replay = Replay::new(live, Some(64), Arc::clone(&channel));
+        let replay = Replay::new(live, 64, Arc::clone(&channel));
 
         let mut first = replay.attempt();
         let waiting = tokio::spawn(async move { first.next().await });
@@ -641,7 +637,7 @@ mod tests {
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
-        let replay = Replay::new(live, Some(64), Arc::clone(&channel));
+        let replay = Replay::new(live, 64, Arc::clone(&channel));
 
         send.send_message(Bytes::from_static(b"kept"))
             .await
@@ -661,7 +657,7 @@ mod tests {
             let (call, live, _driving) = create(4, None, closed);
             let (mut send, _recv, _control) = call.split();
             let channel = Arc::new(ChannelReplay::new(channel_limit));
-            let replay = Replay::new(live, Some(call_limit), Arc::clone(&channel));
+            let replay = Replay::new(live, call_limit, Arc::clone(&channel));
 
             send.send_message(Bytes::from_static(b"12345"))
                 .await
@@ -678,17 +674,18 @@ mod tests {
         }
     }
 
-    /// A call with no policy keeps nothing: it is whole until it sends a message, and then not.
+    /// A call whose ceiling is nothing keeps nothing: it can go again until it sends a message,
+    /// and then it is committed and not whole.
     #[tokio::test]
-    async fn a_call_with_no_policy_is_whole_until_it_sends() {
+    async fn a_call_with_a_ceiling_of_nothing_is_whole_until_it_sends() {
         let (_closed, closed) = watch::channel(false);
         let (call, live, _driving) = create(4, None, closed);
         let (mut send, _recv, _control) = call.split();
         let channel = Arc::new(ChannelReplay::new(1024));
-        let replay = Replay::new(live, None, Arc::clone(&channel));
+        let replay = Replay::new(live, 0, Arc::clone(&channel));
 
         let standing = replay.supersede();
-        assert!(standing.whole && !standing.retryable);
+        assert!(standing.whole && standing.retryable);
         send.send_message(Bytes::from_static(b"sent"))
             .await
             .expect("sent");
@@ -697,7 +694,8 @@ mod tests {
             unframed(first.next().await),
             Some(Bytes::from_static(b"sent"))
         );
-        assert!(!replay.supersede().whole);
+        let standing = replay.supersede();
+        assert!(!standing.whole && !standing.retryable);
         assert_eq!(channel.used(), 0);
     }
 }

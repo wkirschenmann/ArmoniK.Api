@@ -1402,7 +1402,7 @@ mod tests {
         let (_closed, closed) = watch::channel(false);
         let (call, live, _driving) = call::create(8, None, closed);
         let (mut send, _recv, _control) = call.split();
-        let replay = super::super::retry::Replay::new(live, None, Arc::new(ChannelReplay::new(0)));
+        let replay = super::super::retry::Replay::new(live, 0, Arc::new(ChannelReplay::new(0)));
 
         let message = FramedMessage::copy_of(b"alone").expect("a message");
         let framed = message.body().as_ptr();
@@ -1426,7 +1426,7 @@ mod tests {
         let (_closed, closed) = watch::channel(false);
         let (call, live, _driving) = call::create(8, None, closed);
         let (mut send, _recv, _control) = call.split();
-        let replay = super::super::retry::Replay::new(live, None, Arc::new(ChannelReplay::new(0)));
+        let replay = super::super::retry::Replay::new(live, 0, Arc::new(ChannelReplay::new(0)));
 
         let large = vec![7; GATHERED_BELOW];
         for message in [&b"one"[..], b"two", &large, b"three"] {

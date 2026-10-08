@@ -317,7 +317,7 @@ async fn run<S: ResponseSink>(
     } = outgoing;
 
     let policy = inner.retry.as_ref();
-    let replay_limit = Some(inner.call_replay_bytes);
+    let replay_limit = inner.call_replay_bytes;
     // What the call sent, kept for the attempts after the first. A stream's is made now; the
     // one request is held, whole and as its caller wrote it, until the first attempt has its turn.
     let mut replay: Option<Sent> = None;
