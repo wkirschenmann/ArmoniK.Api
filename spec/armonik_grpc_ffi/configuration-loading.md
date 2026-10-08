@@ -148,18 +148,31 @@ file or one environment configures every host alike; a document with no `Endpoin
   without case:
   `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
   variable of the process would be a key, and the log would name every one of them, so an
-  environment source with no prefix is refused. The schema holds no list; a list would
-  take an element by its index, `__0`, as .NET's providers render one.
+  environment source with no prefix is refused. A key that holds a list, such as
+  `Grpc.Receive.Compression`, is read from its one variable, whose value is a JSON array:
+  `ArmoniK__Client__Grpc__ChannelDefaults__Grpc__Receive__Compression=["Zstd","Gzip"]`. It is the
+  one form: a bare value (`Zstd`, or `Zstd,Gzip`, which is not split at the commas) and keys under
+  the list's (`...__Compression__0`, as .NET's providers render an array, which the engine's
+  environment does not) are refused, as is JSON that is not an array. An empty array states an
+  empty list, and `[]` is the only way to: a variable set to nothing is refused. Each element is
+  read as the element's type, a name matched without case as the other variables' values are.
 - **Pairs**: a JSON object whose names are keys' paths, their parts joined by `__`, under no
   prefix, and whose values are text, read as the environment's values are, by the schema's type
   for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection": "4"}`. It is what a
-  binding sends for a command line it has parsed.
+  binding sends for a command line it has parsed. Pairs state no list, and neither does a
+  command line: a key that holds a list is refused, by its path.
 - **A document**: JSON in the schema's vocabulary, with no prefix around it. It is what a binding
   sends for an object set in code.
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
-documents.
+documents. A list is a value, which `over` takes whole as it takes a text or a number: the later
+source's list replaces the earlier one's, an empty list included, and a source that does not state
+it leaves the earlier one's. Two lists are never joined.
+
+A list is stated by a file, a document, or an environment variable; the command line and pairs
+cannot state one, since a command line is parsed by .NET's configuration into keys and text, and
+the engine keeps no convention of its own for a list of them.
 
 ### Refusals
 
@@ -172,7 +185,10 @@ The first refusal ends the load and names its source - the file's path, `the env
 - an environment source with no prefix;
 - a document that is not JSON, a prefix's section that is not an object, and pairs that are not
   a JSON object of text values;
-- a value that is not of its key's type, an environment or pair value being parsed as that type.
+- a value that is not of its key's type, an environment or pair value being parsed as that type;
+- a list in pairs, whatever its form, with its path and the sources that do state one, and in the
+  environment a list that is not a JSON array, with its path and the form that is, or an element
+  that is not of its type, with the element's index in the path (`Compression.1`).
 
 A key under the prefix that the schema does not declare is not refused: it is logged, with its
 source and its path, and the load goes on. Within an alternative - how the server is verified, who
@@ -287,7 +303,9 @@ command-line provider alone and adds the section under the prefix - the whole tr
 pairs, each key's path joined by `__` and its value as text, so that the engine logs an unknown key
 and types a value as it does the environment's; `LoadConfigFromObject` serializes its object as a
 document, writing only the options set, so that a default does not override an earlier source. No
-`IConfiguration` is taken or returned.
+`IConfiguration` is taken or returned. A command line states no list, so a list option, such as
+`Receive.Compression`, is set through a file, `LoadConfigFromObject` or the environment, the
+engine refusing one on a command line by its path.
 
 The engine reads every source, an object's document included, so the binding does not know the
 delivery window a channel ends up with. It reads it back: once a channel is created, the binding asks

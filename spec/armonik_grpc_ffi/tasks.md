@@ -1537,7 +1537,8 @@ are mandatory dependencies, since every host reads the vocabulary through the lo
 alike; `ak_runtime_create_from` reads an `ak_config`; the .NET binding has `NativeConfiguration`,
 with `LoadConfigFromOptionalFiles` beside the four loads for a file the host marks optional, and its
 options generator renders no `Bind`; the `armonik` client loads the runtime's document,
-`ClientConfig` gone. 32 fixtures drive the loader and the ABI. Three points the documents left open
+`ClientConfig` gone. 44 fixtures drive the loader and the ABI, twelve of them the lists (2026-10-08,
+`configuration-loading.md`). Three points the documents left open
 were settled as the code has them: a file's section is found by the prefix as written, a path whose
 parts walk the nested sections, where the environment matches it without case; a `Document` is also
 `Default`, what a configuration with no source loads; and a YAML file of more than one document is
@@ -1608,9 +1609,10 @@ advertised in order with identity last. The channel learns what a server accepts
 calls that started before its first answer end UNIMPLEMENTED, the channel logs one warning and the
 calls after it send as they are, and a later response that lists the encoding has it compress
 again. Tested against tonic's server, canned answers and grpc-dotnet's server, on net4.7, net4.8,
-net8.0 and net10.0. The loader reads the list from a file or a document, and refuses it from the
-command line, the environment and pairs, whose reader has no indexed keys: a .NET host sets
-`Receive.Compression` through a file or `LoadConfigFromObject`. Open: `zstd-sys` builds C. It was
+net8.0 and net10.0. A list option is stated by a file, a document, or an environment variable
+holding a JSON array (`["Zstd","Gzip"]`); pairs and a command line state none, and the loader
+refuses one there by its path, saying which sources do: a .NET host sets `Receive.Compression`
+through a file, `LoadConfigFromObject` or the environment. Open: `zstd-sys` builds C. It was
 built for win-x64 and win-x86 (x86_64 and i686 `pc-windows-msvc`); win-arm64, linux-x64,
 linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to be checked. A
 server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
