@@ -76,6 +76,9 @@ NextSafeCallFfi ==
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
            FreeReturnedBuffer(cId, b)
+    \/ \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+          len \in Sizes, charge \in Sizes :
+           ResizeSendBuffer(cId, b, nb, len, charge)
     \/ \E cId \in CallIds : EmitWriteDone(cId)
     \/ \E cId \in CallIds : WriteDoneReturns(cId)
     \/ \E cId \in CallIds : DeliveryCallbackReturns(cId)
@@ -441,8 +444,9 @@ ReceiveAccountingInv ==
     /\ EventsCoverDeliveries
 
 \* And the counter never passes the second threshold.  Carried by the guards
-\* of the two steps that add - a lend below the first, a received message
-\* below the second - every other step only ever subtracting.
+\* of the three steps that add - a lend and the growth of an exchange below
+\* the first, a received message below the second - every other step only
+\* subtracting.
 MemoryWithinHardCeiling ==
     memory_used <= HardCeiling
 

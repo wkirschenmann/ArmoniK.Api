@@ -737,6 +737,18 @@ WriteAborted(cId, b) ==
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
                ReaderVars, retry_len>>
 
+\* The serializer needs another length than it announced, usually a longer
+\* one: the buffer is exchanged, with what was written kept.  The writer
+\* keeps its state - serializing, holding one buffer - and the exchange is
+\* level 1's step.  A refusal for room takes no step: the wrapper gives the buffer back
+\* and lends again at the length asked for, which are WriteAborted and
+\* the lend steps above.
+WriteResizesBuffer(cId, b, nb, len, charge) ==
+    /\ writer_state[cId] = "serializing"
+    /\ BindingMayDowncall(cId)
+    /\ L1!ResizeSendBuffer(cId, b, nb, len, charge)
+    /\ ManagedStutter
+
 \* What makes a budget wait hopeless: cancellation latched, the call no
 \* longer active, the call being disposed, or the runtime going down.  The
 \* resolution's guard and the promise's antecedent are the same four
@@ -940,6 +952,9 @@ Next ==
     \/ \E cId \in CallIds, msg \in Messages, b \in BufferIds :
            CommitWrite(cId, msg, b)
     \/ \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
+    \/ \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+         len \in L1!Sizes, charge \in L1!Sizes :
+           WriteResizesBuffer(cId, b, nb, len, charge)
 
 (**************************************************************************)
 (* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)

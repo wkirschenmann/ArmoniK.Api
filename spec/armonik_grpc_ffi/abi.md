@@ -257,7 +257,8 @@ id in Python. It has no native lifecycle; the host manages what it points at.
 `owner`, not `ptr`, identifies an allocation, because the view may point into the middle of a
 larger, reference-counted one; the host passes it back unchanged. This library never reclaims a
 lent buffer on its own - not on cancellation, not on channel close - which is what removes the
-race between a writing thread and a cancelling one.
+race between a writing thread and a cancelling one. The same holds of the buffer a resize
+hands back.
 
 The payload of `AK_EVENT_WRITE_DONE`, `AK_EVENT_BUDGET_WAKE`, `AK_EVENT_SHUTDOWN_COMPLETE` and
 `AK_EVENT_RESOURCES_RELEASED` is still present, as the empty and unowned value, so
@@ -296,6 +297,31 @@ its memory back out.
 A length of zero is refused with `AK_STATUS_INVALID_ARG`: an empty message needs no buffer, and
 `ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. That send takes
 a slot of the window and gets its `AK_EVENT_WRITE_DONE` like any other.
+
+`ak_resize_call_buffer(buffer, new_len, keep, out)` is for a host that finds the length it asked
+for was not the length it needed, whichever way: it exchanges the buffer for one of `new_len`
+bytes and keeps the first `keep` bytes the host wrote, which must be at most what was lent and at
+most `new_len`. It takes no call handle, as `ak_return_call_buffer` does: the buffer names its
+call. On success `*out` is the new buffer, which the host gives back in its turn, and `buffer` is
+the host's no longer - its memory may be lent again at once, so nothing is read or written
+through it, and the one buffer a call holds, its slot of the window and its debt are the new
+buffer's. The ledger sees the difference alone: the old charge is replaced by the new in one
+step, so the two are never both counted and the room the old buffer held is not offered to
+another call in between, and the ceiling is asked only for a growth. The ceiling counts the
+charge and not the instant: the old arena is still allocated while the bytes are copied.
+
+A refusal leaves `buffer` lent, charged and the host's, and `*out` as it was:
+`AK_STATUS_BUDGET_BUSY` when the ceiling has no room for the growth now, `AK_STATUS_MESSAGE_TOO_LARGE`
+when `new_len` is past the ceiling, `AK_STATUS_INVALID_STATE` on a call that is over or cancelled,
+or one-request and committed, `AK_STATUS_INVALID_ARG` for a `new_len` of zero, a `keep` past it, a
+null `out` or a buffer that is not lent, and `AK_STATUS_INTERNAL` for an allocator failure. A
+`keep` past what was lent, or a write past the end of the buffer that changed the bytes the
+library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`, the buffer taken back
+unfreed, nothing carried over, the runtime shutting down. `AK_STATUS_BUDGET_BUSY` here records no
+wait and owes no `AK_EVENT_BUDGET_WAKE`: a wait is the lend's, made by a host that holds nothing,
+and one that holds a buffer while it waits is room the others wait for. A host that waits gives
+the buffer back and lends the new length. `ak_call_debt_of` counts one buffer lent before, during
+and after an exchange.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
 refused as the others are - nothing charged, no slot spent - while the runtime carries on.
@@ -499,7 +525,8 @@ ak_events_consumed(payloads, 3)    // free all three (no next, the terminal is i
 
 FFI note:
 - **Send**: the host serializes into a buffer lent by `ak_get_call_buffer` and gives it back
-  exactly once, by `ak_call_send_message` or `ak_return_call_buffer`. One unfilled buffer at a
+  exactly once, by `ak_call_send_message` or `ak_return_call_buffer`, or exchanged for another
+  by `ak_resize_call_buffer`, which is then the one to give back. One unfilled buffer at a
   time, and at most `Grpc.Host.Send.Window` out of one arena (default 1), counting those committed
   and awaiting their WRITE_DONE; WRITE_DONE acquits in send order,
   always arrives, exactly once per accepted send, and always before the terminal event, even
