@@ -172,7 +172,7 @@ public class TransportSelectionTests
                                                                                      },
                                                                                      true)
                                                                           .Encode()),
-                   Does.Contain(@"""Unverified"""));
+                   Does.Contain(@"""Server"":""Unverified"""));
 
   /// <summary>Only the backoff that is set is sent, and the engine checks the pair once the options are merged.</summary>
   [Test]
@@ -673,7 +673,7 @@ public class TransportSelectionTests
                                           {
                                             Proxy = "none",
                                           }),
-                                  Does.Contain(@"""Proxy"":{""None"":"));
+                                  Does.Contain(@"""Proxy"":""None"""));
                       Assert.That(Encoded(new GrpcClient
                                           {
                                             Proxy = "System",
@@ -740,7 +740,7 @@ public class TransportSelectionTests
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(stated,
                                                                                                     true)
                                                                                          .Encode()),
-                                  Does.Contain(@"""Unverified""")
+                                  Does.Contain(@"""Server"":""Unverified""")
                                       .And.Contain(@"""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}")
                                       .And.Contain(@"""Url"":{""Address"":""http://proxy.test:3128"",""Username"":""user""}")
                                       .And.Contain(@"""MaxAttempts"":3")
@@ -750,7 +750,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""IdleSeconds"":30")
                                       .And.Contain(@"""MaxAttempts"":5")
-                                      .And.Contain(@"""Codes"":{""GrpcClient"":true}")
+                                      .And.Contain(@"""Codes"":""GrpcClient""")
                                       .And.Contain(@"""IdleTimeoutSeconds"":300"),
                                   "for the defaults of a runtime, every option is translated");
                     });

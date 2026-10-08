@@ -253,9 +253,9 @@ public sealed class TransportOptions
 
     /// <summary>A choice, its alternatives of each shape, and an enumeration, rendered to exactly this.</summary>
     /// <remarks>
-    ///   A Rust enum renders as a `oneOf`: of objects of one key for one whose variants carry
-    ///   something, of constants for one whose variants carry nothing. The first is a closed
-    ///   hierarchy of records, with its writer; the second a C# enum.
+    ///   A Rust enum renders as a `oneOf`: of constants for one whose variants carry nothing, and
+    ///   of constants beside objects of one key for one whose variants carry something. The
+    ///   second is a closed hierarchy of records, with its writer; the first a C# enum.
     /// </remarks>
     [Test]
     public async Task AChoiceRendersItsRecordsAndWriterToExactlyThisText()
@@ -326,7 +326,7 @@ public abstract record Verification
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref=""Verification"" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref=""Verification"" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class VerificationJsonConverter : JsonConverter<Verification>
 {
   /// <inheritdoc />
@@ -349,19 +349,20 @@ internal sealed class VerificationJsonConverter : JsonConverter<Verification>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   Verification written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case Verification.Pinned pinned:
       {
+        writer.WriteStartObject();
         writer.WriteString(""Pinned"",
                            pinned.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case Verification.Store store:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject(""Store"");
 
         if (store.Where is Place where)
@@ -373,18 +374,16 @@ internal sealed class VerificationJsonConverter : JsonConverter<Verification>
         writer.WriteString(""Path"",
                            store.Path);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case Verification.Unchecked:
       {
-        writer.WriteBoolean(""Unchecked"",
-                            true);
+        writer.WriteStringValue(""Unchecked"");
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -416,7 +415,7 @@ public enum Place
     ""Codes"": {
       ""description"": ""Which statuses a call is retried for."",
       ""oneOf"": [
-        { ""description"": ""Any."", ""type"": ""object"", ""properties"": { ""Any"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Any""] },
+        { ""description"": ""Any."", ""type"": ""string"", ""const"": ""Any"" },
         { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } } }, ""additionalProperties"": false, ""required"": [""List""] }
       ]
     },
@@ -479,7 +478,7 @@ public enum Place
       ""oneOf"": [
         { ""description"": ""Against a pinned key."", ""type"": ""object"", ""properties"": { ""Pinned"": { ""type"": ""string"", ""minLength"": 1 } }, ""additionalProperties"": false, ""required"": [""Pinned""] },
         { ""description"": ""Against a store."", ""type"": ""object"", ""properties"": { ""Store"": { ""$ref"": ""#/$defs/Store"" } }, ""additionalProperties"": false, ""required"": [""Store""] },
-        { ""description"": ""Not at all."", ""type"": ""object"", ""properties"": { ""Unchecked"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Unchecked""] }
+        { ""description"": ""Not at all."", ""type"": ""string"", ""const"": ""Unchecked"" }
       ]
     },
     ""Store"": {
@@ -504,7 +503,7 @@ public enum Place
 
     /// <summary>The fixture with one alternative replaced by <paramref name="alternative" />.</summary>
     private static string ChoiceWith(string alternative)
-      => Choice.Replace(@"{ ""description"": ""Not at all."", ""type"": ""object"", ""properties"": { ""Unchecked"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Unchecked""] }",
+      => Choice.Replace(@"{ ""description"": ""Not at all."", ""type"": ""string"", ""const"": ""Unchecked"" }",
                         alternative);
 
     /// <summary>An alternative is an object of one required key; anything else names no alternative.</summary>
@@ -514,9 +513,12 @@ public enum Place
     [TestCase(@"{ ""description"": ""Optional."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""additionalProperties"": false }",
               "one required key",
               TestName = "AnAlternative_Optional")]
-    [TestCase(@"{ ""description"": ""False."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
-              "other than `true`",
-              TestName = "AnAlternative_ConstantFalse")]
+    [TestCase(@"{ ""description"": ""Under a key."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""A""] }",
+              "alternative that carries nothing is written as its name alone",
+              TestName = "AnAlternative_ConstantUnderAKey")]
+    [TestCase(@"{ ""description"": ""Five."", ""type"": ""integer"", ""const"": 5 }",
+              "constant that is not a name",
+              TestName = "AnAlternative_ConstantThatIsNotAName")]
     [TestCase(@"{ ""description"": ""Bare."", ""type"": ""object"", ""properties"": { ""A"": { ""$ref"": ""#/$defs/Place"" } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "carries a choice bare",
               TestName = "AnAlternative_BareChoice")]
@@ -546,7 +548,8 @@ public enum Place
   ""title"": ""Options"",
   ""description"": ""Either."",
   ""oneOf"": [
-    { ""description"": ""A."", ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""A""] }
+    { ""description"": ""A."", ""type"": ""string"", ""const"": ""A"" },
+    { ""description"": ""B."", ""type"": ""object"", ""properties"": { ""B"": { ""type"": ""string"" } }, ""additionalProperties"": false, ""required"": [""B""] }
   ]
 }")
                        .ConfigureAwait(false),
@@ -1241,7 +1244,7 @@ public enum Place
     public void AChoiceIsReadAndWhatItHoldsIsWalked()
       => Assert.That(OptionVocabulary.Unhandled(@"{
   ""oneOf"": [
-    { ""type"": ""object"", ""properties"": { ""A"": { ""const"": true } }, ""required"": [""A""], ""additionalProperties"": false },
+    { ""type"": ""string"", ""const"": ""A"" },
     { ""type"": ""object"", ""properties"": { ""B"": { ""type"": ""string"", ""pattern"": ""^b"" } }, ""required"": [""B""], ""additionalProperties"": false }
   ]
 }"),

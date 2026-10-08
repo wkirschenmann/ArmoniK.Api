@@ -121,44 +121,6 @@ pub struct TransportOptions {
     pub connect_eagerly: Option<bool>,
 }
 
-/// `true`, the value of an alternative that carries nothing: a key names an alternative, and this
-/// is what it is set to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Chosen;
-
-impl serde::Serialize for Chosen {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bool(true)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Chosen {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        if bool::deserialize(deserializer)? {
-            Ok(Chosen)
-        } else {
-            Err(serde::de::Error::custom(
-                "an alternative is chosen with `true`; one not chosen is left out",
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "schema")]
-impl schemars::JsonSchema for Chosen {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "Chosen".into()
-    }
-
-    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({ "const": true })
-    }
-}
-
 /// An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the
 /// server.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -166,7 +128,7 @@ impl schemars::JsonSchema for Chosen {
 #[non_exhaustive]
 pub enum ProxyOptions {
     /// No proxy: every dial goes to the endpoint itself.
-    None(Chosen),
+    None,
 
     /// The proxy the system names for the endpoint, if any.
     ///
@@ -338,7 +300,7 @@ impl ProxyOptions {
     /// password.
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         match self {
-            Self::None(Chosen) => Ok(ProxyConfig::default()),
+            Self::None => Ok(ProxyConfig::default()),
             Self::System(credentials) => authenticated(
                 ProxySource::System,
                 &credentials.username,
@@ -534,7 +496,7 @@ pub enum ServerVerification {
 
     /// Not at all: any server certificate is accepted. The connection is still encrypted, to
     /// whoever answers.
-    Unverified(Chosen),
+    Unverified,
 }
 
 /// The certificate the client presents, and its key.
@@ -1078,7 +1040,7 @@ pub enum Http2ReceiveOptions {
     /// Windows that grow with the link: both start at 65535, the size every connection starts
     /// with, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.
     /// Neither shrinks.
-    Adaptive(Chosen),
+    Adaptive,
 }
 
 /// HTTP/2 flow-control windows of fixed sizes.
@@ -1145,7 +1107,7 @@ pub struct RetryOptions {
 
     /// The statuses a call is tried again for.
     ///
-    /// Defaults to `{"GoogleRpc": true}`: UNAVAILABLE alone.
+    /// Defaults to `"GoogleRpc"`: UNAVAILABLE alone.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
@@ -1178,7 +1140,7 @@ pub struct RetryOptions {
 }
 
 /// The statuses a call is tried again for.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum RetryCodes {
@@ -1186,10 +1148,11 @@ pub enum RetryCodes {
     ///
     /// ABORTED is for the caller to start its unit of work again, not to repeat the call, and
     /// UNKNOWN is a status from an error space the client does not know.
-    GoogleRpc(Chosen),
+    #[default]
+    GoogleRpc,
 
     /// UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.
-    GrpcClient(Chosen),
+    GrpcClient,
 
     /// Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least
     /// one is needed, and a channel with none is refused when it is created: set `MaxAttempts` to
@@ -1197,18 +1160,12 @@ pub enum RetryCodes {
     List(Vec<RetryableStatus>),
 }
 
-impl Default for RetryCodes {
-    fn default() -> Self {
-        Self::GoogleRpc(Chosen)
-    }
-}
-
 impl RetryCodes {
     /// The statuses this names, which are refused if it names none.
     pub fn to_config(&self) -> Result<Vec<GrpcStatusCode>, OptionRefusal> {
         match self {
-            Self::GoogleRpc(_) => Ok(GOOGLE_RPC_CODES.to_vec()),
-            Self::GrpcClient(_) => Ok(GRPC_CLIENT_CODES.to_vec()),
+            Self::GoogleRpc => Ok(GOOGLE_RPC_CODES.to_vec()),
+            Self::GrpcClient => Ok(GRPC_CLIENT_CODES.to_vec()),
             Self::List(statuses) if statuses.is_empty() => Err(OptionRefusal::new(
                 "Codes.List",
                 "it names no status, so no call would be tried again; set MaxAttempts to 1 to retry nothing",
@@ -1726,7 +1683,7 @@ impl TlsOptions {
                     .map_err(|refused| refused.under("Server.CaStore"))?],
                 false,
             ),
-            Some(ServerVerification::Unverified(Chosen)) => (Vec::new(), true),
+            Some(ServerVerification::Unverified) => (Vec::new(), true),
         };
 
         let identity = match &self.client {
@@ -1875,7 +1832,7 @@ impl Http2Options {
                         )?,
                     })
                 }
-                Some(Http2ReceiveOptions::Adaptive(Chosen)) => ReceiveWindows::Adaptive,
+                Some(Http2ReceiveOptions::Adaptive) => ReceiveWindows::Adaptive,
             },
             idle_timeout: duration_or_off(
                 "IdleTimeoutSeconds",
@@ -2252,7 +2209,6 @@ over_values!(
     bool,
     Seconds,
     Password,
-    Chosen,
     StoreLocation,
     MessageEncoding,
     Vec<MessageEncoding>,
@@ -2260,38 +2216,44 @@ over_values!(
     Vec<RetryableStatus>,
 );
 
-/// `Over` for an enum whose every variant carries one value: the same variant merges what the two
-/// carry, and another is taken whole. Every variant is listed and matched without `_`, so a
-/// variant the enum gains and this does not list fails to compile - and so is the list of names
-/// [`alternative`] reads a key against.
+/// `Over` for an enum of alternatives: a variant that carries nothing is taken whole, the same
+/// variant that carries a value merges what the two carry, and another is taken whole. Every
+/// variant is listed and matched without `_`, so a variant the enum gains and this does not list
+/// fails to compile - and so is the list of names [`alternative`] reads a name against.
 macro_rules! over_variants {
-    ($type:ident { $($variant:ident),+ $(,)? }) => {
+    ($type:ident { $($unit:ident),* ; $($variant:ident),* $(,)? }) => {
         impl Over for $type {
             fn over(self, defaults: &Self) -> Self {
                 match self {
+                    $(Self::$unit => Self::$unit,)*
                     $(Self::$variant(own) => Self::$variant(match defaults {
                         Self::$variant(default) => own.over(default),
                         _ => own,
-                    }),)+
+                    }),)*
                 }
             }
         }
 
         impl alternative::Alternative for $type {
             const NAME: &'static str = stringify!($type);
-            const VARIANTS: &'static [&'static str] = &[$(stringify!($variant)),+];
+            const VARIANTS: &'static [&'static str] =
+                &[$(stringify!($unit),)* $(stringify!($variant)),*];
         }
     };
 }
 
-/// How an alternative is read: an object whose one key names a variant and holds what it carries.
+/// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
+/// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
 /// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
 /// read past instead, as a struct reads past a key it does not declare, so that the configuration
-/// loader logs it; the alternative is then none, and keeps what an earlier source gave it.
+/// loader logs it; the alternative is then none, and keeps what an earlier source gave it. A name
+/// that is no variant is refused: it is not a key, so nothing is read past.
 mod alternative {
+    use std::cell::Cell;
     use std::marker::PhantomData;
 
+    use serde::de::value::{EnumAccessDeserializer, StringDeserializer};
     use serde::de::{
         self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
         IntoDeserializer, MapAccess, VariantAccess, Visitor,
@@ -2315,7 +2277,7 @@ mod alternative {
         deserializer: D,
     ) -> Result<T, D::Error> {
         deserializer
-            .deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))?
+            .deserialize_enum(T::NAME, T::VARIANTS, Chosen(PhantomData))?
             .ok_or_else(|| {
                 de::Error::custom(format_args!(
                     "it names none of {}, and one is needed",
@@ -2342,22 +2304,38 @@ mod alternative {
         }
 
         fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Option<T>, D::Error> {
-            // As a struct whose fields are the variants, so that a reader matching keys to fields
-            // matches these too.
-            deserializer.deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))
+            deserializer.deserialize_enum(T::NAME, T::VARIANTS, Chosen(PhantomData))
         }
     }
 
-    /// The variant an object's keys name, if one does; two are refused.
+    /// The variant a name or an object's keys give, if one does.
     struct Chosen<T>(PhantomData<T>);
 
     impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
         type Value = Option<T>;
 
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "an object naming one of {}", T::VARIANTS.join(", "))
+            write!(f, "one of {}", T::VARIANTS.join(", "))
         }
 
+        /// A name, or an object of one key: the enum's own reader takes the variant, once a name
+        /// that is no variant has been read past.
+        fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Option<T>, A::Error> {
+            let unknown = Cell::new(false);
+            let read = T::deserialize(EnumAccessDeserializer::new(Known::<T, A> {
+                data,
+                unknown: &unknown,
+                kind: PhantomData,
+            }));
+            match read {
+                Ok(read) => Ok(Some(read)),
+                Err(_) if unknown.get() => Ok(None),
+                Err(refused) => Err(refused),
+            }
+        }
+
+        /// An object of no key or of several, which a loader hands over as it reads it: the
+        /// variant its keys name, if one does; two are refused.
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
             let mut chosen = None;
             while let Some(key) = map.next_key::<String>()? {
@@ -2376,6 +2354,38 @@ mod alternative {
                 })?);
             }
             Ok(chosen)
+        }
+    }
+
+    /// An enum access that reads past a variant `T` does not have, saying so in `unknown`.
+    struct Known<'a, T, A> {
+        data: A,
+        unknown: &'a Cell<bool>,
+        kind: PhantomData<T>,
+    }
+
+    impl<'de, 'a, T: Alternative, A: EnumAccess<'de>> EnumAccess<'de> for Known<'a, T, A> {
+        type Error = A::Error;
+        type Variant = A::Variant;
+
+        fn variant_seed<V: DeserializeSeed<'de>>(
+            self,
+            seed: V,
+        ) -> Result<(V::Value, A::Variant), A::Error> {
+            let (name, variant): (String, A::Variant) = self.data.variant()?;
+            if T::VARIANTS.contains(&name.as_str()) {
+                let name = seed.deserialize(StringDeserializer::<A::Error>::new(name))?;
+                return Ok((name, variant));
+            }
+            // A key's value is read past, so that a loader logs the key; a name has none to read,
+            // and is refused.
+            match variant.newtype_variant::<IgnoredAny>() {
+                Ok(_) => {
+                    self.unknown.set(true);
+                    Err(de::Error::custom("a variant this engine does not know"))
+                }
+                Err(_) => Err(de::Error::unknown_variant(&name, T::VARIANTS)),
+            }
         }
     }
 
@@ -2465,18 +2475,19 @@ mod alternative {
 }
 
 over_variants!(ServerVerification {
+    Unverified;
     CaPem,
     CaStore,
-    Unverified,
 });
-over_variants!(ClientCertificate { Pem, P12, Store });
+over_variants!(ClientCertificate { ; Pem, P12, Store });
 over_variants!(ProxyOptions {
-    None,
+    None;
     System,
     Url,
     UrlWithCredentials,
 });
 over_variants!(StoreSearch {
+    ;
     Thumbprint,
     SubjectName,
     FriendlyName,
@@ -2561,10 +2572,13 @@ over_fields!(Http2FixedWindows {
     stream_window_size,
     connection_window_size,
 });
-over_variants!(Http2ReceiveOptions { Fixed, Adaptive });
+over_variants!(Http2ReceiveOptions {
+    Adaptive;
+    Fixed,
+});
 over_variants!(RetryCodes {
     GoogleRpc,
-    GrpcClient,
+    GrpcClient;
     List,
 });
 over_fields!(RetryOptions {
@@ -2883,7 +2897,7 @@ mod tests {
         assert!(!config.accept_any_server);
 
         let unverified = TlsOptions {
-            server: Some(ServerVerification::Unverified(Chosen)),
+            server: Some(ServerVerification::Unverified),
             ..TlsOptions::default()
         }
         .load()
@@ -2951,14 +2965,62 @@ mod tests {
         }
     }
 
+    /// A variant that carries nothing is its name, and one that carries something is an object of
+    /// one key: written so, and read so by serde itself and by the loader.
+    #[test]
+    fn a_variant_that_carries_nothing_is_a_string_and_the_others_an_object() {
+        let proxy = |proxy: ProxyOptions| TransportOptions {
+            proxy: Some(proxy),
+            ..TransportOptions::default()
+        };
+        let written = |proxy: &TransportOptions| serde_json::to_string(proxy).expect("a document");
+        assert_eq!(
+            written(&proxy(ProxyOptions::None)),
+            r#"{"Tls":{},"TcpKeepalive":{},"Proxy":"None"}"#
+        );
+        assert_eq!(
+            written(&proxy(ProxyOptions::UrlWithCredentials(CredentialedUrl(
+                "http://p".to_owned()
+            )))),
+            r#"{"Tls":{},"TcpKeepalive":{},"Proxy":{"UrlWithCredentials":"http://p"}}"#
+        );
+
+        let read = |document: &str| serde_json::from_str::<TransportOptions>(document);
+        assert_eq!(
+            read(r#"{"Proxy":"None"}"#).expect("a name").proxy,
+            Some(ProxyOptions::None)
+        );
+        assert_eq!(
+            read(r#"{"Proxy":{"None":null}}"#).expect("an object").proxy,
+            Some(ProxyOptions::None)
+        );
+        for refused in [
+            r#"{"Proxy":{"None":true}}"#,
+            r#"{"Proxy":"Url"}"#,
+            r#"{"Proxy":"Socks"}"#,
+            r#"{"Proxy":"none"}"#,
+        ] {
+            assert!(read(refused).is_err(), "{refused}");
+        }
+        assert_eq!(
+            read(r#"{"Proxy":{"Socks":{"Address":"x"}}}"#)
+                .expect("a key that names none is read past")
+                .proxy,
+            None
+        );
+    }
+
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
     /// is read, before any file is.
     #[test]
     fn a_document_naming_two_alternatives_is_refused() {
         for document in [
-            r#"{"Server":{"CaPem":"ca.pem","Unverified":true}}"#,
+            r#"{"Server":{"CaPem":"ca.pem","Unverified":null}}"#,
             r#"{"Client":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
+            r#"{"Server":{"Unverified":true}}"#,
             r#"{"Server":{"Unverified":false}}"#,
+            r#"{"Server":"CaPem"}"#,
+            r#"{"Server":"Elsewhere"}"#,
             r#"{"Client":{"Pem":{"Certificate":"c.pem"}}}"#,
             r#"{"Client":{"P12":{"Password":"s3cret"}}}"#,
         ] {
@@ -2970,10 +3032,10 @@ mod tests {
             );
         }
         let read: TlsOptions = serde_json::from_str(
-            r#"{"Server":{"Unverified":true},"Client":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
+            r#"{"Server":"Unverified","Client":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
         )
         .expect("one alternative each");
-        assert_eq!(read.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(read.server, Some(ServerVerification::Unverified));
         assert_eq!(
             read.client,
             Some(ClientCertificate::P12(P12Certificate::new(
@@ -3195,7 +3257,7 @@ mod tests {
             ("alice", "s@cret")
         );
 
-        let config = ProxyOptions::None(Chosen).to_config().expect("no proxy");
+        let config = ProxyOptions::None.to_config().expect("no proxy");
         assert_eq!(config.source, ProxySource::Disabled);
 
         let (uri, _, _) = explicit(
@@ -3598,11 +3660,11 @@ mod tests {
             "google.rpc.Code retries UNAVAILABLE alone"
         );
         assert_eq!(
-            codes(Some(RetryCodes::GoogleRpc(Chosen))).expect("a preset"),
+            codes(Some(RetryCodes::GoogleRpc)).expect("a preset"),
             [GrpcStatusCode::Unavailable]
         );
         assert_eq!(
-            codes(Some(RetryCodes::GrpcClient(Chosen))).expect("a preset"),
+            codes(Some(RetryCodes::GrpcClient)).expect("a preset"),
             [
                 GrpcStatusCode::Unavailable,
                 GrpcStatusCode::Aborted,
@@ -3611,7 +3673,7 @@ mod tests {
         );
         assert_eq!(
             RetryOptions {
-                codes: Some(RetryCodes::GrpcClient(Chosen)),
+                codes: Some(RetryCodes::GrpcClient),
                 ..RetryOptions::default()
             }
             .to_config()
@@ -3635,10 +3697,8 @@ mod tests {
         let read = |document: &str| serde_json::from_str::<RetryOptions>(document);
 
         assert_eq!(
-            read(r#"{"Codes":{"GoogleRpc":true}}"#)
-                .expect("a preset")
-                .codes,
-            Some(RetryCodes::GoogleRpc(Chosen))
+            read(r#"{"Codes":"GoogleRpc"}"#).expect("a preset").codes,
+            Some(RetryCodes::GoogleRpc)
         );
         assert_eq!(
             read(r#"{"Codes":{"List":["UNAVAILABLE","DEADLINE_EXCEEDED"]}}"#)
@@ -3657,9 +3717,12 @@ mod tests {
         );
 
         for document in [
-            r#"{"Codes":{"GoogleRpc":true,"GrpcClient":true}}"#,
-            r#"{"Codes":{"GoogleRpc":true,"List":["ABORTED"]}}"#,
+            r#"{"Codes":{"GoogleRpc":null,"GrpcClient":null}}"#,
+            r#"{"Codes":{"GoogleRpc":null,"List":["ABORTED"]}}"#,
+            r#"{"Codes":{"GoogleRpc":true}}"#,
             r#"{"Codes":{"GoogleRpc":false}}"#,
+            r#"{"Codes":"List"}"#,
+            r#"{"Codes":"Elsewhere"}"#,
             r#"{"Codes":{"List":["OK"]}}"#,
             r#"{"Codes":{"List":["NOT_A_STATUS"]}}"#,
             r#"{"Codes":{"List":["unavailable"]}}"#,
@@ -3777,13 +3840,13 @@ mod tests {
             with(own).over(&with(default)).grpc.retry.codes
         };
         let list = |statuses: &[RetryableStatus]| Some(RetryCodes::List(statuses.to_vec()));
-        let preset = || Some(RetryCodes::GrpcClient(Chosen));
+        let preset = || Some(RetryCodes::GrpcClient);
 
         assert_eq!(over(preset(), preset()), preset(), "the same preset");
         assert_eq!(over(None, preset()), preset(), "the default's, unstated");
         assert_eq!(
-            over(Some(RetryCodes::GoogleRpc(Chosen)), preset()),
-            Some(RetryCodes::GoogleRpc(Chosen)),
+            over(Some(RetryCodes::GoogleRpc), preset()),
+            Some(RetryCodes::GoogleRpc),
             "another alternative is taken whole"
         );
         assert_eq!(
@@ -4168,7 +4231,7 @@ mod tests {
     #[test]
     fn adaptive_windows_are_an_alternative_to_fixed_ones() {
         let adaptive = Http2Options {
-            receive: Some(Http2ReceiveOptions::Adaptive(Chosen)),
+            receive: Some(Http2ReceiveOptions::Adaptive),
             ..Http2Options::default()
         };
         let fixed = Http2Options {
@@ -4224,10 +4287,10 @@ mod tests {
         let merged = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::Unverified(Chosen)),
+                    server: Some(ServerVerification::Unverified),
                     ..TlsOptions::default()
                 },
-                proxy: Some(ProxyOptions::None(Chosen)),
+                proxy: Some(ProxyOptions::None),
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
@@ -4242,14 +4305,14 @@ mod tests {
         .over(&defaults);
 
         let tls = &merged.transport.tls;
-        assert_eq!(tls.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(tls.server, Some(ServerVerification::Unverified));
         assert_eq!(
             tls.client,
             Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
             "the identity is another alternative, which the channel leaves to its default"
         );
         assert_eq!(tls.override_target_name.as_deref(), Some("server"));
-        assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
+        assert_eq!(merged.transport.proxy, Some(ProxyOptions::None));
         assert_eq!(
             merged.grpc.retry.initial_backoff_seconds,
             Some(Seconds(10.0))

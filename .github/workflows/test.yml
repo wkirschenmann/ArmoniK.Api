@@ -207,7 +207,7 @@ jobs:
           export GrpcClient__Endpoint=https://localhost:5001
           export ArmoniK__Client__Grpc__Endpoint=https://localhost:5001
           export GrpcClient__AllowUnsafeConnection=true
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__Unverified=true
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server=Unverified
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: TLS secure
@@ -263,7 +263,7 @@ jobs:
           export GrpcClient__AllowUnsafeConnection=true
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__Unverified=true
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server=Unverified
           export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
           export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'

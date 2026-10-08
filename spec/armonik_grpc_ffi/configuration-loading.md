@@ -29,7 +29,8 @@ well as from JSON, so every host language gets the same result from the same sou
   them. An unknown key is ignored and logged with its path; a value is never quoted back.
 - Two documents merge by `ChannelOptions::over`: a struct field by field, an alternative (an
   enum: TLS verification, client identity, proxy, receive windows) whole when the two state
-  different ones.
+  different ones. A variant that carries nothing is written as its name, `"None"`, and a variant
+  that carries something as an object of one key, `{"Url": {"Address": "..."}}`.
 
 ## Decided (2026-10-06, the shape confirmed 2026-10-07)
 
@@ -170,6 +171,10 @@ file or one environment configures every host alike; a document with no `Endpoin
   command line: a key that holds a list is refused, by its path.
 - **A document**: JSON in the schema's vocabulary, with no prefix around it. It is what a binding
   sends for an object set in code.
+- **A variant that carries nothing**: in the environment and in pairs, the key's value is its name,
+  matched without case - `ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None`. A variant
+  that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...` -
+  and a value beside keys under it is refused, by its path.
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
@@ -200,7 +205,8 @@ The first refusal ends the load and names its source - the file's path, `the env
 A key under the prefix that the schema does not declare is not refused: it is logged, with its
 source and its path, and the load goes on. Within an alternative - how the server is verified, who
 the client is, which proxy - a key that names none of its variants is such a key, and the option
-keeps what an earlier source gave it.
+keeps what an earlier source gave it. A name that carries nothing and is none of its variants is
+refused, as is a variant that carries nothing given a value.
 
 A value is never quoted, a password being one. Through the C structure, what is malformed in it - a
 kind it does not name, a nonzero `reserved`, a flag it does not know, a value on an environment

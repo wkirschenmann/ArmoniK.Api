@@ -91,7 +91,7 @@ public class NativeConfigurationTests : EchoServerFixture
                                                                                            {
                                                                                              $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
                                                                                              "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:ConnectTimeoutSeconds=2.5",
-                                                                                             "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy:None=true",
+                                                                                             "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy=None",
                                                                                            }));
 
   /// <summary>With no prefix, a file's options are the whole file, and a command line's its whole tree.</summary>

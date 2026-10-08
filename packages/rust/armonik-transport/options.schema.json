@@ -105,16 +105,8 @@
         },
         {
           "description": "Not at all: any server certificate is accepted. The connection is still encrypted, to\nwhoever answers.",
-          "type": "object",
-          "properties": {
-            "Unverified": {
-              "const": true
-            }
-          },
-          "required": [
-            "Unverified"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "Unverified"
         }
       ]
     },
@@ -321,16 +313,8 @@
       "oneOf": [
         {
           "description": "No proxy: every dial goes to the endpoint itself.",
-          "type": "object",
-          "properties": {
-            "None": {
-              "const": true
-            }
-          },
-          "required": [
-            "None"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "None"
         },
         {
           "description": "The proxy the system names for the endpoint, if any.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried\nagain for two minutes.\n\nThe system's proxy is never used for a loopback endpoint.",
@@ -510,16 +494,8 @@
         },
         {
           "description": "Windows that grow with the link: both start at 65535, the size every connection starts\nwith, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.\nNeither shrinks.",
-          "type": "object",
-          "properties": {
-            "Adaptive": {
-              "const": true
-            }
-          },
-          "required": [
-            "Adaptive"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "Adaptive"
         }
       ]
     },
@@ -600,7 +576,7 @@
           "minimum": 1e-9
         },
         "Codes": {
-          "description": "The statuses a call is tried again for.\n\nDefaults to `{\"GoogleRpc\": true}`: UNAVAILABLE alone.",
+          "description": "The statuses a call is tried again for.\n\nDefaults to `\"GoogleRpc\"`: UNAVAILABLE alone.",
           "$ref": "#/$defs/RetryCodes"
         },
         "BackoffMultiplier": {
@@ -629,29 +605,13 @@
       "oneOf": [
         {
           "description": "UNAVAILABLE alone, which is what `google.rpc.Code` advises for retrying the same call.\n\nABORTED is for the caller to start its unit of work again, not to repeat the call, and\nUNKNOWN is a status from an error space the client does not know.",
-          "type": "object",
-          "properties": {
-            "GoogleRpc": {
-              "const": true
-            }
-          },
-          "required": [
-            "GoogleRpc"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "GoogleRpc"
         },
         {
           "description": "UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.",
-          "type": "object",
-          "properties": {
-            "GrpcClient": {
-              "const": true
-            }
-          },
-          "required": [
-            "GrpcClient"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "GrpcClient"
         },
         {
           "description": "Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least\none is needed, and a channel with none is refused when it is created: set `MaxAttempts` to\n1 to retry nothing. `OK` is not a status a call fails with.",

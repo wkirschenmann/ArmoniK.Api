@@ -170,9 +170,9 @@ public class ChannelOptionsTests
     => Assert.Multiple(() =>
                        {
                          Assert.That(Encoded(Retrying(new RetryCodes.GoogleRpc())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GoogleRpc"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":""GoogleRpc""}}}"));
                          Assert.That(Encoded(Retrying(new RetryCodes.GrpcClient())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GrpcClient"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":""GrpcClient""}}}"));
                          Assert.That(Encoded(Retrying(new RetryCodes.List(new[]
                                                                           {
                                                                             RetryableStatus.UNAVAILABLE,
@@ -405,10 +405,10 @@ public class ChannelOptionsTests
                            }),
                    Is.EqualTo(@"{""Grpc"":{""Host"":{""Send"":{""Window"":536870910},""Receive"":{""Window"":1}}}}"));
 
-  /// <summary>An alternative is an object whose one key names it, as the engine reads a Rust enum.</summary>
-  /// <remarks>A field left unset is absent, as an option is; one carrying nothing is `true`.</remarks>
+  /// <summary>An alternative is its name when it carries nothing and an object whose one key names it otherwise, as the engine reads a Rust enum.</summary>
+  /// <remarks>A field left unset is absent, as an option is.</remarks>
   [Test]
-  public void AnAlternativeIsAnObjectWhoseOneKeyNamesIt()
+  public void AnAlternativeIsItsNameOrAnObjectWhoseOneKeyNamesIt()
     => Assert.That(Encoded(new ChannelOptions
                            {
                              Transport = new TransportOptions
@@ -422,7 +422,30 @@ public class ChannelOptionsTests
                                            Proxy = new ProxyOptions.None(),
                                          },
                            }),
-                   Is.EqualTo(@"{""Transport"":{""Tls"":{""Server"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""Client"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":{""None"":true}}}"));
+                   Is.EqualTo(@"{""Transport"":{""Tls"":{""Server"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""Client"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":""None""}}"));
+
+  /// <summary>An alternative that carries nothing is a string, and its sibling that carries something is an object.</summary>
+  [Test]
+  public void AnAlternativeThatCarriesNothingIsAStringBesideOneThatCarriesSomething()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Http2 = new Http2Options
+                                                       {
+                                                         Receive = new Http2ReceiveOptions.Adaptive(),
+                                                       },
+                                             }),
+                                     Is.EqualTo(@"{""Http2"":{""Receive"":""Adaptive""}}"));
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Http2 = new Http2Options
+                                                       {
+                                                         Receive = new Http2ReceiveOptions.Fixed(StreamWindowSize: 70000),
+                                                       },
+                                             }),
+                                     Is.EqualTo(@"{""Http2"":{""Receive"":{""Fixed"":{""StreamWindowSize"":70000}}}}"));
+                       });
 
   /// <summary>A field's bounds are checked through the group holding its alternative.</summary>
   [Test]

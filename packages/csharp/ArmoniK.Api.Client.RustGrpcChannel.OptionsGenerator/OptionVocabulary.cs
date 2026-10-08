@@ -107,13 +107,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
   /// <summary>What the key naming an alternative holds.</summary>
   internal enum AlternativeShape
   {
-    /// <summary>`true`, for an alternative that carries nothing.</summary>
+    /// <summary>The name alone, as a string, for an alternative that carries nothing.</summary>
     Unit,
 
-    /// <summary>One value, written bare, which C# names `Value`.</summary>
+    /// <summary>One value under the alternative's key, which C# names `Value`.</summary>
     Value,
 
-    /// <summary>An object of fields.</summary>
+    /// <summary>An object of fields under the alternative's key.</summary>
     Fields,
   }
 
@@ -361,12 +361,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       var required = property.RequiredOrOptional != RequiredOrOptional.Optional;
 
-      // A constant is read where it is what an alternative carries; anywhere else it would be a
+      // A constant is read where it names an alternative that carries nothing; anywhere else it would be a
       // constraint the engine enforces and the C# lets through.
       if (Keyword(target,
                   "const") is not null)
       {
-        throw new NotSupportedException($"`{property.JsonPropertyName}` states a constant, which this generator reads only as what an alternative carrying nothing holds.");
+        throw new NotSupportedException($"`{property.JsonPropertyName}` states a constant, which this generator reads only as the name of an alternative that carries nothing.");
       }
 
       var type = Keyword(target,
@@ -550,8 +550,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       => Keyword(declaration,
                  "oneOf") is { ValueKind: JsonValueKind.Array };
 
-    // An enum of unit variants renders each as a constant, and one variant carrying anything
-    // renders every variant as an object of one key.
+    // An enum of unit variants renders each as a constant. One variant carrying anything renders
+    // the others as constants too, beside objects of one key.
     private static bool IsEnumeration(TypeDeclaration declaration)
       => Keyword(declaration,
                  "oneOf")!.Value.EnumerateArray()
@@ -619,12 +619,26 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
              };
     }
 
-    // An alternative is an object of one key, required and alone, which names it and holds what
-    // it carries: `true` for nothing, a value, or an object of fields.
+    // An alternative is the name of one that carries nothing, as a string constant, or an object of
+    // one key, required and alone, which names it and holds a value or an object of fields.
     private static Alternative ReadAlternative(TypeDeclaration branch,
                                                string choice,
                                                List<(TypeDeclaration Declaration, string Name)> nested)
     {
+      if (Keyword(branch,
+                  "const") is { } named)
+      {
+        return named.ValueKind == JsonValueKind.String
+                 ? new Alternative
+                   {
+                     Name        = named.GetString()!,
+                     Description = Described(Description(branch),
+                                             $"`{choice}.{named.GetString()}`"),
+                     Shape       = AlternativeShape.Unit,
+                   }
+                 : throw new NotSupportedException($"An alternative of `{choice}` is a constant that is not a name, which no C# record is named for.");
+      }
+
       var properties = branch.HasPropertyDeclarations
                          ? branch.PropertyDeclarations.ToList()
                          : new List<PropertyDeclaration>();
@@ -642,16 +656,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       var payload = Resolve(node);
 
       if (Keyword(payload,
-                  "const") is { } constant)
+                  "const") is not null)
       {
-        return constant.ValueKind == JsonValueKind.True
-                 ? new Alternative
-                   {
-                     Name        = name,
-                     Description = description,
-                     Shape       = AlternativeShape.Unit,
-                   }
-                 : throw new NotSupportedException($"`{choice}.{name}` is a constant other than `true`, which is how an alternative carrying nothing is written.");
+        throw new NotSupportedException($"`{choice}.{name}` is a constant under a key, and an alternative that carries nothing is written as its name alone.");
       }
 
       if (IsChoice(payload))

@@ -780,7 +780,7 @@ mod tests {
             })
         );
 
-        let unsafe_document = br#"{"Transport":{"Tls":{"Server":{"Unverified":true}}}}"#;
+        let unsafe_document = br#"{"Transport":{"Tls":{"Server":"Unverified"}}}"#;
         let config = parse(unsafe_document)
             .expect("admissible")
             .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
@@ -799,7 +799,7 @@ mod tests {
         };
         assert_eq!(codes(b"{}"), [GrpcStatusCode::Unavailable]);
         assert_eq!(
-            codes(br#"{"Grpc":{"Retry":{"Codes":{"GrpcClient":true}}}}"#),
+            codes(br#"{"Grpc":{"Retry":{"Codes":"GrpcClient"}}}"#),
             [
                 GrpcStatusCode::Unavailable,
                 GrpcStatusCode::Aborted,
@@ -1100,7 +1100,7 @@ mod tests {
                 "Transport.Proxy.Url.Address",
             ),
             (
-                &br#"{"Transport":{"Proxy":{"None":true,"System":{}}}}"#[..],
+                &br#"{"Transport":{"Proxy":{"None":null,"System":{}}}}"#[..],
                 "Transport.Proxy",
             ),
         ] {
@@ -1187,11 +1187,8 @@ mod tests {
         );
 
         // An alternative over the defaults' other one replaces it.
-        let settings = parse_over(
-            defaults.as_ref(),
-            br#"{"Http2":{"Receive":{"Adaptive":true}}}"#,
-        )
-        .expect("a valid merge");
+        let settings = parse_over(defaults.as_ref(), br#"{"Http2":{"Receive":"Adaptive"}}"#)
+            .expect("a valid merge");
         let http2 = settings
             .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
             .transport
@@ -1284,11 +1281,8 @@ mod tests {
             br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
         )
         .expect("valid defaults");
-        let settings = parse_over(
-            defaults.as_ref(),
-            br#"{"Transport":{"Proxy":{"None":true}}}"#,
-        )
-        .expect("a valid merge");
+        let settings = parse_over(defaults.as_ref(), br#"{"Transport":{"Proxy":"None"}}"#)
+            .expect("a valid merge");
         let proxy = settings
             .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
             .transport

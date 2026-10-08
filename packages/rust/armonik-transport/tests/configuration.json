@@ -31,7 +31,7 @@
   {
     "name": "YAML and TOML are read as JSON is",
     "files": {
-      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            Server:\n              Unverified: true\n",
+      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            Server: Unverified\n",
       "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
     },
     "sources": [
@@ -43,7 +43,7 @@
       "MemoryCeiling": 1024,
       "MemoryHardCeiling": 2048,
       "ChannelDefaults": {
-        "Transport": { "Tls": { "Server": { "Unverified": true } } },
+        "Transport": { "Tls": { "Server": "Unverified" } },
         "Http2": { "KeepAliveWhileIdle": true, "KeepAliveTimeoutSeconds": 2.5 }
       }
     }
@@ -173,7 +173,7 @@
     "environment": {
       "ArmoniKFixture__Endpoint": "http://environment.test:6",
       "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection": "4",
-      "ArmoniKFixture__ChannelDefaults__Transport__Tls__Server__unverified": "True",
+      "ArmoniKFixture__ChannelDefaults__Transport__Tls__Server": "unverified",
       "ArmoniKFixture__ChannelDefaults__Grpc__DefaultDeadlineSeconds": "2.5",
       "ArmoniKFixture__MemoryCeiling": "8192",
       "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
@@ -186,7 +186,7 @@
       "Endpoint": "http://environment.test:6",
       "MemoryCeiling": 8192,
       "ChannelDefaults": {
-        "Transport": { "Tls": { "Server": { "Unverified": true } } },
+        "Transport": { "Tls": { "Server": "Unverified" } },
         "Http2": { "SimultaneousCallsPerConnection": 4 },
         "Grpc": { "DefaultDeadlineSeconds": 2.5 }
       }
@@ -417,11 +417,44 @@
     "unknown": ["ChannelDefaults.Transport.Proxy.Socks"]
   },
   {
+    "name": "an alternative that carries nothing is its name, in a document, an environment variable and pairs",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy": "none"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": "Adaptive" } } } },
+      { "pairs": { "ChannelDefaults__Grpc__Retry__Codes": "GrpcClient" } },
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": {
+        "Transport": { "Proxy": "None" },
+        "Http2": { "Receive": "Adaptive" },
+        "Grpc": { "Retry": { "Codes": "GrpcClient" } }
+      }
+    }
+  },
+  {
+    "name": "the name of an alternative that carries nothing is refused when it is no variant",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": "Socks" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy", "says": "it names none of" }
+  },
+  {
+    "name": "an alternative that carries nothing is refused when it is given a value",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "None": true } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy", "says": "carries a value, where none is expected" }
+  },
+  {
     "name": "an alternative that names two variants is refused",
     "sources": [
-      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "None": true, "System": {} } } } } }
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "None": null, "System": {} } } } } }
     ],
-    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy" }
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy", "says": "it names two alternatives" }
   },
   {
     "name": "a key no option declares is logged, and the rest read",

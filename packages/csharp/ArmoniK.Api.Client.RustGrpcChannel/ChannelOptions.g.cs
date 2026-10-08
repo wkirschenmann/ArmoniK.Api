@@ -360,7 +360,7 @@ public abstract record ServerVerification
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ServerVerification" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ServerVerification" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVerification>
 {
   /// <inheritdoc />
@@ -383,19 +383,20 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ServerVerification written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case ServerVerification.CaPem caPem:
       {
+        writer.WriteStartObject();
         writer.WriteString("CaPem",
                            caPem.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case ServerVerification.CaStore caStore:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("CaStore");
 
         if (caStore.Location is StoreLocation location)
@@ -414,18 +415,16 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
         StoreSearchJsonConverter.WriteValue(writer,
                                             caStore.Find);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ServerVerification.Unverified:
       {
-        writer.WriteBoolean("Unverified",
-                            true);
+        writer.WriteStringValue("Unverified");
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -528,7 +527,7 @@ public abstract record StoreSearch
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="StoreSearch" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="StoreSearch" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class StoreSearchJsonConverter : JsonConverter<StoreSearch>
 {
   /// <inheritdoc />
@@ -551,33 +550,35 @@ internal sealed class StoreSearchJsonConverter : JsonConverter<StoreSearch>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   StoreSearch written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case StoreSearch.Thumbprint thumbprint:
       {
+        writer.WriteStartObject();
         writer.WriteString("Thumbprint",
                            thumbprint.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case StoreSearch.SubjectName subjectName:
       {
+        writer.WriteStartObject();
         writer.WriteString("SubjectName",
                            subjectName.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case StoreSearch.FriendlyName friendlyName:
       {
+        writer.WriteStartObject();
         writer.WriteString("FriendlyName",
                            friendlyName.Value);
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -700,7 +701,7 @@ public abstract record ClientCertificate
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ClientCertificate" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ClientCertificate" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCertificate>
 {
   /// <inheritdoc />
@@ -723,23 +724,24 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ClientCertificate written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case ClientCertificate.Pem pem:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Pem");
         writer.WriteString("Certificate",
                            pem.Certificate);
         writer.WriteString("Key",
                            pem.Key);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ClientCertificate.P12 p12:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("P12");
         writer.WriteString("Path",
                            p12.Path);
@@ -751,11 +753,13 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ClientCertificate.Store store:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Store");
 
         if (store.Location is StoreLocation location)
@@ -774,11 +778,10 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
         StoreSearchJsonConverter.WriteValue(writer,
                                             store.Find);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1028,7 +1031,7 @@ public abstract record ProxyOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ProxyOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ProxyOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
 {
   /// <inheritdoc />
@@ -1051,19 +1054,17 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ProxyOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case ProxyOptions.None:
       {
-        writer.WriteBoolean("None",
-                            true);
+        writer.WriteStringValue("None");
         break;
       }
 
       case ProxyOptions.System system:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("System");
 
         if (system.Username is string username)
@@ -1079,11 +1080,13 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ProxyOptions.Url url:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Url");
         writer.WriteString("Address",
                            url.Address);
@@ -1101,18 +1104,19 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ProxyOptions.UrlWithCredentials urlWithCredentials:
       {
+        writer.WriteStartObject();
         writer.WriteString("UrlWithCredentials",
                            urlWithCredentials.Value);
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1408,7 +1412,7 @@ public abstract record Http2ReceiveOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="Http2ReceiveOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="Http2ReceiveOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2ReceiveOptions>
 {
   /// <inheritdoc />
@@ -1431,12 +1435,11 @@ internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2Rece
   internal static void WriteValue(Utf8JsonWriter writer,
                                   Http2ReceiveOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case Http2ReceiveOptions.Fixed @fixed:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Fixed");
 
         if (@fixed.StreamWindowSize is int streamWindowSize)
@@ -1452,18 +1455,16 @@ internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2Rece
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case Http2ReceiveOptions.Adaptive:
       {
-        writer.WriteBoolean("Adaptive",
-                            true);
+        writer.WriteStringValue("Adaptive");
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1642,7 +1643,7 @@ public sealed class RetryOptions
   public double? MaxBackoffSeconds { get; set; }
 
   /// <summary>The statuses a call is tried again for.</summary>
-  /// <remarks>Defaults to <c>{"GoogleRpc": true}</c>: UNAVAILABLE alone.</remarks>
+  /// <remarks>Defaults to <c>"GoogleRpc"</c>: UNAVAILABLE alone.</remarks>
   [JsonPropertyName("Codes")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public RetryCodes? Codes { get; set; }
@@ -1818,7 +1819,7 @@ public abstract record RetryCodes
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="RetryCodes" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="RetryCodes" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
 {
   /// <inheritdoc />
@@ -1841,37 +1842,33 @@ internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   RetryCodes written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case RetryCodes.GoogleRpc:
       {
-        writer.WriteBoolean("GoogleRpc",
-                            true);
+        writer.WriteStringValue("GoogleRpc");
         break;
       }
 
       case RetryCodes.GrpcClient:
       {
-        writer.WriteBoolean("GrpcClient",
-                            true);
+        writer.WriteStringValue("GrpcClient");
         break;
       }
 
       case RetryCodes.List list:
       {
+        writer.WriteStartObject();
         writer.WriteStartArray("List");
         foreach (var item in list.Value)
         {
           writer.WriteStringValue(item.ToString());
         }
         writer.WriteEndArray();
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 

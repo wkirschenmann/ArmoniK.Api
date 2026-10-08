@@ -366,9 +366,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     }
 
     // A choice is a closed hierarchy: an abstract record whose constructor is private, so the
-    // sealed records nested in it are every alternative there is and a switch over them is
-    // complete. Records, because an alternative is a value: two that say the same are equal, and
-    // none changes once made, so a copy of the group holding one shares it safely.
+    // sealed records nested in it are every alternative there is. The compiler does not know
+    // that, and a switch over them without a default case is reported as incomplete. Records,
+    // because an alternative is a value: two that say the same are equal, and none changes once
+    // made, so a copy of the group holding one shares it safely.
     private static void AppendChoice(IndentedTextWriter source,
                                      OptionChoice choice)
     {
@@ -590,9 +591,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Blank(source);
     }
 
-    // The engine reads an alternative as an object of one key naming it, which no serializer
-    // policy writes from a record: written here, by the schema's names. Only written, because
-    // options go one way, to the engine.
+    // The engine reads an alternative that carries nothing as its name, and any other as an object
+    // of one key naming it, which no serializer policy writes from a record: written here, by the
+    // schema's names. Only written, because options go one way, to the engine.
     private static void AppendConverter(IndentedTextWriter source,
                                         OptionChoice choice)
     {
@@ -600,7 +601,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       Lines(source,
             $$"""
-              /// <summary>Writes a <see cref="{{choice.Name}}" /> as the engine reads one: an object whose one key names the alternative.</summary>
+              /// <summary>Writes a <see cref="{{choice.Name}}" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
               internal sealed class {{converter}} : JsonConverter<{{choice.Name}}>
               {
                 /// <inheritdoc />
@@ -623,8 +624,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                 internal static void WriteValue(Utf8JsonWriter writer,
                                                 {{choice.Name}} written)
                 {
-                  writer.WriteStartObject();
-
                   switch (written)
                   {
               """);
@@ -647,13 +646,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         source.WriteLine("{");
         source.Indent++;
 
+        if (alternative.Shape != AlternativeShape.Unit)
+        {
+          source.WriteLine("writer.WriteStartObject();");
+        }
+
         switch (alternative.Shape)
         {
           case AlternativeShape.Unit:
-            Call(source,
-                 "writer.WriteBoolean",
-                 $"\"{alternative.Name}\"",
-                 "true");
+            source.WriteLine($"writer.WriteStringValue(\"{alternative.Name}\");");
             break;
 
           case AlternativeShape.Value:
@@ -709,6 +710,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
             break;
         }
 
+        if (alternative.Shape != AlternativeShape.Unit)
+        {
+          source.WriteLine("writer.WriteEndObject();");
+        }
+
         source.WriteLine("break;");
         source.Indent--;
         source.WriteLine("}");
@@ -719,8 +725,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Lines(source,
             """
                   }
-
-                  writer.WriteEndObject();
                 }
               }
               """);

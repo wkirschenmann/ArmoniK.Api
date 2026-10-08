@@ -236,8 +236,9 @@ public class OptionVocabularyTests
   }
 
   // A group becomes a prefix, which is the same path .NET's configuration reaches with `__` and
-  // the same one the JSON document nests. So does an alternative of a choice, whose key names it:
-  // one carrying nothing, or a value alone, is the path itself.
+  // the same one the JSON document nests. So does an alternative of a choice, which the path
+  // names: an alternative carrying nothing is the environment's value of the choice's path, and
+  // the JSON document writes it as a string.
   private static IEnumerable<string> Paths(Type type,
                                            string prefix)
   {

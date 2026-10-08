@@ -1281,12 +1281,14 @@ the shape every option takes, and gives the reasons:
   does not declare; the engine ignores such a key rather than refusing it, and logs it with its
   source and path, so that a misspelled key does not give the defaults unsaid
   (configuration-loading.md);
-- options that exclude one another are one Rust enum, which the schema renders as a `oneOf` of
-  objects of one key: the key names the alternative and holds what it carries, `true` for
-  nothing - `"Server": {"CaPem": "ca.pem"}`, `"Proxy": {"None": true}`. In C# a choice is an
-  abstract record whose constructor is private, and its alternatives the sealed records nested in
-  it, so a switch over them is complete. An enum whose variants carry nothing is a `oneOf` of
-  names, and a C# enum;
+- options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
+  which serde writes in its externally tagged form: a variant that carries nothing is its name, a
+  string, and one that carries something is an object of one key that holds it -
+  `"Server": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
+  whose constructor is private, and its alternatives the sealed records nested in it, a
+  variant that carries nothing included; the compiler does not know that they are all of them,
+  so a switch over them needs a default case. An enum whose variants all carry nothing is a
+  `oneOf` of names, and a C# enum;
 - nothing is required but a field an alternative cannot do without, and `{}` is a valid
   configuration;
 - an option belongs to the layer it acts on: `Transport` the dial and the socket, `Http2` the
