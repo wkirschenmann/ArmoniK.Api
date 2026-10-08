@@ -137,7 +137,7 @@ fn a_retried_call_sends_its_request_again() {
     let host = Host::start();
     let channel = host.channel_with(
         &server.endpoint,
-        r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":0.01,"MaxBackoffSeconds":0.05}}}"#,
+        r#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":0.01,"MaxBackoffSeconds":0.05}}}}"#,
     );
     let metadata = blob(&[
         (b"x-flaky-key", b"one-request-again"),

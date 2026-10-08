@@ -1348,11 +1348,12 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
 | `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |
-| `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
-| `InitialBackOff` etc. | `Grpc.Retry.*` |
+| `MaxAttempts` | `Grpc.Retry.Adaptive.MaxAttempts`, or `Grpc.Retry.None` for 1, with nothing else of the retries |
+| `InitialBackOff` etc. | `Grpc.Retry.Adaptive.*` |
 
 `Grpc.Rate.Limit` and `Grpc.Retry` agree: a retry that finds no turn free is skipped to its next
-backoff and counts toward `Grpc.Retry.MaxAttempts`, and a call's first attempt waits for its turn.
+backoff and counts toward `Grpc.Retry.Adaptive.MaxAttempts`, and a call's first attempt waits for
+its turn.
 
 ---
 

@@ -672,10 +672,7 @@ public class UnaryTests : EchoServerFixture
                                               {
                                                 Grpc = new GrpcOptions
                                                        {
-                                                         Retry = new RetryOptions
-                                                                 {
-                                                                   MaxAttempts = 1,
-                                                                 },
+                                                         Retry = new RetryOptions.None(),
                                                        },
                                               });
     using var call = Client(channel)

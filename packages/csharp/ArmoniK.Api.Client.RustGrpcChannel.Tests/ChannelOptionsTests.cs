@@ -157,10 +157,7 @@ public class ChannelOptionsTests
        {
          Grpc = new GrpcOptions
                 {
-                  Retry = new RetryOptions
-                          {
-                            Codes = codes,
-                          },
+                  Retry = new RetryOptions.Adaptive(Codes: codes),
                 },
        };
 
@@ -170,15 +167,15 @@ public class ChannelOptionsTests
     => Assert.Multiple(() =>
                        {
                          Assert.That(Encoded(Retrying(new RetryCodes.GoogleRpc())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GoogleRpc"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""GoogleRpc"":true}}}}}"));
                          Assert.That(Encoded(Retrying(new RetryCodes.GrpcClient())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""GrpcClient"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""GrpcClient"":true}}}}}"));
                          Assert.That(Encoded(Retrying(new RetryCodes.List(new[]
                                                                           {
                                                                             RetryableStatus.UNAVAILABLE,
                                                                             RetryableStatus.DEADLINE_EXCEEDED,
                                                                           }))),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Codes"":{""List"":[""UNAVAILABLE"",""DEADLINE_EXCEEDED""]}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""List"":[""UNAVAILABLE"",""DEADLINE_EXCEEDED""]}}}}}"));
                        });
 
   /// <summary>A list of statuses is a value: equal to one that names the same, and a copy of what it was given.</summary>
@@ -221,6 +218,39 @@ public class ChannelOptionsTests
                                   Throws.TypeOf<ArgumentNullException>());
                     });
   }
+
+  /// <summary>No retry is its own alternative, and a retry of one attempt or of no status is refused before it is sent.</summary>
+  [Test]
+  public void NoRetryIsNoneAndAnAdaptiveRetryThatRetriesNothingIsRefused()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Grpc = new GrpcOptions
+                                                      {
+                                                        Retry = new RetryOptions.None(),
+                                                      },
+                                             }),
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""None"":true}}}"));
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Grpc = new GrpcOptions
+                                                      {
+                                                        Retry = new RetryOptions.Adaptive(MaxAttempts: 2,
+                                                                                          InitialBackoffSeconds: 0.5),
+                                                      },
+                                             }),
+                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""MaxAttempts"":2,""InitialBackoffSeconds"":0.5}}}}"));
+                         Assert.That(() => new ChannelOptions
+                                           {
+                                             Grpc = new GrpcOptions
+                                                    {
+                                                      Retry = new RetryOptions.Adaptive(MaxAttempts: 1),
+                                                    },
+                                           }.Encode(),
+                                     Throws.TypeOf<ArgumentOutOfRangeException>()
+                                           .With.Message.Contains("MaxAttempts has to be at least 2"));
+                       });
 
   /// <summary>A list that names no status is refused before it is sent.</summary>
   [Test]

@@ -13,7 +13,8 @@ use hyper::Uri;
 use crate::grpc::{GrpcChannelConfig, RateLimitConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
-    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, RetryOptions, Seconds,
+    LARGEST_WINDOW,
 };
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -34,7 +35,7 @@ pub struct ChannelSettings {
     tcp: TcpConfig,
     http2: Http2Config,
     proxy: ProxyConfig,
-    retry: RetryConfig,
+    retry: Option<RetryConfig>,
     rate_limit: Option<RateLimitConfig>,
 }
 
@@ -126,7 +127,11 @@ impl ChannelSettings {
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.Proxy")))?;
         let retry = grpc
             .retry
-            .to_config()
+            .as_ref()
+            .map_or_else(
+                || RetryOptions::default().to_config(),
+                RetryOptions::to_config,
+            )
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
         let rate_limit = grpc
             .rate
@@ -205,7 +210,7 @@ impl ChannelSettings {
             config.delivery_coalescing = bytes as usize;
         }
         config.default_deadline = self.default_deadline;
-        config.retry = Some(self.retry);
+        config.retry = self.retry;
         config.rate_limit = self.rate_limit;
         config
     }

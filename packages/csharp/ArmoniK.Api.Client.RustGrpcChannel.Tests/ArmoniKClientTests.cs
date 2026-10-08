@@ -92,10 +92,7 @@ public class ArmoniKClientTests : RuntimeFixture
                                               {
                                                 Grpc = new GrpcOptions
                                                        {
-                                                         Retry = new RetryOptions
-                                                                 {
-                                                                   MaxAttempts = 1,
-                                                                 },
+                                                         Retry = new RetryOptions.None(),
                                                        },
                                               });
 

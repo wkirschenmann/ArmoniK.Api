@@ -193,6 +193,45 @@ public class TransportSelectionTests
     await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
   }
 
+  /// <summary>One attempt is no retry, which the engine states as <c>None</c>, with nothing else of the retries.</summary>
+  [Test]
+  public void OneAttemptIsTranslatedToNoRetry()
+  {
+    string Encoded(GrpcClient options,
+                   GrpcClient? floor)
+      => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                           floor)
+                                                                .Encode());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts    = 1,
+                                            InitialBackOff = TimeSpan.FromSeconds(2),
+                                          },
+                                          new GrpcClient()),
+                                  Does.Contain(@"""Retry"":{""None"":true}")
+                                      .And.Not.Contain("Adaptive")
+                                      .And.Not.Contain("InitialBackoffSeconds"),
+                                  "a channel that states one attempt");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts = 1,
+                                          },
+                                          null),
+                                  Does.Contain(@"""Retry"":{""None"":true}"),
+                                  "and defaults that state it");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts = 2,
+                                          },
+                                          new GrpcClient()),
+                                  Does.Contain(@"""Adaptive"":{""MaxAttempts"":2}"),
+                                  "two attempts are a retry");
+                    });
+  }
+
   /// <summary>A backoff that is not stated is left to the engine's sources, unless the stated one would pass it.</summary>
   [Test]
   public void AnUnstatedBackoffIsSentOnlyWhenTheStatedOnePassesIt()

@@ -129,14 +129,19 @@ retried automatically, so that resilience is improved without additional applica
 ### Acceptance Criteria
 
 1. Calls that fail with status `UNAVAILABLE` are retried by default, which is what
-   `google.rpc.Code` advises for retrying the same call. `Grpc.Retry.Codes` selects the statuses:
+   `google.rpc.Code` advises for retrying the same call. `Grpc.Retry.Adaptive.Codes` selects the
+   statuses:
    the `GoogleRpc` preset, `UNAVAILABLE` alone; the `GrpcClient` preset, `UNAVAILABLE`, `ABORTED`
    and `UNKNOWN`, which is what `GrpcClient` retries; or an explicit `List`. The translation of
    `GrpcClient`'s configuration states the `GrpcClient` preset, so that ArmoniK.Api.Client keeps
    its behaviour.
 2. The default configuration is: 5 total attempts, initial backoff 1s, maximum 5s,
    multiplier 1.5.
-3. The retry configuration is configurable.
+3. The retry configuration is configurable. `Grpc.Retry` is `None`, which retries nothing, or
+   `Adaptive`, which carries the attempts, the codes, the backoff and the replay sizes; absent, it
+   is `Adaptive` with every default. `Adaptive` needs two attempts at least and one code at least:
+   a source that wants no retry states `None`, and neither one attempt nor an empty list of codes
+   says it.
 4. A client streaming call is only retried if the volume of data sent fits within a configurable
    replay buffer. Beyond that, the call is considered committed.
 5. A bidirectional call is retryable as long as no response (initial metadata or message) has

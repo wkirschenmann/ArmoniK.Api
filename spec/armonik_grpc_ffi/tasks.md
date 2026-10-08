@@ -1618,7 +1618,16 @@ linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to
 server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
 is not learned from, so every call toward it ends UNIMPLEMENTED.
 
-**`Retry.Codes`: done in the engine, decided 2026-10-07.** `Grpc.Retry.Codes` is an enum of
+**`Retry` as an alternative: done in the engine, decided 2026-10-08.** `Grpc.Retry` is `None`, no
+retry at all, or `Adaptive`, which holds the attempts, the codes, the backoff and the replay sizes;
+absent, it is `Adaptive` with every default. `Adaptive` refuses a `MaxAttempts` below 2 and an empty
+list of codes, in the engine, with a message that points to `None`, and in the generated .NET class.
+`GrpcClient`'s translation states `None` for a `MaxAttempts` of 1, and `Adaptive` with what
+it states otherwise; the `armonik` crate reads the loader, which takes `Retry__None=true` and
+`Retry__Adaptive__*`. The engine's own `RetryConfig` still admits a `max_attempts` of 1, which the
+tests of transparent retries use. decisions.md has the reasons.
+
+**`Retry.Codes`: done in the engine, decided 2026-10-07.** `Grpc.Retry.Adaptive.Codes` is an enum of
 `GoogleRpc` (`UNAVAILABLE`), `GrpcClient` (`UNAVAILABLE`, `ABORTED`, `UNKNOWN`) and `List`, and the
 engine's default is `GoogleRpc`: `RetryConfig::default` carries `UNAVAILABLE` alone, and
 `RetryConfig::grpc_client()` the three. The translation of `GrpcClient` in ArmoniK.Api.Client states

@@ -374,7 +374,7 @@ mod tests {
         ] {
             assert_eq!(
                 stated(&format!(
-                    "/$defs/RetryOptions/properties/{option}/description"
+                    "/$defs/AdaptiveRetryOptions/properties/{option}/description"
                 )),
                 applied,
                 "{option}"
@@ -544,16 +544,16 @@ mod tests {
                 r#"{"Http2":{"Send":{"StreamBufferSize":N}}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/MaxAttempts/minimum",
-                r#"{"Grpc":{"Retry":{"MaxAttempts":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/MaxAttempts/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"MaxAttempts":N}}}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/CallReplayBytes/minimum",
-                r#"{"Grpc":{"Retry":{"CallReplayBytes":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/CallReplayBytes/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"CallReplayBytes":N}}}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/ChannelReplayBytes/minimum",
-                r#"{"Grpc":{"Retry":{"ChannelReplayBytes":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/ChannelReplayBytes/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"ChannelReplayBytes":N}}}}"#,
             ),
         ] {
             let minimum = stated(pointer).unwrap_or_else(|| panic!("{pointer} states none"));
@@ -583,16 +583,16 @@ mod tests {
                 r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/InitialBackoffSeconds/minimum",
-                r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/InitialBackoffSeconds/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":N}}}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/MaxBackoffSeconds/minimum",
-                r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/MaxBackoffSeconds/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}}}"#,
             ),
             (
-                "/$defs/RetryOptions/properties/BackoffMultiplier/minimum",
-                r#"{"Grpc":{"Retry":{"BackoffMultiplier":N}}}"#,
+                "/$defs/AdaptiveRetryOptions/properties/BackoffMultiplier/minimum",
+                r#"{"Grpc":{"Retry":{"Adaptive":{"BackoffMultiplier":N}}}}"#,
             ),
         ] {
             let minimum = schema
@@ -702,7 +702,7 @@ mod tests {
         };
         assert_eq!(codes(b"{}"), [GrpcStatusCode::Unavailable]);
         assert_eq!(
-            codes(br#"{"Grpc":{"Retry":{"Codes":{"GrpcClient":true}}}}"#),
+            codes(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"GrpcClient":true}}}}}"#),
             [
                 GrpcStatusCode::Unavailable,
                 GrpcStatusCode::Aborted,
@@ -710,15 +710,18 @@ mod tests {
             ]
         );
         assert_eq!(
-            codes(br#"{"Grpc":{"Retry":{"Codes":{"List":["ABORTED"]}}}}"#),
+            codes(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"List":["ABORTED"]}}}}}"#),
             [GrpcStatusCode::Aborted]
         );
 
-        let refused = parse(br#"{"Grpc":{"Retry":{"Codes":{"List":[]}}}}"#)
+        let refused = parse(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"List":[]}}}}}"#)
             .err()
             .expect("refused")
             .to_string();
-        assert!(refused.starts_with("Grpc.Retry.Codes.List"), "{refused}");
+        assert!(
+            refused.starts_with("Grpc.Retry.Adaptive.Codes.List"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -1085,9 +1088,9 @@ mod tests {
     /// disagree is refused as the merge's, the channel's own document being admitted alone.
     #[test]
     fn bounds_that_disagree_once_merged_refuse_the_merge() {
-        let defaults =
-            defaults(br#"{"Grpc":{"Retry":{"MaxBackoffSeconds":2}}}"#).expect("valid defaults");
-        let own = br#"{"Grpc":{"Retry":{"InitialBackoffSeconds":3}}}"#;
+        let defaults = defaults(br#"{"Grpc":{"Retry":{"Adaptive":{"MaxBackoffSeconds":2}}}}"#)
+            .expect("valid defaults");
+        let own = br#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":3}}}}"#;
         assert!(
             parse(own).is_ok(),
             "the channel's document alone is admitted"

@@ -583,7 +583,7 @@
           "minimum": 1e-9
         },
         "Retry": {
-          "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.\nA call its peer never processed goes again besides, whatever `MaxAttempts` is, while every\nmessage it sent is kept.",
+          "description": "Whether a failed call is sent again, and how.\n\nDefaults to `{\"Adaptive\": {}}`: five attempts in all, with `GrpcClient`'s backoff, for\nUNAVAILABLE alone.",
           "$ref": "#/$defs/RetryOptions"
         },
         "Rate": {
@@ -606,14 +606,45 @@
       "additionalProperties": false
     },
     "RetryOptions": {
-      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the\nreader and what the call sent is still kept for the replay.",
+      "description": "Whether a failed call is sent again, and how.",
+      "oneOf": [
+        {
+          "description": "No retry: a failed call ends with its status. A call that has sent nothing, or whose one\nrequest is held whole, still goes again when its peer never processed it, once for each way\nthe peer did not see it; one that has sent a message of a stream does not.",
+          "type": "object",
+          "properties": {
+            "None": {
+              "const": true
+            }
+          },
+          "required": [
+            "None"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that\nstarts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,\nfor the statuses `Codes` names, while no response head has reached the reader and what the\ncall sent is still kept for the replay. A policy that retries nothing is `None`, and\nneither a `MaxAttempts` of 1 nor an empty list of codes is one.",
+          "type": "object",
+          "properties": {
+            "Adaptive": {
+              "$ref": "#/$defs/AdaptiveRetryOptions"
+            }
+          },
+          "required": [
+            "Adaptive"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AdaptiveRetryOptions": {
+      "description": "What a failed call is sent again by, as gRFC A6 has it.",
       "type": "object",
       "properties": {
         "MaxAttempts": {
-          "description": "Attempts in all, the first included; 1 retries nothing. A call its peer never processed\ngoes again besides, whatever this is, while every message it sent is kept.\n\nDefaults to 5.",
+          "description": "Attempts in all, the first included; at least 2, a policy that retries nothing being `None`.\nA call its peer never processed goes again besides, while every message it sent is kept.\n\nDefaults to 5.",
           "type": "integer",
           "format": "int32",
-          "minimum": 1
+          "minimum": 2
         },
         "InitialBackoffSeconds": {
           "description": "The bound of the first backoff.\n\nDefaults to 1.",

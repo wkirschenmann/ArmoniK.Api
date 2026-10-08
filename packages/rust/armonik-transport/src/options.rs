@@ -1094,22 +1094,56 @@ pub struct Http2FixedWindows {
     pub connection_window_size: Option<i32>,
 }
 
-/// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
-/// that starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to
-/// `MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the
-/// reader and what the call sent is still kept for the replay.
+/// Whether a failed call is sent again, and how.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum RetryOptions {
+    /// No retry: a failed call ends with its status. A call that has sent nothing, or whose one
+    /// request is held whole, still goes again when its peer never processed it, once for each way
+    /// the peer did not see it; one that has sent a message of a stream does not.
+    None(Chosen),
+
+    /// A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that
+    /// starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,
+    /// for the statuses `Codes` names, while no response head has reached the reader and what the
+    /// call sent is still kept for the replay. A policy that retries nothing is `None`, and
+    /// neither a `MaxAttempts` of 1 nor an empty list of codes is one.
+    Adaptive(AdaptiveRetryOptions),
+}
+
+impl Default for RetryOptions {
+    fn default() -> Self {
+        Self::Adaptive(AdaptiveRetryOptions::default())
+    }
+}
+
+impl RetryOptions {
+    /// The policy these options name, none when they name `None`.
+    pub fn to_config(&self) -> Result<Option<RetryConfig>, OptionRefusal> {
+        match self {
+            Self::None(_) => Ok(None),
+            Self::Adaptive(options) => options
+                .to_config()
+                .map(Some)
+                .map_err(|refused| refused.under("Adaptive")),
+        }
+    }
+}
+
+/// What a failed call is sent again by, as gRFC A6 has it.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
-pub struct RetryOptions {
-    /// Attempts in all, the first included; 1 retries nothing. A call its peer never processed
-    /// goes again besides, whatever this is, while every message it sent is kept.
+pub struct AdaptiveRetryOptions {
+    /// Attempts in all, the first included; at least 2, a policy that retries nothing being `None`.
+    /// A call its peer never processed goes again besides, while every message it sent is kept.
     ///
     /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 2)))]
     pub max_attempts: Option<i32>,
 
     /// The bound of the first backoff.
@@ -1199,7 +1233,7 @@ impl RetryCodes {
             Self::GrpcClient(_) => Ok(GRPC_CLIENT_CODES.to_vec()),
             Self::List(statuses) if statuses.is_empty() => Err(OptionRefusal::new(
                 "Codes.List",
-                "it names no status, so no call would be tried again",
+                "it names no status, so no call would be tried again; a source that wants no retry states `None`",
             )),
             Self::List(statuses) => {
                 let mut codes = Vec::with_capacity(statuses.len());
@@ -1294,7 +1328,7 @@ impl RetryableStatus {
     }
 }
 
-impl RetryOptions {
+impl AdaptiveRetryOptions {
     /// The policy these options name, each unset one at its default.
     pub fn to_config(&self) -> Result<RetryConfig, OptionRefusal> {
         let defaults = RetryConfig::default();
@@ -1335,14 +1369,21 @@ impl RetryOptions {
             None => defaults.retryable_codes.clone(),
             Some(codes) => codes.to_config()?,
         };
+        let max_attempts = match self.max_attempts {
+            None => defaults.max_attempts,
+            Some(value) if value >= 2 => value as u32,
+            Some(value) => {
+                return Err(OptionRefusal::new(
+                    "MaxAttempts",
+                    format!(
+                        "{value} has to be at least 2; a source that wants no retry states `None`"
+                    ),
+                ))
+            }
+        };
         Ok(RetryConfig {
             retryable_codes,
-            max_attempts: count(
-                "MaxAttempts",
-                self.max_attempts,
-                1,
-                defaults.max_attempts as usize,
-            )? as u32,
+            max_attempts,
             initial_backoff,
             max_backoff,
             backoff_multiplier,
@@ -1848,13 +1889,17 @@ pub struct GrpcOptions {
     )]
     pub default_deadline_seconds: Option<Seconds>,
 
-    /// When a failed call is sent again.
+    /// Whether a failed call is sent again, and how.
     ///
-    /// Defaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.
-    /// A call its peer never processed goes again besides, whatever `MaxAttempts` is, while every
-    /// message it sent is kept.
-    #[serde(default)]
-    pub retry: RetryOptions,
+    /// Defaults to `{"Adaptive": {}}`: five attempts in all, with `GrpcClient`'s backoff, for
+    /// UNAVAILABLE alone.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "RetryOptions"))]
+    pub retry: Option<RetryOptions>,
 
     /// How fast the channel starts calls.
     ///
@@ -2381,12 +2426,13 @@ over_fields!(Http2FixedWindows {
     connection_window_size,
 });
 over_variants!(Http2ReceiveOptions { Fixed, Adaptive });
+over_variants!(RetryOptions { None, Adaptive });
 over_variants!(RetryCodes {
     GoogleRpc,
     GrpcClient,
     List,
 });
-over_fields!(RetryOptions {
+over_fields!(AdaptiveRetryOptions {
     max_attempts,
     initial_backoff_seconds,
     max_backoff_seconds,
@@ -3164,7 +3210,7 @@ mod tests {
 
     #[test]
     fn the_retry_options_become_the_policy_and_one_that_cannot_back_off_is_refused() {
-        let config = RetryOptions {
+        let config = AdaptiveRetryOptions {
             max_attempts: Some(3),
             initial_backoff_seconds: Some(Seconds(0.5)),
             max_backoff_seconds: Some(Seconds(2.0)),
@@ -3193,43 +3239,45 @@ mod tests {
             (10, 100)
         );
         assert_eq!(
-            RetryOptions::default().to_config().expect("the defaults"),
+            AdaptiveRetryOptions::default()
+                .to_config()
+                .expect("the defaults"),
             RetryConfig::default()
         );
 
         for (options, key) in [
             (
-                RetryOptions {
+                AdaptiveRetryOptions {
                     max_attempts: Some(0),
-                    ..RetryOptions::default()
+                    ..AdaptiveRetryOptions::default()
                 },
                 "MaxAttempts",
             ),
             (
-                RetryOptions {
+                AdaptiveRetryOptions {
                     initial_backoff_seconds: Some(Seconds(10.0)),
-                    ..RetryOptions::default()
+                    ..AdaptiveRetryOptions::default()
                 },
                 "MaxBackoffSeconds",
             ),
             (
-                RetryOptions {
+                AdaptiveRetryOptions {
                     backoff_multiplier: Some(0.5),
-                    ..RetryOptions::default()
+                    ..AdaptiveRetryOptions::default()
                 },
                 "BackoffMultiplier",
             ),
             (
-                RetryOptions {
+                AdaptiveRetryOptions {
                     backoff_multiplier: Some(f64::INFINITY),
-                    ..RetryOptions::default()
+                    ..AdaptiveRetryOptions::default()
                 },
                 "BackoffMultiplier",
             ),
             (
-                RetryOptions {
+                AdaptiveRetryOptions {
                     call_replay_bytes: Some(-1),
-                    ..RetryOptions::default()
+                    ..AdaptiveRetryOptions::default()
                 },
                 "CallReplayBytes",
             ),
@@ -3239,12 +3287,149 @@ mod tests {
         }
     }
 
+    /// The retry options of `options`, which are `Adaptive`.
+    fn adaptive(options: &ChannelOptions) -> &AdaptiveRetryOptions {
+        match &options.grpc.retry {
+            Some(RetryOptions::Adaptive(adaptive)) => adaptive,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn retry_is_adaptive_unless_none_is_stated_and_none_retries_nothing() {
+        let config = |retry: Option<RetryOptions>| {
+            GrpcOptions {
+                retry,
+                ..GrpcOptions::default()
+            }
+            .retry
+            .unwrap_or_default()
+            .to_config()
+        };
+
+        assert_eq!(
+            config(None).expect("the default"),
+            Some(RetryConfig::default())
+        );
+        assert_eq!(
+            config(Some(RetryOptions::Adaptive(AdaptiveRetryOptions {
+                max_attempts: Some(2),
+                ..AdaptiveRetryOptions::default()
+            })))
+            .expect("two attempts")
+            .map(|retry| retry.max_attempts),
+            Some(2)
+        );
+        assert_eq!(
+            config(Some(RetryOptions::None(Chosen))).expect("none"),
+            None,
+            "None is no policy at all"
+        );
+    }
+
+    /// A source that wants no retry states `None`: neither one attempt nor no code is that.
+    #[test]
+    fn a_retry_that_retries_nothing_is_refused_unless_it_is_none() {
+        for (adaptive, key) in [
+            (
+                AdaptiveRetryOptions {
+                    max_attempts: Some(1),
+                    ..AdaptiveRetryOptions::default()
+                },
+                "Adaptive.MaxAttempts",
+            ),
+            (
+                AdaptiveRetryOptions {
+                    max_attempts: Some(0),
+                    ..AdaptiveRetryOptions::default()
+                },
+                "Adaptive.MaxAttempts",
+            ),
+            (
+                AdaptiveRetryOptions {
+                    codes: Some(RetryCodes::List(Vec::new())),
+                    ..AdaptiveRetryOptions::default()
+                },
+                "Adaptive.Codes.List",
+            ),
+        ] {
+            let refused = RetryOptions::Adaptive(adaptive).to_config().expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
+            assert!(refused.to_string().contains("`None`"), "{refused}");
+        }
+    }
+
+    #[test]
+    fn the_retry_alternatives_are_read_and_merged_as_alternatives() {
+        let read = |document: &str| serde_json::from_str::<GrpcOptions>(document);
+
+        assert_eq!(
+            read(r#"{"Retry":{"None":true}}"#).expect("none").retry,
+            Some(RetryOptions::None(Chosen))
+        );
+        assert_eq!(
+            read(r#"{"Retry":{"Adaptive":{"MaxAttempts":3}}}"#)
+                .expect("adaptive")
+                .retry,
+            Some(RetryOptions::Adaptive(AdaptiveRetryOptions {
+                max_attempts: Some(3),
+                ..AdaptiveRetryOptions::default()
+            }))
+        );
+        assert_eq!(read("{}").expect("nothing").retry, None);
+        for document in [
+            r#"{"Retry":{"None":true,"Adaptive":{}}}"#,
+            r#"{"Retry":{"None":false}}"#,
+        ] {
+            assert!(read(document).is_err(), "{document}");
+        }
+
+        let over = |own: RetryOptions, default: RetryOptions| {
+            let with = |retry| ChannelOptions {
+                grpc: GrpcOptions {
+                    retry: Some(retry),
+                    ..GrpcOptions::default()
+                },
+                ..ChannelOptions::default()
+            };
+            with(own).over(&with(default)).grpc.retry
+        };
+        let attempts = |max_attempts| {
+            RetryOptions::Adaptive(AdaptiveRetryOptions {
+                max_attempts,
+                ..AdaptiveRetryOptions::default()
+            })
+        };
+        assert_eq!(
+            over(RetryOptions::None(Chosen), attempts(Some(4))),
+            Some(RetryOptions::None(Chosen)),
+            "None over Adaptive replaces it whole"
+        );
+        assert_eq!(
+            over(attempts(Some(3)), RetryOptions::None(Chosen)),
+            Some(attempts(Some(3))),
+            "and Adaptive over None takes nothing of it"
+        );
+        let merged = over(
+            RetryOptions::Adaptive(AdaptiveRetryOptions {
+                codes: Some(RetryCodes::GrpcClient(Chosen)),
+                ..AdaptiveRetryOptions::default()
+            }),
+            attempts(Some(4)),
+        );
+        let Some(RetryOptions::Adaptive(merged)) = merged else {
+            panic!("{merged:?}");
+        };
+        assert_eq!(merged.max_attempts, Some(4), "field by field");
+        assert_eq!(merged.codes, Some(RetryCodes::GrpcClient(Chosen)));
+    }
+
     #[test]
     fn the_retry_codes_are_the_standards_unless_stated() {
         let codes = |codes: Option<RetryCodes>| {
-            RetryOptions {
+            AdaptiveRetryOptions {
                 codes,
-                ..RetryOptions::default()
+                ..AdaptiveRetryOptions::default()
             }
             .to_config()
             .map(|config| config.retryable_codes)
@@ -3268,9 +3453,9 @@ mod tests {
             ]
         );
         assert_eq!(
-            RetryOptions {
+            AdaptiveRetryOptions {
                 codes: Some(RetryCodes::GrpcClient(Chosen)),
-                ..RetryOptions::default()
+                ..AdaptiveRetryOptions::default()
             }
             .to_config()
             .expect("a preset"),
@@ -3290,7 +3475,7 @@ mod tests {
 
     #[test]
     fn the_retry_codes_are_read_as_an_alternative_of_names() {
-        let read = |document: &str| serde_json::from_str::<RetryOptions>(document);
+        let read = |document: &str| serde_json::from_str::<AdaptiveRetryOptions>(document);
 
         assert_eq!(
             read(r#"{"Codes":{"GoogleRpc":true}}"#)
@@ -3327,9 +3512,9 @@ mod tests {
             assert!(read(document).is_err(), "{document}");
         }
 
-        let written = serde_json::to_string(&RetryOptions {
+        let written = serde_json::to_string(&AdaptiveRetryOptions {
             codes: Some(RetryCodes::List(vec![RetryableStatus::Aborted])),
-            ..RetryOptions::default()
+            ..AdaptiveRetryOptions::default()
         })
         .expect("serializable");
         assert_eq!(written, r#"{"Codes":{"List":["ABORTED"]}}"#);
@@ -3424,15 +3609,15 @@ mod tests {
         let over = |own: Option<RetryCodes>, default: Option<RetryCodes>| {
             let with = |codes| ChannelOptions {
                 grpc: GrpcOptions {
-                    retry: RetryOptions {
+                    retry: Some(RetryOptions::Adaptive(AdaptiveRetryOptions {
                         codes,
-                        ..RetryOptions::default()
-                    },
+                        ..AdaptiveRetryOptions::default()
+                    })),
                     ..GrpcOptions::default()
                 },
                 ..ChannelOptions::default()
             };
-            with(own).over(&with(default)).grpc.retry.codes
+            adaptive(&with(own).over(&with(default))).codes.clone()
         };
         let list = |statuses: &[RetryableStatus]| Some(RetryCodes::List(statuses.to_vec()));
         let preset = || Some(RetryCodes::GrpcClient(Chosen));
@@ -3851,10 +4036,10 @@ mod tests {
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
-                retry: RetryOptions {
+                retry: Some(RetryOptions::Adaptive(AdaptiveRetryOptions {
                     max_backoff_seconds: Some(Seconds(5.0)),
-                    ..RetryOptions::default()
-                },
+                    ..AdaptiveRetryOptions::default()
+                })),
                 ..GrpcOptions::default()
             },
             ..ChannelOptions::default()
@@ -3869,10 +4054,10 @@ mod tests {
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
-                retry: RetryOptions {
+                retry: Some(RetryOptions::Adaptive(AdaptiveRetryOptions {
                     initial_backoff_seconds: Some(Seconds(10.0)),
-                    ..RetryOptions::default()
-                },
+                    ..AdaptiveRetryOptions::default()
+                })),
                 ..GrpcOptions::default()
             },
             ..ChannelOptions::default()
@@ -3888,11 +4073,9 @@ mod tests {
         );
         assert_eq!(tls.override_target_name.as_deref(), Some("server"));
         assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
-        assert_eq!(
-            merged.grpc.retry.initial_backoff_seconds,
-            Some(Seconds(10.0))
-        );
-        assert_eq!(merged.grpc.retry.max_backoff_seconds, Some(Seconds(5.0)));
+        let retry = adaptive(&merged);
+        assert_eq!(retry.initial_backoff_seconds, Some(Seconds(10.0)));
+        assert_eq!(retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
     /// An alternative stated over the same one merges its fields as a struct does, down to the

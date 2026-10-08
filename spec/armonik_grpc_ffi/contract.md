@@ -441,7 +441,7 @@ with none would turn into a loop of dials. Both replay what the call kept, so a 
 which keeps none, goes again only if it had sent nothing. Not specified yet: the per-channel
 retry throttle, which A6 makes optional. The policy is the channel's for every
 method, as `GrpcClient` configures it, where gRPC would allow one per method; its codes are
-`UNAVAILABLE` unless `Grpc.Retry.Codes` says otherwise, and `GrpcClient`'s three are its `GrpcClient`
+`UNAVAILABLE` unless `Grpc.Retry.Adaptive.Codes` says otherwise, and `GrpcClient`'s three are its `GrpcClient`
 preset.
 
 **Where an attempt ended.** Several origins share one code: `UNAVAILABLE` is the server's own, a

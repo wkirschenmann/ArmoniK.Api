@@ -114,19 +114,20 @@ namespace ArmoniK.Api.Client.Submitter
         http2.IdleTimeoutSeconds = options.MaxIdleTime.TotalSeconds;
       }
 
-      var retry = new RetryOptions();
-
       // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the codes. The engine's
       // own default is UNAVAILABLE alone, so the defaults of GrpcClient state the preset, which the
       // sources below may still replace; a channel states none, since its options cannot differ here.
-      if (floor is null)
-      {
-        retry.Codes = new RetryCodes.GrpcClient();
-      }
+      RetryCodes? codes = floor is null
+                            ? new RetryCodes.GrpcClient()
+                            : null;
+      int?        maxAttempts           = null;
+      double?     initialBackoffSeconds = null;
+      double?     maxBackoffSeconds     = null;
+      double?     backoffMultiplier     = null;
 
       if (Stated(o => o.MaxAttempts))
       {
-        retry.MaxAttempts = options.MaxAttempts;
+        maxAttempts = options.MaxAttempts;
       }
 
       // Each bound when it is stated. The engine refuses a maximum below the initial one, though,
@@ -140,33 +141,46 @@ namespace ArmoniK.Api.Client.Submitter
       var maximumStated = Stated(o => o.MaxBackOff);
       if (initialStated)
       {
-        retry.InitialBackoffSeconds = initial;
+        initialBackoffSeconds = initial;
       }
 
       if (maximumStated)
       {
-        retry.MaxBackoffSeconds = initialStated
-                                    ? Math.Max(initial,
-                                               maximum)
-                                    : maximum;
+        maxBackoffSeconds = initialStated
+                              ? Math.Max(initial,
+                                         maximum)
+                              : maximum;
       }
 
       if (initial > maximum)
       {
         if (initialStated && !maximumStated)
         {
-          retry.MaxBackoffSeconds = initial;
+          maxBackoffSeconds = initial;
         }
         else if (maximumStated && !initialStated)
         {
-          retry.InitialBackoffSeconds = maximum;
+          initialBackoffSeconds = maximum;
         }
       }
 
       if (Stated(o => o.BackoffMultiplier))
       {
-        retry.BackoffMultiplier = options.BackoffMultiplier;
+        backoffMultiplier = options.BackoffMultiplier;
       }
+
+      // One attempt is no retry, which the engine has an option of its own for: its `Adaptive` needs two at
+      // least, and refuses a count below one. What else is stated of the retries goes with it, there being
+      // none.
+      RetryOptions? retry = maxAttempts is 1
+                              ? new RetryOptions.None()
+                              : codes is not null || maxAttempts is not null || initialBackoffSeconds is not null || maxBackoffSeconds is not null || backoffMultiplier is not null
+                                ? new RetryOptions.Adaptive(maxAttempts,
+                                                            initialBackoffSeconds,
+                                                            maxBackoffSeconds,
+                                                            codes,
+                                                            backoffMultiplier)
+                                : null;
 
       var grpc = new GrpcOptions
                  {
