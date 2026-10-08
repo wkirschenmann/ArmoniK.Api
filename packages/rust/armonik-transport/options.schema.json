@@ -289,23 +289,23 @@
       ]
     },
     "TcpKeepaliveOptions": {
-      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.",
+      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is whole seconds, which is what the socket option holds: a fraction is dropped.\nAn `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then\n`IntervalSeconds` and `Retries` set nothing.",
       "type": "object",
       "properties": {
         "IdleSeconds": {
-          "description": "How long the connection may be idle before the first probe, from a second to 32767, the\nmost Linux holds.",
+          "description": "How long the connection may be idle before the first probe, from a second to 32767, the\nmost Linux holds, or 0 for no keepalive.\n\nDefaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,\nthe option leaves that source's value, and a value between 0 and 1 is refused.",
           "$ref": "#/$defs/Seconds",
-          "minimum": 1.0,
+          "minimum": 0.0,
           "maximum": 32767.0
         },
         "IntervalSeconds": {
-          "description": "How long between two probes, from a second to 32767. Defaults to the operating system's.\n\nRefused without `IdleSeconds`.",
+          "description": "How long between two probes, from a second to 32767. Defaults to the operating system's.\n\nRefused without `IdleSeconds`, and ignored when that is 0.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1.0,
           "maximum": 32767.0
         },
         "Retries": {
-          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nRefused without `IdleSeconds`.",
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nRefused without `IdleSeconds`, and ignored when that is 0.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
@@ -423,9 +423,9 @@
       "type": "object",
       "properties": {
         "KeepAliveIntervalSeconds": {
-          "description": "How often a PING is sent to the peer. Defaults to none sent.",
+          "description": "How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.\n\nDefaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.",
           "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
+          "minimum": 0.0
         },
         "KeepAliveTimeoutSeconds": {
           "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
@@ -437,9 +437,9 @@
           "type": "boolean"
         },
         "IdleTimeoutSeconds": {
-          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nDefaults to none: an idle connection stays open.",
+          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nAt least a nanosecond, or 0 for none.\n\nDefaults to none: an idle connection stays open. Zero is the way to turn a timeout an\nearlier source set off.",
           "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
+          "minimum": 0.0
         },
         "SimultaneousCallsPerConnection": {
           "description": "How many calls one connection carries at once, never more than its server allows. A call\nthat finds every connection full opens another, as many as the calls in flight need, and\neach closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one\nanother on a connection but never share it, so that a GOAWAY a server sends because of one\ncall - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.\n\nDefaults to none: a connection carries as many calls as its server allows.",
@@ -550,9 +550,9 @@
           "minLength": 1
         },
         "DefaultDeadlineSeconds": {
-          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not\nonly the wait for the response's head. A call's own deadline takes its place, and a call\nthat states none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds.",
+          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not\nonly the wait for the response's head. A call's own deadline takes its place, and a call\nthat states none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds, or 0 for none, over a deadline an earlier source set.",
           "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
+          "minimum": 0.0
         },
         "Retry": {
           "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never\nprocessed goes again besides, whatever `MaxAttempts` is, while every message it sent is\nkept.",
@@ -619,17 +619,17 @@
       "additionalProperties": false
     },
     "RateLimitOptions": {
-      "description": "How many requests a channel starts in a window of time.\n\nOff unless both options are set. A request is an attempt, the first of a call or a retry of it,\nbecause the server sees each as a request; a streaming call counts once, when it starts. The\nfirst request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request\nafter the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can\nstart within `PerSeconds` across a boundary, the last of one window and the first of the next.\n\nA call's first attempt over the limit waits for the next window and is not refused: a call whose\ndeadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,\nneither having sent anything. Requests start in the order they reach the limit, and the limit\nis the channel's, shared by every connection it opens. A retry the retry policy chooses does\nnot wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is\nskipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when\nthe attempts are spent the call ends with the status of the last attempt sent. A resend of a\nrequest its peer never processed is no retry of the policy's, and waits its turn like a first\nattempt.",
+      "description": "How many requests a channel starts in a window of time.\n\nOff unless both options are set, or when `Calls` is 0. A request is an attempt, the first of a call or a retry of it,\nbecause the server sees each as a request; a streaming call counts once, when it starts. The\nfirst request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request\nafter the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can\nstart within `PerSeconds` across a boundary, the last of one window and the first of the next.\n\nA call's first attempt over the limit waits for the next window and is not refused: a call whose\ndeadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,\nneither having sent anything. Requests start in the order they reach the limit, and the limit\nis the channel's, shared by every connection it opens. A retry the retry policy chooses does\nnot wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is\nskipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when\nthe attempts are spent the call ends with the status of the last attempt sent. A resend of a\nrequest its peer never processed is no retry of the policy's, and waits its turn like a first\nattempt.",
       "type": "object",
       "properties": {
         "Calls": {
-          "description": "The requests that start in one window.\n\nRefused without `PerSeconds`.",
+          "description": "The requests that start in one window, or 0 for no limit, over one an earlier source set.\n\nRefused without `PerSeconds`, unless it is 0, which ignores `PerSeconds`.",
           "type": "integer",
           "format": "int32",
-          "minimum": 1
+          "minimum": 0
         },
         "PerSeconds": {
-          "description": "How long a window lasts.\n\nRefused without `Calls`.",
+          "description": "How long a window lasts.\n\nRefused without `Calls`, unless `Calls` is 0.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         }

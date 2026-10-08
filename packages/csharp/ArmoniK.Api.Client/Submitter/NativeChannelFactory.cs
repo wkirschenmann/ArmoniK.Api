@@ -40,8 +40,10 @@ namespace ArmoniK.Api.Client.Submitter
   ///     the command line under <c>--ArmoniK:Client:Grpc:</c>. Those are read once, with the first channel.
   ///   </para>
   ///   <para>
-  ///     Each channel states the options of its own <see cref="GrpcClient" /> that are not at their defaults,
-  ///     which win over the engine's sources: a certificate or a proxy differs from one channel to the next.
+  ///     Each channel states the options of its own <see cref="GrpcClient" /> that the caller set, even to their
+  ///     defaults, and they win over the engine's sources: a certificate or a proxy differs from one channel to the
+  ///     next. The TLS verification, the certificates and the target name have no neutral value, so an empty or
+  ///     false one sends nothing.
   ///     The engine refuses a value outside its bounds, such as a keepalive under a second, when the channel is
   ///     opened.
   ///   </para>
@@ -100,14 +102,8 @@ namespace ArmoniK.Api.Client.Submitter
         logger?.LogWarning("HttpMessageHandler is not read by the native transport");
       }
 
-      foreach (var option in NativeClientOptions.CannotBeDisabled(options))
-      {
-        logger?.LogWarning("{Option} cannot be disabled by the native transport, which keeps its default",
-                           option);
-      }
-
       var translated = NativeClientOptions.Translate(options,
-                                                     new GrpcClient());
+                                                     true);
 
       // Opened under the lock, so that a shutdown cannot dispose the engine between the read and the open.
       lock (gate_)
@@ -170,7 +166,7 @@ namespace ArmoniK.Api.Client.Submitter
       var configuration = new NativeConfiguration().LoadConfigFromObject(new RuntimeOptions
                                                                          {
                                                                            ChannelDefaults = NativeClientOptions.Translate(new GrpcClient(),
-                                                                                                                           null),
+                                                                                                                           false),
                                                                          })
                                                    .LoadConfigFromEnvironment();
       if (commandLine is not null)

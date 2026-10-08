@@ -783,7 +783,11 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
 }
 
 /// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
-/// <remarks>Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.</remarks>
+/// <remarks>
+///   Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
+///   An <c>IdleSeconds</c> of 0 states that there is none, over what an earlier source set, and then
+///   <c>IntervalSeconds</c> and <c>Retries</c> set nothing.
+/// </remarks>
 public sealed class TcpKeepaliveOptions
 {
   /// <summary>Options nobody has set.</summary>
@@ -808,14 +812,18 @@ public sealed class TcpKeepaliveOptions
 
   /// <summary>
   ///   How long the connection may be idle before the first probe, from a second to 32767, the
-  ///   most Linux holds.
+  ///   most Linux holds, or 0 for no keepalive.
   /// </summary>
+  /// <remarks>
+  ///   Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
+  ///   the option leaves that source's value, and a value between 0 and 1 is refused.
+  /// </remarks>
   [JsonPropertyName("IdleSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? IdleSeconds { get; set; }
 
   /// <summary>How long between two probes, from a second to 32767. Defaults to the operating system's.</summary>
-  /// <remarks>Refused without <c>IdleSeconds</c>.</remarks>
+  /// <remarks>Refused without <c>IdleSeconds</c>, and ignored when that is 0.</remarks>
   [JsonPropertyName("IntervalSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? IntervalSeconds { get; set; }
@@ -824,7 +832,7 @@ public sealed class TcpKeepaliveOptions
   ///   How many probes go unanswered before the connection is dropped, at most 127, the most
   ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
   /// </summary>
-  /// <remarks>Refused without <c>IdleSeconds</c>.</remarks>
+  /// <remarks>Refused without <c>IdleSeconds</c>, and ignored when that is 0.</remarks>
   [JsonPropertyName("Retries")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? Retries { get; set; }
@@ -833,11 +841,11 @@ public sealed class TcpKeepaliveOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (IdleSeconds is double idleSeconds && (idleSeconds < 1 || idleSeconds > 32767 || idleSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleSeconds) || double.IsInfinity(idleSeconds)))
+    if (IdleSeconds is double idleSeconds && (idleSeconds < 0 || idleSeconds > 32767 || idleSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleSeconds) || double.IsInfinity(idleSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
                                             idleSeconds,
-                                            "IdleSeconds has to be at least 1 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
+                                            "IdleSeconds has to be at least 0 and at most 32767 and less than 1.8446744073709552E+19 and finite.");
     }
 
     if (IntervalSeconds is double intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767 || intervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(intervalSeconds) || double.IsInfinity(intervalSeconds)))
@@ -1137,7 +1145,8 @@ public sealed class Http2Options
     Receive = other.Receive;
   }
 
-  /// <summary>How often a PING is sent to the peer. Defaults to none sent.</summary>
+  /// <summary>How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.</summary>
+  /// <remarks>Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.</remarks>
   [JsonPropertyName("KeepAliveIntervalSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? KeepAliveIntervalSeconds { get; set; }
@@ -1159,7 +1168,11 @@ public sealed class Http2Options
   ///   dialling a new one. Each connection has its own. A call holds its connection to the end of
   ///   its response and of its request.
   /// </summary>
-  /// <remarks>Defaults to none: an idle connection stays open.</remarks>
+  /// <remarks>
+  ///   At least a nanosecond, or 0 for none.
+  ///   Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
+  ///   earlier source set off.
+  /// </remarks>
   [JsonPropertyName("IdleTimeoutSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? IdleTimeoutSeconds { get; set; }
@@ -1192,11 +1205,11 @@ public sealed class Http2Options
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 1E-09 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
+    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 0 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
                                             keepAliveIntervalSeconds,
-                                            "KeepAliveIntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+                                            "KeepAliveIntervalSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
     }
 
     if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
@@ -1206,11 +1219,11 @@ public sealed class Http2Options
                                             "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
     }
 
-    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 1E-09 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
+    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 0 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
                                             idleTimeoutSeconds,
-                                            "IdleTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+                                            "IdleTimeoutSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
     }
 
     if (SimultaneousCallsPerConnection is int simultaneousCallsPerConnection && simultaneousCallsPerConnection < 1)
@@ -1506,7 +1519,7 @@ public sealed class GrpcOptions
   /// </summary>
   /// <remarks>
   ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-  ///   finest duration the engine holds.
+  ///   finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
   /// </remarks>
   [JsonPropertyName("DefaultDeadlineSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1557,11 +1570,11 @@ public sealed class GrpcOptions
                                             "UserAgent has to be at least 1 character long.");
     }
 
-    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 1E-09 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
+    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 0 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
     {
       throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
                                             defaultDeadlineSeconds,
-                                            "DefaultDeadlineSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+                                            "DefaultDeadlineSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
     }
 
     Retry?.Validate();
@@ -1695,7 +1708,7 @@ public sealed class RetryOptions
 
 /// <summary>How many requests a channel starts in a window of time.</summary>
 /// <remarks>
-///   Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
+///   Off unless both options are set, or when <c>Calls</c> is 0. A request is an attempt, the first of a call or a retry of it,
 ///   because the server sees each as a request; a streaming call counts once, when it starts. The
 ///   first request opens a window of <c>PerSeconds</c>, and <c>Calls</c> of them start in it; the first request
 ///   after the window ends opens the next. Windows are fixed, so up to twice <c>Calls</c> requests can
@@ -1731,14 +1744,14 @@ public sealed class RateLimitOptions
     PerSeconds = other.PerSeconds;
   }
 
-  /// <summary>The requests that start in one window.</summary>
-  /// <remarks>Refused without <c>PerSeconds</c>.</remarks>
+  /// <summary>The requests that start in one window, or 0 for no limit, over one an earlier source set.</summary>
+  /// <remarks>Refused without <c>PerSeconds</c>, unless it is 0, which ignores <c>PerSeconds</c>.</remarks>
   [JsonPropertyName("Calls")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? Calls { get; set; }
 
   /// <summary>How long a window lasts.</summary>
-  /// <remarks>Refused without <c>Calls</c>.</remarks>
+  /// <remarks>Refused without <c>Calls</c>, unless <c>Calls</c> is 0.</remarks>
   [JsonPropertyName("PerSeconds")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public double? PerSeconds { get; set; }
@@ -1747,11 +1760,11 @@ public sealed class RateLimitOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (Calls is int calls && calls < 1)
+    if (Calls is int calls && calls < 0)
     {
       throw new ArgumentOutOfRangeException(nameof(Calls),
                                             calls,
-                                            "Calls has to be at least 1.");
+                                            "Calls has to be at least 0.");
     }
 
     if (PerSeconds is double perSeconds && (perSeconds < 1E-09 || perSeconds >= 1.8446744073709552E+19 || double.IsNaN(perSeconds) || double.IsInfinity(perSeconds)))

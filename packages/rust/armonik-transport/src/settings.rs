@@ -98,8 +98,12 @@ impl ChannelSettings {
             "Transport.ConnectTimeoutSeconds",
             options.transport.connect_timeout_seconds,
         )?;
-        let default_deadline =
-            duration("Grpc.DefaultDeadlineSeconds", grpc.default_deadline_seconds)?;
+        // Zero states that a call has none, over a deadline an earlier source set.
+        let default_deadline = duration(
+            "Grpc.DefaultDeadlineSeconds",
+            grpc.default_deadline_seconds
+                .filter(|seconds| !crate::options::is_off(*seconds)),
+        )?;
 
         let tls = options
             .transport

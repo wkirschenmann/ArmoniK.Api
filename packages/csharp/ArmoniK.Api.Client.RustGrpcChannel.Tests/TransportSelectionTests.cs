@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 using ArmoniK.Api.Client.Options;
@@ -22,6 +23,8 @@ using ArmoniK.Api.Client.Submitter;
 
 using Grpc.Core;
 using Grpc.Net.Client;
+
+using Microsoft.Extensions.Configuration;
 
 using NUnit.Framework;
 
@@ -144,7 +147,7 @@ public class TransportSelectionTests
                   };
 
     Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
-                                                                                  new GrpcClient())
+                                                                                  true)
                                                                        .Encode()),
                 Does.Not.Contain("Tls"));
 
@@ -167,7 +170,7 @@ public class TransportSelectionTests
                                                                                        Endpoint              = "HTTPS://server.test:5001",
                                                                                        AllowUnsafeConnection = true,
                                                                                      },
-                                                                                     new GrpcClient())
+                                                                                     true)
                                                                           .Encode()),
                    Does.Contain(@"""Unverified"""));
 
@@ -183,7 +186,7 @@ public class TransportSelectionTests
                   };
 
     Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
-                                                                                  new GrpcClient())
+                                                                                  true)
                                                                        .Encode()),
                 Does.Contain(@"""InitialBackoffSeconds"":10")
                     .And.Contain(@"""MaxBackoffSeconds"":10"));
@@ -199,7 +202,7 @@ public class TransportSelectionTests
   {
     string Encoded(GrpcClient options)
       => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
-                                                                           new GrpcClient())
+                                                                           true)
                                                                 .Encode());
 
     Assert.Multiple(() =>
@@ -334,6 +337,134 @@ public class TransportSelectionTests
     }
   }
 
+  /// <summary>A value the caller set to its default overrides the environment, and one left unset keeps what the environment says.</summary>
+  [Test]
+  public async Task AValueSetToItsDefaultOverridesTheEnvironmentAndAnUnsetOneKeepsIt()
+  {
+    // A deadline of a nanosecond ends every call before it is answered, so what the channel does
+    // says which of the two the engine read.
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__DefaultDeadlineSeconds";
+    Environment.SetEnvironmentVariable(name,
+                                       "1e-9");
+    try
+    {
+      await using (var kept = (NativeChannel)GrpcChannelFactory.CreateChannelBase(new GrpcClient
+                                                                                  {
+                                                                                    Endpoint  = Endpoint,
+                                                                                    Transport = ClientTransport.Native,
+                                                                                  }))
+      {
+        Assert.That(async () => await Client(kept)
+                                      .SayAsync(new EchoRequest
+                                                {
+                                                  Text = "kept",
+                                                })
+                                      .ResponseAsync.ConfigureAwait(false),
+                    Throws.InstanceOf<RpcException>()
+                          .With.Property("StatusCode")
+                          .EqualTo(StatusCode.DeadlineExceeded),
+                    "unset: the environment's deadline applies");
+      }
+
+      await using var overridden = (NativeChannel)GrpcChannelFactory.CreateChannelBase(new GrpcClient
+                                                                                       {
+                                                                                         Endpoint       = Endpoint,
+                                                                                         Transport      = ClientTransport.Native,
+                                                                                         RequestTimeout = System.Threading.Timeout.InfiniteTimeSpan,
+                                                                                       });
+      var reply = await Client(overridden)
+                        .SayAsync(new EchoRequest
+                                  {
+                                    Text = "overridden",
+                                  })
+                        .ResponseAsync.ConfigureAwait(false);
+      Assert.That(reply.Text,
+                  Is.EqualTo("overridden"),
+                  "set to its default: it turns the environment's deadline off");
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+  }
+
+  /// <summary>An option is set by the keys of the configuration it was bound from, and only by them.</summary>
+  [Test]
+  public void BindingFromAConfigurationSetsExactlyTheKeysItHolds()
+  {
+    var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                                                                         {
+                                                                           ["GrpcClient:Endpoint"]              = "http://server.test:5001",
+                                                                           ["GrpcClient:MaxAttempts"]           = "5",
+                                                                           ["GrpcClient:KeepAliveTime"]         = "00:00:10",
+                                                                           ["GrpcClient:CertPem"]               = "client.pem",
+                                                                           ["GrpcClient:AllowUnsafeConnection"] = "false",
+                                                                         })
+                                                  .Build();
+
+    var options = configuration.GetRequiredSection(GrpcClient.SettingSection)
+                               .Get<GrpcClient>()!;
+
+    Assert.Multiple(() =>
+                    {
+                      foreach (var name in new[]
+                                           {
+                                             nameof(GrpcClient.MaxAttempts),
+                                             nameof(GrpcClient.KeepAliveTime),
+                                             nameof(GrpcClient.CertPem),
+                                             nameof(GrpcClient.AllowUnsafeConnection),
+                                           })
+                      {
+                        Assert.That(options.IsSet(name),
+                                    Is.True,
+                                    name);
+                      }
+
+                      foreach (var name in new[]
+                                           {
+                                             nameof(GrpcClient.KeyPem),
+                                             nameof(GrpcClient.KeepAliveTimeInterval),
+                                             nameof(GrpcClient.MaxIdleTime),
+                                             nameof(GrpcClient.InitialBackOff),
+                                             nameof(GrpcClient.MaxBackOff),
+                                             nameof(GrpcClient.BackoffMultiplier),
+                                             nameof(GrpcClient.RequestTimeout),
+                                             nameof(GrpcClient.Proxy),
+                                             nameof(GrpcClient.CaCert),
+                                           })
+                      {
+                        Assert.That(options.IsSet(name),
+                                    Is.False,
+                                    name);
+                      }
+
+                      Assert.That(options.MaxAttempts,
+                                  Is.EqualTo(5));
+                      Assert.That(options.KeepAliveTime,
+                                  Is.EqualTo(TimeSpan.FromSeconds(10)));
+                    });
+  }
+
+  /// <summary>Assigning an option sets it, and creating or reading one does not.</summary>
+  [Test]
+  public void AssigningAnOptionSetsItAndReadingDoesNot()
+  {
+    var options = new GrpcClient();
+    Assert.That(options.MaxAttempts,
+                Is.EqualTo(5));
+    Assert.That(options.IsSet(nameof(GrpcClient.MaxAttempts)),
+                Is.False);
+
+    // Another option is read in between: an assignment right after the read of the same option
+    // is the shape the configuration binder gives an absent key, and is not recorded.
+    Assert.That(options.BackoffMultiplier,
+                Is.EqualTo(1.5));
+    options.MaxAttempts = 5;
+    Assert.That(options.IsSet(nameof(GrpcClient.MaxAttempts)),
+                Is.True);
+  }
+
   /// <summary>Only the client's prefix is read: another's names are not options of the engine.</summary>
   [Test]
   public async Task OnlyTheClientsPrefixIsRead()
@@ -371,9 +502,9 @@ public class TransportSelectionTests
                                                                      }),
                    Throws.InstanceOf<FormatException>());
 
-  /// <summary>A channel is not opened while the engine is shutting down, and the engine starts again once it has stopped.</summary>
+  /// <summary>A channel opened while the engine stops is refused, or opened on the next engine if it has stopped by then.</summary>
   [Test]
-  public async Task AChannelIsRefusedWhileTheEngineIsShuttingDown()
+  public async Task AChannelOpenedWhileTheEngineStopsIsRefusedOrOpenedOnTheNextOne()
   {
     var options = new GrpcClient
                   {
@@ -384,11 +515,18 @@ public class TransportSelectionTests
     await using (first)
     {
       var stopping = NativeChannelFactory.Instance.ShutdownAsync();
-      if (!stopping.IsCompleted)
+      try
       {
-        Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
-                    Throws.InstanceOf<InvalidOperationException>()
-                          .With.Message.Contains("shutting down"));
+        // Either the refusal, or the engine had stopped by now and this one is a new engine's.
+        await using var during = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+        Assert.That(stopping.IsCompleted,
+                    Is.True,
+                    "a channel opened while the engine was stopping");
+      }
+      catch (InvalidOperationException refused)
+      {
+        Assert.That(refused.Message,
+                    Does.Contain("shutting down"));
       }
 
       await stopping.ConfigureAwait(false);
@@ -399,22 +537,42 @@ public class TransportSelectionTests
                 Is.GreaterThan(0));
   }
 
-  /// <summary>Options that ask for no bound where a default sets one are named, since the engine cannot turn them off.</summary>
+  /// <summary>Options that ask for no bound where a default sets one state it as zero, so that they turn it off.</summary>
   [Test]
-  public void OptionsThatCannotTurnADefaultOffAreNamed()
+  public async Task OptionsThatAskForNoBoundTurnTheDefaultOff()
   {
     var options = new GrpcClient
                   {
+                    Endpoint      = Endpoint,
+                    Transport     = ClientTransport.Native,
                     KeepAliveTime = System.Threading.Timeout.InfiniteTimeSpan,
                     MaxIdleTime   = TimeSpan.Zero,
                   };
 
-    Assert.That(NativeClientOptions.CannotBeDisabled(options),
-                Is.EqualTo(new[]
-                           {
-                             nameof(GrpcClient.KeepAliveTime),
-                             nameof(GrpcClient.MaxIdleTime),
-                           }));
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  true)
+                                                                       .Encode()),
+                Does.Contain(@"""IdleSeconds"":0")
+                    .And.Contain(@"""IdleTimeoutSeconds"":0"));
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
+                                                                                  {
+                                                                                    RequestTimeout = TimeSpan.Zero,
+                                                                                  },
+                                                                                  true)
+                                                                       .Encode()),
+                Does.Contain(@"""DefaultDeadlineSeconds"":0"));
+
+    // The floor sets a keepalive with its interval, and the zero over it must not be refused
+    // for the interval that stays.
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
+    var reply = await Client(channel)
+                      .SayAsync(new EchoRequest
+                                {
+                                  Text = "off",
+                                })
+                      .ResponseAsync.ConfigureAwait(false);
+    Assert.That(reply.Text,
+                Is.EqualTo("off"));
   }
 
   /// <summary>The proxy words and a P12 bundle are translated as the managed transport reads them.</summary>
@@ -423,7 +581,7 @@ public class TransportSelectionTests
   {
     string Encoded(GrpcClient options)
       => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
-                                                                           new GrpcClient())
+                                                                           true)
                                                                 .Encode());
 
     Assert.Multiple(() =>
@@ -440,6 +598,18 @@ public class TransportSelectionTests
                                   Does.Contain(@"""Proxy"":{""System"":"));
                       Assert.That(Encoded(new GrpcClient
                                           {
+                                            Proxy = "",
+                                          }),
+                                  Does.Contain(@"""Proxy"":{""System"":"),
+                                  "an empty proxy set is the system's, over one an earlier source named");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            ProxyUsername = "user",
+                                          }),
+                                  Does.Not.Contain("Proxy"),
+                                  "credentials alone say nothing of the proxy");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
                                             CertP12 = "client.p12",
                                             CertPem = "ignored.pem",
                                             KeyPem  = "ignored.key",
@@ -449,9 +619,9 @@ public class TransportSelectionTests
                     });
   }
 
-  /// <summary>Against the floor, only what the options state beyond it is translated.</summary>
+  /// <summary>Only the options the caller set are translated, a value equal to the default included.</summary>
   [Test]
-  public void OnlyWhatTheOptionsStateBeyondTheirDefaultsIsTranslated()
+  public void OnlyTheOptionsTheCallerSetAreTranslated()
   {
     var stated = new GrpcClient
                  {
@@ -467,14 +637,25 @@ public class TransportSelectionTests
     Assert.Multiple(() =>
                     {
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient(),
-                                                                                                    new GrpcClient())
+                                                                                                    true)
                                                                                          .Encode()),
                                   Does.Not.Contain("MaxAttempts")
                                       .And.Not.Contain("IdleSeconds")
                                       .And.Not.Contain("IdleTimeoutSeconds"),
-                                  "an option left at its default is left to the engine's sources");
+                                  "an option left alone is left to the engine's sources");
+                      Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
+                                                                                                    {
+                                                                                                      MaxAttempts = 5,
+                                                                                                      MaxIdleTime = TimeSpan.FromMinutes(5),
+                                                                                                    },
+                                                                                                    true)
+                                                                                         .Encode()),
+                                  Does.Contain(@"""MaxAttempts"":5")
+                                      .And.Contain(@"""IdleTimeoutSeconds"":300")
+                                      .And.Not.Contain("IdleSeconds"),
+                                  "an option set to its default is translated");
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(stated,
-                                                                                                    new GrpcClient())
+                                                                                                    true)
                                                                                          .Encode()),
                                   Does.Contain(@"""Unverified""")
                                       .And.Contain(@"""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}")
@@ -482,12 +663,12 @@ public class TransportSelectionTests
                                       .And.Contain(@"""MaxAttempts"":3")
                                       .And.Contain(@"""DefaultDeadlineSeconds"":7"));
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient(),
-                                                                                                    null)
+                                                                                                    false)
                                                                                          .Encode()),
                                   Does.Contain(@"""IdleSeconds"":30")
                                       .And.Contain(@"""MaxAttempts"":5")
                                       .And.Contain(@"""IdleTimeoutSeconds"":300"),
-                                  "with no floor, the defaults of GrpcClient are translated");
+                                  "for the defaults of a runtime, every option is translated");
                     });
   }
 }

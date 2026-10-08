@@ -892,6 +892,8 @@ impl std::fmt::Debug for Password {
 /// The socket's keepalive, off unless `IdleSeconds` is set.
 ///
 /// Each duration is whole seconds, which is what the socket option holds: a fraction is dropped.
+/// An `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then
+/// `IntervalSeconds` and `Retries` set nothing.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -899,17 +901,20 @@ impl std::fmt::Debug for Password {
 #[non_exhaustive]
 pub struct TcpKeepaliveOptions {
     /// How long the connection may be idle before the first probe, from a second to 32767, the
-    /// most Linux holds.
+    /// most Linux holds, or 0 for no keepalive.
+    ///
+    /// Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
+    /// the option leaves that source's value, and a value between 0 and 1 is refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1.0, "maximum" = 32767.0))
+        schemars(with = "Seconds", extend("minimum" = 0.0, "maximum" = 32767.0))
     )]
     pub idle_seconds: Option<Seconds>,
 
     /// How long between two probes, from a second to 32767. Defaults to the operating system's.
     ///
-    /// Refused without `IdleSeconds`.
+    /// Refused without `IdleSeconds`, and ignored when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -920,7 +925,7 @@ pub struct TcpKeepaliveOptions {
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
     ///
-    /// Refused without `IdleSeconds`.
+    /// Refused without `IdleSeconds`, and ignored when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
     pub retries: Option<i32>,
@@ -934,11 +939,13 @@ pub struct TcpKeepaliveOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2Options {
-    /// How often a PING is sent to the peer. Defaults to none sent.
+    /// How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.
+    ///
+    /// Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
+        schemars(with = "Seconds", extend("minimum" = 0.0))
     )]
     pub keep_alive_interval_seconds: Option<Seconds>,
 
@@ -963,11 +970,14 @@ pub struct Http2Options {
     /// dialling a new one. Each connection has its own. A call holds its connection to the end of
     /// its response and of its request.
     ///
-    /// Defaults to none: an idle connection stays open.
+    /// At least a nanosecond, or 0 for none.
+    ///
+    /// Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
+    /// earlier source set off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
+        schemars(with = "Seconds", extend("minimum" = 0.0))
     )]
     pub idle_timeout_seconds: Option<Seconds>,
 
@@ -1219,7 +1229,7 @@ impl RetryOptions {
 
 /// How many requests a channel starts in a window of time.
 ///
-/// Off unless both options are set. A request is an attempt, the first of a call or a retry of it,
+/// Off unless both options are set, or when `Calls` is 0. A request is an attempt, the first of a call or a retry of it,
 /// because the server sees each as a request; a streaming call counts once, when it starts. The
 /// first request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request
 /// after the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can
@@ -1239,16 +1249,16 @@ impl RetryOptions {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct RateLimitOptions {
-    /// The requests that start in one window.
+    /// The requests that start in one window, or 0 for no limit, over one an earlier source set.
     ///
-    /// Refused without `PerSeconds`.
+    /// Refused without `PerSeconds`, unless it is 0, which ignores `PerSeconds`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub calls: Option<i32>,
 
     /// How long a window lasts.
     ///
-    /// Refused without `Calls`.
+    /// Refused without `Calls`, unless `Calls` is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -1260,6 +1270,9 @@ pub struct RateLimitOptions {
 impl RateLimitOptions {
     /// The limit these options name, none when they name none.
     pub fn to_config(&self) -> Result<Option<RateLimitConfig>, OptionRefusal> {
+        if self.calls == Some(0) {
+            return Ok(None);
+        }
         let calls = match self.calls {
             None => None,
             Some(calls) if calls < 1 => {
@@ -1322,6 +1335,28 @@ impl std::fmt::Display for OptionRefusal {
 }
 
 impl std::error::Error for OptionRefusal {}
+
+/// Whether a number of seconds states that there is none: zero.
+///
+/// An option left out leaves what an earlier source set, so the only way for a later source to
+/// turn a feature off is to say so.
+pub(crate) fn is_off(seconds: Seconds) -> bool {
+    seconds.0 == 0.0
+}
+
+/// A number of seconds as a duration, or none for zero, which states there is none; refused
+/// below `least`, above `most`, and past what a `Duration` holds as `duration` refuses.
+fn duration_or_off(
+    key: &str,
+    seconds: Option<Seconds>,
+    least: f64,
+    most: Option<f64>,
+) -> Result<Option<Duration>, OptionRefusal> {
+    if seconds.is_some_and(is_off) {
+        return Ok(None);
+    }
+    duration(key, seconds, least, most)
+}
 
 /// A number of seconds as a duration, refused below `least`, above `most`, and past what a
 /// `Duration` holds.
@@ -1484,6 +1519,15 @@ impl TlsOptions {
 
 impl TcpKeepaliveOptions {
     pub fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
+        // Stated as zero, there is none and what goes with it is not read: the options a source
+        // set for a keepalive that a later one turns off.
+        if self.idle_seconds.is_some_and(is_off) {
+            return Ok(TcpConfig {
+                keepalive: None,
+                keepalive_interval: None,
+                keepalive_retries: None,
+            });
+        }
         let keepalive = duration("IdleSeconds", self.idle_seconds, 1.0, Some(32767.0))?;
         let keepalive_interval =
             duration("IntervalSeconds", self.interval_seconds, 1.0, Some(32767.0))?;
@@ -1531,7 +1575,7 @@ impl Http2Options {
             Some(size) => Ok(size as u32),
         };
         Ok(Http2Config {
-            keep_alive_interval: duration(
+            keep_alive_interval: duration_or_off(
                 "KeepAliveIntervalSeconds",
                 self.keep_alive_interval_seconds,
                 1e-9,
@@ -1568,7 +1612,12 @@ impl Http2Options {
                 }
                 Some(Http2ReceiveOptions::Adaptive(Chosen)) => ReceiveWindows::Adaptive,
             },
-            idle_timeout: duration("IdleTimeoutSeconds", self.idle_timeout_seconds, 1e-9, None)?,
+            idle_timeout: duration_or_off(
+                "IdleTimeoutSeconds",
+                self.idle_timeout_seconds,
+                1e-9,
+                None,
+            )?,
             simultaneous_calls_per_connection: match self.simultaneous_calls_per_connection {
                 None => defaults.simultaneous_calls_per_connection,
                 Some(calls) if calls < 1 => {
@@ -1680,11 +1729,11 @@ pub struct GrpcOptions {
     /// that states none takes this one.
     ///
     /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-    /// finest duration the engine holds.
+    /// finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
+        schemars(with = "Seconds", extend("minimum" = 0.0))
     )]
     pub default_deadline_seconds: Option<Seconds>,
 
@@ -2994,6 +3043,117 @@ mod tests {
         }
     }
 
+    /// Zero is how a later source turns off what an earlier one set: an option left out leaves
+    /// the earlier value, so "none" has to be a value.
+    #[test]
+    fn a_zero_turns_off_what_an_earlier_source_set_and_an_absent_option_leaves_it() {
+        let earlier = ChannelOptions {
+            transport: TransportOptions {
+                tcp_keepalive: TcpKeepaliveOptions {
+                    idle_seconds: Some(Seconds(30.0)),
+                    interval_seconds: Some(Seconds(5.0)),
+                    retries: Some(3),
+                },
+                ..TransportOptions::default()
+            },
+            http2: Http2Options {
+                keep_alive_interval_seconds: Some(Seconds(10.0)),
+                idle_timeout_seconds: Some(Seconds(300.0)),
+                ..Http2Options::default()
+            },
+            grpc: GrpcOptions {
+                rate_limit: RateLimitOptions {
+                    calls: Some(5),
+                    per_seconds: Some(Seconds(1.0)),
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let zeros = ChannelOptions {
+            transport: TransportOptions {
+                tcp_keepalive: TcpKeepaliveOptions {
+                    idle_seconds: Some(Seconds(0.0)),
+                    ..TcpKeepaliveOptions::default()
+                },
+                ..TransportOptions::default()
+            },
+            http2: Http2Options {
+                keep_alive_interval_seconds: Some(Seconds(0.0)),
+                idle_timeout_seconds: Some(Seconds(0.0)),
+                ..Http2Options::default()
+            },
+            grpc: GrpcOptions {
+                rate_limit: RateLimitOptions {
+                    calls: Some(0),
+                    per_seconds: None,
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+
+        let kept = ChannelOptions::default().over(&earlier);
+        let tcp = kept.transport.tcp_keepalive.to_config().expect("kept");
+        assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
+        assert_eq!(tcp.keepalive_interval, Some(Duration::from_secs(5)));
+        let http2 = kept.http2.to_config().expect("kept");
+        assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
+        assert_eq!(http2.idle_timeout, Some(Duration::from_secs(300)));
+        assert!(kept.grpc.rate_limit.to_config().expect("kept").is_some());
+
+        let off = zeros.over(&earlier);
+        let tcp = off.transport.tcp_keepalive.to_config().expect("off");
+        assert_eq!(
+            (tcp.keepalive, tcp.keepalive_interval, tcp.keepalive_retries),
+            (None, None, None),
+            "what goes with a keepalive that is off is not read, and not refused"
+        );
+        let http2 = off.http2.to_config().expect("off");
+        assert_eq!(http2.keep_alive_interval, None);
+        assert_eq!(http2.idle_timeout, None);
+        assert_eq!(off.grpc.rate_limit.to_config().expect("off"), None);
+    }
+
+    /// Zero is none for these options and nothing else: a value below what the option admits is
+    /// still refused.
+    #[test]
+    fn a_value_between_zero_and_the_least_an_option_admits_is_refused() {
+        assert!(TcpKeepaliveOptions {
+            idle_seconds: Some(Seconds(0.5)),
+            ..TcpKeepaliveOptions::default()
+        }
+        .to_config()
+        .is_err());
+        for options in [
+            Http2Options {
+                keep_alive_interval_seconds: Some(Seconds(1e-10)),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                idle_timeout_seconds: Some(Seconds(1e-10)),
+                ..Http2Options::default()
+            },
+        ] {
+            assert!(options.to_config().is_err(), "{options:?}");
+        }
+        assert!(RateLimitOptions {
+            calls: Some(-1),
+            per_seconds: Some(Seconds(1.0)),
+        }
+        .to_config()
+        .is_err());
+        assert!(
+            TcpKeepaliveOptions {
+                interval_seconds: Some(Seconds(5.0)),
+                ..TcpKeepaliveOptions::default()
+            }
+            .to_config()
+            .is_err(),
+            "an interval with no keepalive stated is still refused"
+        );
+    }
+
     #[test]
     fn the_retry_options_become_the_policy_and_one_that_cannot_back_off_is_refused() {
         let config = RetryOptions {
@@ -3074,10 +3234,21 @@ mod tests {
             Some(RateLimitConfig::new(100, Duration::from_millis(500)))
         );
 
+        // Zero calls is no limit, over one an earlier source set.
+        assert_eq!(
+            RateLimitOptions {
+                calls: Some(0),
+                per_seconds: Some(Seconds(1.0)),
+            }
+            .to_config()
+            .expect("none"),
+            None
+        );
+
         for (options, key) in [
             (
                 RateLimitOptions {
-                    calls: Some(0),
+                    calls: Some(-1),
                     per_seconds: Some(Seconds(1.0)),
                 },
                 "Calls",
