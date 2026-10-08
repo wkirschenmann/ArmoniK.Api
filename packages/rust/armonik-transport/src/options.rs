@@ -18,9 +18,7 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
-use crate::grpc::{
-    GrpcStatusCode, RateLimitConfig, RetryConfig, GOOGLE_RPC_CODES, GRPC_CLIENT_CODES,
-};
+use crate::grpc::{AdaptiveConfig, Cause, GrpcStatusCode, ReplayConfig, RetryConfig};
 use crate::http2::{
     ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
     TlsConfig, LARGEST_FRAMES_PER_WRITE,
@@ -1184,27 +1182,134 @@ pub struct Http2FixedWindows {
     pub connection_window_bytes: Option<i32>,
 }
 
-/// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
-/// that starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to
-/// `MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the
-/// reader and what the call sent is still kept for the replay.
+/// What a channel does with the calls it sends: whether a failed call is sent again, whether the
+/// channel slows down against a server that fails, and what it keeps of the messages for a call to
+/// be sent again.
+///
+/// A failure is named by where it ended an attempt, in the entries of a list: `Status.X` for a
+/// gRPC status the server sent in its trailers, X being a name from the gRPC specification such as
+/// `UNAVAILABLE`; `Http.N` for an HTTP status N, from 100 to 599, that a proxy or a gateway answered
+/// with and no gRPC status; `Reset.R` for a stream the server reset before its response, R being
+/// an HTTP/2 error code from RFC 9113 such as `ENHANCE_YOUR_CALM`; `Pushback` for a failure whose
+/// server asked for a wait in `grpc-retry-pushback-ms`, whatever its status; `Dial` for a connection
+/// that could not be made; and `Connection` for one that ended under the call before the response.
+/// An entry that names none of these is refused, and a list that is empty names nothing. What the
+/// engine ended itself, a cancel and a deadline, is never a failure of the server's.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
-pub struct RetryOptions {
-    /// Attempts in all, the first included; 1 retries nothing. A call its peer never processed
-    /// goes again besides, whatever this is, while every message it sent is kept.
+pub struct OutboundTrafficOptions {
+    /// Whether a failed call is sent again, and how.
+    ///
+    /// Defaults to `{"ExponentialBackoff": {}}`: five attempts in all, for `Status.UNAVAILABLE`,
+    /// `Dial` and `Connection`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "RetryOptions"))]
+    pub retry: Option<RetryOptions>,
+
+    /// Whether the channel judges its server by what it accepts, and slows down against one that
+    /// fails.
+    ///
+    /// Defaults to `{"Adaptive": {}}`: the estimate with every default.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "ThrottleOptions"))]
+    pub throttle: Option<ThrottleOptions>,
+
+    /// What the channel keeps of the messages its calls sent.
+    ///
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[serde(default)]
+    pub replay: ReplayOptions,
+}
+
+/// Whether a failed call is sent again, and how.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum RetryOptions {
+    /// No retry: a failed call ends with its status. A call that its peer never processed still
+    /// goes again, once for each way the peer did not see it, while what it sent is kept under
+    /// `Replay`.
+    None,
+
+    /// A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that
+    /// starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,
+    /// for the failures `FailureList` names, while no response head has reached the reader, what
+    /// the call sent is still kept under `Replay`, and `Throttle` finds the server accepting what
+    /// is sent. A policy that retries nothing is `None`, and neither a `MaxAttempts` of 1 nor an
+    /// empty `FailureList` is one.
+    ExponentialBackoff(ExponentialBackoffOptions),
+}
+
+impl Default for RetryOptions {
+    fn default() -> Self {
+        Self::ExponentialBackoff(ExponentialBackoffOptions::default())
+    }
+}
+
+impl RetryOptions {
+    /// The policy these options name, none when they name `None`, refused where they are
+    /// incoherent.
+    pub fn to_config(&self) -> Result<Option<RetryConfig>, OptionRefusal> {
+        coherently(self.convert())
+    }
+
+    /// The policy, and the incoherences instead of a refusal for them.
+    pub(crate) fn convert(&self) -> Converted<Option<RetryConfig>> {
+        match self {
+            Self::None => Ok((None, Vec::new())),
+            Self::ExponentialBackoff(options) => {
+                let (config, incoherent) = options
+                    .convert()
+                    .map_err(|refused| refused.under("ExponentialBackoff"))?;
+                Ok((
+                    Some(config),
+                    incoherent
+                        .into_iter()
+                        .map(|refused| refused.under("ExponentialBackoff"))
+                        .collect(),
+                ))
+            }
+        }
+    }
+}
+
+/// What a failed call is sent again by.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct ExponentialBackoffOptions {
+    /// The failures a call is tried again for, each an entry as the options above describe.
+    /// Empty retries nothing.
+    ///
+    /// Defaults to `["Status.UNAVAILABLE", "Dial", "Connection"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub failure_list: Option<Vec<String>>,
+
+    /// Attempts in all, the first included; at least 2, a policy that retries nothing being `None`.
+    /// A call its peer never processed goes again besides, while every message it sent is kept.
     ///
     /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 2)))]
     pub max_attempts: Option<i32>,
 
     /// The bound of the first backoff.
     ///
-    /// Defaults to 1.
+    /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -1214,7 +1319,7 @@ pub struct RetryOptions {
 
     /// What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.
     ///
-    /// Defaults to 5.
+    /// Defaults to 120.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -1222,167 +1327,45 @@ pub struct RetryOptions {
     )]
     pub max_backoff_seconds: Option<Seconds>,
 
-    /// The statuses a call is tried again for.
-    ///
-    /// Defaults to `"GoogleRpc"`: UNAVAILABLE alone.
-    #[serde(
-        default,
-        deserialize_with = "alternative::optional",
-        skip_serializing_if = "Option::is_none"
-    )]
-    #[cfg_attr(feature = "schema", schemars(with = "RetryCodes"))]
-    pub codes: Option<RetryCodes>,
-
     /// What each bound is multiplied by; 1 retries at a fixed bound.
     ///
-    /// Defaults to 1.5.
+    /// Defaults to 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "f64", extend("minimum" = 1.0)))]
     pub backoff_multiplier: Option<f64>,
-
-    /// The bytes one call may keep for a replay; a call that sends more is not tried again.
-    ///
-    /// Defaults to 1048576, 1 MiB.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
-    pub call_replay_bytes: Option<i32>,
-
-    /// The bytes all of the channel's calls may keep for a replay together; a call whose message
-    /// would pass it is not tried again.
-    ///
-    /// Defaults to 16777216, 16 MiB.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
-    pub channel_replay_bytes: Option<i32>,
 }
 
-/// The statuses a call is tried again for.
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub enum RetryCodes {
-    /// UNAVAILABLE alone, which is what `google.rpc.Code` advises for retrying the same call.
-    ///
-    /// ABORTED is for the caller to start its unit of work again, not to repeat the call, and
-    /// UNKNOWN is a status from an error space the client does not know.
-    #[default]
-    GoogleRpc,
-
-    /// UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.
-    GrpcClient,
-
-    /// Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least
-    /// one is needed, and a channel with none is refused when it is created: set `MaxAttempts` to
-    /// 1 to retry nothing. `OK` is not a status a call fails with.
-    List(Vec<RetryableStatus>),
-}
-
-impl RetryCodes {
-    /// The statuses this names, which are refused if it names none.
-    pub fn to_config(&self) -> Result<Vec<GrpcStatusCode>, OptionRefusal> {
-        match self {
-            Self::GoogleRpc => Ok(GOOGLE_RPC_CODES.to_vec()),
-            Self::GrpcClient => Ok(GRPC_CLIENT_CODES.to_vec()),
-            Self::List(statuses) if statuses.is_empty() => Err(OptionRefusal::new(
-                "Codes.List",
-                "it names no status, so no call would be tried again; set MaxAttempts to 1 to retry nothing",
-            )),
-            Self::List(statuses) => {
-                let mut codes = Vec::with_capacity(statuses.len());
-                for status in statuses {
-                    let code = status.code();
-                    if !codes.contains(&code) {
-                        codes.push(code);
-                    }
-                }
-                Ok(codes)
-            }
+/// The entries of a list of failures, each read as a cause.
+///
+/// A duplicate is let through once. `counted` is whether the list is one the estimate counts by,
+/// which refuses what it never counts: the server's success, the caller's cancel and the caller's
+/// own deadline.
+fn causes(key: &str, entries: &[String], counted: bool) -> Result<Vec<Cause>, OptionRefusal> {
+    let mut causes = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let cause = entry.parse::<Cause>().map_err(|unknown| {
+            OptionRefusal::new(&format!("{key}[{index}]"), unknown.to_string())
+        })?;
+        if counted
+            && matches!(
+                cause,
+                Cause::Status(GrpcStatusCode::Cancelled | GrpcStatusCode::DeadlineExceeded)
+            )
+        {
+            return Err(OptionRefusal::new(
+                &format!("{key}[{index}]"),
+                format!("`{entry}` is never counted: it is the caller's own cancel or deadline"),
+            ));
+        }
+        if !causes.contains(&cause) {
+            causes.push(cause);
         }
     }
+    Ok(causes)
 }
 
-/// The name of a gRPC status a call may fail with, as gRFC A6 spells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub enum RetryableStatus {
-    /// The call was cancelled, which a retry would undo.
-    Cancelled,
-
-    /// A status from an error space the client does not know, or an error with no status.
-    Unknown,
-
-    /// The request is wrong whatever the state of the server.
-    InvalidArgument,
-
-    /// The deadline passed before the call ended.
-    DeadlineExceeded,
-
-    /// Something the request names does not exist.
-    NotFound,
-
-    /// Something the request creates exists already.
-    AlreadyExists,
-
-    /// The caller may not do this.
-    PermissionDenied,
-
-    /// A quota or a resource is exhausted.
-    ResourceExhausted,
-
-    /// The system is not in the state the request needs.
-    FailedPrecondition,
-
-    /// A conflict, such as a failed sequencer check or a transaction abort.
-    Aborted,
-
-    /// The request is past a valid range.
-    OutOfRange,
-
-    /// The server does not implement the method.
-    Unimplemented,
-
-    /// An invariant of the server is broken.
-    Internal,
-
-    /// The service is unavailable, which is transient.
-    Unavailable,
-
-    /// Data is lost or corrupt.
-    DataLoss,
-
-    /// The request has no valid credentials.
-    Unauthenticated,
-}
-
-impl RetryableStatus {
-    /// The status code of the name.
-    pub fn code(self) -> GrpcStatusCode {
-        match self {
-            Self::Cancelled => GrpcStatusCode::Cancelled,
-            Self::Unknown => GrpcStatusCode::Unknown,
-            Self::InvalidArgument => GrpcStatusCode::InvalidArgument,
-            Self::DeadlineExceeded => GrpcStatusCode::DeadlineExceeded,
-            Self::NotFound => GrpcStatusCode::NotFound,
-            Self::AlreadyExists => GrpcStatusCode::AlreadyExists,
-            Self::PermissionDenied => GrpcStatusCode::PermissionDenied,
-            Self::ResourceExhausted => GrpcStatusCode::ResourceExhausted,
-            Self::FailedPrecondition => GrpcStatusCode::FailedPrecondition,
-            Self::Aborted => GrpcStatusCode::Aborted,
-            Self::OutOfRange => GrpcStatusCode::OutOfRange,
-            Self::Unimplemented => GrpcStatusCode::Unimplemented,
-            Self::Internal => GrpcStatusCode::Internal,
-            Self::Unavailable => GrpcStatusCode::Unavailable,
-            Self::DataLoss => GrpcStatusCode::DataLoss,
-            Self::Unauthenticated => GrpcStatusCode::Unauthenticated,
-        }
-    }
-}
-
-impl RetryOptions {
-    /// The policy these options name, each unset one at its default, refused where they are
-    /// incoherent.
+impl ExponentialBackoffOptions {
+    /// The policy these options name, each unset one at its default.
     pub fn to_config(&self) -> Result<RetryConfig, OptionRefusal> {
         coherently(self.convert())
     }
@@ -1391,14 +1374,6 @@ impl RetryOptions {
     /// raised to the initial one.
     pub(crate) fn convert(&self) -> Converted<RetryConfig> {
         let defaults = RetryConfig::default();
-        let count = |key: &str, asked: Option<i32>, least: i32, default: usize| match asked {
-            None => Ok(default),
-            Some(value) if value < least => Err(OptionRefusal::new(
-                key,
-                format!("{value} has to be at least {least}"),
-            )),
-            Some(value) => Ok(value as usize),
-        };
         let initial_backoff = duration(
             "InitialBackoffSeconds",
             self.initial_backoff_seconds,
@@ -1426,128 +1401,266 @@ impl RetryOptions {
                 ))
             }
         };
-        let retryable_codes = match &self.codes {
-            None => defaults.retryable_codes.clone(),
-            Some(codes) => codes.to_config()?,
+        let failures = match &self.failure_list {
+            None => defaults.failures,
+            Some(entries) => causes("FailureList", entries, false)?,
+        };
+        let max_attempts = match self.max_attempts {
+            None => defaults.max_attempts,
+            Some(value) if value >= 2 => value as u32,
+            Some(value) => {
+                return Err(OptionRefusal::new(
+                    "MaxAttempts",
+                    format!(
+                        "{value} has to be at least 2; a source that wants no retry states `None`"
+                    ),
+                ))
+            }
         };
         let config = RetryConfig {
-            retryable_codes,
-            max_attempts: count(
-                "MaxAttempts",
-                self.max_attempts,
-                1,
-                defaults.max_attempts as usize,
-            )? as u32,
+            failures,
+            max_attempts,
             initial_backoff,
             max_backoff,
             backoff_multiplier,
-            call_replay_bytes: count(
-                "CallReplayBytes",
-                self.call_replay_bytes,
-                0,
-                defaults.call_replay_bytes,
-            )?,
-            channel_replay_bytes: count(
-                "ChannelReplayBytes",
-                self.channel_replay_bytes,
-                0,
-                defaults.channel_replay_bytes,
-            )?,
-            ..defaults
         };
         Ok((config, incoherent))
     }
 }
 
-/// How fast a channel starts calls.
+/// Whether a channel slows down against a server that fails.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ThrottleOptions {
+    /// No judgment: every retry the retry policy chooses is sent, and first attempts start as they
+    /// are made.
+    None,
+
+    /// An estimate of the server's health over a window of time, which sorts every attempt that
+    /// ends as overloaded if `OverloadList` names its failure, as transient if `TransientList`
+    /// does, and as accepted if it is an answer of the server's that neither names. Retries stop
+    /// while the server fails more than `Multiplier` times what it accepts, beyond
+    /// `FailureAllowance`. While it is overloaded more than `ThrottleMultiplier` times what it is
+    /// not, beyond `FailureAllowance`, retries stop too, and first attempts start at a capped rate,
+    /// and wait for their turns in the order they arrived: a call whose deadline passes while it waits ends
+    /// `DEADLINE_EXCEEDED` having sent nothing. A transient failure, a server that is down, never
+    /// slows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are
+    /// never counted.
+    Adaptive(AdaptiveOptions),
+}
+
+impl Default for ThrottleOptions {
+    fn default() -> Self {
+        Self::Adaptive(AdaptiveOptions::default())
+    }
+}
+
+impl ThrottleOptions {
+    /// The judgment these options name, none when they name `None`.
+    pub fn to_config(&self) -> Result<Option<AdaptiveConfig>, OptionRefusal> {
+        match self {
+            Self::None => Ok(None),
+            Self::Adaptive(options) => options
+                .to_config()
+                .map(Some)
+                .map_err(|refused| refused.under("Adaptive")),
+        }
+    }
+}
+
+/// The estimate of a server's health, and what it does.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
-pub struct RateOptions {
-    /// How many requests the channel starts in a window of time.
+pub struct AdaptiveOptions {
+    /// The failures that may be an outage, each an entry as the options above describe. They slow
+    /// retries and never lower the rate of first attempts. A failure of the server's that neither
+    /// list names counts as an acceptance; `Status.CANCELLED` and `Status.DEADLINE_EXCEEDED` are
+    /// refused.
     ///
-    /// Defaults to `{}`, which sets none: requests start as they are made.
-    #[serde(default)]
-    pub limit: RateLimitOptions,
-}
-
-/// How many requests a channel starts in a window of time.
-///
-/// Off unless both options are set, or when `Calls` is 0. A request is an attempt, the first of a call or a retry of it,
-/// because the server sees each as a request; a streaming call counts once, when it starts. The
-/// first request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request
-/// after the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can
-/// start within `PerSeconds` across a boundary, the last of one window and the first of the next.
-///
-/// A call's first attempt over the limit waits for the next window and is not refused: a call whose
-/// deadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,
-/// neither having sent anything. Requests start in the order they reach the limit, and the limit
-/// is the channel's, shared by every connection it opens. A retry the retry policy chooses does
-/// not wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is
-/// skipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when
-/// the attempts are spent the call ends with the status of the last attempt sent. A resend of a
-/// request its peer never processed is no retry of the policy's, and waits its turn like a first
-/// attempt.
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "PascalCase", deny_unknown_fields)]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct RateLimitOptions {
-    /// The requests that start in one window, or 0 for no limit, over one an earlier source set.
-    ///
-    /// Incoherent without `PerSeconds`, unless it is 0, which leaves `PerSeconds` unread.
+    /// Defaults to `["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
+    /// "Http.504", "Dial", "Connection"]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
-    pub calls: Option<i32>,
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub transient_list: Option<Vec<String>>,
 
-    /// How long a window lasts.
+    /// The failures that say the server is over capacity, each an entry as the options above
+    /// describe. They slow retries and lower the rate of first attempts. A failure that both
+    /// lists name is overload.
     ///
-    /// Incoherent without `Calls`, unless `Calls` is 0.
+    /// Defaults to `["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
+    /// "Reset.REFUSED_STREAM"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
+    pub overload_list: Option<Vec<String>>,
+
+    /// How many times what the server accepts the channel may send, as retries stop: they are open
+    /// while the attempts that ended, less this many times the accepted ones, are at most
+    /// `FailureAllowance`. At least 1 and at most 100.
+    ///
+    /// Defaults to 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
+        schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
     )]
-    pub per_seconds: Option<Seconds>,
+    pub multiplier: Option<f64>,
+
+    /// How many times what the server does not report as overloaded the channel may send, as the
+    /// rate is capped: the cap is on while the attempts that ended, less this many times those not
+    /// overloaded, are over `FailureAllowance`. At least 1 and at most 100.
+    ///
+    /// Defaults to 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
+    )]
+    pub throttle_multiplier: Option<f64>,
+
+    /// The failures beyond the multiple of what the server accepts that are let go, so that a
+    /// channel with little traffic does not lose its retries, or its rate, to one failure.
+    ///
+    /// Defaults to 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "i32", range(min = 0, max = 1000000))
+    )]
+    pub failure_allowance: Option<i32>,
+
+    /// How far back the counts reach, from 0.012 to 600 seconds.
+    ///
+    /// Defaults to 30.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 0.012, "maximum" = 600.0))
+    )]
+    pub window_seconds: Option<Seconds>,
+
+    /// The rate of first attempts, a second, that the cap never goes under, so that the channel goes
+    /// on probing a server that is overloaded. Above 0 and at most 1000000.
+    ///
+    /// Defaults to 0.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "f64", extend("exclusiveMinimum" = 0.0, "maximum" = 1000000.0))
+    )]
+    pub floor_per_second: Option<f64>,
 }
 
-impl RateLimitOptions {
-    /// The limit these options name, none when they name none, refused where they are
-    /// incoherent.
-    pub fn to_config(&self) -> Result<Option<RateLimitConfig>, OptionRefusal> {
-        coherently(self.convert())
-    }
-
-    /// The limit, and the incoherence instead of a refusal for it: there is then no limit. Every
-    /// value stated is checked, whether or not it is read.
-    pub(crate) fn convert(&self) -> Converted<Option<RateLimitConfig>> {
-        let calls = match self.calls {
-            None => None,
-            Some(calls) if calls < 0 => {
+impl AdaptiveOptions {
+    /// The judgment these options name, each unset one at its default.
+    pub fn to_config(&self) -> Result<AdaptiveConfig, OptionRefusal> {
+        let defaults = AdaptiveConfig::default();
+        let multiplier = |key: &str, asked: Option<f64>, default: f64| match asked {
+            None => Ok(default),
+            Some(value) if value.is_finite() && (1.0..=100.0).contains(&value) => Ok(value),
+            Some(value) => Err(OptionRefusal::new(
+                key,
+                format!("{value} has to be a number from 1 to 100"),
+            )),
+        };
+        let slack = match self.failure_allowance {
+            None => defaults.slack,
+            Some(value) if (0..=1_000_000).contains(&value) => value as u32,
+            Some(value) => {
                 return Err(OptionRefusal::new(
-                    "Calls",
-                    format!("{calls} has to be at least 0"),
+                    "FailureAllowance",
+                    format!("{value} has to be between 0 and 1000000"),
                 ))
             }
-            Some(calls) => Some(calls as usize),
         };
-        let per = duration("PerSeconds", self.per_seconds, 1e-9, None)?;
-        match (calls, per) {
-            // Zero calls is no limit, whatever window an earlier source stated: that window is
-            // unread, and not an incoherence.
-            (Some(0), _) => Ok((None, Vec::new())),
-            (Some(calls), Some(per)) => Ok((Some(RateLimitConfig::new(calls, per)), Vec::new())),
-            (None, None) => Ok((None, Vec::new())),
-            (Some(_), None) | (None, Some(_)) => Ok((
-                None,
-                vec![OptionRefusal::incoherent(
-                    &["Calls", "PerSeconds"],
-                    "a limit is the requests that start in a window, and one is stated without the other",
-                )],
+        let floor_per_second = match self.floor_per_second {
+            None => defaults.floor_per_second,
+            Some(value) if value.is_finite() && value > 0.0 && value <= 1_000_000.0 => value,
+            Some(value) => {
+                return Err(OptionRefusal::new(
+                    "FloorPerSecond",
+                    format!("{value} has to be above 0 and at most 1000000"),
+                ))
+            }
+        };
+        let list = |key: &str, entries: &Option<Vec<String>>, default: Vec<Cause>| match entries {
+            None => Ok(default),
+            Some(entries) => causes(key, entries, true),
+        };
+        Ok(AdaptiveConfig {
+            transient: list("TransientList", &self.transient_list, defaults.transient)?,
+            overload: list("OverloadList", &self.overload_list, defaults.overload)?,
+            multiplier: multiplier("Multiplier", self.multiplier, defaults.multiplier)?,
+            throttle_multiplier: multiplier(
+                "ThrottleMultiplier",
+                self.throttle_multiplier,
+                defaults.throttle_multiplier,
+            )?,
+            slack,
+            window: duration("WindowSeconds", self.window_seconds, 0.012, Some(600.0))?
+                .unwrap_or(defaults.window),
+            floor_per_second,
+        })
+    }
+}
+
+/// What a channel keeps of the messages its calls sent, so that a call can be sent again: after a
+/// failure the retry policy chose, and when its peer never processed it.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct ReplayOptions {
+    /// The KiB one call may keep; a call that sends more is not sent again.
+    ///
+    /// Defaults to 1024, 1 MiB.
+    #[serde(
+        default,
+        rename = "MaxPerCallKiB",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub max_per_call_kib: Option<i32>,
+
+    /// The KiB all of the channel's calls may keep together; a call whose message would pass it is
+    /// not sent again.
+    ///
+    /// Defaults to 16384, 16 MiB.
+    #[serde(
+        default,
+        rename = "MaxPerChannelKiB",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    pub max_per_channel_kib: Option<i32>,
+}
+
+impl ReplayOptions {
+    /// What these options keep, each unset one at its default.
+    pub fn to_config(&self) -> Result<ReplayConfig, OptionRefusal> {
+        let defaults = ReplayConfig::default();
+        let bytes = |key: &str, asked: Option<i32>, default: usize| match asked {
+            None => Ok(default),
+            Some(kib) if kib < 0 => Err(OptionRefusal::new(
+                key,
+                format!("{kib} has to be at least 0"),
             )),
-        }
+            Some(kib) => usize::try_from(i64::from(kib) * 1024).map_err(|_| {
+                OptionRefusal::new(key, format!("{kib} KiB are more than this platform holds"))
+            }),
+        };
+        Ok(ReplayConfig {
+            call_bytes: bytes("MaxPerCallKiB", self.max_per_call_kib, defaults.call_bytes)?,
+            channel_bytes: bytes(
+                "MaxPerChannelKiB",
+                self.max_per_channel_kib,
+                defaults.channel_bytes,
+            )?,
+        })
     }
 }
 
@@ -2057,19 +2170,12 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "schema", schemars(with = "Deadline"))]
     pub deadline: Option<Deadline>,
 
-    /// When a failed call is sent again.
+    /// What the channel does with the calls it sends: sending a failed one again, slowing down
+    /// against a server that fails, and keeping messages for a call to be sent again.
     ///
-    /// Defaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.
-    /// A call its peer never processed goes again besides, whatever `MaxAttempts` is, while every
-    /// message it sent is kept.
+    /// Defaults to `{}`, which leaves each of its options at its own default.
     #[serde(default)]
-    pub retry: RetryOptions,
-
-    /// How fast the channel starts calls.
-    ///
-    /// Defaults to `{}`, which sets no limit: requests start as they are made.
-    #[serde(default)]
-    pub rate: RateOptions,
+    pub outbound_traffic: OutboundTrafficOptions,
 
     /// What a call sends to the server.
     ///
@@ -2400,7 +2506,7 @@ over_values!(
     SendCompression,
     Vec<MessageEncoding>,
     CredentialedUrl,
-    Vec<RetryableStatus>,
+    Vec<String>,
 );
 
 /// `Over` for an enum of alternatives: a variant that carries nothing is taken whole, the same
@@ -2728,8 +2834,7 @@ over_variants!(ReceiveMessageSizeKiB {
 over_fields!(GrpcOptions {
     user_agent,
     deadline,
-    retry,
-    rate,
+    outbound_traffic,
     send,
     receive,
     host,
@@ -2803,22 +2908,39 @@ over_variants!(Http2ReceiveOptions {
     Adaptive;
     Fixed,
 });
-over_variants!(RetryCodes {
-    GoogleRpc,
-    GrpcClient;
-    List,
+over_variants!(RetryOptions {
+    None;
+    ExponentialBackoff,
 });
-over_fields!(RetryOptions {
+over_fields!(OutboundTrafficOptions {
+    retry,
+    throttle,
+    replay,
+});
+over_fields!(ExponentialBackoffOptions {
+    failure_list,
     max_attempts,
     initial_backoff_seconds,
     max_backoff_seconds,
-    codes,
     backoff_multiplier,
-    call_replay_bytes,
-    channel_replay_bytes,
 });
-over_fields!(RateOptions { limit });
-over_fields!(RateLimitOptions { calls, per_seconds });
+over_variants!(ThrottleOptions {
+    None;
+    Adaptive,
+});
+over_fields!(AdaptiveOptions {
+    transient_list,
+    overload_list,
+    multiplier,
+    throttle_multiplier,
+    failure_allowance,
+    window_seconds,
+    floor_per_second,
+});
+over_fields!(ReplayOptions {
+    max_per_call_kib,
+    max_per_channel_kib,
+});
 over_fields!(PemCertificate { certificate, key });
 
 /// A username and its password are one credential: stating either states it, and nothing of the
@@ -3750,15 +3872,6 @@ mod tests {
                 simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(4)),
                 ..Http2Options::default()
             },
-            grpc: GrpcOptions {
-                rate: RateOptions {
-                    limit: RateLimitOptions {
-                        calls: Some(5),
-                        per_seconds: Some(Seconds(1.0)),
-                    },
-                },
-                ..GrpcOptions::default()
-            },
             ..ChannelOptions::default()
         };
         let nones = ChannelOptions {
@@ -3771,15 +3884,6 @@ mod tests {
                 idle_timeout: Some(Http2IdleTimeout::None),
                 simultaneous_calls_per_connection: Some(CallsPerConnection::FromServer),
                 ..Http2Options::default()
-            },
-            grpc: GrpcOptions {
-                rate: RateOptions {
-                    limit: RateLimitOptions {
-                        calls: Some(0),
-                        per_seconds: None,
-                    },
-                },
-                ..GrpcOptions::default()
             },
             ..ChannelOptions::default()
         };
@@ -3801,7 +3905,6 @@ mod tests {
         assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(http2.idle_timeout, Some(Duration::from_secs(300)));
         assert_eq!(http2.simultaneous_calls_per_connection, Some(4));
-        assert!(kept.grpc.rate.limit.to_config().expect("kept").is_some());
 
         let off = nones.over(&earlier);
         let tcp = tcp_of(&off);
@@ -3814,7 +3917,6 @@ mod tests {
         assert_eq!(http2.keep_alive_interval, None);
         assert_eq!(http2.idle_timeout, None);
         assert_eq!(http2.simultaneous_calls_per_connection, None);
-        assert_eq!(off.grpc.rate.limit.to_config().expect("off"), None);
     }
 
     /// A value that is stated is checked against what its option admits.
@@ -3851,12 +3953,6 @@ mod tests {
         ] {
             assert!(options.to_config().is_err(), "{options:?}");
         }
-        assert!(RateLimitOptions {
-            calls: Some(-1),
-            per_seconds: Some(Seconds(1.0)),
-        }
-        .to_config()
-        .is_err());
     }
 
     /// The keepalive and the idle timeout are alternatives, written and read as such, and a
@@ -3927,19 +4023,47 @@ mod tests {
     }
 
     #[test]
+    fn an_initial_backoff_above_the_maximum_is_an_incoherence_naming_both_keys() {
+        let options = RetryOptions::ExponentialBackoff(ExponentialBackoffOptions {
+            initial_backoff_seconds: Some(Seconds(500.0)),
+            ..ExponentialBackoffOptions::default()
+        });
+
+        let (config, incoherent) = options.convert().expect("each value is valid alone");
+        let config = config.expect("a policy");
+        assert_eq!(config.initial_backoff, Duration::from_secs(500));
+        assert_eq!(
+            config.max_backoff, config.initial_backoff,
+            "the maximum is raised to the initial backoff"
+        );
+        let [incoherence] = incoherent.as_slice() else {
+            panic!("{incoherent:?}");
+        };
+        assert!(incoherence.is_incoherence());
+        assert_eq!(
+            incoherence.keys().collect::<Vec<_>>(),
+            [
+                "ExponentialBackoff.InitialBackoffSeconds",
+                "ExponentialBackoff.MaxBackoffSeconds"
+            ]
+        );
+
+        let refused = options.to_config().expect_err("an incoherence is refused");
+        assert!(refused.is_incoherence(), "{refused}");
+    }
+
+    #[test]
     fn the_retry_options_become_the_policy_and_one_that_cannot_back_off_is_refused() {
-        let config = RetryOptions {
+        let config = ExponentialBackoffOptions {
             max_attempts: Some(3),
             initial_backoff_seconds: Some(Seconds(0.5)),
             max_backoff_seconds: Some(Seconds(2.0)),
             backoff_multiplier: Some(2.0),
-            codes: Some(RetryCodes::List(vec![
-                RetryableStatus::Aborted,
-                RetryableStatus::Unavailable,
-                RetryableStatus::Aborted,
-            ])),
-            call_replay_bytes: Some(10),
-            channel_replay_bytes: Some(100),
+            failure_list: Some(vec![
+                "Status.ABORTED".to_owned(),
+                "Dial".to_owned(),
+                "Status.ABORTED".to_owned(),
+            ]),
         }
         .to_config()
         .expect("admissible");
@@ -3948,54 +4072,45 @@ mod tests {
         assert_eq!(config.max_backoff, Duration::from_secs(2));
         assert_eq!(config.backoff_multiplier, 2.0);
         assert_eq!(
-            config.retryable_codes,
-            [GrpcStatusCode::Aborted, GrpcStatusCode::Unavailable],
-            "a list keeps its order and names each status once"
+            config.failures,
+            [Cause::Status(GrpcStatusCode::Aborted), Cause::Dial],
+            "a list keeps its order and names each failure once"
         );
         assert_eq!(
-            (config.call_replay_bytes, config.channel_replay_bytes),
-            (10, 100)
-        );
-        assert_eq!(
-            RetryOptions::default().to_config().expect("the defaults"),
+            ExponentialBackoffOptions::default()
+                .to_config()
+                .expect("the defaults"),
             RetryConfig::default()
         );
 
         for (options, key) in [
             (
-                RetryOptions {
+                ExponentialBackoffOptions {
                     max_attempts: Some(0),
-                    ..RetryOptions::default()
+                    ..ExponentialBackoffOptions::default()
                 },
                 "MaxAttempts",
             ),
             (
-                RetryOptions {
-                    initial_backoff_seconds: Some(Seconds(10.0)),
-                    ..RetryOptions::default()
+                ExponentialBackoffOptions {
+                    initial_backoff_seconds: Some(Seconds(500.0)),
+                    ..ExponentialBackoffOptions::default()
                 },
                 "InitialBackoffSeconds",
             ),
             (
-                RetryOptions {
+                ExponentialBackoffOptions {
                     backoff_multiplier: Some(0.5),
-                    ..RetryOptions::default()
+                    ..ExponentialBackoffOptions::default()
                 },
                 "BackoffMultiplier",
             ),
             (
-                RetryOptions {
+                ExponentialBackoffOptions {
                     backoff_multiplier: Some(f64::INFINITY),
-                    ..RetryOptions::default()
+                    ..ExponentialBackoffOptions::default()
                 },
                 "BackoffMultiplier",
-            ),
-            (
-                RetryOptions {
-                    call_replay_bytes: Some(-1),
-                    ..RetryOptions::default()
-                },
-                "CallReplayBytes",
             ),
         ] {
             let refused = options.to_config().expect_err(key);
@@ -4003,326 +4118,432 @@ mod tests {
         }
     }
 
+    /// An entry that names no failure is refused by its place in the list, and a list that is empty
+    /// names nothing: it is no magic value.
     #[test]
-    fn the_retry_codes_are_the_standards_unless_stated() {
-        let codes = |codes: Option<RetryCodes>| {
-            RetryOptions {
-                codes,
-                ..RetryOptions::default()
+    fn a_list_of_failures_names_each_entry_and_an_empty_one_names_nothing() {
+        let retry = |entries: &[&str]| {
+            ExponentialBackoffOptions {
+                failure_list: Some(entries.iter().map(|entry| (*entry).to_owned()).collect()),
+                ..ExponentialBackoffOptions::default()
             }
             .to_config()
-            .map(|config| config.retryable_codes)
         };
 
         assert_eq!(
-            codes(None).expect("the default"),
-            [GrpcStatusCode::Unavailable],
-            "google.rpc.Code retries UNAVAILABLE alone"
-        );
-        assert_eq!(
-            codes(Some(RetryCodes::GoogleRpc)).expect("a preset"),
-            [GrpcStatusCode::Unavailable]
-        );
-        assert_eq!(
-            codes(Some(RetryCodes::GrpcClient)).expect("a preset"),
+            retry(&[
+                "Status.UNAVAILABLE",
+                "Http.503",
+                "Reset.ENHANCE_YOUR_CALM",
+                "Pushback",
+                "Dial",
+                "Connection",
+            ])
+            .expect("every kind")
+            .failures,
             [
-                GrpcStatusCode::Unavailable,
-                GrpcStatusCode::Aborted,
-                GrpcStatusCode::Unknown
+                Cause::Status(GrpcStatusCode::Unavailable),
+                Cause::Http(503),
+                Cause::Reset(11),
+                Cause::Pushback,
+                Cause::Dial,
+                Cause::Connection,
             ]
         );
         assert_eq!(
-            RetryOptions {
-                codes: Some(RetryCodes::GrpcClient),
-                ..RetryOptions::default()
-            }
-            .to_config()
-            .expect("a preset"),
-            RetryConfig::grpc_client()
+            retry(&[]).expect("an empty list").failures,
+            Vec::<Cause>::new(),
+            "it retries nothing, and is not a refusal"
         );
-        assert_eq!(
-            codes(Some(RetryCodes::List(vec![
-                RetryableStatus::ResourceExhausted
-            ])))
-            .expect("a list"),
-            [GrpcStatusCode::ResourceExhausted]
+        let refused = retry(&["Status.UNAVAILABLE", "Status.Unavailable"]).expect_err("a name");
+        assert_eq!(refused.key(), "FailureList[1]");
+        assert!(
+            refused.to_string().contains("Status.Unavailable"),
+            "{refused}"
+        );
+        for entry in ["", "OK", "Status.OK", "Http.99", "Reset.7", "Dial "] {
+            assert!(retry(&[entry]).is_err(), "{entry:?}");
+        }
+        assert!(
+            retry(&["Status.CANCELLED", "Status.DEADLINE_EXCEEDED"]).is_ok(),
+            "a retry list names the statuses the specification does"
         );
 
-        let refused = codes(Some(RetryCodes::List(Vec::new()))).expect_err("an empty list");
-        assert_eq!(refused.key(), "Codes.List", "{refused}");
+        let throttle = |transient: &[&str], overload: &[&str]| {
+            let list =
+                |entries: &[&str]| Some(entries.iter().map(|entry| (*entry).to_owned()).collect());
+            AdaptiveOptions {
+                transient_list: list(transient),
+                overload_list: list(overload),
+                ..AdaptiveOptions::default()
+            }
+            .to_config()
+        };
+        let config = throttle(&["Dial"], &["Pushback", "Status.UNAVAILABLE"]).expect("lists");
+        assert_eq!(config.transient, [Cause::Dial]);
+        assert_eq!(
+            config.overload,
+            [Cause::Pushback, Cause::Status(GrpcStatusCode::Unavailable)]
+        );
+        let empty = throttle(&[], &[]).expect("empty lists");
+        assert!(empty.transient.is_empty() && empty.overload.is_empty());
+        for (transient, overload, key) in [
+            (&["Status.CANCELLED"][..], &[][..], "TransientList[0]"),
+            (
+                &[][..],
+                &["Dial", "Status.DEADLINE_EXCEEDED"][..],
+                "OverloadList[1]",
+            ),
+            (&[][..], &["Http.1"][..], "OverloadList[0]"),
+        ] {
+            let refused = throttle(transient, overload).expect_err(key);
+            assert_eq!(refused.key(), key, "{refused}");
+        }
     }
 
     #[test]
-    fn the_retry_codes_are_read_as_an_alternative_of_names() {
-        let read = |document: &str| serde_json::from_str::<RetryOptions>(document);
+    fn retry_is_exponential_backoff_unless_none_is_stated_and_none_retries_nothing() {
+        let config = |retry: Option<RetryOptions>| retry.unwrap_or_default().to_config();
 
         assert_eq!(
-            read(r#"{"Codes":"GoogleRpc"}"#).expect("a preset").codes,
-            Some(RetryCodes::GoogleRpc)
+            config(None).expect("the default"),
+            Some(RetryConfig::default())
         );
         assert_eq!(
-            read(r#"{"Codes":{"List":["UNAVAILABLE","DEADLINE_EXCEEDED"]}}"#)
-                .expect("a list")
-                .codes,
-            Some(RetryCodes::List(vec![
-                RetryableStatus::Unavailable,
-                RetryableStatus::DeadlineExceeded
-            ]))
+            config(Some(RetryOptions::ExponentialBackoff(
+                ExponentialBackoffOptions {
+                    max_attempts: Some(2),
+                    ..ExponentialBackoffOptions::default()
+                }
+            )))
+            .expect("two attempts")
+            .map(|retry| retry.max_attempts),
+            Some(2)
         );
         assert_eq!(
-            read(r#"{"Codes":{"Elsewhere":true}}"#)
-                .expect("a key that names none is read past")
-                .codes,
-            None
+            config(Some(RetryOptions::None)).expect("none"),
+            None,
+            "None is no policy at all"
         );
+    }
 
+    /// A source that wants no retry states `None`: one attempt is not that.
+    #[test]
+    fn a_retry_that_retries_nothing_is_refused_unless_it_is_none() {
+        for attempts in [0, 1] {
+            let refused = RetryOptions::ExponentialBackoff(ExponentialBackoffOptions {
+                max_attempts: Some(attempts),
+                ..ExponentialBackoffOptions::default()
+            })
+            .to_config()
+            .expect_err("too few");
+            assert_eq!(refused.key(), "ExponentialBackoff.MaxAttempts");
+            assert!(refused.to_string().contains("`None`"), "{refused}");
+        }
+    }
+
+    #[test]
+    fn the_outbound_traffic_options_are_read_and_merged_as_alternatives() {
+        let read = |document: &str| serde_json::from_str::<GrpcOptions>(document);
+        let traffic = |document: &str| read(document).map(|grpc| grpc.outbound_traffic);
+
+        let none =
+            traffic(r#"{"OutboundTraffic":{"Retry":"None","Throttle":"None"}}"#).expect("none");
+        assert_eq!(none.retry, Some(RetryOptions::None));
+        assert_eq!(none.throttle, Some(ThrottleOptions::None));
+        let stated = traffic(
+            r#"{"OutboundTraffic":{
+                "Retry":{"ExponentialBackoff":{"MaxAttempts":3,"FailureList":["Dial"]}},
+                "Throttle":{"Adaptive":{"FailureAllowance":4,"OverloadList":[]}},
+                "Replay":{"MaxPerCallKiB":2,"MaxPerChannelKiB":8}}}"#,
+        )
+        .expect("stated");
+        assert_eq!(
+            stated.retry,
+            Some(RetryOptions::ExponentialBackoff(
+                ExponentialBackoffOptions {
+                    max_attempts: Some(3),
+                    failure_list: Some(vec!["Dial".to_owned()]),
+                    ..ExponentialBackoffOptions::default()
+                }
+            ))
+        );
+        assert_eq!(
+            stated.throttle,
+            Some(ThrottleOptions::Adaptive(AdaptiveOptions {
+                failure_allowance: Some(4),
+                overload_list: Some(Vec::new()),
+                ..AdaptiveOptions::default()
+            }))
+        );
+        assert_eq!(stated.replay.max_per_call_kib, Some(2));
+        assert_eq!(stated.replay.max_per_channel_kib, Some(8));
+        assert_eq!(
+            traffic("{}").expect("nothing"),
+            OutboundTrafficOptions::default()
+        );
         for document in [
-            r#"{"Codes":{"GoogleRpc":null,"GrpcClient":null}}"#,
-            r#"{"Codes":{"GoogleRpc":null,"List":["ABORTED"]}}"#,
-            r#"{"Codes":{"GoogleRpc":true}}"#,
-            r#"{"Codes":{"GoogleRpc":false}}"#,
-            r#"{"Codes":"List"}"#,
-            r#"{"Codes":"Elsewhere"}"#,
-            r#"{"Codes":{"List":["OK"]}}"#,
-            r#"{"Codes":{"List":["NOT_A_STATUS"]}}"#,
-            r#"{"Codes":{"List":["unavailable"]}}"#,
-            r#"{"Codes":{"List":[14]}}"#,
-            r#"{"Codes":{"List":"UNAVAILABLE"}}"#,
+            r#"{"OutboundTraffic":{"Retry":{"None":null,"ExponentialBackoff":{}}}}"#,
+            r#"{"OutboundTraffic":{"Retry":{"None":false}}}"#,
+            r#"{"OutboundTraffic":{"Throttle":{"None":null,"Adaptive":{}}}}"#,
         ] {
             assert!(read(document).is_err(), "{document}");
         }
 
-        let written = serde_json::to_string(&RetryOptions {
-            codes: Some(RetryCodes::List(vec![RetryableStatus::Aborted])),
-            ..RetryOptions::default()
-        })
-        .expect("serializable");
-        assert_eq!(written, r#"{"Codes":{"List":["ABORTED"]}}"#);
-    }
-
-    #[test]
-    fn every_retryable_status_names_the_code_of_its_spelling() {
-        for (status, name, code) in [
-            (
-                RetryableStatus::Cancelled,
-                "CANCELLED",
-                GrpcStatusCode::Cancelled,
-            ),
-            (RetryableStatus::Unknown, "UNKNOWN", GrpcStatusCode::Unknown),
-            (
-                RetryableStatus::InvalidArgument,
-                "INVALID_ARGUMENT",
-                GrpcStatusCode::InvalidArgument,
-            ),
-            (
-                RetryableStatus::DeadlineExceeded,
-                "DEADLINE_EXCEEDED",
-                GrpcStatusCode::DeadlineExceeded,
-            ),
-            (
-                RetryableStatus::NotFound,
-                "NOT_FOUND",
-                GrpcStatusCode::NotFound,
-            ),
-            (
-                RetryableStatus::AlreadyExists,
-                "ALREADY_EXISTS",
-                GrpcStatusCode::AlreadyExists,
-            ),
-            (
-                RetryableStatus::PermissionDenied,
-                "PERMISSION_DENIED",
-                GrpcStatusCode::PermissionDenied,
-            ),
-            (
-                RetryableStatus::ResourceExhausted,
-                "RESOURCE_EXHAUSTED",
-                GrpcStatusCode::ResourceExhausted,
-            ),
-            (
-                RetryableStatus::FailedPrecondition,
-                "FAILED_PRECONDITION",
-                GrpcStatusCode::FailedPrecondition,
-            ),
-            (RetryableStatus::Aborted, "ABORTED", GrpcStatusCode::Aborted),
-            (
-                RetryableStatus::OutOfRange,
-                "OUT_OF_RANGE",
-                GrpcStatusCode::OutOfRange,
-            ),
-            (
-                RetryableStatus::Unimplemented,
-                "UNIMPLEMENTED",
-                GrpcStatusCode::Unimplemented,
-            ),
-            (
-                RetryableStatus::Internal,
-                "INTERNAL",
-                GrpcStatusCode::Internal,
-            ),
-            (
-                RetryableStatus::Unavailable,
-                "UNAVAILABLE",
-                GrpcStatusCode::Unavailable,
-            ),
-            (
-                RetryableStatus::DataLoss,
-                "DATA_LOSS",
-                GrpcStatusCode::DataLoss,
-            ),
-            (
-                RetryableStatus::Unauthenticated,
-                "UNAUTHENTICATED",
-                GrpcStatusCode::Unauthenticated,
-            ),
-        ] {
-            assert_eq!(status.code(), code, "{name}");
-            assert_eq!(
-                serde_json::to_string(&status).expect("a name"),
-                format!("\"{name}\"")
-            );
-        }
-    }
-
-    #[test]
-    fn retry_codes_are_merged_as_an_alternative_and_a_list_is_one_value() {
-        let over = |own: Option<RetryCodes>, default: Option<RetryCodes>| {
-            let with = |codes| ChannelOptions {
+        let over = |own: RetryOptions, default: RetryOptions| {
+            let with = |retry| ChannelOptions {
                 grpc: GrpcOptions {
-                    retry: RetryOptions {
-                        codes,
-                        ..RetryOptions::default()
+                    outbound_traffic: OutboundTrafficOptions {
+                        retry: Some(retry),
+                        ..OutboundTrafficOptions::default()
                     },
                     ..GrpcOptions::default()
                 },
                 ..ChannelOptions::default()
             };
-            with(own).over(&with(default)).grpc.retry.codes
+            with(own).over(&with(default)).grpc.outbound_traffic.retry
         };
-        let list = |statuses: &[RetryableStatus]| Some(RetryCodes::List(statuses.to_vec()));
-        let preset = || Some(RetryCodes::GrpcClient);
-
-        assert_eq!(over(preset(), preset()), preset(), "the same preset");
-        assert_eq!(over(None, preset()), preset(), "the default's, unstated");
+        let attempts = |max_attempts| {
+            RetryOptions::ExponentialBackoff(ExponentialBackoffOptions {
+                max_attempts,
+                ..ExponentialBackoffOptions::default()
+            })
+        };
         assert_eq!(
-            over(Some(RetryCodes::GoogleRpc), preset()),
-            Some(RetryCodes::GoogleRpc),
-            "another alternative is taken whole"
+            over(RetryOptions::None, attempts(Some(4))),
+            Some(RetryOptions::None),
+            "None over ExponentialBackoff replaces it whole"
         );
         assert_eq!(
-            over(list(&[RetryableStatus::Aborted]), preset()),
-            list(&[RetryableStatus::Aborted])
+            over(attempts(Some(3)), RetryOptions::None),
+            Some(attempts(Some(3))),
+            "and ExponentialBackoff over None takes nothing of it"
         );
+        let merged = over(
+            RetryOptions::ExponentialBackoff(ExponentialBackoffOptions {
+                failure_list: Some(vec!["Connection".to_owned()]),
+                ..ExponentialBackoffOptions::default()
+            }),
+            RetryOptions::ExponentialBackoff(ExponentialBackoffOptions {
+                max_attempts: Some(4),
+                failure_list: Some(vec!["Dial".to_owned(), "Pushback".to_owned()]),
+                ..ExponentialBackoffOptions::default()
+            }),
+        );
+        let Some(RetryOptions::ExponentialBackoff(merged)) = merged else {
+            panic!("{merged:?}");
+        };
+        assert_eq!(merged.max_attempts, Some(4), "field by field");
         assert_eq!(
-            over(
-                list(&[RetryableStatus::Aborted]),
-                list(&[RetryableStatus::Unavailable, RetryableStatus::Unknown])
-            ),
-            list(&[RetryableStatus::Aborted]),
-            "a list replaces a list: it is one value"
+            merged.failure_list,
+            Some(vec!["Connection".to_owned()]),
+            "and a list is one value, stated whole"
         );
-        assert_eq!(over(preset(), list(&[RetryableStatus::Aborted])), preset());
     }
 
     #[test]
-    fn the_rate_limit_options_become_the_limit_and_one_half_stated_is_refused() {
-        assert_eq!(RateLimitOptions::default().to_config().expect("none"), None);
+    fn the_replay_options_are_kibibytes_and_default_to_the_engines() {
         assert_eq!(
-            RateLimitOptions {
-                calls: Some(100),
-                per_seconds: Some(Seconds(0.5)),
-            }
-            .to_config()
-            .expect("admissible"),
-            Some(RateLimitConfig::new(100, Duration::from_millis(500)))
+            ReplayOptions::default().to_config().expect("the defaults"),
+            ReplayConfig::default()
         );
-
-        // Zero calls is no limit, over one an earlier source set.
+        let config = ReplayOptions {
+            max_per_call_kib: Some(2),
+            max_per_channel_kib: Some(0),
+        }
+        .to_config()
+        .expect("stated");
+        assert_eq!((config.call_bytes, config.channel_bytes), (2048, 0));
+        let refused = ReplayOptions {
+            max_per_channel_kib: Some(-1),
+            ..ReplayOptions::default()
+        }
+        .to_config()
+        .expect_err("negative");
+        assert_eq!(refused.key(), "MaxPerChannelKiB");
         assert_eq!(
-            RateLimitOptions {
-                calls: Some(0),
-                per_seconds: Some(Seconds(1.0)),
-            }
-            .to_config()
-            .expect("none"),
-            None
+            serde_json::to_string(&ReplayOptions {
+                max_per_call_kib: Some(1),
+                max_per_channel_kib: Some(2),
+            })
+            .expect("written"),
+            r#"{"MaxPerCallKiB":1,"MaxPerChannelKiB":2}"#
         );
+    }
 
+    #[test]
+    fn the_throttle_is_adaptive_unless_none_is_stated() {
+        let config = |options: Option<ThrottleOptions>| options.unwrap_or_default().to_config();
+
+        assert_eq!(
+            config(None).expect("the default"),
+            Some(AdaptiveConfig::default())
+        );
+        assert_eq!(config(Some(ThrottleOptions::None)).expect("none"), None);
+
+        let stated = config(Some(ThrottleOptions::Adaptive(AdaptiveOptions {
+            multiplier: Some(3.0),
+            throttle_multiplier: Some(1.5),
+            failure_allowance: Some(7),
+            window_seconds: Some(Seconds(10.0)),
+            floor_per_second: Some(2.0),
+            ..AdaptiveOptions::default()
+        })))
+        .expect("stated")
+        .expect("a judgment");
+        assert_eq!(stated.multiplier, 3.0);
+        assert_eq!(stated.throttle_multiplier, 1.5);
+        assert_eq!(stated.slack, 7);
+        assert_eq!(stated.window, Duration::from_secs(10));
+        assert_eq!(stated.floor_per_second, 2.0);
+        assert_eq!(stated.transient, default_lists().0);
+        assert_eq!(stated.overload, default_lists().1);
+    }
+
+    fn default_lists() -> (Vec<Cause>, Vec<Cause>) {
+        let defaults = AdaptiveConfig::default();
+        (defaults.transient, defaults.overload)
+    }
+
+    #[test]
+    fn each_bound_of_the_throttle_is_refused_naming_its_key() {
         for (options, key) in [
             (
-                RateLimitOptions {
-                    calls: Some(-1),
-                    per_seconds: Some(Seconds(1.0)),
+                AdaptiveOptions {
+                    multiplier: Some(0.9),
+                    ..AdaptiveOptions::default()
                 },
-                "Calls",
+                "Multiplier",
             ),
             (
-                RateLimitOptions {
-                    calls: Some(1),
-                    per_seconds: Some(Seconds(0.0)),
+                AdaptiveOptions {
+                    multiplier: Some(101.0),
+                    ..AdaptiveOptions::default()
                 },
-                "PerSeconds",
+                "Multiplier",
             ),
             (
-                RateLimitOptions {
-                    calls: Some(1),
-                    per_seconds: Some(Seconds(1e300)),
+                AdaptiveOptions {
+                    multiplier: Some(f64::NAN),
+                    ..AdaptiveOptions::default()
                 },
-                "PerSeconds",
+                "Multiplier",
             ),
             (
-                RateLimitOptions {
-                    calls: Some(5),
-                    per_seconds: None,
+                AdaptiveOptions {
+                    throttle_multiplier: Some(0.0),
+                    ..AdaptiveOptions::default()
                 },
-                "Calls",
+                "ThrottleMultiplier",
             ),
             (
-                RateLimitOptions {
-                    calls: None,
-                    per_seconds: Some(Seconds(1.0)),
+                AdaptiveOptions {
+                    failure_allowance: Some(-1),
+                    ..AdaptiveOptions::default()
                 },
-                "Calls",
+                "FailureAllowance",
+            ),
+            (
+                AdaptiveOptions {
+                    failure_allowance: Some(1_000_001),
+                    ..AdaptiveOptions::default()
+                },
+                "FailureAllowance",
+            ),
+            (
+                AdaptiveOptions {
+                    window_seconds: Some(Seconds(0.011)),
+                    ..AdaptiveOptions::default()
+                },
+                "WindowSeconds",
+            ),
+            (
+                AdaptiveOptions {
+                    window_seconds: Some(Seconds(601.0)),
+                    ..AdaptiveOptions::default()
+                },
+                "WindowSeconds",
+            ),
+            (
+                AdaptiveOptions {
+                    floor_per_second: Some(0.0),
+                    ..AdaptiveOptions::default()
+                },
+                "FloorPerSecond",
+            ),
+            (
+                AdaptiveOptions {
+                    floor_per_second: Some(f64::INFINITY),
+                    ..AdaptiveOptions::default()
+                },
+                "FloorPerSecond",
             ),
         ] {
-            let refused = options.to_config().expect_err(key);
-            assert_eq!(refused.key(), key, "{refused}");
+            let refused = ThrottleOptions::Adaptive(options)
+                .to_config()
+                .expect_err(key);
+            assert_eq!(refused.key(), format!("Adaptive.{key}"), "{refused}");
         }
     }
 
     #[test]
-    fn a_rate_limit_is_merged_over_the_default_one_option_at_a_time() {
-        let defaults = ChannelOptions {
-            grpc: GrpcOptions {
-                rate: RateOptions {
-                    limit: RateLimitOptions {
-                        calls: Some(100),
-                        per_seconds: Some(Seconds(1.0)),
-                    },
-                },
-                ..GrpcOptions::default()
-            },
-            ..ChannelOptions::default()
-        };
-        let stated = ChannelOptions {
-            grpc: GrpcOptions {
-                rate: RateOptions {
-                    limit: RateLimitOptions {
-                        calls: Some(5),
-                        per_seconds: None,
-                    },
-                },
-                ..GrpcOptions::default()
-            },
-            ..ChannelOptions::default()
-        };
+    fn the_throttle_is_read_and_merged_as_an_alternative() {
+        let read = |document: &str| serde_json::from_str::<OutboundTrafficOptions>(document);
 
         assert_eq!(
-            stated.over(&defaults).grpc.rate.limit,
-            RateLimitOptions {
-                calls: Some(5),
-                per_seconds: Some(Seconds(1.0)),
-            }
+            read(r#"{"Throttle":{"Adaptive":{"Multiplier":3,"FailureAllowance":0}}}"#)
+                .expect("adaptive")
+                .throttle,
+            Some(ThrottleOptions::Adaptive(AdaptiveOptions {
+                multiplier: Some(3.0),
+                failure_allowance: Some(0),
+                ..AdaptiveOptions::default()
+            }))
+        );
+        assert_eq!(
+            read(r#"{"Throttle":{"Elsewhere":true}}"#)
+                .expect("a key that names none is read past")
+                .throttle,
+            None
+        );
+
+        let over = |own: ThrottleOptions, default: ThrottleOptions| {
+            let with = |throttle| ChannelOptions {
+                grpc: GrpcOptions {
+                    outbound_traffic: OutboundTrafficOptions {
+                        throttle: Some(throttle),
+                        ..OutboundTrafficOptions::default()
+                    },
+                    ..GrpcOptions::default()
+                },
+                ..ChannelOptions::default()
+            };
+            with(own)
+                .over(&with(default))
+                .grpc
+                .outbound_traffic
+                .throttle
+        };
+        let adaptive = |multiplier, failure_allowance| {
+            ThrottleOptions::Adaptive(AdaptiveOptions {
+                multiplier,
+                failure_allowance,
+                ..AdaptiveOptions::default()
+            })
+        };
+        assert_eq!(
+            over(ThrottleOptions::None, adaptive(Some(3.0), None)),
+            Some(ThrottleOptions::None),
+            "None over Adaptive replaces it whole"
+        );
+        assert_eq!(
+            over(adaptive(Some(4.0), None), ThrottleOptions::None),
+            Some(adaptive(Some(4.0), None))
+        );
+        assert_eq!(
+            over(adaptive(None, Some(0)), adaptive(Some(3.0), None)),
+            Some(adaptive(Some(3.0), Some(0))),
+            "an Adaptive over an Adaptive merges field by field"
         );
     }
 
@@ -4859,9 +5080,14 @@ mod tests {
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
-                retry: RetryOptions {
-                    max_backoff_seconds: Some(Seconds(5.0)),
-                    ..RetryOptions::default()
+                outbound_traffic: OutboundTrafficOptions {
+                    retry: Some(RetryOptions::ExponentialBackoff(
+                        ExponentialBackoffOptions {
+                            max_backoff_seconds: Some(Seconds(5.0)),
+                            ..ExponentialBackoffOptions::default()
+                        },
+                    )),
+                    ..OutboundTrafficOptions::default()
                 },
                 ..GrpcOptions::default()
             },
@@ -4877,9 +5103,14 @@ mod tests {
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
-                retry: RetryOptions {
-                    initial_backoff_seconds: Some(Seconds(10.0)),
-                    ..RetryOptions::default()
+                outbound_traffic: OutboundTrafficOptions {
+                    retry: Some(RetryOptions::ExponentialBackoff(
+                        ExponentialBackoffOptions {
+                            initial_backoff_seconds: Some(Seconds(10.0)),
+                            ..ExponentialBackoffOptions::default()
+                        },
+                    )),
+                    ..OutboundTrafficOptions::default()
                 },
                 ..GrpcOptions::default()
             },
@@ -4895,11 +5126,12 @@ mod tests {
             "the identity is another alternative, which the channel leaves to its default"
         );
         assert_eq!(merged.transport.proxy, Some(ProxyOptions::None));
-        assert_eq!(
-            merged.grpc.retry.initial_backoff_seconds,
-            Some(Seconds(10.0))
-        );
-        assert_eq!(merged.grpc.retry.max_backoff_seconds, Some(Seconds(5.0)));
+        let Some(RetryOptions::ExponentialBackoff(retry)) = &merged.grpc.outbound_traffic.retry
+        else {
+            panic!("{:?}", merged.grpc.outbound_traffic.retry);
+        };
+        assert_eq!(retry.initial_backoff_seconds, Some(Seconds(10.0)));
+        assert_eq!(retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
     /// An alternative stated over the same one merges its fields as a struct does, down to the

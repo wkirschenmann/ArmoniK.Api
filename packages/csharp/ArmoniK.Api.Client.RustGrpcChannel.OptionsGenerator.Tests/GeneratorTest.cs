@@ -416,7 +416,7 @@ public enum Place
       ""description"": ""Which statuses a call is retried for."",
       ""oneOf"": [
         { ""description"": ""Any."", ""type"": ""string"", ""const"": ""Any"" },
-        { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } } }, ""additionalProperties"": false, ""required"": [""List""] }
+        { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" }, ""minItems"": 1 } }, ""additionalProperties"": false, ""required"": [""List""] }
       ]
     },
     ""Status"": {
@@ -444,6 +444,8 @@ public enum Place
                       .And.Contain("writer.WriteStartArray(\"List\");")
                       .And.Contain("writer.WriteStringValue(item.ToString());")
                       .And.Contain("value.Where(item => !Enum.IsDefined(typeof(Status), item))")
+                      .And.Contain("if (value.Count < 1)")
+                      .And.Contain("Value has to name at least 1 item.")
                       .And.Contain("using System.Linq;")
                       .And.Contain("builder.Append(\"[\" + string.Join(\", \", Value) + \"]\");")
                       .And.Contain("  NOT_FOUND,")
@@ -459,7 +461,7 @@ public enum Place
               TestName = "{m}(no items)")]
     public void AnArrayThatIsNotAListOfNamesIsRefused(string list,
                                                       string reason)
-      => Assert.That(async () => await Render(Listed.Replace(@"{ ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } }",
+      => Assert.That(async () => await Render(Listed.Replace(@"{ ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" }, ""minItems"": 1 }",
                                                              list))
                                    .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
@@ -525,9 +527,6 @@ public enum Place
     [TestCase(@"{ ""description"": ""Group."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Inner"": { ""description"": ""Inner."", ""$ref"": ""#/$defs/Held"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "an alternative holds none",
               TestName = "AnAlternative_HoldingAGroup")]
-    [TestCase(@"{ ""description"": ""List."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Names"": { ""description"": ""Names."", ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Place"" } } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
-              "is a list, and an alternative holds none",
-              TestName = "AnAlternative_HoldingAList")]
     [TestCase(@"{ ""description"": ""Plumbing."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Writer"": { ""description"": ""Writer."", ""type"": ""string"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }",
               "declares already",
               TestName = "AnAlternative_FieldNamedLikeALocal")]
@@ -828,8 +827,61 @@ public enum Place
                   "and the names that are not declared are said");
     }
 
-    /// <summary>A list of anything but the names of an enumeration is refused, not guessed at.</summary>
-    [TestCase(@"""type"": ""array"", ""items"": { ""type"": ""string"" }", TestName = "AList_OfText")]
+    /// <summary>A list of text is a settable list, copied and not checked: the engine says which entries it admits.</summary>
+    [Test]
+    public async Task AListOfTextIsASettableListThatIsCopiedAndNotChecked()
+    {
+      var rendered = await Render(Wrap($@"""Entries"": {{ {Documented}""type"": ""array"", ""items"": {{ ""type"": ""string"" }} }}"))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("public global::System.Collections.Generic.List<string>? Entries { get; set; }")
+                      .And.Contain("new global::System.Collections.Generic.List<string>(other.Entries)")
+                      .And.Not.Contain("Enum.IsDefined"));
+    }
+
+    /// <summary>An alternative may hold a list, of text or of names: a record keeps a copy, and compares and writes it.</summary>
+    [Test]
+    public async Task AnAlternativeMayHoldAnOptionalListOfText()
+    {
+      var rendered = await Render(ChoiceWith(@"{ ""description"": ""Names."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Names"": { ""description"": ""Names."", ""type"": ""array"", ""items"": { ""type"": ""string"" } }, ""Count"": { ""description"": ""Count."", ""type"": ""integer"", ""format"": ""int32"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }"))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("global::System.Collections.Generic.IReadOnlyList<string>? Names = null")
+                      .And.Contain("global::System.Collections.Generic.EqualityComparer<int?>.Default.Equals(Count, other.Count)")
+                      .And.Contain("Names { get; init; } = Names is null ? null : new global::System.Collections.Generic.List<string>(Names).AsReadOnly();")
+                      .And.Contain("Names is null ? other.Names is null : other.Names is not null && global::System.Linq.Enumerable.SequenceEqual(Names, other.Names)")
+                      .And.Contain("foreach (var item in Names ?? global::System.Linq.Enumerable.Empty<string>())")
+                      .And.Contain("Names is null ? \"null\" : \"[\" + string.Join(\", \", Names) + \"]\"")
+                      .And.Contain("is global::System.Collections.Generic.IReadOnlyList<string> names")
+                      .And.Contain("writer.WriteStringValue(item);")
+                      .And.Not.Contain("Enum.IsDefined(typeof(string)"));
+    }
+
+    /// <summary>A list of text that states anything of its items, or that is a secret, is refused: the engine says which entries it admits.</summary>
+    [TestCase(@"""type"": ""array"", ""items"": { ""type"": ""string"", ""minLength"": 1 }", TestName = "AList_OfConstrainedText")]
+    [TestCase(@"""type"": ""array"", ""writeOnly"": true, ""items"": { ""type"": ""string"" }", TestName = "AList_OfSecretText")]
+    public void AListOfTextThatStatesMoreIsRefused(string list)
+      => Assert.That(async () => await Render(Wrap($@"""Names"": {{ {Documented}{list} }}"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("Names"));
+
+    /// <summary>A list of the names of an enumeration is a field an alternative's record may hold.</summary>
+    [Test]
+    public async Task AnAlternativeMayHoldAListOfNames()
+    {
+      var rendered = await Render(ChoiceWith(@"{ ""description"": ""Places."", ""type"": ""object"", ""properties"": { ""A"": { ""type"": ""object"", ""properties"": { ""Places"": { ""description"": ""Places."", ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Place"" } } }, ""required"": [""Places""], ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""A""] }"))
+                       .ConfigureAwait(false);
+
+      Assert.That(rendered,
+                  Does.Contain("global::System.Collections.Generic.IReadOnlyList<Place> Places")
+                      .And.Contain("Enum.IsDefined(typeof(Place), item)")
+                      .And.Contain("writer.WriteStringValue(item.ToString());"));
+    }
+
+    /// <summary>A list of anything but the names of an enumeration or text is refused, not guessed at.</summary>
     [TestCase(@"""type"": ""array"", ""items"": { ""type"": ""integer"", ""format"": ""int32"" }", TestName = "AList_OfNumbers")]
     [TestCase(@"""type"": ""array""", TestName = "AList_OfNothingStated")]
     public void AListOfAnythingButNamesIsRefused(string list)
@@ -840,7 +892,6 @@ public enum Place
                            .With.Message.Contains("Names"));
 
     /// <summary>What bounds a list is not read, so it is reported rather than dropped.</summary>
-    [TestCase("minItems", TestName = "AListBound_MinItems")]
     [TestCase("maxItems", TestName = "AListBound_MaxItems")]
     [TestCase("uniqueItems", TestName = "AListBound_UniqueItems")]
     public void WhatBoundsAListIsReported(string keyword)
@@ -849,6 +900,15 @@ public enum Place
                                 {
                                   keyword,
                                 }));
+
+    /// <summary>The count of a list is checked on the names an alternative holds, and a list property has no check for it.</summary>
+    [Test]
+    public void AListPropertyThatStatesItsCountIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Accepts"": {{ {Documented}""type"": ""array"", ""minItems"": 1, ""items"": {{ ""$ref"": ""#/$defs/Encoding"" }} }}",
+                                                   Encodings))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("minItems"));
 
     /// <summary>What an item states is walked, so an unhandled keyword inside it is named.</summary>
     [Test]

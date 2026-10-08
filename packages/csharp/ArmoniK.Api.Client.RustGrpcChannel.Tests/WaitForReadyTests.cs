@@ -38,10 +38,10 @@ public class WaitForReadyTests : RuntimeFixture
        {
          Grpc = new GrpcOptions
                 {
-                  Retry = new RetryOptions
-                          {
-                            MaxAttempts = 1,
-                          },
+                  OutboundTraffic = new OutboundTrafficOptions
+                                    {
+                                      Retry = new RetryOptions.None(),
+                                    },
                 },
        };
 

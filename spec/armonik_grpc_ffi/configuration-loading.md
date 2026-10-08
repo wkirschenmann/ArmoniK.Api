@@ -74,10 +74,9 @@ well as from JSON, so every host language gets the same result from the same sou
   the environment's are, since a command line, like the environment, has only text.
 - **A key left out and a key set to a variant differ** (2026-10-08): a source that leaves an option
   out leaves what an earlier source set, or the default, and a source that wants none says so with
-  the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive` and
-  `Http2.IdleTimeout` have, as `Http2.SimultaneousCallsPerConnection` has `"FromServer"`
-  (decisions.md, "How an option is turned off by a variant"). `Grpc.Deadline` is `None` or
-  `Default(seconds)`; `Grpc.Rate.Limit.Calls` reads 0 as none.
+  the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive`, `Http2.IdleTimeout`,
+  `Grpc.Deadline` and the units of `Grpc.OutboundTraffic` have, as `Http2.SimultaneousCallsPerConnection`
+  has `"FromServer"` (decisions.md, "How an option is turned off by a variant").
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's
   path, so that a misspelled key does not give the defaults with nothing to say so. The engine logs

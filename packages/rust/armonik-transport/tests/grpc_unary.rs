@@ -1,7 +1,7 @@
 mod common;
 
 use armonik_transport::grpc::{
-    CallError, CallStartOptions, ChannelError, FramedMessage, GrpcChannelConfig, GrpcStatus,
+    CallError, CallStartOptions, Cause, ChannelError, FramedMessage, GrpcChannelConfig, GrpcStatus,
     GrpcStatusCode, HeadOrigin, MetadataValue, ResponseHead, ResponseSink, RetryConfig,
 };
 use armonik_transport::http2::{TransportConfig, TransportErrorKind};
@@ -698,7 +698,10 @@ fn sending_at_most(server: &TestServer, max: usize) -> armonik_transport::grpc::
     let mut retry = RetryConfig::default();
     retry.initial_backoff = std::time::Duration::from_millis(1);
     retry.max_backoff = std::time::Duration::from_millis(1);
-    retry.retryable_codes = vec![GrpcStatusCode::ResourceExhausted, GrpcStatusCode::Cancelled];
+    retry.failures = vec![
+        Cause::Status(GrpcStatusCode::ResourceExhausted),
+        Cause::Status(GrpcStatusCode::Cancelled),
+    ];
     config.retry = Some(retry);
     common::echo::channel_with(config).expect("a plain endpoint")
 }
@@ -1004,8 +1007,14 @@ async fn call_answered_with(frames: &[u8]) -> GrpcStatus {
         let _ = socket.read_to_end(&mut rest).await;
     });
 
+    // Nothing is kept for a replay, so the call does not go again once the GOAWAY is read.
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(
+        Uri::try_from(endpoint.as_str()).expect("an endpoint"),
+    ));
+    config.replay.call_bytes = 0;
+    config.replay.channel_bytes = 0;
     let (_, _, status) = unary(
-        &channel(&endpoint),
+        &channel_with(config).expect("a channel"),
         CallStartOptions::new(ECHO),
         Bytes::from_static(b"x"),
     )

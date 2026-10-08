@@ -9,7 +9,7 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
 use tonic::codegen::tokio_stream::Stream;
 
-use super::compression::{compressed, Encoding};
+use super::compression::{compressed, compressed_in_place, compresses_in_place, Encoding};
 use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
@@ -199,11 +199,6 @@ pub struct GrpcCall {
 }
 
 impl GrpcCall {
-    pub(crate) fn compressing(mut self, encoding: Option<Encoding>) -> Self {
-        self.send = self.send.compressing(encoding);
-        self
-    }
-
     pub fn split(self) -> (SendHalf, RecvHalf, CallControl) {
         (self.send, self.recv, self.control)
     }
@@ -214,9 +209,6 @@ pub struct SendHalf {
     messages: mpsc::Sender<FramedMessage>,
     over: watch::Receiver<bool>,
     max_message_size: Option<usize>,
-    /// What the messages are compressed with once they have passed the size limit, which is on a
-    /// message as its caller wrote it.
-    encoding: Option<Encoding>,
     control: CallControl,
 }
 
@@ -226,28 +218,16 @@ impl SendHalf {
     pub async fn send_message(&mut self, message: Bytes) -> Result<(), CallError> {
         self.admit(message.len())?;
         let framed = FramedMessage::copy_of(&message).expect("a length a four-byte prefix carries");
-        self.compress_and_queue(framed).await
+        self.queue(framed).await
     }
 
     /// Queues `message` as it is framed. A call that may be retried keeps it for a replay,
     /// charging its length to the replay's budget: a buffer larger than its message stays alive
-    /// whole while the budget counts the message. On a channel that compresses, the replay keeps
-    /// the message compressed and the budget counts that length.
+    /// whole while the budget counts the message. On a channel that compresses, the message is
+    /// compressed once its call's first attempt has taken its turn, the replay keeps it compressed
+    /// and the budget counts that length.
     pub async fn send_framed(&mut self, message: FramedMessage) -> Result<(), CallError> {
         self.admit(message.len())?;
-        self.compress_and_queue(message).await
-    }
-
-    pub(crate) fn compressing(mut self, encoding: Option<Encoding>) -> Self {
-        self.encoding = encoding;
-        self
-    }
-
-    async fn compress_and_queue(&mut self, message: FramedMessage) -> Result<(), CallError> {
-        let message = match self.encoding {
-            Some(encoding) => compressed(encoding, message).await,
-            None => message,
-        };
         self.queue(message).await
     }
 
@@ -423,9 +403,19 @@ pub(crate) struct RequestMessages {
     over: oneshot::Receiver<()>,
     ended: bool,
     cut: Arc<AtomicBool>,
+    /// What the messages are compressed with as they are taken, which is after the call's first
+    /// attempt has taken its turn: a call that waits for one has compressed nothing.
+    encoding: Option<Encoding>,
+    /// The compression of the message taken last, while it is not done.
+    compressing: Option<Pin<Box<dyn Future<Output = FramedMessage> + Send>>>,
 }
 
 impl RequestMessages {
+    /// Compresses the messages taken from now on.
+    pub(crate) fn compress_with(&mut self, encoding: Option<Encoding>) {
+        self.encoding = encoding;
+    }
+
     /// Whether the call was stopped this side while its request was open, so that the request
     /// must not end as if it were whole.
     pub(crate) fn cut(&self) -> bool {
@@ -453,10 +443,37 @@ impl Stream for RequestMessages {
         // news later.
         if Pin::new(&mut this.over).poll(cx).is_ready() {
             this.ended = true;
+            this.compressing = None;
             return Poll::Ready(None);
         }
 
-        this.messages.poll_recv(cx)
+        if let Some(work) = this.compressing.as_mut() {
+            let done = work.as_mut().poll(cx);
+            if done.is_ready() {
+                this.compressing = None;
+            }
+            return done.map(Some);
+        }
+
+        let message = match this.messages.poll_recv(cx) {
+            Poll::Ready(Some(message)) => message,
+            other => return other,
+        };
+        let Some(encoding) = this.encoding else {
+            return Poll::Ready(Some(message));
+        };
+        // A small message is compressed where it is; a large one on a blocking thread, which this
+        // waits for.
+        if compresses_in_place(&message) {
+            return Poll::Ready(Some(compressed_in_place(encoding, message)));
+        }
+        let mut work: Pin<Box<dyn Future<Output = FramedMessage> + Send>> =
+            Box::pin(compressed(encoding, message));
+        let done = work.as_mut().poll(cx);
+        if done.is_pending() {
+            this.compressing = Some(work);
+        }
+        done.map(Some)
     }
 }
 
@@ -481,7 +498,6 @@ pub(crate) fn create_with(
         messages: message_tx,
         over: over_rx.clone(),
         max_message_size,
-        encoding: None,
         control: control.clone(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
@@ -490,6 +506,8 @@ pub(crate) fn create_with(
         over: body_over_rx,
         ended: false,
         cut: control.cut.clone(),
+        encoding: None,
+        compressing: None,
     };
 
     (send, control, messages, driving)

@@ -237,11 +237,11 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__Retry__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
-      "ChannelDefaults": { "Grpc": { "Retry": { "MaxAttempts": 3 } } }
+      "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
     },
     "unknown": ["ChannelDefaults.Grpc.Nope"]
   },
@@ -423,14 +423,14 @@
     },
     "sources": [
       { "document": { "ChannelDefaults": { "Http2": { "Receive": "Adaptive" } } } },
-      { "pairs": { "ChannelDefaults__Grpc__Retry__Codes": "GrpcClient" } },
+      { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Throttle": "None" } },
       { "environment": true }
     ],
     "options": {
       "ChannelDefaults": {
         "Transport": { "Proxy": "None" },
         "Http2": { "Receive": "Adaptive" },
-        "Grpc": { "Retry": { "Codes": "GrpcClient" } }
+        "Grpc": { "OutboundTraffic": { "Throttle": "None" } }
       }
     }
   },

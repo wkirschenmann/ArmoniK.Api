@@ -1876,12 +1876,9 @@ public sealed class GrpcOptions
 
     UserAgent = other.UserAgent;
     Deadline = other.Deadline;
-    Retry = other.Retry is null
-              ? null
-              : new RetryOptions(other.Retry);
-    Rate = other.Rate is null
-             ? null
-             : new RateOptions(other.Rate);
+    OutboundTraffic = other.OutboundTraffic is null
+                        ? null
+                        : new OutboundTrafficOptions(other.OutboundTraffic);
     Send = other.Send is null
              ? null
              : new GrpcSendOptions(other.Send);
@@ -1905,21 +1902,14 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public Deadline? Deadline { get; set; }
 
-  /// <summary>When a failed call is sent again.</summary>
-  /// <remarks>
-  ///   Defaults to <c>{}</c>: five attempts in all, with <c>GrpcClient</c>'s backoff, for UNAVAILABLE alone.
-  ///   A call its peer never processed goes again besides, whatever <c>MaxAttempts</c> is, while every
-  ///   message it sent is kept.
-  /// </remarks>
-  [JsonPropertyName("Retry")]
+  /// <summary>
+  ///   What the channel does with the calls it sends: sending a failed one again, slowing down
+  ///   against a server that fails, and keeping messages for a call to be sent again.
+  /// </summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("OutboundTraffic")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RetryOptions? Retry { get; set; }
-
-  /// <summary>How fast the channel starts calls.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets no limit: requests start as they are made.</remarks>
-  [JsonPropertyName("Rate")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RateOptions? Rate { get; set; }
+  public OutboundTrafficOptions? OutboundTraffic { get; set; }
 
   /// <summary>What a call sends to the server.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1951,8 +1941,7 @@ public sealed class GrpcOptions
     }
 
     Deadline?.Validate();
-    Retry?.Validate();
-    Rate?.Validate();
+    OutboundTraffic?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
@@ -2054,159 +2043,93 @@ internal sealed class DeadlineJsonConverter : JsonConverter<Deadline>
 }
 
 /// <summary>
-///   When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
-///   that starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to
-///   <c>MaxBackoffSeconds</c>, for the statuses <c>Codes</c> names, while no response head has reached the
-///   reader and what the call sent is still kept for the replay.
+///   What a channel does with the calls it sends: whether a failed call is sent again, whether the
+///   channel slows down against a server that fails, and what it keeps of the messages for a call to
+///   be sent again.
 /// </summary>
-public sealed class RetryOptions
+/// <remarks>
+///   A failure is named by where it ended an attempt, in the entries of a list: <c>Status.X</c> for a
+///   gRPC status the server sent in its trailers, X being a name from the gRPC specification such as
+///   <c>UNAVAILABLE</c>; <c>Http.N</c> for an HTTP status N, from 100 to 599, that a proxy or a gateway answered
+///   with and no gRPC status; <c>Reset.R</c> for a stream the server reset before its response, R being
+///   an HTTP/2 error code from RFC 9113 such as <c>ENHANCE_YOUR_CALM</c>; <c>Pushback</c> for a failure whose
+///   server asked for a wait in <c>grpc-retry-pushback-ms</c>, whatever its status; <c>Dial</c> for a connection
+///   that could not be made; and <c>Connection</c> for one that ended under the call before the response.
+///   An entry that names none of these is refused, and a list that is empty names nothing. What the
+///   engine ended itself, a cancel and a deadline, is never a failure of the server's.
+/// </remarks>
+public sealed class OutboundTrafficOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public RetryOptions()
+  public OutboundTrafficOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public RetryOptions(RetryOptions other)
+  public OutboundTrafficOptions(OutboundTrafficOptions other)
   {
     if (other is null)
     {
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxAttempts = other.MaxAttempts;
-    InitialBackoffSeconds = other.InitialBackoffSeconds;
-    MaxBackoffSeconds = other.MaxBackoffSeconds;
-    Codes = other.Codes;
-    BackoffMultiplier = other.BackoffMultiplier;
-    CallReplayBytes = other.CallReplayBytes;
-    ChannelReplayBytes = other.ChannelReplayBytes;
+    Retry = other.Retry;
+    Throttle = other.Throttle;
+    Replay = other.Replay is null
+               ? null
+               : new ReplayOptions(other.Replay);
   }
 
-  /// <summary>
-  ///   Attempts in all, the first included; 1 retries nothing. A call its peer never processed
-  ///   goes again besides, whatever this is, while every message it sent is kept.
-  /// </summary>
-  /// <remarks>Defaults to 5.</remarks>
-  [JsonPropertyName("MaxAttempts")]
+  /// <summary>Whether a failed call is sent again, and how.</summary>
+  /// <remarks>
+  ///   Defaults to <c>{"ExponentialBackoff": {}}</c>: five attempts in all, for <c>Status.UNAVAILABLE</c>,
+  ///   <c>Dial</c> and <c>Connection</c>.
+  /// </remarks>
+  [JsonPropertyName("Retry")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxAttempts { get; set; }
-
-  /// <summary>The bound of the first backoff.</summary>
-  /// <remarks>Defaults to 1.</remarks>
-  [JsonPropertyName("InitialBackoffSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? InitialBackoffSeconds { get; set; }
-
-  /// <summary>What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.</summary>
-  /// <remarks>Defaults to 5.</remarks>
-  [JsonPropertyName("MaxBackoffSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? MaxBackoffSeconds { get; set; }
-
-  /// <summary>The statuses a call is tried again for.</summary>
-  /// <remarks>Defaults to <c>"GoogleRpc"</c>: UNAVAILABLE alone.</remarks>
-  [JsonPropertyName("Codes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RetryCodes? Codes { get; set; }
-
-  /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
-  /// <remarks>Defaults to 1.5.</remarks>
-  [JsonPropertyName("BackoffMultiplier")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? BackoffMultiplier { get; set; }
-
-  /// <summary>The bytes one call may keep for a replay; a call that sends more is not tried again.</summary>
-  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
-  [JsonPropertyName("CallReplayBytes")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? CallReplayBytes { get; set; }
+  public RetryOptions? Retry { get; set; }
 
   /// <summary>
-  ///   The bytes all of the channel's calls may keep for a replay together; a call whose message
-  ///   would pass it is not tried again.
+  ///   Whether the channel judges its server by what it accepts, and slows down against one that
+  ///   fails.
   /// </summary>
-  /// <remarks>Defaults to 16777216, 16 MiB.</remarks>
-  [JsonPropertyName("ChannelReplayBytes")]
+  /// <remarks>Defaults to <c>{"Adaptive": {}}</c>: the estimate with every default.</remarks>
+  [JsonPropertyName("Throttle")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? ChannelReplayBytes { get; set; }
+  public ThrottleOptions? Throttle { get; set; }
+
+  /// <summary>What the channel keeps of the messages its calls sent.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
+  [JsonPropertyName("Replay")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public ReplayOptions? Replay { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxAttempts is int maxAttempts && maxAttempts < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxAttempts),
-                                            maxAttempts,
-                                            "MaxAttempts has to be at least 1.");
-    }
-
-    if (InitialBackoffSeconds is double initialBackoffSeconds && (initialBackoffSeconds < 1E-09 || initialBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(initialBackoffSeconds) || double.IsInfinity(initialBackoffSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(InitialBackoffSeconds),
-                                            initialBackoffSeconds,
-                                            "InitialBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (MaxBackoffSeconds is double maxBackoffSeconds && (maxBackoffSeconds < 1E-09 || maxBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(maxBackoffSeconds) || double.IsInfinity(maxBackoffSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxBackoffSeconds),
-                                            maxBackoffSeconds,
-                                            "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (BackoffMultiplier is double backoffMultiplier && (backoffMultiplier < 1 || double.IsNaN(backoffMultiplier) || double.IsInfinity(backoffMultiplier)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(BackoffMultiplier),
-                                            backoffMultiplier,
-                                            "BackoffMultiplier has to be at least 1 and finite.");
-    }
-
-    if (CallReplayBytes is int callReplayBytes && callReplayBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(CallReplayBytes),
-                                            callReplayBytes,
-                                            "CallReplayBytes has to be at least 0.");
-    }
-
-    if (ChannelReplayBytes is int channelReplayBytes && channelReplayBytes < 0)
-    {
-      throw new ArgumentOutOfRangeException(nameof(ChannelReplayBytes),
-                                            channelReplayBytes,
-                                            "ChannelReplayBytes has to be at least 0.");
-    }
-
-    Codes?.Validate();
+    Retry?.Validate();
+    Throttle?.Validate();
+    Replay?.Validate();
   }
 }
 
-/// <summary>The statuses a call is tried again for.</summary>
-[JsonConverter(typeof(RetryCodesJsonConverter))]
-public abstract record RetryCodes
+/// <summary>Whether a failed call is sent again, and how.</summary>
+[JsonConverter(typeof(RetryOptionsJsonConverter))]
+public abstract record RetryOptions
 {
-  private RetryCodes()
+  private RetryOptions()
   {
   }
 
-  /// <summary>UNAVAILABLE alone, which is what <c>google.rpc.Code</c> advises for retrying the same call.</summary>
-  /// <remarks>
-  ///   ABORTED is for the caller to start its unit of work again, not to repeat the call, and
-  ///   UNKNOWN is a status from an error space the client does not know.
-  /// </remarks>
-  public sealed record GoogleRpc : RetryCodes
-  {
-    /// <inheritdoc />
-    public override void Validate()
-    {
-      // The schema bounds nothing here.
-    }
-  }
-
-  /// <summary>UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET <c>GrpcClient</c> default.</summary>
-  public sealed record GrpcClient : RetryCodes
+  /// <summary>
+  ///   No retry: a failed call ends with its status. A call that its peer never processed still
+  ///   goes again, once for each way the peer did not see it, while what it sent is kept under
+  ///   <c>Replay</c>.
+  /// </summary>
+  public sealed record None : RetryOptions
   {
     /// <inheritdoc />
     public override void Validate()
@@ -2216,36 +2139,65 @@ public abstract record RetryCodes
   }
 
   /// <summary>
-  ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  ///   A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that
+  ///   starts at <c>InitialBackoffSeconds</c> and grows by <c>BackoffMultiplier</c> to <c>MaxBackoffSeconds</c>,
+  ///   for the failures <c>FailureList</c> names, while no response head has reached the reader, what
+  ///   the call sent is still kept under <c>Replay</c>, and <c>Throttle</c> finds the server accepting what
+  ///   is sent. A policy that retries nothing is <c>None</c>, and neither a <c>MaxAttempts</c> of 1 nor an
+  ///   empty <c>FailureList</c> is one.
   /// </summary>
-  /// <param name="Value">
-  ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  /// <param name="FailureList">
+  ///   The failures a call is tried again for, each an entry as the options above describe.
+  ///   Empty retries nothing.
+  ///   Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.
   /// </param>
-  public sealed record List(global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value) : RetryCodes
+  /// <param name="MaxAttempts">
+  ///   Attempts in all, the first included; at least 2, a policy that retries nothing being <c>None</c>.
+  ///   A call its peer never processed goes again besides, while every message it sent is kept.
+  ///   Defaults to 5.
+  /// </param>
+  /// <param name="InitialBackoffSeconds">
+  ///   The bound of the first backoff.
+  ///   Defaults to 5.
+  /// </param>
+  /// <param name="MaxBackoffSeconds">
+  ///   What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.
+  ///   Defaults to 120.
+  /// </param>
+  /// <param name="BackoffMultiplier">
+  ///   What each bound is multiplied by; 1 retries at a fixed bound.
+  ///   Defaults to 2.
+  /// </param>
+  public sealed record ExponentialBackoff(global::System.Collections.Generic.IReadOnlyList<string>? FailureList = null,
+                                          int? MaxAttempts = null,
+                                          double? InitialBackoffSeconds = null,
+                                          double? MaxBackoffSeconds = null,
+                                          double? BackoffMultiplier = null) : RetryOptions
   {
     /// <summary>
-    ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-    ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-    ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+    ///   The failures a call is tried again for, each an entry as the options above describe.
+    ///   Empty retries nothing.
     /// </summary>
-    public global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value { get; init; } = new global::System.Collections.Generic.List<RetryableStatus>(Value ?? throw new ArgumentNullException(nameof(Value))).AsReadOnly();
+    /// <remarks>Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.</remarks>
+    public global::System.Collections.Generic.IReadOnlyList<string>? FailureList { get; init; } = FailureList is null ? null : new global::System.Collections.Generic.List<string>(FailureList).AsReadOnly();
 
     /// <inheritdoc />
-    public bool Equals(List? other)
-      => other is not null && global::System.Linq.Enumerable.SequenceEqual(Value, other.Value);
+    public bool Equals(ExponentialBackoff? other)
+      => other is not null && (FailureList is null ? other.FailureList is null : other.FailureList is not null && global::System.Linq.Enumerable.SequenceEqual(FailureList, other.FailureList)) && global::System.Collections.Generic.EqualityComparer<int?>.Default.Equals(MaxAttempts, other.MaxAttempts) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(InitialBackoffSeconds, other.InitialBackoffSeconds) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(MaxBackoffSeconds, other.MaxBackoffSeconds) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(BackoffMultiplier, other.BackoffMultiplier);
 
     /// <inheritdoc />
     public override int GetHashCode()
     {
       var hash = 17;
-      foreach (var item in Value)
+      foreach (var item in FailureList ?? global::System.Linq.Enumerable.Empty<string>())
       {
-        hash = hash * 31 + item.GetHashCode();
+        hash = hash * 31 + (item?.GetHashCode() ?? 0);
       }
+      hash = hash * 31 + (FailureList is null ? 0 : 1);
+      hash = hash * 31 + (MaxAttempts?.GetHashCode() ?? 0);
+      hash = hash * 31 + (InitialBackoffSeconds?.GetHashCode() ?? 0);
+      hash = hash * 31 + (MaxBackoffSeconds?.GetHashCode() ?? 0);
+      hash = hash * 31 + (BackoffMultiplier?.GetHashCode() ?? 0);
 
       return hash;
     }
@@ -2253,26 +2205,48 @@ public abstract record RetryCodes
     /// <inheritdoc />
     public override void Validate()
     {
-      if (Value is { } value)
+      if (MaxAttempts is int maxAttempts && maxAttempts < 2)
       {
-        var valueUndeclared = value.Where(item => !Enum.IsDefined(typeof(RetryableStatus), item))
-                                   .ToList();
+        throw new ArgumentOutOfRangeException(nameof(MaxAttempts),
+                                              maxAttempts,
+                                              "MaxAttempts has to be at least 2.");
+      }
 
-        if (valueUndeclared.Count > 0)
-        {
-          throw new ArgumentOutOfRangeException(nameof(Value),
-                                                string.Join(", ",
-                                                            valueUndeclared),
-                                                "Value has to be names RetryableStatus declares.");
-        }
+      if (InitialBackoffSeconds is double initialBackoffSeconds && (initialBackoffSeconds < 1E-09 || initialBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(initialBackoffSeconds) || double.IsInfinity(initialBackoffSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(InitialBackoffSeconds),
+                                              initialBackoffSeconds,
+                                              "InitialBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+
+      if (MaxBackoffSeconds is double maxBackoffSeconds && (maxBackoffSeconds < 1E-09 || maxBackoffSeconds >= 1.8446744073709552E+19 || double.IsNaN(maxBackoffSeconds) || double.IsInfinity(maxBackoffSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(MaxBackoffSeconds),
+                                              maxBackoffSeconds,
+                                              "MaxBackoffSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+
+      if (BackoffMultiplier is double backoffMultiplier && (backoffMultiplier < 1 || double.IsNaN(backoffMultiplier) || double.IsInfinity(backoffMultiplier)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(BackoffMultiplier),
+                                              backoffMultiplier,
+                                              "BackoffMultiplier has to be at least 1 and finite.");
       }
     }
 
     /// <summary>The fields, a secret one elided.</summary>
     protected override bool PrintMembers(global::System.Text.StringBuilder builder)
     {
-      builder.Append("Value = ");
-      builder.Append("[" + string.Join(", ", Value) + "]");
+      builder.Append("FailureList = ");
+      builder.Append(FailureList is null ? "null" : "[" + string.Join(", ", FailureList) + "]");
+      builder.Append(", MaxAttempts = ");
+      builder.Append((object?)MaxAttempts);
+      builder.Append(", InitialBackoffSeconds = ");
+      builder.Append((object?)InitialBackoffSeconds);
+      builder.Append(", MaxBackoffSeconds = ");
+      builder.Append((object?)MaxBackoffSeconds);
+      builder.Append(", BackoffMultiplier = ");
+      builder.Append((object?)BackoffMultiplier);
 
       return true;
     }
@@ -2283,19 +2257,19 @@ public abstract record RetryCodes
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="RetryCodes" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
-internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
+/// <summary>Writes a <see cref="RetryOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class RetryOptionsJsonConverter : JsonConverter<RetryOptions>
 {
   /// <inheritdoc />
   /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
-  public override RetryCodes? Read(ref Utf8JsonReader reader,
-                                   Type typeToConvert,
-                                   JsonSerializerOptions options)
-    => throw new NotSupportedException("RetryCodes is written to the engine, and never read back.");
+  public override RetryOptions? Read(ref Utf8JsonReader reader,
+                                     Type typeToConvert,
+                                     JsonSerializerOptions options)
+    => throw new NotSupportedException("RetryOptions is written to the engine, and never read back.");
 
   /// <inheritdoc />
   public override void Write(Utf8JsonWriter writer,
-                             RetryCodes value,
+                             RetryOptions value,
                              JsonSerializerOptions options)
     => WriteValue(writer,
                   value);
@@ -2304,31 +2278,56 @@ internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
   /// <param name="writer">Where it is written.</param>
   /// <param name="written">The alternative.</param>
   internal static void WriteValue(Utf8JsonWriter writer,
-                                  RetryCodes written)
+                                  RetryOptions written)
   {
     switch (written)
     {
-      case RetryCodes.GoogleRpc:
+      case RetryOptions.None:
       {
-        writer.WriteStringValue("GoogleRpc");
+        writer.WriteStringValue("None");
         break;
       }
 
-      case RetryCodes.GrpcClient:
-      {
-        writer.WriteStringValue("GrpcClient");
-        break;
-      }
-
-      case RetryCodes.List list:
+      case RetryOptions.ExponentialBackoff exponentialBackoff:
       {
         writer.WriteStartObject();
-        writer.WriteStartArray("List");
-        foreach (var item in list.Value)
+        writer.WriteStartObject("ExponentialBackoff");
+
+        if (exponentialBackoff.FailureList is global::System.Collections.Generic.IReadOnlyList<string> failureList)
         {
-          writer.WriteStringValue(item.ToString());
+          writer.WriteStartArray("FailureList");
+          foreach (var item in failureList)
+          {
+            writer.WriteStringValue(item);
+          }
+          writer.WriteEndArray();
         }
-        writer.WriteEndArray();
+
+        if (exponentialBackoff.MaxAttempts is int maxAttempts)
+        {
+          writer.WriteNumber("MaxAttempts",
+                             maxAttempts);
+        }
+
+        if (exponentialBackoff.InitialBackoffSeconds is double initialBackoffSeconds)
+        {
+          writer.WriteNumber("InitialBackoffSeconds",
+                             initialBackoffSeconds);
+        }
+
+        if (exponentialBackoff.MaxBackoffSeconds is double maxBackoffSeconds)
+        {
+          writer.WriteNumber("MaxBackoffSeconds",
+                             maxBackoffSeconds);
+        }
+
+        if (exponentialBackoff.BackoffMultiplier is double backoffMultiplier)
+        {
+          writer.WriteNumber("BackoffMultiplier",
+                             backoffMultiplier);
+        }
+
+        writer.WriteEndObject();
         writer.WriteEndObject();
         break;
       }
@@ -2336,162 +2335,354 @@ internal sealed class RetryCodesJsonConverter : JsonConverter<RetryCodes>
   }
 }
 
-/// <summary>The name of a gRPC status a call may fail with, as gRFC A6 spells it.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<RetryableStatus>))]
-public enum RetryableStatus
+/// <summary>Whether a channel slows down against a server that fails.</summary>
+[JsonConverter(typeof(ThrottleOptionsJsonConverter))]
+public abstract record ThrottleOptions
 {
-  /// <summary>The call was cancelled, which a retry would undo.</summary>
-  CANCELLED,
+  private ThrottleOptions()
+  {
+  }
 
-  /// <summary>A status from an error space the client does not know, or an error with no status.</summary>
-  UNKNOWN,
+  /// <summary>
+  ///   No judgment: every retry the retry policy chooses is sent, and first attempts start as they
+  ///   are made.
+  /// </summary>
+  public sealed record None : ThrottleOptions
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
 
-  /// <summary>The request is past a valid range.</summary>
-  OUT_OF_RANGE,
+  /// <summary>
+  ///   An estimate of the server's health over a window of time, which sorts every attempt that
+  ///   ends as overloaded if <c>OverloadList</c> names its failure, as transient if <c>TransientList</c>
+  ///   does, and as accepted if it is an answer of the server's that neither names. Retries stop
+  ///   while the server fails more than <c>Multiplier</c> times what it accepts, beyond
+  ///   <c>FailureAllowance</c>. While it is overloaded more than <c>ThrottleMultiplier</c> times what it is
+  ///   not, beyond <c>FailureAllowance</c>, retries stop too, and first attempts start at a capped rate,
+  ///   and wait for their turns in the order they arrived: a call whose deadline passes while it waits ends
+  ///   <c>DEADLINE_EXCEEDED</c> having sent nothing. A transient failure, a server that is down, never
+  ///   slows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are
+  ///   never counted.
+  /// </summary>
+  /// <param name="TransientList">
+  ///   The failures that may be an outage, each an entry as the options above describe. They slow
+  ///   retries and never lower the rate of first attempts. A failure of the server's that neither
+  ///   list names counts as an acceptance; <c>Status.CANCELLED</c> and <c>Status.DEADLINE_EXCEEDED</c> are
+  ///   refused.
+  ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
+  ///   "Http.504", "Dial", "Connection"]</c>.
+  /// </param>
+  /// <param name="OverloadList">
+  ///   The failures that say the server is over capacity, each an entry as the options above
+  ///   describe. They slow retries and lower the rate of first attempts. A failure that both
+  ///   lists name is overload.
+  ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
+  ///   "Reset.REFUSED_STREAM"]</c>.
+  /// </param>
+  /// <param name="Multiplier">
+  ///   How many times what the server accepts the channel may send, as retries stop: they are open
+  ///   while the attempts that ended, less this many times the accepted ones, are at most
+  ///   <c>FailureAllowance</c>. At least 1 and at most 100.
+  ///   Defaults to 2.
+  /// </param>
+  /// <param name="ThrottleMultiplier">
+  ///   How many times what the server does not report as overloaded the channel may send, as the
+  ///   rate is capped: the cap is on while the attempts that ended, less this many times those not
+  ///   overloaded, are over <c>FailureAllowance</c>. At least 1 and at most 100.
+  ///   Defaults to 2.
+  /// </param>
+  /// <param name="FailureAllowance">
+  ///   The failures beyond the multiple of what the server accepts that are let go, so that a
+  ///   channel with little traffic does not lose its retries, or its rate, to one failure.
+  ///   Defaults to 10.
+  /// </param>
+  /// <param name="WindowSeconds">
+  ///   How far back the counts reach, from 0.012 to 600 seconds.
+  ///   Defaults to 30.
+  /// </param>
+  /// <param name="FloorPerSecond">
+  ///   The rate of first attempts, a second, that the cap never goes under, so that the channel goes
+  ///   on probing a server that is overloaded. Above 0 and at most 1000000.
+  ///   Defaults to 0.5.
+  /// </param>
+  public sealed record Adaptive(global::System.Collections.Generic.IReadOnlyList<string>? TransientList = null,
+                                global::System.Collections.Generic.IReadOnlyList<string>? OverloadList = null,
+                                double? Multiplier = null,
+                                double? ThrottleMultiplier = null,
+                                int? FailureAllowance = null,
+                                double? WindowSeconds = null,
+                                double? FloorPerSecond = null) : ThrottleOptions
+  {
+    /// <summary>
+    ///   The failures that may be an outage, each an entry as the options above describe. They slow
+    ///   retries and never lower the rate of first attempts. A failure of the server's that neither
+    ///   list names counts as an acceptance; <c>Status.CANCELLED</c> and <c>Status.DEADLINE_EXCEEDED</c> are
+    ///   refused.
+    /// </summary>
+    /// <remarks>
+    ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
+    ///   "Http.504", "Dial", "Connection"]</c>.
+    /// </remarks>
+    public global::System.Collections.Generic.IReadOnlyList<string>? TransientList { get; init; } = TransientList is null ? null : new global::System.Collections.Generic.List<string>(TransientList).AsReadOnly();
 
-  /// <summary>The server does not implement the method.</summary>
-  UNIMPLEMENTED,
+    /// <summary>
+    ///   The failures that say the server is over capacity, each an entry as the options above
+    ///   describe. They slow retries and lower the rate of first attempts. A failure that both
+    ///   lists name is overload.
+    /// </summary>
+    /// <remarks>
+    ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
+    ///   "Reset.REFUSED_STREAM"]</c>.
+    /// </remarks>
+    public global::System.Collections.Generic.IReadOnlyList<string>? OverloadList { get; init; } = OverloadList is null ? null : new global::System.Collections.Generic.List<string>(OverloadList).AsReadOnly();
 
-  /// <summary>An invariant of the server is broken.</summary>
-  INTERNAL,
+    /// <inheritdoc />
+    public bool Equals(Adaptive? other)
+      => other is not null && (TransientList is null ? other.TransientList is null : other.TransientList is not null && global::System.Linq.Enumerable.SequenceEqual(TransientList, other.TransientList)) && (OverloadList is null ? other.OverloadList is null : other.OverloadList is not null && global::System.Linq.Enumerable.SequenceEqual(OverloadList, other.OverloadList)) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(Multiplier, other.Multiplier) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(ThrottleMultiplier, other.ThrottleMultiplier) && global::System.Collections.Generic.EqualityComparer<int?>.Default.Equals(FailureAllowance, other.FailureAllowance) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(WindowSeconds, other.WindowSeconds) && global::System.Collections.Generic.EqualityComparer<double?>.Default.Equals(FloorPerSecond, other.FloorPerSecond);
 
-  /// <summary>The service is unavailable, which is transient.</summary>
-  UNAVAILABLE,
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+      var hash = 17;
+      foreach (var item in TransientList ?? global::System.Linq.Enumerable.Empty<string>())
+      {
+        hash = hash * 31 + (item?.GetHashCode() ?? 0);
+      }
+      hash = hash * 31 + (TransientList is null ? 0 : 1);
+      foreach (var item in OverloadList ?? global::System.Linq.Enumerable.Empty<string>())
+      {
+        hash = hash * 31 + (item?.GetHashCode() ?? 0);
+      }
+      hash = hash * 31 + (OverloadList is null ? 0 : 1);
+      hash = hash * 31 + (Multiplier?.GetHashCode() ?? 0);
+      hash = hash * 31 + (ThrottleMultiplier?.GetHashCode() ?? 0);
+      hash = hash * 31 + (FailureAllowance?.GetHashCode() ?? 0);
+      hash = hash * 31 + (WindowSeconds?.GetHashCode() ?? 0);
+      hash = hash * 31 + (FloorPerSecond?.GetHashCode() ?? 0);
 
-  /// <summary>Data is lost or corrupt.</summary>
-  DATA_LOSS,
+      return hash;
+    }
 
-  /// <summary>The request has no valid credentials.</summary>
-  UNAUTHENTICATED,
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Multiplier is double multiplier && (multiplier < 1 || multiplier > 100 || double.IsNaN(multiplier) || double.IsInfinity(multiplier)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Multiplier),
+                                              multiplier,
+                                              "Multiplier has to be at least 1 and at most 100 and finite.");
+      }
 
-  /// <summary>The request is wrong whatever the state of the server.</summary>
-  INVALID_ARGUMENT,
+      if (ThrottleMultiplier is double throttleMultiplier && (throttleMultiplier < 1 || throttleMultiplier > 100 || double.IsNaN(throttleMultiplier) || double.IsInfinity(throttleMultiplier)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(ThrottleMultiplier),
+                                              throttleMultiplier,
+                                              "ThrottleMultiplier has to be at least 1 and at most 100 and finite.");
+      }
 
-  /// <summary>The deadline passed before the call ended.</summary>
-  DEADLINE_EXCEEDED,
+      if (FailureAllowance is int failureAllowance && (failureAllowance < 0 || failureAllowance > 1000000))
+      {
+        throw new ArgumentOutOfRangeException(nameof(FailureAllowance),
+                                              failureAllowance,
+                                              "FailureAllowance has to be at least 0 and at most 1000000.");
+      }
 
-  /// <summary>Something the request names does not exist.</summary>
-  NOT_FOUND,
+      if (WindowSeconds is double windowSeconds && (windowSeconds < 0.012 || windowSeconds > 600 || windowSeconds >= 1.8446744073709552E+19 || double.IsNaN(windowSeconds) || double.IsInfinity(windowSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(WindowSeconds),
+                                              windowSeconds,
+                                              "WindowSeconds has to be at least 0.012 and at most 600 and less than 1.8446744073709552E+19 and finite.");
+      }
 
-  /// <summary>Something the request creates exists already.</summary>
-  ALREADY_EXISTS,
+      if (FloorPerSecond is double floorPerSecond && (floorPerSecond > 1000000 || floorPerSecond <= 0 || double.IsNaN(floorPerSecond) || double.IsInfinity(floorPerSecond)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(FloorPerSecond),
+                                              floorPerSecond,
+                                              "FloorPerSecond has to be at most 1000000 and greater than 0 and finite.");
+      }
+    }
 
-  /// <summary>The caller may not do this.</summary>
-  PERMISSION_DENIED,
+    /// <summary>The fields, a secret one elided.</summary>
+    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
+    {
+      builder.Append("TransientList = ");
+      builder.Append(TransientList is null ? "null" : "[" + string.Join(", ", TransientList) + "]");
+      builder.Append(", OverloadList = ");
+      builder.Append(OverloadList is null ? "null" : "[" + string.Join(", ", OverloadList) + "]");
+      builder.Append(", Multiplier = ");
+      builder.Append((object?)Multiplier);
+      builder.Append(", ThrottleMultiplier = ");
+      builder.Append((object?)ThrottleMultiplier);
+      builder.Append(", FailureAllowance = ");
+      builder.Append((object?)FailureAllowance);
+      builder.Append(", WindowSeconds = ");
+      builder.Append((object?)WindowSeconds);
+      builder.Append(", FloorPerSecond = ");
+      builder.Append((object?)FloorPerSecond);
 
-  /// <summary>A quota or a resource is exhausted.</summary>
-  RESOURCE_EXHAUSTED,
+      return true;
+    }
+  }
 
-  /// <summary>The system is not in the state the request needs.</summary>
-  FAILED_PRECONDITION,
-
-  /// <summary>A conflict, such as a failed sequencer check or a transaction abort.</summary>
-  ABORTED,
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
 }
 
-/// <summary>How fast a channel starts calls.</summary>
-public sealed class RateOptions
+/// <summary>Writes a <see cref="ThrottleOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class ThrottleOptionsJsonConverter : JsonConverter<ThrottleOptions>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ThrottleOptions? Read(ref Utf8JsonReader reader,
+                                        Type typeToConvert,
+                                        JsonSerializerOptions options)
+    => throw new NotSupportedException("ThrottleOptions is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ThrottleOptions value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ThrottleOptions written)
+  {
+    switch (written)
+    {
+      case ThrottleOptions.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case ThrottleOptions.Adaptive adaptive:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Adaptive");
+
+        if (adaptive.TransientList is global::System.Collections.Generic.IReadOnlyList<string> transientList)
+        {
+          writer.WriteStartArray("TransientList");
+          foreach (var item in transientList)
+          {
+            writer.WriteStringValue(item);
+          }
+          writer.WriteEndArray();
+        }
+
+        if (adaptive.OverloadList is global::System.Collections.Generic.IReadOnlyList<string> overloadList)
+        {
+          writer.WriteStartArray("OverloadList");
+          foreach (var item in overloadList)
+          {
+            writer.WriteStringValue(item);
+          }
+          writer.WriteEndArray();
+        }
+
+        if (adaptive.Multiplier is double multiplier)
+        {
+          writer.WriteNumber("Multiplier",
+                             multiplier);
+        }
+
+        if (adaptive.ThrottleMultiplier is double throttleMultiplier)
+        {
+          writer.WriteNumber("ThrottleMultiplier",
+                             throttleMultiplier);
+        }
+
+        if (adaptive.FailureAllowance is int failureAllowance)
+        {
+          writer.WriteNumber("FailureAllowance",
+                             failureAllowance);
+        }
+
+        if (adaptive.WindowSeconds is double windowSeconds)
+        {
+          writer.WriteNumber("WindowSeconds",
+                             windowSeconds);
+        }
+
+        if (adaptive.FloorPerSecond is double floorPerSecond)
+        {
+          writer.WriteNumber("FloorPerSecond",
+                             floorPerSecond);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>
+///   What a channel keeps of the messages its calls sent, so that a call can be sent again: after a
+///   failure the retry policy chose, and when its peer never processed it.
+/// </summary>
+public sealed class ReplayOptions
 {
   /// <summary>Options nobody has set.</summary>
-  public RateOptions()
+  public ReplayOptions()
   {
   }
 
   /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
   /// <param name="other">The options to copy.</param>
   /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public RateOptions(RateOptions other)
+  public ReplayOptions(ReplayOptions other)
   {
     if (other is null)
     {
       throw new ArgumentNullException(nameof(other));
     }
 
-    Limit = other.Limit is null
-              ? null
-              : new RateLimitOptions(other.Limit);
+    MaxPerCallKiB = other.MaxPerCallKiB;
+    MaxPerChannelKiB = other.MaxPerChannelKiB;
   }
 
-  /// <summary>How many requests the channel starts in a window of time.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none: requests start as they are made.</remarks>
-  [JsonPropertyName("Limit")]
+  /// <summary>The KiB one call may keep; a call that sends more is not sent again.</summary>
+  /// <remarks>Defaults to 1024, 1 MiB.</remarks>
+  [JsonPropertyName("MaxPerCallKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public RateLimitOptions? Limit { get; set; }
+  public int? MaxPerCallKiB { get; set; }
+
+  /// <summary>
+  ///   The KiB all of the channel's calls may keep together; a call whose message would pass it is
+  ///   not sent again.
+  /// </summary>
+  /// <remarks>Defaults to 16384, 16 MiB.</remarks>
+  [JsonPropertyName("MaxPerChannelKiB")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public int? MaxPerChannelKiB { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    Limit?.Validate();
-  }
-}
-
-/// <summary>How many requests a channel starts in a window of time.</summary>
-/// <remarks>
-///   Off unless both options are set, or when <c>Calls</c> is 0. A request is an attempt, the first of a call or a retry of it,
-///   because the server sees each as a request; a streaming call counts once, when it starts. The
-///   first request opens a window of <c>PerSeconds</c>, and <c>Calls</c> of them start in it; the first request
-///   after the window ends opens the next. Windows are fixed, so up to twice <c>Calls</c> requests can
-///   start within <c>PerSeconds</c> across a boundary, the last of one window and the first of the next.
-///   A call's first attempt over the limit waits for the next window and is not refused: a call whose
-///   deadline passes while it waits ends <c>DEADLINE_EXCEEDED</c>, and one cancelled ends <c>CANCELLED</c>,
-///   neither having sent anything. Requests start in the order they reach the limit, and the limit
-///   is the channel's, shared by every connection it opens. A retry the retry policy chooses does
-///   not wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is
-///   skipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when
-///   the attempts are spent the call ends with the status of the last attempt sent. A resend of a
-///   request its peer never processed is no retry of the policy's, and waits its turn like a first
-///   attempt.
-/// </remarks>
-public sealed class RateLimitOptions
-{
-  /// <summary>Options nobody has set.</summary>
-  public RateLimitOptions()
-  {
-  }
-
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public RateLimitOptions(RateLimitOptions other)
-  {
-    if (other is null)
+    if (MaxPerCallKiB is int maxPerCallKiB && maxPerCallKiB < 0)
     {
-      throw new ArgumentNullException(nameof(other));
+      throw new ArgumentOutOfRangeException(nameof(MaxPerCallKiB),
+                                            maxPerCallKiB,
+                                            "MaxPerCallKiB has to be at least 0.");
     }
 
-    Calls = other.Calls;
-    PerSeconds = other.PerSeconds;
-  }
-
-  /// <summary>The requests that start in one window, or 0 for no limit, over one an earlier source set.</summary>
-  /// <remarks>Incoherent without <c>PerSeconds</c>, unless it is 0, which leaves <c>PerSeconds</c> unread.</remarks>
-  [JsonPropertyName("Calls")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? Calls { get; set; }
-
-  /// <summary>How long a window lasts.</summary>
-  /// <remarks>Incoherent without <c>Calls</c>, unless <c>Calls</c> is 0.</remarks>
-  [JsonPropertyName("PerSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? PerSeconds { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
-  {
-    if (Calls is int calls && calls < 0)
+    if (MaxPerChannelKiB is int maxPerChannelKiB && maxPerChannelKiB < 0)
     {
-      throw new ArgumentOutOfRangeException(nameof(Calls),
-                                            calls,
-                                            "Calls has to be at least 0.");
-    }
-
-    if (PerSeconds is double perSeconds && (perSeconds < 1E-09 || perSeconds >= 1.8446744073709552E+19 || double.IsNaN(perSeconds) || double.IsInfinity(perSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(PerSeconds),
-                                            perSeconds,
-                                            "PerSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      throw new ArgumentOutOfRangeException(nameof(MaxPerChannelKiB),
+                                            maxPerChannelKiB,
+                                            "MaxPerChannelKiB has to be at least 0.");
     }
   }
 }

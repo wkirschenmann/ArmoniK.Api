@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use hyper::Uri;
 
-use crate::grpc::{GrpcChannelConfig, RateLimitConfig, RetryConfig};
+use crate::grpc::{AdaptiveConfig, GrpcChannelConfig, ReplayConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
-    ChannelOptions, Deadline, OptionRefusal, ProxyOptions, Seconds, SendCompression, TcpKeepalive,
-    LARGEST_WINDOW,
+    ChannelOptions, Deadline, OptionRefusal, ProxyOptions, RetryOptions, Seconds, SendCompression,
+    TcpKeepalive, ThrottleOptions, LARGEST_WINDOW,
 };
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -37,8 +37,9 @@ pub struct ChannelSettings {
     tcp: TcpConfig,
     http2: Http2Config,
     proxy: ProxyConfig,
-    retry: RetryConfig,
-    rate_limit: Option<RateLimitConfig>,
+    retry: Option<RetryConfig>,
+    adaptive: Option<AdaptiveConfig>,
+    replay: ReplayConfig,
     accept_encodings: Vec<crate::grpc::Encoding>,
 }
 
@@ -169,18 +170,29 @@ impl ChannelSettings {
                 ProxyOptions::to_config,
             )
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.Proxy")))?;
-        let (retry, found) = grpc
+        let traffic = &grpc.outbound_traffic;
+        let (retry, found) = traffic
             .retry
-            .convert()
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
-        converted(found, "Grpc.Retry");
+            .as_ref()
+            .map_or_else(|| RetryOptions::default().convert(), RetryOptions::convert)
+            .map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Retry"))
+            })?;
+        converted(found, "Grpc.OutboundTraffic.Retry");
+        let adaptive = traffic
+            .throttle
+            .as_ref()
+            .map_or_else(
+                || ThrottleOptions::default().to_config(),
+                ThrottleOptions::to_config,
+            )
+            .map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Throttle"))
+            })?;
+        let replay = traffic.replay.to_config().map_err(|refused| {
+            SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Replay"))
+        })?;
         let accept_encodings = grpc.receive.accepted_encodings();
-        let (rate_limit, found) = grpc
-            .rate
-            .limit
-            .convert()
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Rate.Limit")))?;
-        converted(found, "Grpc.Rate.Limit");
 
         Ok((
             Self {
@@ -194,7 +206,8 @@ impl ChannelSettings {
                 http2,
                 proxy,
                 retry,
-                rate_limit,
+                adaptive,
+                replay,
                 accept_encodings,
             },
             incoherent,
@@ -252,8 +265,9 @@ impl ChannelSettings {
             config.delivery_coalescing = bytes as usize;
         }
         config.default_deadline = self.default_deadline;
-        config.retry = Some(self.retry);
-        config.rate_limit = self.rate_limit;
+        config.retry = self.retry;
+        config.adaptive = self.adaptive;
+        config.replay = self.replay;
         config
     }
 }

@@ -295,7 +295,7 @@ async fn a_replay_holds_the_message_compressed() {
         let mut retry = RetryConfig::default();
         retry.initial_backoff = Duration::from_millis(10);
         retry.max_backoff = Duration::from_millis(50);
-        retry.call_replay_bytes = 1024;
+        config.replay.call_bytes = 1024;
         config.retry = Some(retry);
     };
 

@@ -11,19 +11,22 @@ use support::host::{refused_over, Host};
 
 const NOWHERE: &str = "http://127.0.0.1:1";
 
-/// A rate limit of five requests with no window: each option is valid, and the two are not.
-const NO_WINDOW: &str = r#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#;
+/// An initial backoff of 500 seconds, above the 120 the backoff grows to by default.
+const BACKOFF_ABOVE_MAXIMUM: &str = r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#;
 
 #[test]
 fn a_runtime_is_created_with_incoherent_defaults_and_a_channel_that_keeps_them_is_refused() {
-    let host = Host::with_channel_defaults(NO_WINDOW);
+    let host = Host::with_channel_defaults(BACKOFF_ABOVE_MAXIMUM);
 
     let refused = host
         .try_channel(NOWHERE, "{}")
         .expect_err("the defaults reach the channel as they are");
     assert_eq!(refused.status, ak_status::AK_STATUS_INVALID_ARG);
     assert_eq!(refused.kind, ak_error_kind::AK_ERROR_CONFIG);
-    for key in ["Grpc.Rate.Limit.Calls", "Grpc.Rate.Limit.PerSeconds"] {
+    for key in [
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
+    ] {
         assert!(refused.detail.contains(key), "{}", refused.detail);
     }
     assert!(refused.detail.contains("incoherent"), "{}", refused.detail);
@@ -38,35 +41,34 @@ fn a_runtime_is_created_with_incoherent_defaults_and_a_channel_that_keeps_them_i
 
 #[test]
 fn a_channel_that_completes_the_defaults_is_opened() {
-    let host = Host::with_channel_defaults(NO_WINDOW);
-    host.channel_with(NOWHERE, r#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":2}}}}"#);
-    // Or turns the limit off.
-    host.channel_with(NOWHERE, r#"{"Grpc":{"Rate":{"Limit":{"Calls":0}}}}"#);
+    let host = Host::with_channel_defaults(BACKOFF_ABOVE_MAXIMUM);
+    host.channel_with(
+        NOWHERE,
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":600}}}}}"#,
+    );
+    // Or turns the retry off.
+    host.channel_with(NOWHERE, r#"{"Grpc":{"OutboundTraffic":{"Retry":"None"}}}"#);
 }
 
 #[test]
 fn what_the_defaults_lack_may_come_from_the_channel_and_not_the_other_way() {
-    // A maximum backoff of 60 over the initial one a channel states: coherent once merged, though
-    // the channel's document alone is not, against the engine's maximum of 5.
+    // A maximum backoff of 600 over the initial one a channel states: coherent once merged, though
+    // the channel's document alone is not, against the engine's maximum of 120.
     {
-        let host = Host::with_channel_defaults(r#"{"Grpc":{"Retry":{"MaxBackoffSeconds":60}}}"#);
-        host.channel_with(
-            NOWHERE,
-            r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#,
+        let host = Host::with_channel_defaults(
+            r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":600}}}}}"#,
         );
+        host.channel_with(NOWHERE, BACKOFF_ABOVE_MAXIMUM);
     }
 
     // One runtime at a time: the first is gone.
     let host = Host::start();
     let refused = host
-        .try_channel(
-            NOWHERE,
-            r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#,
-        )
+        .try_channel(NOWHERE, BACKOFF_ABOVE_MAXIMUM)
         .expect_err("an initial backoff above the engine's maximum");
     for key in [
-        "Grpc.Retry.InitialBackoffSeconds",
-        "Grpc.Retry.MaxBackoffSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
     ] {
         assert!(refused.detail.contains(key), "{}", refused.detail);
     }

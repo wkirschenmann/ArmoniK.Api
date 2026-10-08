@@ -16,10 +16,11 @@ use bytes::Bytes;
 use tonic::codegen::tokio_stream::Stream;
 
 use super::call::RequestMessages;
+use super::cause::Cause;
 use super::error::GrpcChannelConfigError;
 use super::status::GrpcStatusCode;
 
-/// When a failed call is sent again, and what it may keep to send it.
+/// When a failed call is sent again.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RetryConfig {
@@ -32,51 +33,54 @@ pub struct RetryConfig {
     pub max_backoff: Duration,
     /// What each bound is multiplied by, at least 1.
     pub backoff_multiplier: f64,
-    /// The codes a call is tried again for.
-    pub retryable_codes: Vec<GrpcStatusCode>,
-    /// The bytes one call may keep for a replay.
-    pub call_replay_bytes: usize,
-    /// The bytes all of a channel's calls may keep for a replay together.
-    pub channel_replay_bytes: usize,
+    /// The failures a call is tried again for. Empty retries nothing. A call is not tried again for
+    /// what the engine ended or refused itself, whatever the list names.
+    pub failures: Vec<Cause>,
 }
 
-/// What `google.rpc.Code` advises for retrying the same call: UNAVAILABLE alone. ABORTED is for
-/// the caller to start its unit of work again, and UNKNOWN is a status from an error space this
-/// one does not know.
-pub const GOOGLE_RPC_CODES: [GrpcStatusCode; 1] = [GrpcStatusCode::Unavailable];
+/// What a channel keeps of the messages its calls sent, so that a call can be sent again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ReplayConfig {
+    /// The bytes one call may keep; a call that sends more is not sent again.
+    pub call_bytes: usize,
+    /// The bytes all of a channel's calls may keep together; a call whose message would pass it is
+    /// not sent again.
+    pub channel_bytes: usize,
+}
 
-/// The codes `GrpcClient` retries, which is the .NET `GrpcClient` default.
-pub const GRPC_CLIENT_CODES: [GrpcStatusCode; 3] = [
-    GrpcStatusCode::Unavailable,
-    GrpcStatusCode::Aborted,
-    GrpcStatusCode::Unknown,
-];
+impl Default for ReplayConfig {
+    fn default() -> Self {
+        Self {
+            call_bytes: 1024 * 1024,
+            channel_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
 
-/// The backoff and the replay limits `GrpcClient` gives grpc-dotnet, and the codes of
-/// [`GOOGLE_RPC_CODES`].
+/// The failures worth another try by default: `UNAVAILABLE` from the server, and a dial or a
+/// connection that failed. `google.rpc.Code` advises UNAVAILABLE alone for retrying the same call.
+pub fn default_failures() -> Vec<Cause> {
+    vec![
+        Cause::Status(GrpcStatusCode::Unavailable),
+        Cause::Dial,
+        Cause::Connection,
+    ]
+}
+
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
             max_attempts: 5,
-            initial_backoff: Duration::from_secs(1),
-            max_backoff: Duration::from_secs(5),
-            backoff_multiplier: 1.5,
-            retryable_codes: GOOGLE_RPC_CODES.to_vec(),
-            call_replay_bytes: 1024 * 1024,
-            channel_replay_bytes: 16 * 1024 * 1024,
+            initial_backoff: Duration::from_secs(5),
+            max_backoff: Duration::from_secs(120),
+            backoff_multiplier: 2.0,
+            failures: default_failures(),
         }
     }
 }
 
 impl RetryConfig {
-    /// The default policy with the codes `GrpcClient` retries, [`GRPC_CLIENT_CODES`].
-    pub fn grpc_client() -> Self {
-        Self {
-            retryable_codes: GRPC_CLIENT_CODES.to_vec(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn admissible(&self) -> Result<(), GrpcChannelConfigError> {
         let refuse = |why: &str| {
             Err(GrpcChannelConfigError::Retry {
@@ -236,6 +240,12 @@ impl Replay {
             kept: Arc::clone(&self.0),
             attempt: kept.attempt,
         }
+    }
+
+    /// Compresses the messages the call's attempts take from its stream from now on, which are
+    /// the ones it sends after the first attempt has taken its turn.
+    pub(crate) fn compress_with(&self, encoding: Option<super::compression::Encoding>) {
+        self.kept().live.compress_with(encoding);
     }
 
     /// The attempt that failed reads nothing more, while the call waits for the next one; what
@@ -482,7 +492,7 @@ mod tests {
         }
         assert_eq!(
             bounds,
-            [1000, 1500, 2250, 3375, 5000].map(Duration::from_millis)
+            [5000, 10000, 20000, 40000, 80000].map(Duration::from_millis)
         );
         for _ in 0..100 {
             assert!(jittered(Duration::from_secs(1)) < Duration::from_secs(1));

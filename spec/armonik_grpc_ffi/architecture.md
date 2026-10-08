@@ -332,7 +332,7 @@ encoder copies the message into the request body. **The replay keeps the arena a
 itself**, shared with the encoder rather than copied: a retry resends the message the host
 wrote, and a call that cannot be retried lets it go once it is encoded.
 
-So the slot budget and the replay buffer (`RetryConfig`'s replay bytes) charge the same
+So the slot budget and the replay buffer (`ReplayConfig`'s bytes) charge the same
 allocation at two times - the slot budget while it is lent or queued, the replay bytes while a
 retry may still send it - and they do not constrain each other: a replay takes no slot in the
 send window, which bounds what the host serializes at once and nothing a replay does.
@@ -348,7 +348,7 @@ send window, which bounds what the host serializes at once and nothing a replay 
   `Grpc.Host.Send.Window` buffers at a time, and the arena is dropped in one piece when the call
   is released - which the release precondition guarantees is safe. Retained replay bytes are
   these allocations, kept past their WRITE_DONE, and bounded separately, per call and per
-  channel, by the retry unit's replay bytes.
+  channel, by `Grpc.OutboundTraffic.Replay`'s bytes.
   Arenas are a natural fit for a pool held by the channel, recycling an allocation when the last
   of its holders, the replay included, lets it go, so the same memory serves every call
   the channel carries and the steady-state fast path allocates nothing the binding controls - no
@@ -1350,11 +1350,13 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
 | `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
-| `MaxAttempts` | `Grpc.Retry.MaxAttempts` |
-| `InitialBackOff` etc. | `Grpc.Retry.*` |
+| `MaxAttempts` | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts`, or `Grpc.OutboundTraffic.Retry.None` for 1, with nothing else of the retries |
+| `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |
 
-`Grpc.Rate.Limit` and `Grpc.Retry` agree: a retry that finds no turn free is skipped to its next
-backoff and counts toward `Grpc.Retry.MaxAttempts`, and a call's first attempt waits for its turn.
+The translation also states `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` as
+`Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`, `Dial` and `Connection`, which is what
+grpc-dotnet retries; `ABORTED` and `UNKNOWN` count as acceptances for
+`Grpc.OutboundTraffic.Throttle`.
 
 ---
 

@@ -31,6 +31,27 @@ test-hooks = []
 name = "panics"
 required-features = ["test-hooks"]
 
+# The cost of the estimate's decisions: `cargo bench -p armonik-transport --features test-hooks`.
+[[bench]]
+name = "admission"
+harness = false
+required-features = ["test-hooks"]
+
+# Reads the channel's estimate of its server through the test hooks.
+[[test]]
+name = "grpc_adaptive"
+required-features = ["test-hooks"]
+
+# Counts compressions with the test hooks.
+[[test]]
+name = "grpc_compression_turn"
+required-features = ["test-hooks"]
+
+# Reads the channel's estimate through the test hooks.
+[[test]]
+name = "grpc_throttle_wait"
+required-features = ["test-hooks"]
+
 # Records each attempt's origin through `hooks::on_attempt`.
 [[test]]
 name = "grpc_origins"
