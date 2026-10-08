@@ -292,12 +292,13 @@ public abstract record Verification
 
   /// <summary>Against a store.</summary>
   /// <param name=""Path"">Its path.</param>
-  /// <param name=""Where"">Where it is.</param>
-  public sealed record Store(string Path,
-                             Place? Where = null) : Verification
+  public sealed record Store(string Path) : Verification
   {
     /// <summary>Its path.</summary>
     public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
+
+    /// <summary>Where it is.</summary>
+    public Place? Where { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -848,9 +849,10 @@ public enum Place
                        .ConfigureAwait(false);
 
       Assert.That(rendered,
-                  Does.Contain("global::System.Collections.Generic.IReadOnlyList<string>? Names = null")
+                  Does.Contain("public global::System.Collections.Generic.IReadOnlyList<string>? Names")
+                      .And.Not.Contain("Names = null")
                       .And.Contain("global::System.Collections.Generic.EqualityComparer<int?>.Default.Equals(Count, other.Count)")
-                      .And.Contain("Names { get; init; } = Names is null ? null : new global::System.Collections.Generic.List<string>(Names).AsReadOnly();")
+                      .And.Contain("init => names_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();")
                       .And.Contain("Names is null ? other.Names is null : other.Names is not null && global::System.Linq.Enumerable.SequenceEqual(Names, other.Names)")
                       .And.Contain("foreach (var item in Names ?? global::System.Linq.Enumerable.Empty<string>())")
                       .And.Contain("Names is null ? \"null\" : \"[\" + string.Join(\", \", Names) + \"]\"")

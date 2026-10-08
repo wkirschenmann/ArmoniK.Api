@@ -412,13 +412,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                       choice);
     }
 
-    // Required first, so a caller writes what the alternative needs and names the rest.
-    private static List<Option> Ordered(IEnumerable<Option> fields)
-      => fields.OrderBy(field => field.Required
-                                   ? 0
-                                   : 1)
-               .ToList();
-
+    // The shape of a record says what its alternative needs: a mandatory field is a parameter of
+    // the constructor, with no default, so none can be left out, and an optional one is a
+    // nullable property a caller sets by name, so that what is set is read at the call. An
+    // alternative with no mandatory field has a constructor with no parameter.
     private static void AppendAlternative(IndentedTextWriter source,
                                           OptionChoice choice,
                                           Alternative alternative)
@@ -426,7 +423,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Document(source,
                alternative.Description);
 
-      var parameters = Ordered(alternative.Fields);
+      var parameters = alternative.Fields.Where(field => field.Required)
+                                  .ToList();
+      var optional = alternative.Fields.Where(field => !field.Required)
+                                .ToList();
 
       foreach (var field in parameters)
       {
@@ -451,9 +451,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         for (var n = 0; n < parameters.Count; n++)
         {
           var field = parameters[n];
-          var parameter = field.Required
-                            ? $"{ParameterType(field)} {field.Name}"
-                            : $"{ParameterType(field)}? {field.Name} = null";
+          var parameter = $"{ParameterType(field)} {field.Name}";
 
           source.WriteLine((n == 0
                               ? head + "("
@@ -481,16 +479,34 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         Blank(source);
       }
 
-      // An optional list is copied as a required one is, and stays null when it was not given.
-      foreach (var field in parameters.Where(field => !field.Required && field.Kind == OptionKind.EnumerationList))
+      foreach (var field in optional)
       {
         Document(source,
                  field.Description);
-        source.WriteLine($"public {ParameterType(field)}? {field.Name} {{ get; init; }} = {field.Name} is null ? null : new {ListOf(field.Type)}({field.Name}).AsReadOnly();");
+
+        if (field.Kind == OptionKind.EnumerationList)
+        {
+          // A list is copied as it is given, so that the record keeps what it was given and not a
+          // list its caller still holds, and stays null when it was not given.
+          var held = $"{char.ToLowerInvariant(field.Name[0])}{field.Name.Substring(1)}_";
+          source.WriteLine($"public {ParameterType(field)}? {field.Name}");
+          source.WriteLine("{");
+          source.Indent++;
+          source.WriteLine($"get => {held};");
+          source.WriteLine($"init => {held} = value is null ? null : new {ListOf(field.Type)}(value).AsReadOnly();");
+          source.Indent--;
+          source.WriteLine("}");
+          Blank(source);
+          source.WriteLine($"private {ParameterType(field)}? {held};");
+        }
+        else
+        {
+          source.WriteLine($"public {ParameterType(field)}? {field.Name} {{ get; init; }}");
+        }
         Blank(source);
       }
 
-      if (parameters.Any(field => field.Kind == OptionKind.EnumerationList))
+      if (alternative.Fields.Any(field => field.Kind == OptionKind.EnumerationList))
       {
         AppendListEquality(source,
                            alternative);

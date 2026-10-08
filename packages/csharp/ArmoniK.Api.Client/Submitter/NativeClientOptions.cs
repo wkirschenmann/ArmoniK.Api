@@ -122,10 +122,12 @@ namespace ArmoniK.Api.Client.Submitter
         // The interval is sent as it is set, whatever it is, so that the engine refuses one it
         // cannot honour when the channel is created, naming the key.
         transport.TcpKeepalive = Positive(options.KeepAliveTime)
-                                   ? new TcpKeepalive.Probe(WholeSeconds(options.KeepAliveTime),
-                                                            Stated(nameof(GrpcClient.KeepAliveTimeInterval))
-                                                              ? WholeSeconds(options.KeepAliveTimeInterval)
-                                                              : null)
+                                   ? new TcpKeepalive.Probe(WholeSeconds(options.KeepAliveTime))
+                                     {
+                                       IntervalSeconds = Stated(nameof(GrpcClient.KeepAliveTimeInterval))
+                                                           ? WholeSeconds(options.KeepAliveTimeInterval)
+                                                           : null,
+                                     }
                                    : new TcpKeepalive.None();
       }
 
@@ -177,11 +179,14 @@ namespace ArmoniK.Api.Client.Submitter
       RetryOptions? retry = maxAttempts is 1
                               ? new RetryOptions.None()
                               : failures is not null || maxAttempts is not null || initialBackoffSeconds is not null || maxBackoffSeconds is not null || backoffMultiplier is not null
-                                ? new RetryOptions.ExponentialBackoff(failures,
-                                                                      maxAttempts,
-                                                                      initialBackoffSeconds,
-                                                                      maxBackoffSeconds,
-                                                                      backoffMultiplier)
+                                ? new RetryOptions.ExponentialBackoff
+                                  {
+                                    FailureList           = failures,
+                                    MaxAttempts           = maxAttempts,
+                                    InitialBackoffSeconds = initialBackoffSeconds,
+                                    MaxBackoffSeconds     = maxBackoffSeconds,
+                                    BackoffMultiplier     = backoffMultiplier,
+                                  }
                                 : null;
 
       var grpc = new GrpcOptions
@@ -222,13 +227,15 @@ namespace ArmoniK.Api.Client.Submitter
         case "System":
           return new ProxyOptions.System();
         default:
-          return new ProxyOptions.Url(options.Proxy,
-                                      string.IsNullOrEmpty(options.ProxyUsername)
-                                        ? null
-                                        : options.ProxyUsername,
-                                      string.IsNullOrEmpty(options.ProxyPassword)
-                                        ? null
-                                        : options.ProxyPassword);
+          return new ProxyOptions.Url(options.Proxy)
+                 {
+                   Username = string.IsNullOrEmpty(options.ProxyUsername)
+                                ? null
+                                : options.ProxyUsername,
+                   Password = string.IsNullOrEmpty(options.ProxyPassword)
+                                ? null
+                                : options.ProxyPassword,
+                 };
       }
     }
 

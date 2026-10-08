@@ -303,17 +303,17 @@ public abstract record ServerCertificates
   /// </summary>
   /// <remarks>Refused off Windows.</remarks>
   /// <param name="Find">How the certificate is found in the store.</param>
-  /// <param name="Location">
-  ///   Where the store is.
-  ///   Defaults to <c>CurrentUser</c>.
-  /// </param>
-  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
-  public sealed record CaStore(StoreSearch Find,
-                               StoreLocation? Location = null,
-                               string? Name = null) : ServerCertificates
+  public sealed record CaStore(StoreSearch Find) : ServerCertificates
   {
     /// <summary>How the certificate is found in the store.</summary>
     public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
+
+    /// <summary>Where the store is.</summary>
+    /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+    public StoreLocation? Location { get; init; }
+
+    /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+    public string? Name { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -633,16 +633,17 @@ public abstract record ClientCertificate
 
   /// <summary>From a PKCS#12 bundle.</summary>
   /// <param name="Path">Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</param>
-  /// <param name="Password">
-  ///   The password the bundle is protected by.
-  ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-  ///   the same <c>Path</c>.
-  /// </param>
-  public sealed record P12(string Path,
-                           string? Password = null) : ClientCertificate
+  public sealed record P12(string Path) : ClientCertificate
   {
     /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
     public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
+
+    /// <summary>The password the bundle is protected by.</summary>
+    /// <remarks>
+    ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
+    ///   the same <c>Path</c>.
+    /// </remarks>
+    public string? Password { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -673,17 +674,17 @@ public abstract record ClientCertificate
   /// </summary>
   /// <remarks>Refused off Windows.</remarks>
   /// <param name="Find">How the certificate is found in the store.</param>
-  /// <param name="Location">
-  ///   Where the store is.
-  ///   Defaults to <c>CurrentUser</c>.
-  /// </param>
-  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
-  public sealed record Store(StoreSearch Find,
-                             StoreLocation? Location = null,
-                             string? Name = null) : ClientCertificate
+  public sealed record Store(StoreSearch Find) : ClientCertificate
   {
     /// <summary>How the certificate is found in the store.</summary>
     public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
+
+    /// <summary>Where the store is.</summary>
+    /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+    public StoreLocation? Location { get; init; }
+
+    /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+    public string? Name { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -824,18 +825,20 @@ public abstract record TcpKeepalive
   ///   How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
   ///   the most Linux holds: the operating system counts whole seconds.
   /// </param>
-  /// <param name="IntervalSeconds">
-  ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
-  ///   system's.
-  /// </param>
-  /// <param name="Retries">
-  ///   How many probes go unanswered before the connection is dropped, at most 127, the most
-  ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
-  /// </param>
-  public sealed record Probe(int IdleSeconds,
-                             int? IntervalSeconds = null,
-                             int? Retries = null) : TcpKeepalive
+  public sealed record Probe(int IdleSeconds) : TcpKeepalive
   {
+    /// <summary>
+    ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
+    ///   system's.
+    /// </summary>
+    public int? IntervalSeconds { get; init; }
+
+    /// <summary>
+    ///   How many probes go unanswered before the connection is dropped, at most 127, the most
+    ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
+    /// </summary>
+    public int? Retries { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
@@ -961,23 +964,26 @@ public abstract record ProxyOptions
   ///   again for two minutes.
   ///   The system's proxy is never used for a loopback endpoint.
   /// </remarks>
-  /// <param name="Username">
-  ///   The username, which <c>Basic</c> forbids a <c>:</c> in.
-  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-  ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
-  ///   options state neither.
-  /// </param>
-  /// <param name="Password">
-  ///   The password that goes with <c>Username</c>.
-  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-  ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
-  ///   options state neither.
-  /// </param>
-  public sealed record System(string? Username = null,
-                              string? Password = null) : ProxyOptions
+  public sealed record System : ProxyOptions
   {
+    /// <summary>The username, which <c>Basic</c> forbids a <c>:</c> in.</summary>
+    /// <remarks>
+    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
+    ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
+    ///   options state neither.
+    /// </remarks>
+    public string? Username { get; init; }
+
+    /// <summary>The password that goes with <c>Username</c>.</summary>
+    /// <remarks>
+    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
+    ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
+    ///   options state neither.
+    /// </remarks>
+    public string? Password { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
@@ -1001,25 +1007,27 @@ public abstract record ProxyOptions
   ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
   ///   no scheme is written.
   /// </param>
-  /// <param name="Username">
-  ///   The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.
-  ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
-  ///   same <c>Address</c> and these options state neither.
-  /// </param>
-  /// <param name="Password">
-  ///   The password that goes with <c>Username</c>.
-  ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
-  ///   same <c>Address</c> and these options state neither.
-  /// </param>
-  public sealed record Url(string Address,
-                           string? Username = null,
-                           string? Password = null) : ProxyOptions
+  public sealed record Url(string Address) : ProxyOptions
   {
     /// <summary>
     ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
     ///   no scheme is written.
     /// </summary>
     public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
+
+    /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
+    /// <remarks>
+    ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
+    ///   same <c>Address</c> and these options state neither.
+    /// </remarks>
+    public string? Username { get; init; }
+
+    /// <summary>The password that goes with <c>Username</c>.</summary>
+    /// <remarks>
+    ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
+    ///   same <c>Address</c> and these options state neither.
+    /// </remarks>
+    public string? Password { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -1275,18 +1283,16 @@ public abstract record Http2KeepAlive
 
   /// <summary>A PING is sent at an interval, and the session and its calls end when one goes unanswered.</summary>
   /// <param name="IntervalSeconds">How often a PING is sent to the peer, at least a nanosecond.</param>
-  /// <param name="TimeoutSeconds">
-  ///   How long a PING may go unanswered before the session and its calls are ended.
-  ///   Defaults to 20.
-  /// </param>
-  /// <param name="WhileIdle">
-  ///   Whether a PING is also sent while no call is open.
-  ///   Defaults to false.
-  /// </param>
-  public sealed record Ping(double IntervalSeconds,
-                            double? TimeoutSeconds = null,
-                            bool? WhileIdle = null) : Http2KeepAlive
+  public sealed record Ping(double IntervalSeconds) : Http2KeepAlive
   {
+    /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
+    /// <remarks>Defaults to 20.</remarks>
+    public double? TimeoutSeconds { get; init; }
+
+    /// <summary>Whether a PING is also sent while no call is open.</summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool? WhileIdle { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
@@ -1746,19 +1752,20 @@ public abstract record Http2ReceiveOptions
   }
 
   /// <summary>Windows of fixed sizes, announced as the session opens.</summary>
-  /// <param name="StreamWindowBytes">
-  ///   How many bytes of one call the peer may send ahead of what is read.
-  ///   Defaults to 2097152, 2 MiB.
-  /// </param>
-  /// <param name="ConnectionWindowBytes">
-  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
-  ///   A call its host does not read holds up to <c>StreamWindowBytes</c> of it, so enough of them stop
-  ///   the others receiving. At least 65535, the window every connection starts with.
-  ///   Defaults to 5242880, 5 MiB.
-  /// </param>
-  public sealed record Fixed(int? StreamWindowBytes = null,
-                             int? ConnectionWindowBytes = null) : Http2ReceiveOptions
+  public sealed record Fixed : Http2ReceiveOptions
   {
+    /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
+    /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
+    public int? StreamWindowBytes { get; init; }
+
+    /// <summary>
+    ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
+    ///   A call its host does not read holds up to <c>StreamWindowBytes</c> of it, so enough of them stop
+    ///   the others receiving. At least 65535, the window every connection starts with.
+    /// </summary>
+    /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
+    public int? ConnectionWindowBytes { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
@@ -2146,40 +2153,39 @@ public abstract record RetryOptions
   ///   is sent. A policy that retries nothing is <c>None</c>, and neither a <c>MaxAttempts</c> of 1 nor an
   ///   empty <c>FailureList</c> is one.
   /// </summary>
-  /// <param name="FailureList">
-  ///   The failures a call is tried again for, each an entry as the options above describe.
-  ///   Empty retries nothing.
-  ///   Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.
-  /// </param>
-  /// <param name="MaxAttempts">
-  ///   Attempts in all, the first included; at least 2, a policy that retries nothing being <c>None</c>.
-  ///   A call its peer never processed goes again besides, while every message it sent is kept.
-  ///   Defaults to 5.
-  /// </param>
-  /// <param name="InitialBackoffSeconds">
-  ///   The bound of the first backoff.
-  ///   Defaults to 5.
-  /// </param>
-  /// <param name="MaxBackoffSeconds">
-  ///   What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.
-  ///   Defaults to 120.
-  /// </param>
-  /// <param name="BackoffMultiplier">
-  ///   What each bound is multiplied by; 1 retries at a fixed bound.
-  ///   Defaults to 2.
-  /// </param>
-  public sealed record ExponentialBackoff(global::System.Collections.Generic.IReadOnlyList<string>? FailureList = null,
-                                          int? MaxAttempts = null,
-                                          double? InitialBackoffSeconds = null,
-                                          double? MaxBackoffSeconds = null,
-                                          double? BackoffMultiplier = null) : RetryOptions
+  public sealed record ExponentialBackoff : RetryOptions
   {
     /// <summary>
     ///   The failures a call is tried again for, each an entry as the options above describe.
     ///   Empty retries nothing.
     /// </summary>
     /// <remarks>Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.</remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? FailureList { get; init; } = FailureList is null ? null : new global::System.Collections.Generic.List<string>(FailureList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? FailureList
+    {
+      get => failureList_;
+      init => failureList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? failureList_;
+
+    /// <summary>
+    ///   Attempts in all, the first included; at least 2, a policy that retries nothing being <c>None</c>.
+    ///   A call its peer never processed goes again besides, while every message it sent is kept.
+    /// </summary>
+    /// <remarks>Defaults to 5.</remarks>
+    public int? MaxAttempts { get; init; }
+
+    /// <summary>The bound of the first backoff.</summary>
+    /// <remarks>Defaults to 5.</remarks>
+    public double? InitialBackoffSeconds { get; init; }
+
+    /// <summary>What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.</summary>
+    /// <remarks>Defaults to 120.</remarks>
+    public double? MaxBackoffSeconds { get; init; }
+
+    /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? BackoffMultiplier { get; init; }
 
     /// <inheritdoc />
     public bool Equals(ExponentialBackoff? other)
@@ -2368,54 +2374,7 @@ public abstract record ThrottleOptions
   ///   slows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are
   ///   never counted.
   /// </summary>
-  /// <param name="TransientList">
-  ///   The failures that may be an outage, each an entry as the options above describe. They slow
-  ///   retries and never lower the rate of first attempts. A failure of the server's that neither
-  ///   list names counts as an acceptance; <c>Status.CANCELLED</c> and <c>Status.DEADLINE_EXCEEDED</c> are
-  ///   refused.
-  ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
-  ///   "Http.504", "Dial", "Connection"]</c>.
-  /// </param>
-  /// <param name="OverloadList">
-  ///   The failures that say the server is over capacity, each an entry as the options above
-  ///   describe. They slow retries and lower the rate of first attempts. A failure that both
-  ///   lists name is overload.
-  ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
-  ///   "Reset.REFUSED_STREAM"]</c>.
-  /// </param>
-  /// <param name="Multiplier">
-  ///   How many times what the server accepts the channel may send, as retries stop: they are open
-  ///   while the attempts that ended, less this many times the accepted ones, are at most
-  ///   <c>FailureAllowance</c>. At least 1 and at most 100.
-  ///   Defaults to 2.
-  /// </param>
-  /// <param name="ThrottleMultiplier">
-  ///   How many times what the server does not report as overloaded the channel may send, as the
-  ///   rate is capped: the cap is on while the attempts that ended, less this many times those not
-  ///   overloaded, are over <c>FailureAllowance</c>. At least 1 and at most 100.
-  ///   Defaults to 2.
-  /// </param>
-  /// <param name="FailureAllowance">
-  ///   The failures beyond the multiple of what the server accepts that are let go, so that a
-  ///   channel with little traffic does not lose its retries, or its rate, to one failure.
-  ///   Defaults to 10.
-  /// </param>
-  /// <param name="WindowSeconds">
-  ///   How far back the counts reach, from 0.012 to 600 seconds.
-  ///   Defaults to 30.
-  /// </param>
-  /// <param name="FloorPerSecond">
-  ///   The rate of first attempts, a second, that the cap never goes under, so that the channel goes
-  ///   on probing a server that is overloaded. Above 0 and at most 1000000.
-  ///   Defaults to 0.5.
-  /// </param>
-  public sealed record Adaptive(global::System.Collections.Generic.IReadOnlyList<string>? TransientList = null,
-                                global::System.Collections.Generic.IReadOnlyList<string>? OverloadList = null,
-                                double? Multiplier = null,
-                                double? ThrottleMultiplier = null,
-                                int? FailureAllowance = null,
-                                double? WindowSeconds = null,
-                                double? FloorPerSecond = null) : ThrottleOptions
+  public sealed record Adaptive : ThrottleOptions
   {
     /// <summary>
     ///   The failures that may be an outage, each an entry as the options above describe. They slow
@@ -2427,7 +2386,13 @@ public abstract record ThrottleOptions
     ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
     ///   "Http.504", "Dial", "Connection"]</c>.
     /// </remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? TransientList { get; init; } = TransientList is null ? null : new global::System.Collections.Generic.List<string>(TransientList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? TransientList
+    {
+      get => transientList_;
+      init => transientList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? transientList_;
 
     /// <summary>
     ///   The failures that say the server is over capacity, each an entry as the options above
@@ -2438,7 +2403,47 @@ public abstract record ThrottleOptions
     ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
     ///   "Reset.REFUSED_STREAM"]</c>.
     /// </remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? OverloadList { get; init; } = OverloadList is null ? null : new global::System.Collections.Generic.List<string>(OverloadList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? OverloadList
+    {
+      get => overloadList_;
+      init => overloadList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? overloadList_;
+
+    /// <summary>
+    ///   How many times what the server accepts the channel may send, as retries stop: they are open
+    ///   while the attempts that ended, less this many times the accepted ones, are at most
+    ///   <c>FailureAllowance</c>. At least 1 and at most 100.
+    /// </summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? Multiplier { get; init; }
+
+    /// <summary>
+    ///   How many times what the server does not report as overloaded the channel may send, as the
+    ///   rate is capped: the cap is on while the attempts that ended, less this many times those not
+    ///   overloaded, are over <c>FailureAllowance</c>. At least 1 and at most 100.
+    /// </summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? ThrottleMultiplier { get; init; }
+
+    /// <summary>
+    ///   The failures beyond the multiple of what the server accepts that are let go, so that a
+    ///   channel with little traffic does not lose its retries, or its rate, to one failure.
+    /// </summary>
+    /// <remarks>Defaults to 10.</remarks>
+    public int? FailureAllowance { get; init; }
+
+    /// <summary>How far back the counts reach, from 0.012 to 600 seconds.</summary>
+    /// <remarks>Defaults to 30.</remarks>
+    public double? WindowSeconds { get; init; }
+
+    /// <summary>
+    ///   The rate of first attempts, a second, that the cap never goes under, so that the channel goes
+    ///   on probing a server that is overloaded. Above 0 and at most 1000000.
+    /// </summary>
+    /// <remarks>Defaults to 0.5.</remarks>
+    public double? FloorPerSecond { get; init; }
 
     /// <inheritdoc />
     public bool Equals(Adaptive? other)
