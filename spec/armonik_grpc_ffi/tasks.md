@@ -1300,8 +1300,8 @@ so that both directions are designed together rather than one constrained by the
 **Deliverable**: a consumer switches transport by `ArmoniK.Api.Client`'s configuration.
 **Status**: done. `GrpcClient.Transport` and `GrpcChannelFactory.CreateChannelBase` choose the
 channel; `NativeChannelFactory.Instance` owns the runtime; `NativeClientOptions` translates the
-options of a `GrpcClient`, and states only what it sets beyond the defaults, so that the engine's
-environment and command line decide what it leaves; tests drive the selection and the effective
+options of a `GrpcClient`, and states only what the caller set, even to a default, so that the
+engine's environment and command line decide what it leaves; tests drive the selection and the effective
 window on net4.7, net4.8, net8.0 and net10.0. Not done here: the tests of `ArmoniK.Api.Client.Test`,
 which need a server of ArmoniK, do not choose the native transport.
 
