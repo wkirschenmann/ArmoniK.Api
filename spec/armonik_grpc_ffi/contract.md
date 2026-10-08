@@ -176,11 +176,13 @@ pub struct TransportError {
 pub struct GrpcChannelConfig {
     pub transport: TransportConfig,
     pub retry: Option<RetryConfig>,
-    /// How many requests start in a window of time, a retry's included; a
-    /// request over it waits for the next window, except a retry the policy
-    /// chose, which is skipped to its next backoff and counts as an attempt.
-    /// None starts them as made.
-    pub rate_limit: Option<RateLimitConfig>,
+    /// What the channel keeps of the messages its calls sent, for a retry and
+    /// for a call its peer never processed to be sent again.
+    pub replay: ReplayConfig,
+    /// How the channel judges the health of its server, and stops retries and
+    /// caps the rate of first attempts by it; see `AdaptiveConfig`. None judges
+    /// nothing. On by default.
+    pub adaptive: Option<AdaptiveConfig>,
     pub default_deadline: Option<Duration>,
     pub user_agent: Option<String>,
     /// The largest message the engine reassembles, refused on the length the
@@ -204,8 +206,11 @@ pub struct GrpcChannelConfig {
     /// `armonik_transport`). A later head that lists it has calls compress
     /// again, logged at debug as a further refusal is. Behind a balancer whose
     /// backends differ, the state follows whichever answered last. A call
-    /// keeps the encoding it started with, so its messages and its
-    /// `grpc-encoding` agree through a retry; one sent compressed to a server
+    /// chooses its encoding when its first attempt has taken its turn at the
+    /// cap of the throttle, and compresses nothing before: one that waits for its turn
+    /// and is ended there has compressed nothing. It keeps the encoding it
+    /// chose, so its messages and its `grpc-encoding` agree through a retry;
+    /// one sent compressed to a server
     /// that does not accept it ends UNIMPLEMENTED and is not sent again. A
     /// server that states no `grpc-accept-encoding` is not learned from.
     pub send_encoding: Option<Encoding>,
@@ -224,25 +229,28 @@ pub struct GrpcChannelConfig {
 #[non_exhaustive]
 pub enum Encoding { Gzip, Deflate, Zstd }
 
-/// At most `calls` requests start in a window of `per`; a request over it
-/// waits for the next window, except a retry the policy chose, which is
-/// skipped. The windows are fixed, so up to twice `calls` can start within `per`
-/// across a boundary. Refused when the channel is created if `calls` is 0 or
-/// `per` is zero.
-pub struct RateLimitConfig {
-    pub calls: usize,
-    pub per: Duration,
-}
-
 pub struct RetryConfig {
     pub max_attempts: u32,          // total (initial + retries)
     pub initial_backoff: Duration,
     pub max_backoff: Duration,
     pub backoff_multiplier: f64,
-    pub retryable_codes: Vec<GrpcStatusCode>, // default: UNAVAILABLE alone; RetryConfig::grpc_client() has the three of GrpcClient
-    pub call_replay_bytes: usize,    // what one call keeps for a replay, whatever it sends
-    pub channel_replay_bytes: usize, // what every call of the channel keeps together
+    pub failures: Vec<Cause>,       // default: UNAVAILABLE from the server, a dial, a connection; empty retries nothing
 }
+
+pub struct ReplayConfig {
+    pub call_bytes: usize,          // what one call keeps for a replay, whatever it sends; default 1 MiB
+    pub channel_bytes: usize,       // what every call of the channel keeps together; default 16 MiB
+}
+
+/// One kind of failure that a list names: a gRPC status the server sent, an
+/// HTTP status a proxy answered with and no gRPC status, a reset of the
+/// stream by the peer before the response, a pushback that asks for a wait, a
+/// dial that failed, or a connection that ended under the call (a retry list
+/// reads a GOAWAY that left the call unprocessed, and a request dropped unsent,
+/// as that too). Written
+/// `Status.X`, `Http.N`, `Reset.R`, `Pushback`, `Dial` and `Connection`.
+#[non_exhaustive]
+pub enum Cause { Status(GrpcStatusCode), Http(u16), Reset(u32), Pushback, Dial, Connection }
 ```
 
 ### GrpcChannel
@@ -434,12 +442,38 @@ sufficed, which is why each row names both. A committed call goes on; it is no l
 it is A6's transparent retry, once a call, counted as no attempt and in no
 `grpc-previous-rpc-attempts`. A request hyper drops before sending it, its connection closing
 under it, goes again the same way, also once a call: A6 allows until the deadline, which a call
-with none would turn into a loop of dials. Both replay what the call kept, so a call with no policy,
-which keeps none, goes again only if it had sent nothing. Not specified yet: the per-channel
-retry throttle, which A6 makes optional. The policy is the channel's for every
-method, as `GrpcClient` configures it, where gRPC would allow one per method; its codes are
-`UNAVAILABLE` unless `Grpc.Retry.Codes` says otherwise, and `GrpcClient`'s three are its `GrpcClient`
-preset.
+with none would turn into a loop of dials. Both replay what the call kept, under `ReplayConfig`
+with a policy or without one, so a call that has sent past the ceilings goes again only if it had
+sent nothing. The per-channel retry throttle,
+which A6 makes optional, is the estimate below. The policy is the channel's for every
+method, as `GrpcClient` configures it, where gRPC would allow one per method; the failures it
+retries are the list `RetryConfig::failures` names, `UNAVAILABLE` from the server, a dial and a
+connection failure unless `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` says otherwise.
+
+**What a channel lets start, and be tried again, by what its server accepts.** The channel keeps
+an estimate over `AdaptiveConfig::window`: each attempt that went out and ended counts as accepted,
+overloaded or transient, by its `Origin` and not by its code alone. Two lists of `Cause`, which are
+data, say which: `overload`, signs of saturation (by default `RESOURCE_EXHAUSTED` from the server,
+an HTTP 429, a pushback that asks for a wait, `ENHANCE_YOUR_CALM` and `REFUSED_STREAM`), and
+`transient`, failures that may be an outage (`UNAVAILABLE` from the server, a dial or a connection
+failure, and a proxy's 500, 502, 503, 504 and 408). A failure both name is overload. A failure of
+the server's that neither names is accepted, and so is any other status it sent; a reset, a dial or
+a connection failure that neither names counts nothing, since no server answered. A deadline, a
+cancel, a GOAWAY that left the call unprocessed, an unsent request, a stream that broke after its
+head and what the engine ended count nothing, whatever the lists name; a stream a processed GOAWAY
+ends is counted as a connection failure, as the engine has it. `K`, `K_t`, `S`, `W` and the floor are
+`AdaptiveConfig`'s `multiplier`, `throttle_multiplier`, `slack`, `window` and `floor_per_second`,
+and `W'` is `W`, or the age of the estimate while that is less, so that a new channel does not
+read a window it has not lived.
+With `R` the attempts counted, `A` those accepted and `T`
+those overloaded, a retry is sent while `R - K * A <= S`, and no retry is sent while the rate is
+capped, which is while `R - K_t * (R - T) > S`. The cap lets first attempts start at
+`K_t * (R - T) / W'` a second, never under `floor_per_second`, in a cell of one second of turns;
+the first attempts over it wait in the order they arrived, and a call that stops waiting takes no
+turn. The decision is taken at the failure and again after the backoff. The state is a ring of
+twelve atomic words and a cell of one, so a decision costs a compare-exchange at most and holds
+under any number of threads; the only lock is the queue of waiting first attempts. A call that waits
+for a connection takes its turn once there is one.
 
 **Where an attempt ended.** Several origins share one code: `UNAVAILABLE` is the server's own, a
 proxy's 503, a dial that failed, a refused stream and a GOAWAY. So each attempt that goes out and

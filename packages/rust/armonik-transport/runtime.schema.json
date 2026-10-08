@@ -588,13 +588,9 @@
           "$ref": "#/$defs/Seconds",
           "minimum": 0.0
         },
-        "Retry": {
-          "description": "When a failed call is sent again.\n\nDefaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.\nA call its peer never processed goes again besides, whatever `MaxAttempts` is, while every\nmessage it sent is kept.",
-          "$ref": "#/$defs/RetryOptions"
-        },
-        "Rate": {
-          "description": "How fast the channel starts calls.\n\nDefaults to `{}`, which sets no limit: requests start as they are made.",
-          "$ref": "#/$defs/RateOptions"
+        "OutboundTraffic": {
+          "description": "What the channel does with the calls it sends: sending a failed one again, slowing down\nagainst a server that fails, and keeping messages for a call to be sent again.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/OutboundTrafficOptions"
         },
         "Send": {
           "description": "What a call sends to the server.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -611,208 +607,193 @@
       },
       "additionalProperties": false
     },
-    "RetryOptions": {
-      "description": "When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound\nthat starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to\n`MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the\nreader and what the call sent is still kept for the replay.",
+    "OutboundTrafficOptions": {
+      "description": "What a channel does with the calls it sends: whether a failed call is sent again, whether the\nchannel slows down against a server that fails, and what it keeps of the messages for a call to\nbe sent again.\n\nA failure is named by where it ended an attempt, in the entries of a list: `Status.X` for a\ngRPC status the server sent in its trailers, X being a name from the gRPC specification such as\n`UNAVAILABLE`; `Http.N` for an HTTP status N, from 100 to 599, that a proxy or a gateway answered\nwith and no gRPC status; `Reset.R` for a stream the server reset before its response, R being\nan HTTP/2 error code from RFC 9113 such as `ENHANCE_YOUR_CALM`; `Pushback` for a failure whose\nserver asked for a wait in `grpc-retry-pushback-ms`, whatever its status; `Dial` for a connection\nthat could not be made; and `Connection` for one that ended under the call before the response.\nAn entry that names none of these is refused, and a list that is empty names nothing. What the\nengine ended itself, a cancel and a deadline, is never a failure of the server's.",
       "type": "object",
       "properties": {
+        "Retry": {
+          "description": "Whether a failed call is sent again, and how.\n\nDefaults to `{\"ExponentialBackoff\": {}}`: five attempts in all, for `Status.UNAVAILABLE`,\n`Dial` and `Connection`.",
+          "$ref": "#/$defs/RetryOptions"
+        },
+        "Throttle": {
+          "description": "Whether the channel judges its server by what it accepts, and slows down against one that\nfails.\n\nDefaults to `{\"Adaptive\": {}}`: the estimate with every default.",
+          "$ref": "#/$defs/ThrottleOptions"
+        },
+        "Replay": {
+          "description": "What the channel keeps of the messages its calls sent.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+          "$ref": "#/$defs/ReplayOptions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetryOptions": {
+      "description": "Whether a failed call is sent again, and how.",
+      "oneOf": [
+        {
+          "description": "No retry: a failed call ends with its status. A call that its peer never processed still\ngoes again, once for each way the peer did not see it, while what it sent is kept under\n`Replay`.",
+          "type": "object",
+          "properties": {
+            "None": {
+              "const": true
+            }
+          },
+          "required": [
+            "None"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that\nstarts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,\nfor the failures `FailureList` names, while no response head has reached the reader, what\nthe call sent is still kept under `Replay`, and `Throttle` finds the server accepting what\nis sent. A policy that retries nothing is `None`, and neither a `MaxAttempts` of 1 nor an\nempty `FailureList` is one.",
+          "type": "object",
+          "properties": {
+            "ExponentialBackoff": {
+              "$ref": "#/$defs/ExponentialBackoffOptions"
+            }
+          },
+          "required": [
+            "ExponentialBackoff"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ExponentialBackoffOptions": {
+      "description": "What a failed call is sent again by.",
+      "type": "object",
+      "properties": {
+        "FailureList": {
+          "description": "The failures a call is tried again for, each an entry as the options above describe.\nEmpty retries nothing.\n\nDefaults to `[\"Status.UNAVAILABLE\", \"Dial\", \"Connection\"]`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "MaxAttempts": {
-          "description": "Attempts in all, the first included; 1 retries nothing. A call its peer never processed\ngoes again besides, whatever this is, while every message it sent is kept.\n\nDefaults to 5.",
+          "description": "Attempts in all, the first included; at least 2, a policy that retries nothing being `None`.\nA call its peer never processed goes again besides, while every message it sent is kept.\n\nDefaults to 5.",
           "type": "integer",
           "format": "int32",
-          "minimum": 1
+          "minimum": 2
         },
         "InitialBackoffSeconds": {
-          "description": "The bound of the first backoff.\n\nDefaults to 1.",
+          "description": "The bound of the first backoff.\n\nDefaults to 5.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         },
         "MaxBackoffSeconds": {
-          "description": "What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.\n\nDefaults to 5.",
+          "description": "What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.\n\nDefaults to 120.",
           "$ref": "#/$defs/Seconds",
           "minimum": 1e-9
         },
-        "Codes": {
-          "description": "The statuses a call is tried again for.\n\nDefaults to `{\"GoogleRpc\": true}`: UNAVAILABLE alone.",
-          "$ref": "#/$defs/RetryCodes"
-        },
         "BackoffMultiplier": {
-          "description": "What each bound is multiplied by; 1 retries at a fixed bound.\n\nDefaults to 1.5.",
+          "description": "What each bound is multiplied by; 1 retries at a fixed bound.\n\nDefaults to 2.",
           "type": "number",
           "format": "double",
           "minimum": 1.0
-        },
-        "CallReplayBytes": {
-          "description": "The bytes one call may keep for a replay; a call that sends more is not tried again.\n\nDefaults to 1048576, 1 MiB.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 0
-        },
-        "ChannelReplayBytes": {
-          "description": "The bytes all of the channel's calls may keep for a replay together; a call whose message\nwould pass it is not tried again.\n\nDefaults to 16777216, 16 MiB.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 0
         }
       },
       "additionalProperties": false
     },
-    "RetryCodes": {
-      "description": "The statuses a call is tried again for.",
+    "ThrottleOptions": {
+      "description": "Whether a channel slows down against a server that fails.",
       "oneOf": [
         {
-          "description": "UNAVAILABLE alone, which is what `google.rpc.Code` advises for retrying the same call.\n\nABORTED is for the caller to start its unit of work again, not to repeat the call, and\nUNKNOWN is a status from an error space the client does not know.",
+          "description": "No judgment: every retry the retry policy chooses is sent, and first attempts start as they\nare made.",
           "type": "object",
           "properties": {
-            "GoogleRpc": {
+            "None": {
               "const": true
             }
           },
           "required": [
-            "GoogleRpc"
+            "None"
           ],
           "additionalProperties": false
         },
         {
-          "description": "UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.",
+          "description": "An estimate of the server's health over a window of time, which sorts every attempt that\nends as overloaded if `OverloadList` names its failure, as transient if `TransientList`\ndoes, and as accepted if it is an answer of the server's that neither names. Retries stop\nwhile the server fails more than `Multiplier` times what it accepts, beyond\n`FailureAllowance`. While it is overloaded more than `ThrottleMultiplier` times what it is\nnot, beyond `FailureAllowance`, retries stop too, and first attempts start at a capped rate,\nand wait for their turns in the order they arrived: a call whose deadline passes while it waits ends\n`DEADLINE_EXCEEDED` having sent nothing. A transient failure, a server that is down, never\nslows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are\nnever counted.",
           "type": "object",
           "properties": {
-            "GrpcClient": {
-              "const": true
+            "Adaptive": {
+              "$ref": "#/$defs/AdaptiveOptions"
             }
           },
           "required": [
-            "GrpcClient"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "description": "Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least\none is needed, and a channel with none is refused when it is created: set `MaxAttempts` to\n1 to retry nothing. `OK` is not a status a call fails with.",
-          "type": "object",
-          "properties": {
-            "List": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/RetryableStatus"
-              }
-            }
-          },
-          "required": [
-            "List"
+            "Adaptive"
           ],
           "additionalProperties": false
         }
       ]
     },
-    "RetryableStatus": {
-      "description": "The name of a gRPC status a call may fail with, as gRFC A6 spells it.",
-      "oneOf": [
-        {
-          "description": "The call was cancelled, which a retry would undo.",
-          "type": "string",
-          "const": "CANCELLED"
-        },
-        {
-          "description": "A status from an error space the client does not know, or an error with no status.",
-          "type": "string",
-          "const": "UNKNOWN"
-        },
-        {
-          "description": "The request is wrong whatever the state of the server.",
-          "type": "string",
-          "const": "INVALID_ARGUMENT"
-        },
-        {
-          "description": "The deadline passed before the call ended.",
-          "type": "string",
-          "const": "DEADLINE_EXCEEDED"
-        },
-        {
-          "description": "Something the request names does not exist.",
-          "type": "string",
-          "const": "NOT_FOUND"
-        },
-        {
-          "description": "Something the request creates exists already.",
-          "type": "string",
-          "const": "ALREADY_EXISTS"
-        },
-        {
-          "description": "The caller may not do this.",
-          "type": "string",
-          "const": "PERMISSION_DENIED"
-        },
-        {
-          "description": "A quota or a resource is exhausted.",
-          "type": "string",
-          "const": "RESOURCE_EXHAUSTED"
-        },
-        {
-          "description": "The system is not in the state the request needs.",
-          "type": "string",
-          "const": "FAILED_PRECONDITION"
-        },
-        {
-          "description": "A conflict, such as a failed sequencer check or a transaction abort.",
-          "type": "string",
-          "const": "ABORTED"
-        },
-        {
-          "description": "The request is past a valid range.",
-          "type": "string",
-          "const": "OUT_OF_RANGE"
-        },
-        {
-          "description": "The server does not implement the method.",
-          "type": "string",
-          "const": "UNIMPLEMENTED"
-        },
-        {
-          "description": "An invariant of the server is broken.",
-          "type": "string",
-          "const": "INTERNAL"
-        },
-        {
-          "description": "The service is unavailable, which is transient.",
-          "type": "string",
-          "const": "UNAVAILABLE"
-        },
-        {
-          "description": "Data is lost or corrupt.",
-          "type": "string",
-          "const": "DATA_LOSS"
-        },
-        {
-          "description": "The request has no valid credentials.",
-          "type": "string",
-          "const": "UNAUTHENTICATED"
-        }
-      ]
-    },
-    "RateOptions": {
-      "description": "How fast a channel starts calls.",
+    "AdaptiveOptions": {
+      "description": "The estimate of a server's health, and what it does.",
       "type": "object",
       "properties": {
-        "Limit": {
-          "description": "How many requests the channel starts in a window of time.\n\nDefaults to `{}`, which sets none: requests start as they are made.",
-          "$ref": "#/$defs/RateLimitOptions"
-        }
-      },
-      "additionalProperties": false
-    },
-    "RateLimitOptions": {
-      "description": "How many requests a channel starts in a window of time.\n\nOff unless both options are set, or when `Calls` is 0. A request is an attempt, the first of a call or a retry of it,\nbecause the server sees each as a request; a streaming call counts once, when it starts. The\nfirst request opens a window of `PerSeconds`, and `Calls` of them start in it; the first request\nafter the window ends opens the next. Windows are fixed, so up to twice `Calls` requests can\nstart within `PerSeconds` across a boundary, the last of one window and the first of the next.\n\nA call's first attempt over the limit waits for the next window and is not refused: a call whose\ndeadline passes while it waits ends `DEADLINE_EXCEEDED`, and one cancelled ends `CANCELLED`,\nneither having sent anything. Requests start in the order they reach the limit, and the limit\nis the channel's, shared by every connection it opens. A retry the retry policy chooses does\nnot wait: once its backoff has passed it takes a turn only if one is free, and otherwise it is\nskipped. A skipped retry counts as an attempt, and the call goes on to its next backoff; when\nthe attempts are spent the call ends with the status of the last attempt sent. A resend of a\nrequest its peer never processed is no retry of the policy's, and waits its turn like a first\nattempt.",
-      "type": "object",
-      "properties": {
-        "Calls": {
-          "description": "The requests that start in one window, or 0 for no limit, over one an earlier source set.\n\nIncoherent without `PerSeconds`, unless it is 0, which leaves `PerSeconds` unread.",
+        "TransientList": {
+          "description": "The failures that may be an outage, each an entry as the options above describe. They slow\nretries and never lower the rate of first attempts. A failure of the server's that neither\nlist names counts as an acceptance; `Status.CANCELLED` and `Status.DEADLINE_EXCEEDED` are\nrefused.\n\nDefaults to `[\"Status.UNAVAILABLE\", \"Http.408\", \"Http.500\", \"Http.502\", \"Http.503\",\n\"Http.504\", \"Dial\", \"Connection\"]`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "OverloadList": {
+          "description": "The failures that say the server is over capacity, each an entry as the options above\ndescribe. They slow retries and lower the rate of first attempts. A failure that both\nlists name is overload.\n\nDefaults to `[\"Status.RESOURCE_EXHAUSTED\", \"Http.429\", \"Pushback\", \"Reset.ENHANCE_YOUR_CALM\",\n\"Reset.REFUSED_STREAM\"]`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Multiplier": {
+          "description": "How many times what the server accepts the channel may send, as retries stop: they are open\nwhile the attempts that ended, less this many times the accepted ones, are at most\n`FailureAllowance`. At least 1 and at most 100.\n\nDefaults to 2.",
+          "type": "number",
+          "format": "double",
+          "minimum": 1.0,
+          "maximum": 100.0
+        },
+        "ThrottleMultiplier": {
+          "description": "How many times what the server does not report as overloaded the channel may send, as the\nrate is capped: the cap is on while the attempts that ended, less this many times those not\noverloaded, are over `FailureAllowance`. At least 1 and at most 100.\n\nDefaults to 2.",
+          "type": "number",
+          "format": "double",
+          "minimum": 1.0,
+          "maximum": 100.0
+        },
+        "FailureAllowance": {
+          "description": "The failures beyond the multiple of what the server accepts that are let go, so that a\nchannel with little traffic does not lose its retries, or its rate, to one failure.\n\nDefaults to 10.",
           "type": "integer",
           "format": "int32",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 1000000
         },
-        "PerSeconds": {
-          "description": "How long a window lasts.\n\nIncoherent without `Calls`, unless `Calls` is 0.",
+        "WindowSeconds": {
+          "description": "How far back the counts reach, from 0.012 to 600 seconds.\n\nDefaults to 30.",
           "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
+          "minimum": 0.012,
+          "maximum": 600.0
+        },
+        "FloorPerSecond": {
+          "description": "The rate of first attempts, a second, that the cap never goes under, so that the channel goes\non probing a server that is overloaded. Above 0 and at most 1000000.\n\nDefaults to 0.5.",
+          "type": "number",
+          "format": "double",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1000000.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReplayOptions": {
+      "description": "What a channel keeps of the messages its calls sent, so that a call can be sent again: after a\nfailure the retry policy chose, and when its peer never processed it.",
+      "type": "object",
+      "properties": {
+        "MaxPerCallKiB": {
+          "description": "The KiB one call may keep; a call that sends more is not sent again.\n\nDefaults to 1024, 1 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
+        },
+        "MaxPerChannelKiB": {
+          "description": "The KiB all of the channel's calls may keep together; a call whose message would pass it is\nnot sent again.\n\nDefaults to 16384, 16 MiB.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 0
         }
       },
       "additionalProperties": false

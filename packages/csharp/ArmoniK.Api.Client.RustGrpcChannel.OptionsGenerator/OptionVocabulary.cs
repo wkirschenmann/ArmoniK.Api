@@ -42,7 +42,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <summary>One of the generated enums.</summary>
     Enumeration,
 
-    /// <summary>A list of the names of one of the generated enums, in the order stated.</summary>
+    /// <summary>A list of the names of one of the generated enums, or of text, in the order stated.</summary>
     EnumerationList,
   }
 
@@ -373,15 +373,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                          "type")
                  ?.GetString();
 
-      // A list of the names of an enumeration: the one list this generator has a property for.
+      // A list of the names of an enumeration, or of text.
       if (type == "array")
       {
         return ReadList(property,
                         target,
                         description,
                         required,
-                        nested,
-                        holdsGroups);
+                        nested);
       }
 
       // A choice first: Corvus composes the properties of a `oneOf`'s alternatives into the
@@ -443,23 +442,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
              };
     }
 
-    // An array of the names of an enumeration is a settable list. Any other array is refused: a
-    // list of numbers, of text or of groups has bounds and copies this generator does not write,
+    // An array of the names of an enumeration, or of text, is a settable list. Any other array is
+    // refused: a list of numbers or of groups has bounds and copies this generator does not write,
     // and one that states none of its items is a shape nothing here can type.
     private static Option ReadList(PropertyDeclaration property,
                                    TypeDeclaration target,
                                    string description,
                                    bool required,
-                                   List<(TypeDeclaration Declaration, string Name)> nested,
-                                   bool holdsGroups)
+                                   List<(TypeDeclaration Declaration, string Name)> nested)
     {
       var name = property.JsonPropertyName;
 
-      // A record is immutable and a list is not, so a record holding one would be a value a
-      // caller can change through a copy that was meant to be its own.
-      if (!holdsGroups)
+      // A secret is printed as whether it is set, which a list has no way to say.
+      if (IsSecret(property.UnreducedPropertyType) || IsSecret(target))
       {
-        throw new NotSupportedException($"`{name}` is a list, and an alternative holds none: a record is immutable, and a list in it would not be.");
+        throw new NotSupportedException($"`{name}` is a secret list, which this generator has no way to print elided.");
       }
 
       var items = target.ArrayItemsType();
@@ -471,14 +468,32 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       var item = Resolve(items.ReducedType);
 
-      if (!IsChoice(item) || !IsEnumeration(item))
+      var text = IsText(item);
+
+      if (!text && (!IsChoice(item) || !IsEnumeration(item)))
       {
-        throw new NotSupportedException($"`{name}` is a list of something other than the names of an enumeration, which this generator has no property for.");
+        throw new NotSupportedException($"`{name}` is a list of something other than the names of an enumeration or text, which this generator has no property for.");
       }
 
-      var typeName = NameOf(item,
-                            false);
-      nested.Add((item, typeName));
+      // The count of a list this generator checks is that of the names a record holds.
+      if (BoundsOf(property.ReducedPropertyType,
+                   target) is { Count: > 0 } bounds)
+      {
+        throw new NotSupportedException($"`{name}` is a list and states {string.Join(", ", bounds.Select(bound => $"`{bound.Keyword}`"))}, which this generator checks only on the names an alternative holds.");
+      }
+
+      string typeName;
+
+      if (text)
+      {
+        typeName = "string";
+      }
+      else
+      {
+        typeName = NameOf(item,
+                          false);
+        nested.Add((item, typeName));
+      }
 
       return new Option
              {
@@ -492,6 +507,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     // What an alternative that is a list holds: the names of an enumeration, as `Value`.
     private static Option ReadNames(TypeDeclaration payload,
+                                    TypeDeclaration node,
                                     string description,
                                     string what,
                                     List<(TypeDeclaration Declaration, string Name)> nested)
@@ -521,8 +537,24 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                Type        = typeName,
                Kind        = OptionKind.EnumerationList,
                Required    = true,
+               Bounds = BoundsOf(node,
+                                 payload),
              };
     }
+
+    // Text with no constraint of its own: what a list of entries is made of when the engine, and
+    // not the schema, says which entries are admissible.
+    private static bool IsText(TypeDeclaration declaration)
+      => !IsChoice(declaration) &&
+         Keyword(declaration,
+                 "type")
+           ?.GetString() == "string" &&
+         Keyword(declaration,
+                 "format") is null &&
+         Keyword(declaration,
+                 "const") is null &&
+         BoundsOf(declaration,
+                  declaration).Count == 0;
 
     private static bool IsSecret(TypeDeclaration declaration)
       => Keyword(declaration,
@@ -663,8 +695,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                          "type")
                  ?.GetString();
 
-      // The names of an enumeration, bare: the one list an alternative holds, which is a value of
-      // its own and so is copied, and compared by what it names, when the record is made.
+      // The names of an enumeration, bare: an alternative that is a list, a value of its own, copied
+      // and compared by what it names when the record is made.
       if (type == "array")
       {
         return new Alternative
@@ -675,6 +707,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                  Fields = new[]
                           {
                             ReadNames(payload,
+                                      node,
                                       description,
                                       $"{choice}.{name}",
                                       nested),
@@ -879,6 +912,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       "exclusiveMaximum",
       "minLength",
       "maxLength",
+      "minItems",
     };
 
     // Only the keywords the schema actually states: a bound nobody wrote is not a check.
@@ -931,7 +965,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                    JsonElement here,
                                    JsonElement there)
     {
-      var lower = keyword is "minimum" or "exclusiveMinimum" or "minLength";
+      var lower = keyword is "minimum" or "exclusiveMinimum" or "minLength" or "minItems";
 
       var greater = here.TryGetInt64(out var whole) && there.TryGetInt64(out var otherWhole)
                       ? whole > otherWhole
@@ -1138,6 +1172,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                            "format",
                                                            "maxLength",
                                                            "maximum",
+                                                           "minItems",
                                                            "minLength",
                                                            "minimum",
                                                            "readOnly",

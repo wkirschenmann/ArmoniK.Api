@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 
 using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.Client.RustGrpcChannel;
@@ -28,6 +29,20 @@ namespace ArmoniK.Api.Client.Submitter
   /// </summary>
   internal static class NativeClientOptions
   {
+    /// <summary>
+    ///   The failures <see cref="GrpcClient" /> retries: the three statuses of its default, and the connections that
+    ///   could not be made or ended under the call. The statuses ABORTED and UNKNOWN count as acceptances for the
+    ///   engine's throttle.
+    /// </summary>
+    private static readonly IReadOnlyList<string> GrpcClientFailures = new[]
+                                                                       {
+                                                                         "Status.UNAVAILABLE",
+                                                                         "Status.ABORTED",
+                                                                         "Status.UNKNOWN",
+                                                                         "Dial",
+                                                                         "Connection",
+                                                                       };
+
     /// <summary>
     ///   The channel options the engine reads for <paramref name="options" />
     /// </summary>
@@ -121,41 +136,59 @@ namespace ArmoniK.Api.Client.Submitter
         http2.IdleTimeoutSeconds = Seconds(options.MaxIdleTime);
       }
 
-      var retry = new RetryOptions();
-
-      // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the codes. The engine's
-      // own default is UNAVAILABLE alone, so the defaults of GrpcClient state the preset, which the
-      // sources below may still replace; a channel states none, since its options cannot differ here.
-      if (!onlySet)
-      {
-        retry.Codes = new RetryCodes.GrpcClient();
-      }
+      // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the statuses. The engine's
+      // own default is UNAVAILABLE alone, so the defaults of GrpcClient state the three, which the sources
+      // below may still replace; a channel states none, since its options cannot differ here. Dial and
+      // Connection are the failures that no server answered, which grpc-dotnet retries as UNAVAILABLE.
+      IReadOnlyList<string>? failures = onlySet
+                                          ? null
+                                          : GrpcClientFailures;
+      int?        maxAttempts           = null;
+      double?     initialBackoffSeconds = null;
+      double?     maxBackoffSeconds     = null;
+      double?     backoffMultiplier     = null;
 
       if (Stated(nameof(GrpcClient.MaxAttempts)))
       {
-        retry.MaxAttempts = options.MaxAttempts;
+        maxAttempts = options.MaxAttempts;
       }
 
       // Only the bounds that are set: the engine checks the pair once the options are merged, and
       // refuses an initial backoff above the maximum then, naming both keys.
       if (Stated(nameof(GrpcClient.InitialBackOff)))
       {
-        retry.InitialBackoffSeconds = options.InitialBackOff.TotalSeconds;
+        initialBackoffSeconds = options.InitialBackOff.TotalSeconds;
       }
 
       if (Stated(nameof(GrpcClient.MaxBackOff)))
       {
-        retry.MaxBackoffSeconds = options.MaxBackOff.TotalSeconds;
+        maxBackoffSeconds = options.MaxBackOff.TotalSeconds;
       }
 
       if (Stated(nameof(GrpcClient.BackoffMultiplier)))
       {
-        retry.BackoffMultiplier = options.BackoffMultiplier;
+        backoffMultiplier = options.BackoffMultiplier;
       }
+
+      // One attempt is no retry, which the engine has an option of its own for: its `ExponentialBackoff` needs
+      // two at least, and refuses a count below one. What else is stated of the retries goes with it, there
+      // being none.
+      RetryOptions? retry = maxAttempts is 1
+                              ? new RetryOptions.None()
+                              : failures is not null || maxAttempts is not null || initialBackoffSeconds is not null || maxBackoffSeconds is not null || backoffMultiplier is not null
+                                ? new RetryOptions.ExponentialBackoff(failures,
+                                                                      maxAttempts,
+                                                                      initialBackoffSeconds,
+                                                                      maxBackoffSeconds,
+                                                                      backoffMultiplier)
+                                : null;
 
       var grpc = new GrpcOptions
                  {
-                   Retry = retry,
+                   OutboundTraffic = new OutboundTrafficOptions
+                                     {
+                                       Retry = retry,
+                                     },
                  };
       if (Stated(nameof(GrpcClient.RequestTimeout)))
       {

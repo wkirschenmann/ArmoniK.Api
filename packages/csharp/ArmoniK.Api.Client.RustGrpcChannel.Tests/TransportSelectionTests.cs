@@ -222,14 +222,14 @@ public class TransportSelectionTests
     // The defaults of GrpcClient state a maximum of 5 s, which the initial backoff passes.
     Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
                 Throws.InstanceOf<ArgumentException>()
-                      .With.Message.Contains("Grpc.Retry.InitialBackoffSeconds")
-                      .And.Message.Contains("Grpc.Retry.MaxBackoffSeconds")
+                      .With.Message.Contains("Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds")
+                      .And.Message.Contains("Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds")
                       .And.Message.Contains("incoherent"));
     await NativeChannelFactory.Instance.ShutdownAsync()
                               .ConfigureAwait(false);
 
     // The environment's maximum of 60 s is in the options by the time the channel is made.
-    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__Retry__MaxBackoffSeconds";
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxBackoffSeconds";
     Environment.SetEnvironmentVariable(name,
                                        "60");
     try
@@ -243,13 +243,52 @@ public class TransportSelectionTests
     }
   }
 
+  /// <summary>One attempt is no retry, which the engine states as <c>None</c>, with nothing else of the retries.</summary>
+  [Test]
+  public void OneAttemptIsTranslatedToNoRetry()
+  {
+    string Encoded(GrpcClient options,
+                   bool       onlySet)
+      => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                           onlySet)
+                                                                .Encode());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts    = 1,
+                                            InitialBackOff = TimeSpan.FromSeconds(2),
+                                          },
+                                          true),
+                                  Does.Contain(@"""Retry"":{""None"":true}")
+                                      .And.Not.Contain("ExponentialBackoff")
+                                      .And.Not.Contain("InitialBackoffSeconds"),
+                                  "a channel that states one attempt");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts = 1,
+                                          },
+                                          false),
+                                  Does.Contain(@"""Retry"":{""None"":true}"),
+                                  "and defaults that state it");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            MaxAttempts = 2,
+                                          },
+                                          true),
+                                  Does.Contain(@"""ExponentialBackoff"":{""MaxAttempts"":2}"),
+                                  "two attempts are a retry");
+                    });
+  }
+
   /// <summary>Incoherent defaults in the environment start the engine, and only a channel that keeps them is refused.</summary>
   [Test]
   public void IncoherentDefaultsStartTheEngineAndRefuseAChannelThatKeepsThem()
   {
-    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__Rate__Limit__Calls";
+    const string name = EnvironmentPrefix + "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__InitialBackoffSeconds";
     Environment.SetEnvironmentVariable(name,
-                                       "5");
+                                       "500");
     try
     {
       var options = new GrpcClient
@@ -259,8 +298,8 @@ public class TransportSelectionTests
                     };
       Assert.That(() => GrpcChannelFactory.CreateChannelBase(options),
                   Throws.InstanceOf<ArgumentException>()
-                        .With.Message.Contains("Grpc.Rate.Limit.Calls")
-                        .And.Message.Contains("Grpc.Rate.Limit.PerSeconds"),
+                        .With.Message.Contains("Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds")
+                        .And.Message.Contains("Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds"),
                   "the runtime was created, and the channel is refused");
     }
     finally
@@ -750,7 +789,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""IdleSeconds"":30")
                                       .And.Contain(@"""MaxAttempts"":5")
-                                      .And.Contain(@"""Codes"":{""GrpcClient"":true}")
+                                      .And.Contain(@"""FailureList"":[""Status.UNAVAILABLE"",""Status.ABORTED"",""Status.UNKNOWN"",""Dial"",""Connection""]")
                                       .And.Contain(@"""IdleTimeoutSeconds"":300"),
                                   "for the defaults of a runtime, every option is translated");
                     });

@@ -21,6 +21,7 @@ use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
 use crate::options::LARGEST_WINDOW;
 
+use super::admission::{AdaptiveConfig, Admission};
 use super::backoff::Backoff;
 use super::call::{
     self, Answered, CallControl, CallStartOptions, Deadline, GrpcCall, ResponseSink, SendHalf,
@@ -31,9 +32,8 @@ use super::driver::{self, Outgoing, Sending};
 use super::error::ChannelError;
 use super::executor::Spawner;
 use super::origin::Origin;
-use super::rate_limit::{RateLimitConfig, RateLimiter};
 use super::request::OneRequest;
-use super::retry::{AttemptMessages, ChannelReplay, RequestBody, RetryConfig};
+use super::retry::{AttemptMessages, ChannelReplay, ReplayConfig, RequestBody, RetryConfig};
 use super::status::{Failure, GrpcStatus, GrpcStatusCode};
 use crate::utils::safe_endpoint;
 
@@ -57,9 +57,12 @@ pub struct GrpcChannelConfig {
     pub delivery_coalescing: usize,
     /// The deadline of a call that states none, counted from its start.
     pub default_deadline: Option<Duration>,
-    /// When a failed call is sent again. With none, a call keeps no copy, so only one its peer
-    /// never processed, and that had sent nothing, goes again.
+    /// When a failed call is sent again. With none, a call its peer never processed still goes
+    /// again, once for each way the peer did not see it, while what it sent is kept.
     pub retry: Option<RetryConfig>,
+    /// What the channel keeps of the messages its calls sent, for a retry and for a call its peer
+    /// never processed to be sent again.
+    pub replay: ReplayConfig,
     /// The encoding a call's messages are compressed with, named in `grpc-encoding`. None sends
     /// them as they are. A message that gains nothing from it goes uncompressed, flagged so.
     pub send_encoding: Option<Encoding>,
@@ -68,11 +71,9 @@ pub struct GrpcChannelConfig {
     /// takes the first listed. A repeated encoding counts at its first place. Empty accepts none: a
     /// message compressed in any other encoding ends its call `INTERNAL`.
     pub accept_encodings: Vec<Encoding>,
-    /// How many requests the channel starts in a window of time; a request over it waits for the
-    /// next window, except a retry the retry policy chose, which is skipped: it counts as an
-    /// attempt and the call goes on to its next backoff. With none, requests start as they are
-    /// made.
-    pub rate_limit: Option<RateLimitConfig>,
+    /// How the channel judges the health of its server, and caps the rate of first attempts and stops
+    /// retries by it. None judges nothing: every retry the policy chooses is sent. On by default.
+    pub adaptive: Option<AdaptiveConfig>,
 }
 
 impl GrpcChannelConfig {
@@ -86,9 +87,10 @@ impl GrpcChannelConfig {
             delivery_coalescing: DEFAULT_DELIVERY_COALESCING,
             default_deadline: None,
             retry: None,
+            replay: ReplayConfig::default(),
             send_encoding: None,
             accept_encodings: Vec::new(),
-            rate_limit: None,
+            adaptive: Some(AdaptiveConfig::default()),
         }
     }
 }
@@ -127,15 +129,10 @@ impl GrpcChannel {
         if let Some(retry) = &config.retry {
             retry.admissible()?;
         }
-        if let Some(rate_limit) = &config.rate_limit {
-            rate_limit.admissible()?;
+        if let Some(adaptive) = &config.adaptive {
+            adaptive.admissible()?;
         }
-        let replay = Arc::new(ChannelReplay::new(
-            config
-                .retry
-                .as_ref()
-                .map_or(0, |retry| retry.channel_replay_bytes),
-        ));
+        let replay = Arc::new(ChannelReplay::new(config.replay.channel_bytes));
 
         let user_agent = match &config.user_agent {
             None => HeaderValue::from_static(DEFAULT_USER_AGENT),
@@ -170,10 +167,11 @@ impl GrpcChannel {
                 delivery_coalescing: config.delivery_coalescing,
                 default_deadline: config.default_deadline,
                 retry: config.retry,
+                call_replay_bytes: config.replay.call_bytes,
                 send: SendEncoding::new(config.send_encoding),
                 accept_header: accept_header(&accept_encodings),
                 accept_encodings,
-                rate_limit: config.rate_limit.map(RateLimiter::new),
+                admission: Admission::new(config.adaptive),
                 replay,
                 idle_timeout,
                 max_header_list_size,
@@ -183,6 +181,21 @@ impl GrpcChannel {
                 closed: watch::channel(false).0,
             }),
         })
+    }
+
+    /// Where the channel's estimate of its server stands, or none when it keeps none.
+    #[cfg(feature = "test-hooks")]
+    pub fn adaptive_state(&self) -> Option<crate::hooks::AdaptiveState> {
+        self.inner
+            .admission
+            .state()
+            .map(|reading| crate::hooks::AdaptiveState {
+                accepted: reading.counts.accepted,
+                transient: reading.counts.transient,
+                overloaded: reading.counts.overloaded,
+                retries_open: reading.retries_open,
+                cap_per_second: reading.cap,
+            })
     }
 
     pub async fn connect(&self) -> Result<(), ChannelError> {
@@ -196,8 +209,6 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let encoding = self.inner.send.now();
-        let grpc_call = grpc_call.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -206,7 +217,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding,
         };
         self.inner
             .spawner
@@ -227,8 +237,6 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let encoding = self.inner.send.now();
-        let send = send.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -237,7 +245,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding,
         };
         Ok((
             send,
@@ -267,7 +274,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding: self.inner.send.now(),
         };
         Ok((
             request,
@@ -384,13 +390,14 @@ pub(crate) struct Inner {
     pub(crate) delivery_coalescing: usize,
     default_deadline: Option<Duration>,
     pub(crate) retry: Option<RetryConfig>,
+    pub(crate) call_replay_bytes: usize,
     /// The encoding calls send in, and whether the server is known to accept it.
     pub(crate) send: SendEncoding,
     /// The encodings the channel accepts besides identity, each once, and what it advertises of them.
     accept_encodings: Vec<Encoding>,
     accept_header: HeaderValue,
-    /// The turns the channel's requests take, when it has a rate limit.
-    pub(crate) rate_limit: Option<RateLimiter>,
+    /// What decides whether an attempt starts: the estimate of what the server accepts.
+    pub(crate) admission: Admission,
     /// The replay bytes the channel's calls hold together.
     pub(crate) replay: Arc<ChannelReplay>,
     idle_timeout: Option<Duration>,
@@ -551,6 +558,12 @@ impl Inner {
     /// The sessions, locked. Never held across an await.
     fn sessions(&self) -> std::sync::MutexGuard<'_, Sessions> {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Completes when a call that waits for the channel to be ready has a connection to go out on,
+    /// holding none: a connection that fails after that is the call's request unsent.
+    pub(crate) async fn connected(self: &Arc<Self>) {
+        let _ = self.sender(true).await;
     }
 
     /// A session with room for one more call, and the call's claim on it, dialling one if none
@@ -848,8 +861,8 @@ pub(crate) struct Http2 {
     /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
     /// from an empty stream of messages. Taken by the one request tonic's client sends.
     body: Option<RequestBody>,
-    /// What the call's messages are compressed with, decided when the call started: the header
-    /// has to say what its messages are, whatever the channel has learned since.
+    /// What the call's messages are compressed with, decided when its first attempt took its turn:
+    /// the header has to say what its messages are, whatever the channel has learned since.
     send: Option<Encoding>,
 }
 

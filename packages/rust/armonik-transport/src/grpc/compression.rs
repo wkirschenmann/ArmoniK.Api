@@ -223,14 +223,28 @@ fn accepted_text(headers: &HeaderMap) -> String {
 /// run in place.
 const OFF_THE_RUNTIME_FROM: usize = 64 * 1024;
 
-/// `message` compressed with `encoding`, or as it is when that gains nothing.
-pub(crate) async fn compressed(encoding: Encoding, message: FramedMessage) -> FramedMessage {
+/// Whether `message` is compressed in place, rather than on a blocking thread.
+pub(crate) fn compresses_in_place(message: &FramedMessage) -> bool {
+    message.len() < OFF_THE_RUNTIME_FROM
+}
+
+/// `message` compressed with `encoding` where it is, or as it is when that gains nothing.
+pub(crate) fn compressed_in_place(encoding: Encoding, message: FramedMessage) -> FramedMessage {
+    #[cfg(feature = "test-hooks")]
+    crate::hooks::count_compression();
     if message.is_empty() {
         return message;
     }
-    if message.len() < OFF_THE_RUNTIME_FROM {
-        return encoding.compress(message.payload()).unwrap_or(message);
+    encoding.compress(message.payload()).unwrap_or(message)
+}
+
+/// `message` compressed with `encoding`, or as it is when that gains nothing.
+pub(crate) async fn compressed(encoding: Encoding, message: FramedMessage) -> FramedMessage {
+    if compresses_in_place(&message) {
+        return compressed_in_place(encoding, message);
     }
+    #[cfg(feature = "test-hooks")]
+    crate::hooks::count_compression();
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return encoding.compress(message.payload()).unwrap_or(message);
     };

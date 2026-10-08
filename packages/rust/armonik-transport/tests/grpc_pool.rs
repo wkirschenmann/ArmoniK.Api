@@ -22,6 +22,16 @@ fn pooled(endpoint: &str, calls: Option<usize>, idle_timeout: Option<Duration>) 
     channel_with(GrpcChannelConfig::new(transport)).expect("a channel")
 }
 
+/// A channel that keeps nothing of what its calls sent, so that none is sent again.
+fn unreplayed(endpoint: &str) -> GrpcChannel {
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(
+        Uri::try_from(endpoint).expect("an endpoint"),
+    ));
+    config.replay.call_bytes = 0;
+    config.replay.channel_bytes = 0;
+    channel_with(config).expect("a channel")
+}
+
 async fn echo(channel: &GrpcChannel) {
     let (_, messages, status) = unary(
         channel,
@@ -123,7 +133,7 @@ async fn a_connection_carries_no_more_calls_than_its_server_allows() {
 #[tokio::test]
 async fn a_server_that_allows_no_stream_is_not_dialled_again_and_again() {
     let server = TestServer::allowing(0).await;
-    let channel = pooled(&server.endpoint, None, None);
+    let channel = unreplayed(&server.endpoint);
 
     // Refused, sent before the server's SETTINGS were in, and ended once they are.
     let (_, _, status) = tokio::time::timeout(
@@ -139,6 +149,18 @@ async fn a_server_that_allows_no_stream_is_not_dialled_again_and_again() {
     assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
 
     let waited = tokio::time::timeout(Duration::from_millis(500), echo(&channel)).await;
+    assert!(waited.is_err(), "the call ended, where it had no stream");
+    assert_eq!(server.connections(), 1);
+}
+
+/// The same server, with a call that keeps what it sent: the refusal is the peer's having processed
+/// nothing, so the call goes again on its connection, and waits there with the rest.
+#[tokio::test]
+async fn a_refused_call_that_is_kept_waits_on_the_connection_it_has() {
+    let server = TestServer::allowing(0).await;
+    let channel = pooled(&server.endpoint, None, None);
+
+    let waited = tokio::time::timeout(Duration::from_millis(1000), echo(&channel)).await;
     assert!(waited.is_err(), "the call ended, where it had no stream");
     assert_eq!(server.connections(), 1);
 }

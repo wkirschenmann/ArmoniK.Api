@@ -618,7 +618,7 @@ field. Turning that into XML doc comments is the generator's work:
 where the truth is stated elsewhere. Durations, counts, sizes and booleans are typed: their shape
 is nearly all of their constraint, and a `bool` cannot be misspelled at all - which is why the
 wide boolean vocabulary belongs to the text sources and not here. An endpoint, a certificate
-path, a proxy address, a rate limit spelled `100/1s`: strings, because their constraint is
+path, a proxy address, an entry of a list of failures: strings, because their constraint is
 semantic and the transport is the only place that can state it. Typing does not have to be
 complete to be worth having - it moves a class of errors to the .NET binder, which names the
 configuration path, and leaves the rest to the transport, which names the option.
@@ -1137,13 +1137,14 @@ raising the one value. T6.1 has settled what happens when either is reached.
 
 **Status**: done, for every cardinality alike, since nothing in the mechanism tells them apart;
 T6.4 is what exercises streams. `GrpcChannelConfig::retry` is a `RetryConfig` - `MaxAttempts`,
-the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, the codes,
-`CallReplayBytes` and `ChannelReplayBytes` - which the `Retry` option unit fills,
-its backoff and replay defaults `GrpcClient`'s and grpc-dotnet's, its codes `UNAVAILABLE` alone
-(`Codes`'s `GoogleRpc` preset; the `GrpcClient` preset is the three of `UNAVAILABLE`, `ABORTED` and
-`UNKNOWN`, and a `List` is explicit); the engine's own config has none, and an options document
-that sets nothing retries. The driver keeps each message a call sends,
-within both limits, and runs attempts while one fails with a named code, no head has reached the
+the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, and `failures`,
+the list of failures it retries - which `Grpc.OutboundTraffic.Retry` fills; its defaults are five
+attempts, a backoff from 5 to 120 seconds multiplied by 2, and `UNAVAILABLE`, a dial and a
+connection failure. The engine's own config has none, and an options document that sets nothing
+retries. `GrpcChannelConfig::replay` is a `ReplayConfig`, `call_bytes` and `channel_bytes`, which
+`Grpc.OutboundTraffic.Replay` fills, 1 MiB and 16 MiB by default, grpc-dotnet's. The driver keeps
+each message a call sends, within both limits, and runs attempts while one fails with a listed
+failure, no head has reached the
 reader and what it kept is whole: each after a wait drawn uniformly below a bound that grows by
 the multiplier to the maximum, or the server's `grpc-retry-pushback-ms`, which a negative or
 unreadable value turns into no retry; each carrying `grpc-previous-rpc-attempts`. A wait the
@@ -1151,8 +1152,8 @@ deadline would cut short ends the call with its failure. A stream the peer refus
 GOAWAY left unprocessed, goes again at once, once a call and counted as no attempt, as gRFC A6's
 transparent retry, and a request hyper drops unsent, on a connection closing under it, goes
 again once a call too; `tests/common/refuser.rs` turns streams away both ways, and with a
-GOAWAY that names the stream as processed. Not done: the per-channel retry throttle, which gRFC
-A6 makes optional. A policy per method is not wanted, `GrpcClient` giving every method the same
+GOAWAY that names the stream as processed. The per-channel retry throttle, which gRFC A6 makes
+optional, is T6.15's estimate. A policy per method is not wanted, `GrpcClient` giving every method the same
 one.
 `tests/grpc_retry.rs` drives a server that fails a key's calls as often as asked.
 
@@ -1554,7 +1555,8 @@ sent, was closed on 2026-10-07 by T6.8: the binding reads the effective window b
 **Prerequisite**: T6.14, so that each arrives with its loading
 **Commit**: retry throttling, gRFC A6's per-channel tokens that stop retries while failures
 outnumber successes; compression, `grpc-encoding` in gzip, deflate or zstd; wait-for-ready, a
-call that waits for a connection rather than failing UNAVAILABLE; `Rate.Limit`. `TcpNagleAlgorithm`
+call that waits for a connection rather than failing UNAVAILABLE; a fixed rate limit, which the
+options review later deleted. `TcpNagleAlgorithm`
 is refused: the engine always disables Nagle's algorithm. Hedging and client-side load balancing
 are not wanted.
 
@@ -1569,7 +1571,30 @@ the shape the model carries (`OneRequestCalls` and `OneResponseCalls`), `options
 modelled, and the engine's connection establishment is outside it. A call that waits for good is
 one the network never serves, which the model's "network progresses" assumption on the terminal
 already excludes.
-Retry throttling remains.
+
+**Throttle: done in the engine, decided 2026-10-07, shaped 2026-10-08.**
+`Grpc.OutboundTraffic.Throttle` is `None` or `Adaptive`, on by default as `Adaptive` with every
+default, and replaces gRFC A6's retry throttling, which is not built as written: the estimate counts
+refusals of load by where an attempt ended, gates retries by `R - K * A <= S`, and caps first
+attempts by `R - K_t * (R - T) > S` at `K_t * (R - T) / W'` a second (`W'` being the window, or the age of the estimate while that
+is less), in order, never under the floor. Two lists of failures, `TransientList` and `OverloadList`, say which failure is which, as data
+(`AdaptiveConfig::transient` and `overload`, sets of `Cause`); there is no preset and no choice
+between classifications. `GrpcChannelConfig::adaptive` carries it, `ChannelSettings` settles it, and
+the driver asks one `Admission` seam for the turn of a first attempt, for the gate of a retry and to
+count an attempt. A
+call that waits for a connection takes its turn once there is one. `grpc/admission.rs` has the
+classification, the ring and the cell with unit tests on explicit instants, the figures of the
+research (a transient outage stops retries between 5 and 9 s and never caps the rate, an overload
+episode caps from about half a window and lifts within one, eight threads add up exactly);
+`tests/grpc_adaptive.rs` drives a channel against a scripted server in real time with short
+windows; `benches/admission.rs` times the hot path. The formal model needs no change: a retry not
+sent is a call that ends with a status it could already end with, and a first attempt that waits
+for a turn is a call that has not started. Limits: a stream a processed GOAWAY ends is counted as
+the connection's, a deadline that cuts an attempt short is not reported to the estimate, the
+counts of a slot are 16 bits and a tag of 16 bits repeats after 196608 intervals of the window, and
+no test uses a paused clock or `loom`. Not built: the mapping of a service config's
+`retryThrottling`, a latency signal, a ramp after the cap lifts, and the counters of T10.2's
+`stats()`; a test reads the estimate through `GrpcChannel::adaptive_state` with the test hooks.
 
 **`Http2MaxHeaderListSize`: done in the engine, decided 2026-10-07.** It is
 `Http2.Send.MaxHeaderListSize`, none by default, an `int` of at least 1. It bounds the headers
@@ -1620,13 +1645,27 @@ linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to
 server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
 is not learned from, so every call toward it ends UNIMPLEMENTED.
 
-**`Retry.Codes`: done in the engine, decided 2026-10-07.** `Grpc.Retry.Codes` is an enum of
-`GoogleRpc` (`UNAVAILABLE`), `GrpcClient` (`UNAVAILABLE`, `ABORTED`, `UNKNOWN`) and `List`, and the
-engine's default is `GoogleRpc`: `RetryConfig::default` carries `UNAVAILABLE` alone, and
-`RetryConfig::grpc_client()` the three. The translation of `GrpcClient` in ArmoniK.Api.Client states
-the `GrpcClient` preset. The `armonik` crate has no translation of `GrpcClient`'s configuration
-and reads the loader's, so a Rust client that states nothing retries `UNAVAILABLE` alone.
-decisions.md has the reasons.
+**Outbound traffic: done in the engine, decided 2026-10-08.** `Grpc.OutboundTraffic` holds `Retry`,
+`Throttle` and `Replay`. `Retry` is `None`, no retry at all, or `ExponentialBackoff`, which holds
+`FailureList`, `MaxAttempts`, `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`;
+absent, it is `ExponentialBackoff` with every default (5 attempts, a backoff from 5 to 120 seconds,
+multiplied by 2, for `Status.UNAVAILABLE`, `Dial` and `Connection`). `ExponentialBackoff` refuses a
+`MaxAttempts` below 2, in the engine with a message that points to `None`, and in the generated
+.NET class; an empty `FailureList` retries nothing and is allowed. A list entry is a string: `Status.X`,
+`Http.N`, `Reset.R`, `Pushback`, `Dial` or `Connection`, and `Cause` in the engine parses and prints
+them; the schema types an entry as text, because the engine says which entries it admits, and the
+options generator renders such a list in a record. `Replay` is `MaxPerCallKiB` and
+`MaxPerChannelKiB`, and `GrpcChannelConfig::replay` carries it: it bounds what is kept for a retry
+and for a call its peer never processed, which is sent again with no policy too. `GrpcClient`'s
+translation states `None` for a `MaxAttempts` of 1, and `ExponentialBackoff` with what it states
+otherwise, `FailureList` among it; the `armonik` crate reads the loader. `Grpc.Rate.Limit` and
+`Grpc.Retry.Codes` with its presets are deleted from the options, and the engine's fixed limiter with them.
+The engine's `RetryConfig` still admits a `max_attempts` of 1, which the tests
+of transparent retries use. decisions.md has the reasons. Changes a release note carries:
+`RetryConfig::default` retries `UNAVAILABLE`, a dial and a connection failure, with a backoff of 5 to
+120 seconds, and `GrpcChannelConfig::rate_limit`, `RateLimitConfig` and
+`GrpcChannelConfigError::RateLimit` are gone, which concerns the direct users of `RustGrpcChannel`
+and the `armonik` crate.
 
 **Error origins: done in the engine.** Each attempt that goes out and fails carries its `Origin`
 beside its status, `Unprocessed::Refused` is split into `REFUSED_STREAM` and a stream a GOAWAY left
@@ -1634,22 +1673,11 @@ unprocessed, and the pushback is read on every failed attempt. It is the prerequ
 estimate and changes nothing a caller sees. `tests/grpc_origins.rs` records each origin through
 `hooks::on_attempt`; contract.md states what a GOAWAY that processed the stream leaves.
 
-**`Rate.Limit`: done in the engine.** It is `Grpc.Rate.Limit`, `Calls` and `PerSeconds`, read
-into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any
-other option: `Calls` requests start in a window of
-`PerSeconds`, and a call's first attempt over the limit waits for the next window, as tower's
-`RateLimit` has it. A request is an attempt, so a retry counts and a stream counts once; waiting
-calls are let through in order; a waiting call ends `DEADLINE_EXCEEDED` at its deadline and
-`CANCELLED` when cancelled or when its channel closes, and holds no turn. A retry the policy
-chooses does not wait: with no turn free it is skipped and goes to its next backoff, and skipped
-attempts count toward `maxAttempts`, so that a saturated limit slows retries and the call ends,
-when the attempts are spent, with the status of the last attempt sent. That is interim, until the
-retry budget, a global mechanism A6's retry throttle belongs to, which is to make a refused retry
-end the call. A transparent resend waits its turn, as A6's exemption from throttling is read.
-The windows are fixed, so up to twice `Calls`
-requests can start within `PerSeconds` across a boundary. The reasons are in decisions.md.
-`tests/grpc_rate_limit.rs` covers each of these but the boundary burst, and `UnaryTests` a
-deadline and a cancel ending a waiting call through the binding.
+**`Rate.Limit`: deleted, 2026-10-08.** The option and the engine's fixed-window limiter
+(`GrpcChannelConfig::rate_limit`, with the turn a retry took of it) are gone: only the throttle
+governs the rate of calls, and a retry takes no turn. A call chooses its compression after its first
+attempt has taken its turn, which is the throttle's cap; `tests/grpc_compression_turn.rs` holds
+calls at the cap. decisions.md has the reasons.
 
 ### T6.16: The host's buffers, several at once and resizable
 
@@ -1713,7 +1741,7 @@ a feature position nothing exercises rots before then.
 whole engine part of the Rust client's public API; it gives way to the items the client offers.
 Its configuration stays `ClientConfig::from_env` until T6.14, mapped onto the engine's options;
 the tonic channel `connect` builds from it goes with the stubs. The mapping refuses what the
-engine has not got - `Rate.Limit` and `Http2MaxHeaderListSize` until T6.15 builds them,
+engine has not got - `Http2MaxHeaderListSize` until T6.15 builds it, a fixed rate limit never,
 `TcpNagleAlgorithm` for good - so that none is read and ignored. T6.14 then replaces
 `ClientConfig` and its `GrpcClient__*` names with the loader's, with no alias.
 

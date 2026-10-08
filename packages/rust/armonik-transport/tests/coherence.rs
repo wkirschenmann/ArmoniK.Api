@@ -75,21 +75,13 @@ fn channel(json: &str) -> Result<(), SettingRefusal> {
     ChannelSettings::settle(options(json)).map(drop)
 }
 
-const INCOHERENT: [(&str, &[&str]); 5] = [
+const INCOHERENT: [(&str, &[&str]); 3] = [
     (
-        r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#,
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#,
         &[
-            "Grpc.Retry.InitialBackoffSeconds",
-            "Grpc.Retry.MaxBackoffSeconds",
+            "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
+            "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
         ],
-    ),
-    (
-        r#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#,
-        &["Grpc.Rate.Limit.Calls", "Grpc.Rate.Limit.PerSeconds"],
-    ),
-    (
-        r#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#,
-        &["Grpc.Rate.Limit.Calls", "Grpc.Rate.Limit.PerSeconds"],
     ),
     (
         r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5}}}"#,
@@ -138,8 +130,7 @@ fn a_runtimes_incoherent_defaults_are_said_and_not_refused() {
 fn coherent_options_are_neither_refused_nor_said() {
     for json in [
         "{}",
-        r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":1,"MaxBackoffSeconds":1}}}"#,
-        r#"{"Grpc":{"Rate":{"Limit":{"Calls":5,"PerSeconds":1}}}}"#,
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":1,"MaxBackoffSeconds":1}}}}}"#,
         r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":5,"Retries":3}}}"#,
     ] {
         channel(json).expect(json);
@@ -151,15 +142,20 @@ fn coherent_options_are_neither_refused_nor_said() {
 /// channel states.
 #[test]
 fn what_a_merge_completes_is_coherent() {
-    let defaults = options(r#"{"Grpc":{"Retry":{"MaxBackoffSeconds":60}}}"#);
-    let own = options(r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#);
-    assert!(channel(r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#).is_err());
-    ChannelSettings::settle(own.over(&defaults)).expect("an initial of 10 under a maximum of 60");
+    let initial = r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#;
+    let defaults = options(
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":600}}}}}"#,
+    );
+    let own = options(initial);
+    assert!(channel(initial).is_err());
+    ChannelSettings::settle(own.over(&defaults)).expect("an initial of 500 under a maximum of 600");
 
     // And a channel can override what its runtime's defaults say incoherently.
-    let incoherent = options(r#"{"Grpc":{"Rate":{"Limit":{"Calls":5}}}}"#);
-    let own = options(r#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":2}}}}"#);
-    ChannelSettings::settle(own.over(&incoherent)).expect("the window the defaults lack");
+    let incoherent = options(initial);
+    let own = options(
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":900}}}}}"#,
+    );
+    ChannelSettings::settle(own.over(&incoherent)).expect("the maximum the defaults lack");
     assert!(ChannelSettings::settle(ChannelOptions::default().over(&incoherent)).is_err());
 }
 
@@ -167,11 +163,9 @@ fn what_a_merge_completes_is_coherent() {
 /// rather than incoherent; a value that is wrong by itself is still wrong.
 #[test]
 fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
-    for json in [
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":5,"Retries":3}}}"#,
-        r#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":2}}}}"#,
-        r#"{"Grpc":{"Rate":{"Limit":{"Calls":0}}}}"#,
-    ] {
+    for json in
+        [r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":5,"Retries":3}}}"#]
+    {
         channel(json).expect(json);
         assert_eq!(defaults(json), (Ok(()), Vec::new()), "{json}");
     }
@@ -182,8 +176,8 @@ fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
             "IntervalSeconds",
         ),
         (
-            r#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":0}}}}"#,
-            "PerSeconds",
+            r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":0}}}}}"#,
+            "InitialBackoffSeconds",
         ),
     ] {
         let refused = channel(json).expect_err(json);
