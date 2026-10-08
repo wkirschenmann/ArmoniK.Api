@@ -218,9 +218,9 @@ impl Configuration {
                 // By name, so that two names one key spells in two cases are taken in an order
                 // that does not change from one run to the next.
                 variables.sort();
-                Ok(Some(Texts::from(variables, named)))
+                Ok(Some(Texts::from(variables, named, true)))
             }
-            Source::Pairs(pairs) => Ok(Some(Texts::from(pairs.clone(), named))),
+            Source::Pairs(pairs) => Ok(Some(Texts::from(pairs.clone(), named, false))),
             Source::PairsJson(json) => {
                 let not_pairs = || refused("they are not a JSON object of text values".to_owned());
                 let parsed: Node = serde_json::from_str(json)
@@ -235,7 +235,7 @@ impl Configuration {
                         _ => Err(not_pairs()),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Some(Texts::from(pairs, named)))
+                Ok(Some(Texts::from(pairs, named, false)))
             }
             Source::Document(json) => {
                 let parsed: Node = serde_json::from_str(json)
@@ -405,11 +405,17 @@ impl std::error::Error for ConfigRefusal {}
 struct Tree {
     root: Node,
     text: bool,
+    /// Whether a text value states a list as a JSON array, which only the environment does.
+    json_lists: bool,
 }
 
 impl Tree {
     fn typed(root: Node) -> Self {
-        Self { root, text: false }
+        Self {
+            root,
+            text: false,
+            json_lists: false,
+        }
     }
 }
 
@@ -584,8 +590,9 @@ struct Texts {
 }
 
 impl Texts {
-    /// The tree of `values`, a key given twice taken from the later and logged.
-    fn from(values: Vec<(String, String)>, source: &SourceName) -> Tree {
+    /// The tree of `values`, a key given twice taken from the later and logged. A value that a
+    /// list-typed key reads is a JSON array when `json_lists`.
+    fn from(values: Vec<(String, String)>, source: &SourceName, json_lists: bool) -> Tree {
         let mut texts = Self::default();
         for (path, value) in values {
             let parts: Vec<&str> = path.split(SEPARATOR).collect();
@@ -600,6 +607,7 @@ impl Texts {
         Tree {
             root: Node::Map(texts.root),
             text: true,
+            json_lists,
         }
     }
 
@@ -643,14 +651,17 @@ fn read<D: serde::de::DeserializeOwned>(
     tree: Tree,
     source: &SourceName,
 ) -> Result<D, ConfigRefusal> {
-    let ignored = RefCell::new(Vec::new());
+    let shared = Shared {
+        skipped: RefCell::new(Vec::new()),
+        json_lists: tree.json_lists,
+    };
     let read = D::deserialize(Reader {
         node: tree.root,
         path: String::new(),
         text: tree.text,
-        ignored: &ignored,
+        shared: &shared,
     });
-    for key in ignored.into_inner() {
+    for key in shared.skipped.into_inner() {
         tracing::info!(
             source = %source,
             key = %key,
@@ -658,6 +669,12 @@ fn read<D: serde::de::DeserializeOwned>(
         );
     }
     read.map_err(|refused| ConfigRefusal::new(source.clone(), refused.key, refused.why))
+}
+
+/// What one read of a tree shares: the keys it passed over, and how its source states a list.
+struct Shared {
+    skipped: RefCell<Vec<String>>,
+    json_lists: bool,
 }
 
 /// Why a tree was not read, and where in it.
@@ -756,7 +773,7 @@ struct Reader<'a> {
     node: Node,
     path: String,
     text: bool,
-    ignored: &'a RefCell<Vec<String>>,
+    shared: &'a Shared,
 }
 
 impl<'a> Reader<'a> {
@@ -791,7 +808,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
         let text = self.text;
-        let ignored = self.ignored;
+        let shared = self.shared;
         let path = self.path;
         match self.node {
             Node::Null => visitor.visit_unit(),
@@ -804,7 +821,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                 items: items.into_iter().enumerate(),
                 path,
                 text,
-                ignored,
+                shared,
             }),
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
@@ -812,7 +829,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                 pending: None,
                 path,
                 text,
-                ignored,
+                shared,
             }),
             Node::Both => Err(both()),
         }
@@ -875,7 +892,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                 pending: None,
                 path: self.path,
                 text: self.text,
-                ignored: self.ignored,
+                shared: self.shared,
             }),
             Node::Both => Err(both()),
             node => Err(de::Error::invalid_type(node.unexpected(), &visitor)),
@@ -894,7 +911,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                 value: None,
                 path: self.path,
                 text: self.text,
-                ignored: self.ignored,
+                shared: self.shared,
             }),
             Node::Map(entries) if entries.len() == 1 => {
                 let (name, value) = entries.into_iter().next().expect("one entry");
@@ -903,7 +920,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                     value: Some(value),
                     path: self.path,
                     text: self.text,
-                    ignored: self.ignored,
+                    shared: self.shared,
                 })
             }
             Node::Both => Err(both()),
@@ -912,15 +929,47 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
     }
 
     fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
-        self.ignored.borrow_mut().push(self.path);
+        self.shared.skipped.borrow_mut().push(self.path);
         visitor.visit_unit()
     }
 
+    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
+        if !self.text {
+            return self.deserialize_any(visitor);
+        }
+        if !self.shared.json_lists {
+            return match self.node {
+                Node::Text(_) | Node::Map(_) | Node::Both => {
+                    Err(de::Error::custom(LIST_IS_NOT_TEXT))
+                }
+                node => Reader { node, ..self }.deserialize_any(visitor),
+            };
+        }
+        match self.node {
+            // The elements are read as a text source reads its values, so that a name is matched
+            // as it is in the variable beside it.
+            Node::Text(text) => match serde_json::from_str::<Node>(&text) {
+                Ok(list @ Node::List(_)) => Reader { node: list, ..self }.deserialize_any(visitor),
+                _ => Err(de::Error::custom(LIST_IS_JSON)),
+            },
+            Node::Map(_) | Node::Both => Err(de::Error::custom(LIST_IS_JSON)),
+            node => Reader { node, ..self }.deserialize_any(visitor),
+        }
+    }
+
     serde::forward_to_deserialize_any! {
-        i128 u128 char str string bytes byte_buf unit unit_struct seq tuple tuple_struct map
+        i128 u128 char str string bytes byte_buf unit unit_struct tuple tuple_struct map
         identifier
     }
 }
+
+/// What the environment says of a list it is not given as a JSON array, the form it takes.
+const LIST_IS_JSON: &str = "it is a list, which one variable states as a JSON array, such as \
+    [\"Gzip\",\"Zstd\"], and not as a bare value or as keys under it";
+
+/// What pairs, and so a command line, say of a list: they have no form for it.
+const LIST_IS_NOT_TEXT: &str = "it is a list, which a file, a document or an environment variable \
+    states, and neither pairs nor a command line";
 
 /// A name as the document spells it, where a text source spelled it in another case.
 fn spelled(name: String, known: &'static [&'static str], text: bool) -> String {
@@ -939,7 +988,7 @@ struct Entries<'a> {
     pending: Option<(String, Node)>,
     path: String,
     text: bool,
-    ignored: &'a RefCell<Vec<String>>,
+    shared: &'a Shared,
 }
 
 impl<'de, 'a> MapAccess<'de> for Entries<'a> {
@@ -971,7 +1020,7 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a> {
             node,
             path: path.clone(),
             text: self.text,
-            ignored: self.ignored,
+            shared: self.shared,
         })
         .map_err(|refused| refused.at(&path))
     }
@@ -981,7 +1030,7 @@ struct Items<'a> {
     items: std::iter::Enumerate<std::vec::IntoIter<Node>>,
     path: String,
     text: bool,
-    ignored: &'a RefCell<Vec<String>>,
+    shared: &'a Shared,
 }
 
 impl<'de, 'a> SeqAccess<'de> for Items<'a> {
@@ -999,7 +1048,7 @@ impl<'de, 'a> SeqAccess<'de> for Items<'a> {
             node,
             path: path.clone(),
             text: self.text,
-            ignored: self.ignored,
+            shared: self.shared,
         })
         .map(Some)
         .map_err(|refused| refused.at(&path))
@@ -1012,7 +1061,7 @@ struct Variant<'a> {
     value: Option<Node>,
     path: String,
     text: bool,
-    ignored: &'a RefCell<Vec<String>>,
+    shared: &'a Shared,
 }
 
 impl<'a> Variant<'a> {
@@ -1022,7 +1071,7 @@ impl<'a> Variant<'a> {
             node,
             path,
             text: self.text,
-            ignored: self.ignored,
+            shared: self.shared,
         })
     }
 }

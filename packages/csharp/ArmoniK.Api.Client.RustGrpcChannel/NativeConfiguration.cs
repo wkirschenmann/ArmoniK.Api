@@ -89,7 +89,8 @@ public sealed class NativeConfiguration
   /// <summary>Adds the process environment: the variables whose name starts with the prefix and <c>__</c>.</summary>
   /// <returns>This configuration.</returns>
   /// <remarks>Read once, when the runtime is created. The rest of a name is the key's path, its parts
-  /// joined by <c>__</c> and compared without case, and a value is text read by its key's type.</remarks>
+  /// joined by <c>__</c> and compared without case, and a value is text read by its key's type. A
+  /// list option is one variable holding a JSON array, <c>["Zstd","Gzip"]</c>.</remarks>
   public NativeConfiguration LoadConfigFromEnvironment()
     => With(ak_source_kind.AK_SOURCE_ENVIRONMENT,
             Array.Empty<byte>());
@@ -100,7 +101,8 @@ public sealed class NativeConfiguration
   /// <exception cref="ArgumentNullException"><paramref name="args" /> is null.</exception>
   /// <remarks>
   ///   The keys under the prefix, the whole command line with none, reach the engine as text, read
-  ///   as the environment's values are: by their key's type, a key no option declares ignored.
+  ///   as the environment's values are: by their key's type, a key no option declares ignored. A
+  ///   command line states no list, and the engine refuses a list option on one by its path.
   /// </remarks>
   public NativeConfiguration LoadConfigFromCommandLine(string[] args)
   {

@@ -288,6 +288,43 @@ public class NativeConfigurationTests : EchoServerFixture
                          .With.Message.Contains("pairs: MemoryCeiling is refused")
                          .And.Message.Not.Contains("a-great-deal"));
 
+  /// <summary>A command line states no list: it is refused by the list's path, with the sources that do state one.</summary>
+  [Test]
+  public void AListOnACommandLineIsRefusedByItsPath()
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+                                                                                                                             {
+                                                                                                                               "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Receive:Compression:0=Gzip",
+                                                                                                                             })))
+                                 .ConfigureAwait(false),
+                   Throws.InstanceOf<InvalidOperationException>()
+                         .With.Message.Contains("pairs: ChannelDefaults.Grpc.Receive.Compression is refused")
+                         .And.Message.Contains("a file, a document or an environment variable states"));
+
+  /// <summary>An environment list that is not a JSON array is refused by its path, with the form it takes, and not quoted.</summary>
+  [Test]
+  public void AnEnvironmentListThatIsNotAJsonArrayIsRefusedAndNotQuoted()
+  {
+    const string prefix = "AKLISTREFUSED";
+    const string name  = prefix + "__ChannelDefaults__Grpc__Receive__Compression";
+    Environment.SetEnvironmentVariable(name,
+                                       "Deflate,Zstd");
+
+    try
+    {
+      Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(prefix).LoadConfigFromEnvironment()))
+                                .ConfigureAwait(false),
+                  Throws.InstanceOf<InvalidOperationException>()
+                        .With.Message.Contains("the environment: ChannelDefaults.Grpc.Receive.Compression is refused")
+                        .And.Message.Contains("a JSON array")
+                        .And.Message.Not.Contains("Deflate"));
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+  }
+
   /// <summary>A file that does not exist is refused, by its path, unless it is optional.</summary>
   [Test]
   public void AMissingFileIsRefusedByItsPath()
