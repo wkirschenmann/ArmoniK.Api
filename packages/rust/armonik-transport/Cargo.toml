@@ -47,6 +47,11 @@ required-features = ["test-hooks"]
 name = "grpc_compression_turn"
 required-features = ["test-hooks"]
 
+# Reads the channel's estimate through the test hooks.
+[[test]]
+name = "grpc_throttle_wait"
+required-features = ["test-hooks"]
+
 # Records each attempt's origin through `hooks::on_attempt`.
 [[test]]
 name = "grpc_origins"
