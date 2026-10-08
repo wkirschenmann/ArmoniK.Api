@@ -251,24 +251,59 @@ public class ChannelOptionsTests
                            }),
                    Is.EqualTo(@"{""Grpc"":{""Rate"":{""Limit"":{""Calls"":100,""PerSeconds"":0.25}}}}"));
 
-  /// <summary>A zero is how an option turns off what an earlier source set, and it is sent as the zero it is.</summary>
+  /// <summary>An option that is off is a variant, which turns off what an earlier source set and is sent as the name it is.</summary>
   [Test]
-  public void AZeroTurnsOffAndIsSent()
+  public void ANoneTurnsOffAndIsSent()
   {
     var options = new ChannelOptions
                   {
                     Transport = new TransportOptions
                                 {
-                                  TcpKeepalive = new TcpKeepaliveOptions
-                                                 {
-                                                   IdleSeconds = 0,
-                                                 },
+                                  TcpKeepalive = new TcpKeepalive.None(),
                                 },
                     Http2 = new Http2Options
                             {
-                              KeepAliveIntervalSeconds = 0,
-                              IdleTimeoutSeconds       = 0,
+                              KeepAlive                      = new Http2KeepAlive.None(),
+                              IdleTimeout                    = new Http2IdleTimeout.None(),
+                              SimultaneousCallsPerConnection = new CallsPerConnection.FromServer(),
                             },
+                  };
+
+    Assert.That(() => options.Validate(),
+                Throws.Nothing);
+    Assert.That(Encoding.UTF8.GetString(options.Encode()),
+                Is.EqualTo(@"{""Transport"":{""TcpKeepalive"":""None""},""Http2"":{""KeepAlive"":""None"",""IdleTimeout"":""None"",""SimultaneousCallsPerConnection"":""FromServer""}}"));
+  }
+
+  /// <summary>A stated variant that carries something is an object of one key, its mandatory fields written.</summary>
+  [Test]
+  public void AKeepaliveIsAnObjectOfItsMandatoryAndItsOptionalFields()
+  {
+    var options = new ChannelOptions
+                  {
+                    Transport = new TransportOptions
+                                {
+                                  TcpKeepalive = new TcpKeepalive.Probe(30,
+                                                                        5),
+                                },
+                    Http2 = new Http2Options
+                            {
+                              KeepAlive                      = new Http2KeepAlive.Ping(10),
+                              IdleTimeout                    = new Http2IdleTimeout.After(300),
+                              SimultaneousCallsPerConnection = new CallsPerConnection.Limit(1),
+                            },
+                  };
+
+    Assert.That(Encoding.UTF8.GetString(options.Encode()),
+                Is.EqualTo(@"{""Transport"":{""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":5}}},""Http2"":{""KeepAlive"":{""Ping"":{""IntervalSeconds"":10}},""IdleTimeout"":{""After"":300},""SimultaneousCallsPerConnection"":{""Limit"":1}}}"));
+  }
+
+  /// <summary>A zero is how the deadline and the rate limit turn off what an earlier source set, and it is sent as the zero it is.</summary>
+  [Test]
+  public void AZeroTurnsOffAndIsSent()
+  {
+    var options = new ChannelOptions
+                  {
                     Grpc = new GrpcOptions
                            {
                              DefaultDeadlineSeconds = 0,
@@ -285,10 +320,7 @@ public class ChannelOptionsTests
     Assert.That(() => options.Validate(),
                 Throws.Nothing);
     Assert.That(Encoding.UTF8.GetString(options.Encode()),
-                Does.Contain(@"""IdleSeconds"":0")
-                    .And.Contain(@"""KeepAliveIntervalSeconds"":0")
-                    .And.Contain(@"""IdleTimeoutSeconds"":0")
-                    .And.Contain(@"""DefaultDeadlineSeconds"":0")
+                Does.Contain(@"""DefaultDeadlineSeconds"":0")
                     .And.Contain(@"""Calls"":0"));
   }
 

@@ -76,7 +76,7 @@ fn what_the_defaults_lack_may_come_from_the_channel_and_not_the_other_way() {
 fn a_value_that_is_wrong_by_itself_is_refused_with_the_defaults_too() {
     // Not an incoherence: no channel's options can mend a value out of its bounds.
     assert_eq!(
-        refused_over(r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":-1}}}"#),
+        refused_over(r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":-1}}}}"#),
         ak_status::AK_STATUS_INVALID_ARG
     );
 }

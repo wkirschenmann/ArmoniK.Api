@@ -170,7 +170,7 @@ fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
 fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     let _turn = turn();
     let host = create(
-        r#"{"MemoryCeiling":1048576,"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":4}}}"#,
+        r#"{"MemoryCeiling":1048576,"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#,
     )
     .expect("a runtime");
 
@@ -186,7 +186,7 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     assert!(
         record
             .field("channel_defaults")
-            .is_some_and(|defaults| defaults.contains("Some(4)")),
+            .is_some_and(|defaults| defaults.contains("Limit(4)")),
         "{record:#?}"
     );
     assert_eq!(
@@ -274,7 +274,7 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
     // An endpoint with credentials is refused, after its options are logged without them.
     let refused = host.try_channel(
         "http://user:hunter2@127.0.0.1:1",
-        r#"{"Http2":{"SimultaneousCallsPerConnection":7}}"#,
+        r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":7}}}"#,
     );
     assert!(refused.is_err());
     let records = logged();
@@ -286,7 +286,7 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
     assert_eq!(effective[0].field("endpoint"), Some("http://127.0.0.1:1"));
     assert!(effective[0]
         .field("options")
-        .is_some_and(|options| options.contains("Some(7)")));
+        .is_some_and(|options| options.contains("Limit(7)")));
     assert!(records
         .iter()
         .all(|record| !record.text().contains("hunter2")));
@@ -297,8 +297,9 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
 #[test]
 fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own() {
     let _turn = turn();
-    let host = create(r#"{"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":4}}}"#)
-        .expect("a runtime");
+    let host =
+        create(r#"{"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#)
+            .expect("a runtime");
     LOGS.lock().unwrap_or_else(|held| held.into_inner()).clear();
 
     let inherited = host.channel_with("http://127.0.0.1:1", "{}");
@@ -313,7 +314,7 @@ fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own()
 
     let own = host.channel_with(
         "http://127.0.0.1:1",
-        r#"{"Http2":{"SimultaneousCallsPerConnection":5}}"#,
+        r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":5}}}"#,
     );
     let records = logged();
     let effective: Vec<_> = records
@@ -323,7 +324,7 @@ fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own()
     assert_eq!(effective.len(), 1, "{records:#?}");
     assert!(effective[0]
         .field("options")
-        .is_some_and(|options| options.contains("Some(5)")));
+        .is_some_and(|options| options.contains("Limit(5)")));
     ak_channel_release(own);
     drop(host);
 }

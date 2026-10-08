@@ -13,7 +13,8 @@ use hyper::Uri;
 use crate::grpc::{GrpcChannelConfig, RateLimitConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
-    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, LARGEST_WINDOW,
+    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, Seconds, TcpKeepalive,
+    LARGEST_WINDOW,
 };
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -145,12 +146,12 @@ impl ChannelSettings {
         let mut converted = |found: Vec<OptionRefusal>, unit: &str| {
             incoherent.extend(found.into_iter().map(|refused| refused.under(unit)));
         };
-        let (tcp, found) = options
+        let tcp = options
             .transport
             .tcp_keepalive
-            .convert()
+            .as_ref()
+            .map_or_else(|| Ok(TcpConfig::default()), TcpKeepalive::to_config)
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.TcpKeepalive")))?;
-        converted(found, "Transport.TcpKeepalive");
         let http2 = options
             .http2
             .to_config()

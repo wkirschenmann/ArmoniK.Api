@@ -648,7 +648,7 @@ public class TransportSelectionTests
                 Is.GreaterThan(0));
   }
 
-  /// <summary>Options that ask for no bound where a default sets one state it as zero, so that they turn it off.</summary>
+  /// <summary>Options that ask for no bound where a default sets one state it as None, so that they turn it off.</summary>
   [Test]
   public async Task OptionsThatAskForNoBoundTurnTheDefaultOff()
   {
@@ -663,8 +663,8 @@ public class TransportSelectionTests
     Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
                                                                                   true)
                                                                        .Encode()),
-                Does.Contain(@"""IdleSeconds"":0")
-                    .And.Contain(@"""IdleTimeoutSeconds"":0"));
+                Does.Contain(@"""TcpKeepalive"":""None""")
+                    .And.Contain(@"""IdleTimeout"":""None"""));
     Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
                                                                                   {
                                                                                     RequestTimeout = TimeSpan.Zero,
@@ -673,8 +673,8 @@ public class TransportSelectionTests
                                                                        .Encode()),
                 Does.Contain(@"""DefaultDeadlineSeconds"":0"));
 
-    // The floor sets a keepalive with its interval, and the zero over it must not be refused
-    // for the interval that stays.
+    // The floor sets a keepalive with its interval, and the None over it is not refused for the
+    // interval that stays.
     await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
     var reply = await Client(channel)
                       .SayAsync(new EchoRequest
@@ -698,8 +698,39 @@ public class TransportSelectionTests
                                                                                     true)
                                                                          .Encode());
     Assert.That(encoded,
-                Does.Contain(@"""IdleSeconds"":1")
-                    .And.Contain(@"""IntervalSeconds"":2"));
+                Does.Contain(@"""TcpKeepalive"":{""Probe"":{""IdleSeconds"":1,""IntervalSeconds"":2}}"));
+  }
+
+  /// <summary>A keepalive is one thing: an interval set alone is sent with the idle time of the options, and a time set alone without an interval.</summary>
+  [Test]
+  public void AKeepaliveIsStatedWholeFromWhatIsSet()
+  {
+    string Encoded(GrpcClient options)
+      => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                           true)
+                                                                .Encode());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            KeepAliveTimeInterval = TimeSpan.FromSeconds(7),
+                                          }),
+                                  Does.Contain(@"""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":7}}"));
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            KeepAliveTime = TimeSpan.FromSeconds(20),
+                                          }),
+                                  Does.Contain(@"""TcpKeepalive"":{""Probe"":{""IdleSeconds"":20}}"));
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            KeepAliveTime         = TimeSpan.Zero,
+                                            KeepAliveTimeInterval = TimeSpan.FromSeconds(7),
+                                          }),
+                                  Does.Contain(@"""TcpKeepalive"":""None""")
+                                      .And.Not.Contain("IntervalSeconds"),
+                                  "no keepalive reads no interval");
+                    });
   }
 
   /// <summary>An interval the engine cannot honour is carried on, and refused when the channel is made, naming the key.</summary>
@@ -733,7 +764,7 @@ public class TransportSelectionTests
     Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
                                                                                   true)
                                                                        .Encode()),
-                Does.Contain(@"""IdleSeconds"":0")
+                Does.Contain(@"""TcpKeepalive"":""None""")
                     .And.Not.Contain("IntervalSeconds"));
     await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options);
   }
@@ -803,8 +834,8 @@ public class TransportSelectionTests
                                                                                                     true)
                                                                                          .Encode()),
                                   Does.Not.Contain("MaxAttempts")
-                                      .And.Not.Contain("IdleSeconds")
-                                      .And.Not.Contain("IdleTimeoutSeconds"),
+                                      .And.Not.Contain("TcpKeepalive")
+                                      .And.Not.Contain("IdleTimeout"),
                                   "an option left alone is left to the engine's sources");
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient
                                                                                                     {
@@ -814,7 +845,7 @@ public class TransportSelectionTests
                                                                                                     true)
                                                                                          .Encode()),
                                   Does.Contain(@"""MaxAttempts"":5")
-                                      .And.Contain(@"""IdleTimeoutSeconds"":300")
+                                      .And.Contain(@"""IdleTimeout"":{""After"":300}")
                                       .And.Not.Contain("IdleSeconds"),
                                   "an option set to its default is translated");
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(stated,
@@ -828,10 +859,10 @@ public class TransportSelectionTests
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient(),
                                                                                                     false)
                                                                                          .Encode()),
-                                  Does.Contain(@"""IdleSeconds"":30")
+                                  Does.Contain(@"""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":30}}")
                                       .And.Contain(@"""MaxAttempts"":5")
                                       .And.Contain(@"""Codes"":""GrpcClient""")
-                                      .And.Contain(@"""IdleTimeoutSeconds"":300"),
+                                      .And.Contain(@"""IdleTimeout"":{""After"":300}"),
                                   "for the defaults of a runtime, every option is translated");
                     });
   }

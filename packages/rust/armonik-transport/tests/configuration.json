@@ -14,7 +14,7 @@
   {
     "name": "a later source wins over an earlier one, option by option",
     "files": {
-      "base.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":4},\"Grpc\":{\"UserAgent\":\"base\"}}}}},\"Serilog\":{\"Level\":\"Debug\"}}"
+      "base.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://base.test:1\",\"ChannelDefaults\":{\"Http2\":{\"SimultaneousCallsPerConnection\":{\"Limit\":4}},\"Grpc\":{\"UserAgent\":\"base\"}}}}},\"Serilog\":{\"Level\":\"Debug\"}}"
     },
     "sources": [
       { "file": "base.json" },
@@ -23,7 +23,7 @@
     "options": {
       "Endpoint": "http://base.test:1",
       "ChannelDefaults": {
-        "Http2": { "SimultaneousCallsPerConnection": 4 },
+        "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
         "Grpc": { "UserAgent": "over" }
       }
     }
@@ -32,7 +32,7 @@
     "name": "YAML and TOML are read as JSON is",
     "files": {
       "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            ServerCertificates: None\n",
-      "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
+      "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2.KeepAlive.Ping]\nIntervalSeconds = 10\nWhileIdle = true\nTimeoutSeconds = 2.5\n"
     },
     "sources": [
       { "file": "base.yaml" },
@@ -44,7 +44,7 @@
       "MemoryHardCeiling": 2048,
       "ChannelDefaults": {
         "Transport": { "Tls": { "ServerCertificates": "None" } },
-        "Http2": { "KeepAliveWhileIdle": true, "KeepAliveTimeoutSeconds": 2.5 }
+        "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 10, "WhileIdle": true, "TimeoutSeconds": 2.5 } } }
       }
     }
   },
@@ -172,7 +172,7 @@
     "prefix": "ArmoniKFixture",
     "environment": {
       "ArmoniKFixture__Endpoint": "http://environment.test:6",
-      "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection": "4",
+      "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection__limit": "4",
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__DefaultDeadlineSeconds": "2.5",
       "ArmoniKFixture__MemoryCeiling": "8192",
@@ -187,7 +187,7 @@
       "MemoryCeiling": 8192,
       "ChannelDefaults": {
         "Transport": { "Tls": { "ServerCertificates": "None" } },
-        "Http2": { "SimultaneousCallsPerConnection": 4 },
+        "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
         "Grpc": { "DefaultDeadlineSeconds": 2.5 }
       }
     },
@@ -220,7 +220,7 @@
     "prefix": "ArmoniKFixture",
     "environment": {
       "ArmoniKFixture__ChannelDefaults__Http2": "on",
-      "ArmoniKFixture__ChannelDefaults__Http2__KeepAliveWhileIdle": "true"
+      "ArmoniKFixture__ChannelDefaults__Http2__IdleTimeout__After": "30"
     },
     "sources": [
       { "environment": true }

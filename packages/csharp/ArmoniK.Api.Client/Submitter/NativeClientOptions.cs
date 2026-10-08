@@ -97,34 +97,29 @@ namespace ArmoniK.Api.Client.Submitter
         transport.Proxy = Proxy(options);
       }
 
-      // A span that is not positive, the infinite one included, is none, which the engine reads as
-      // zero: set, it turns off what the sources below set, as left out it would leave it. The
-      // keepalive counts whole seconds, rounded up so that a positive span is never zero.
-      var keepalive = new TcpKeepaliveOptions();
-      if (Stated(nameof(GrpcClient.KeepAliveTime)))
+      // A span that is not positive, the infinite one included, is no keepalive: set, it turns off
+      // what the sources below set, as left out it would leave it. A probe is its idle time and
+      // what goes with it, so it is stated whole, from the time and the interval of the options
+      // and not from one alone. The keepalive counts whole seconds, rounded up so that a positive
+      // span is never zero.
+      if (Stated(nameof(GrpcClient.KeepAliveTime)) || Stated(nameof(GrpcClient.KeepAliveTimeInterval)))
       {
-        keepalive.IdleSeconds = Positive(options.KeepAliveTime)
-                                  ? WholeSeconds(options.KeepAliveTime)
-                                  : 0;
-      }
-
-      // The interval is sent as it is set, whatever it is, so that the engine refuses one it cannot
-      // honour when the channel is created, naming the key. A keepalive that is off reads none of
-      // it, and an interval that is not positive beside it is what a caller turning it off writes.
-      if (Stated(nameof(GrpcClient.KeepAliveTimeInterval)) && (Positive(options.KeepAliveTimeInterval) || Positive(options.KeepAliveTime)))
-      {
-        keepalive.IntervalSeconds = WholeSeconds(options.KeepAliveTimeInterval);
-      }
-
-      if (keepalive.IdleSeconds is not null || keepalive.IntervalSeconds is not null)
-      {
-        transport.TcpKeepalive = keepalive;
+        // The interval is sent as it is set, whatever it is, so that the engine refuses one it
+        // cannot honour when the channel is created, naming the key.
+        transport.TcpKeepalive = Positive(options.KeepAliveTime)
+                                   ? new TcpKeepalive.Probe(WholeSeconds(options.KeepAliveTime),
+                                                            Stated(nameof(GrpcClient.KeepAliveTimeInterval))
+                                                              ? WholeSeconds(options.KeepAliveTimeInterval)
+                                                              : null)
+                                   : new TcpKeepalive.None();
       }
 
       var http2 = new Http2Options();
       if (Stated(nameof(GrpcClient.MaxIdleTime)))
       {
-        http2.IdleTimeoutSeconds = Seconds(options.MaxIdleTime);
+        http2.IdleTimeout = Positive(options.MaxIdleTime)
+                              ? new Http2IdleTimeout.After(options.MaxIdleTime.TotalSeconds)
+                              : new Http2IdleTimeout.None();
       }
 
       var retry = new RetryOptions();

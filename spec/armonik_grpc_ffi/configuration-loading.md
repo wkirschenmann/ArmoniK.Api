@@ -72,11 +72,12 @@ well as from JSON, so every host language gets the same result from the same sou
   an `IConfiguration` with the command-line provider alone, used inside the binding and never
   exposed. What it parses reaches the engine as pairs of a key's path and a text value, read as
   the environment's are, since a command line, like the environment, has only text.
-- **A key left out and a key set to 0 differ** (2026-10-07): a source that leaves an option out
-  leaves what an earlier source set, or the default, and a source that wants none says so with 0,
-  which `Transport.TcpKeepalive.IdleSeconds`, `Http2.KeepAliveIntervalSeconds`,
-  `Http2.IdleTimeoutSeconds`, `Grpc.DefaultDeadlineSeconds` and `Grpc.Rate.Limit.Calls` read as none
-  (decisions.md, "How an option is turned off", lists the options left as they are).
+- **A key left out and a key set to a variant differ** (2026-10-08): a source that leaves an option
+  out leaves what an earlier source set, or the default, and a source that wants none says so with
+  the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive` and
+  `Http2.IdleTimeout` have, as `Http2.SimultaneousCallsPerConnection` has `"FromServer"`
+  (decisions.md, "How an option is turned off by a variant"). `Grpc.DefaultDeadlineSeconds` and
+  `Grpc.Rate.Limit.Calls` read 0 as none.
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's
   path, so that a misspelled key does not give the defaults with nothing to say so. The engine logs
@@ -125,7 +126,7 @@ them, the channel options every channel takes by default among them, under `Chan
         "Endpoint": "https://armonik.example.com:5001",
         "MemoryCeiling": 2147483648,
         "ChannelDefaults": {
-          "Http2": { "SimultaneousCallsPerConnection": 4 },
+          "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
           "Transport": { "Tls": { "ClientCertificate": { "P12": { "Path": "client.p12" } } } }
         }
       }
@@ -154,7 +155,7 @@ file or one environment configures every host alike; a document with no `Endpoin
 - **The environment**: the variables whose name starts with the prefix and `__`, read once, when
   the runtime is created. The rest of a name is the key's path, its parts joined by `__`, compared
   without case:
-  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
+  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
   variable of the process would be a key, and the log would name every one of them, so an
   environment source with no prefix is refused. A key that holds a list, such as
   `Grpc.Receive.Compression`, is read from its one variable, whose value is a JSON array:
@@ -166,7 +167,7 @@ file or one environment configures every host alike; a document with no `Endpoin
   read as the element's type, a name matched without case as the other variables' values are.
 - **Pairs**: a JSON object whose names are keys' paths, their parts joined by `__`, under no
   prefix, and whose values are text, read as the environment's values are, by the schema's type
-  for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection": "4"}`. It is what a
+  for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit": "4"}`. It is what a
   binding sends for a command line it has parsed. Pairs state no list, and neither does a
   command line: a key that holds a list is refused, by its path.
 - **A document**: JSON in the schema's vocabulary, with no prefix around it. It is what a binding

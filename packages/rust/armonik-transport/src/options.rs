@@ -95,9 +95,14 @@ pub struct TransportOptions {
 
     /// The socket's keepalive.
     ///
-    /// Defaults to `{}`, which sets none.
-    #[serde(default)]
-    pub tcp_keepalive: TcpKeepaliveOptions,
+    /// Defaults to `"None"`: no probe is sent.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "TcpKeepalive"))]
+    pub tcp_keepalive: Option<TcpKeepalive>,
 
     /// The HTTP proxy every dial tunnels through.
     ///
@@ -853,33 +858,36 @@ impl std::fmt::Debug for Password {
     }
 }
 
-/// The socket's keepalive, off unless `IdleSeconds` is set.
-///
-/// Each duration is a whole number of seconds, which is what the socket option holds.
-/// An `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then
-/// `IntervalSeconds` and `Retries` are not read: they are what that source left.
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+/// The socket's keepalive.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum TcpKeepalive {
+    /// No probe is sent.
+    None,
+
+    /// Probes the peer once the connection has been idle, and drops it when they go unanswered.
+    Probe(TcpProbe),
+}
+
+/// The probes of a socket's keepalive, each duration a whole number of seconds, which is what the
+/// socket option holds.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
-pub struct TcpKeepaliveOptions {
+pub struct TcpProbe {
     /// How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
-    /// the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
-    ///
-    /// Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-    /// the option leaves that source's value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// the most Linux holds: the operating system counts whole seconds.
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "i32", range(min = 0, max = 32767))
+        schemars(with = "i32", range(min = 1, max = 32767))
     )]
-    pub idle_seconds: Option<i32>,
+    pub idle_seconds: i32,
 
     /// How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
     /// system's.
-    ///
-    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -889,11 +897,20 @@ pub struct TcpKeepaliveOptions {
 
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
-    ///
-    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
     pub retries: Option<i32>,
+}
+
+impl TcpProbe {
+    /// A probe after `idle_seconds`, the interval and the count the operating system's.
+    pub fn new(idle_seconds: i32) -> Self {
+        Self {
+            idle_seconds,
+            interval_seconds: None,
+            retries: None,
+        }
+    }
 }
 
 /// The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
@@ -904,58 +921,42 @@ pub struct TcpKeepaliveOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2Options {
-    /// How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.
+    /// Whether the session sends PINGs to check that the peer is there.
     ///
-    /// Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`: none is sent.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub keep_alive_interval_seconds: Option<Seconds>,
-
-    /// How long a PING may go unanswered before the session and its calls are ended.
-    ///
-    /// Defaults to 20.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
-    )]
-    pub keep_alive_timeout_seconds: Option<Seconds>,
-
-    /// Whether a PING is also sent while no call is open.
-    ///
-    /// Defaults to false.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
-    pub keep_alive_while_idle: Option<bool>,
+    #[cfg_attr(feature = "schema", schemars(with = "Http2KeepAlive"))]
+    pub keep_alive: Option<Http2KeepAlive>,
 
     /// How long a connection stays open with no call on it before it is closed, the next call
     /// dialling a new one. Each connection has its own. A call holds its connection to the end of
     /// its response and of its request.
     ///
-    /// At least a nanosecond, or 0 for none.
-    ///
-    /// Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
-    /// earlier source set off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`: an idle connection stays open.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub idle_timeout_seconds: Option<Seconds>,
+    #[cfg_attr(feature = "schema", schemars(with = "Http2IdleTimeout"))]
+    pub idle_timeout: Option<Http2IdleTimeout>,
 
-    /// How many calls one connection carries at once, never more than its server allows. A call
-    /// that finds every connection full opens another, as many as the calls in flight need, and
-    /// each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
-    /// another on a connection but never share it, so that a GOAWAY a server sends because of one
-    /// call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    /// How many calls one connection carries at once. A call that finds every connection full
+    /// opens another, as many as the calls in flight need, and each closes on its own idle
+    /// timeout when `IdleTimeout` is set.
     ///
-    /// Defaults to none: a connection carries as many calls as its server allows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub simultaneous_calls_per_connection: Option<i32>,
+    /// Defaults to `"FromServer"`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "CallsPerConnection"))]
+    pub simultaneous_calls_per_connection: Option<CallsPerConnection>,
 
     /// What the session sends.
     ///
@@ -973,6 +974,93 @@ pub struct Http2Options {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "Http2ReceiveOptions"))]
     pub receive: Option<Http2ReceiveOptions>,
+}
+
+/// Whether the session sends PINGs, which an unresponsive peer ends it for.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Http2KeepAlive {
+    /// No PING is sent.
+    None,
+
+    /// A PING is sent at an interval, and the session and its calls end when one goes unanswered.
+    Ping(Http2Ping),
+}
+
+/// The PINGs of a session.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct Http2Ping {
+    /// How often a PING is sent to the peer, at least a nanosecond.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub interval_seconds: Seconds,
+
+    /// How long a PING may go unanswered before the session and its calls are ended.
+    ///
+    /// Defaults to 20.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub timeout_seconds: Option<Seconds>,
+
+    /// Whether a PING is also sent while no call is open.
+    ///
+    /// Defaults to false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub while_idle: Option<bool>,
+}
+
+impl Http2Ping {
+    /// A PING at an interval, with the default timeout and none sent while idle.
+    pub fn new(interval_seconds: Seconds) -> Self {
+        Self {
+            interval_seconds,
+            timeout_seconds: None,
+            while_idle: None,
+        }
+    }
+}
+
+/// When a connection with no call on it is closed.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Http2IdleTimeout {
+    /// Never: an idle connection stays open.
+    None,
+
+    /// After this many seconds, at least a nanosecond.
+    After(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Seconds", extend("minimum" = 1e-9))
+        )]
+        Seconds,
+    ),
+}
+
+/// How many calls one connection carries at once.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum CallsPerConnection {
+    /// As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.
+    FromServer,
+
+    /// At most this many, and never more than the server allows. At 1, calls follow one another
+    /// on a connection but never share it, so that a GOAWAY a server sends because of one call -
+    /// nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    Limit(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
 }
 
 /// What an HTTP/2 session sends.
@@ -1543,31 +1631,26 @@ pub(crate) fn is_off(seconds: Seconds) -> bool {
     seconds.0 == 0.0
 }
 
-/// A number of seconds as a duration, or none for zero, which states there is none; refused
-/// below `least`, above `most`, and past what a `Duration` holds as `duration` refuses.
-fn duration_or_off(
-    key: &str,
-    seconds: Option<Seconds>,
-    least: f64,
-    most: Option<f64>,
-) -> Result<Option<Duration>, OptionRefusal> {
-    if seconds.is_some_and(is_off) {
-        return Ok(None);
-    }
-    duration(key, seconds, least, most)
-}
-
 /// A number of seconds as a duration, refused below `least`, above `most`, and past what a
-/// `Duration` holds.
+/// `Duration` holds; none when no number is stated.
 fn duration(
     key: &str,
     seconds: Option<Seconds>,
     least: f64,
     most: Option<f64>,
 ) -> Result<Option<Duration>, OptionRefusal> {
-    let Some(seconds) = seconds else {
-        return Ok(None);
-    };
+    seconds
+        .map(|seconds| stated_duration(key, seconds, least, most))
+        .transpose()
+}
+
+/// A stated number of seconds as a duration, refused as `duration` refuses.
+fn stated_duration(
+    key: &str,
+    seconds: Seconds,
+    least: f64,
+    most: Option<f64>,
+) -> Result<Duration, OptionRefusal> {
     let refused = || {
         let most = most.map_or_else(
             || "less than 2^64".to_owned(),
@@ -1581,7 +1664,7 @@ fn duration(
     if seconds.0 < least || most.is_some_and(|most| seconds.0 > most) {
         return Err(refused());
     }
-    Duration::try_from(seconds).map(Some).map_err(|_| refused())
+    Duration::try_from(seconds).map_err(|_| refused())
 }
 
 /// The bytes of a file a path option names.
@@ -1713,25 +1796,28 @@ impl TlsOptions {
     }
 }
 
-impl TcpKeepaliveOptions {
-    /// The socket's keepalive these options name, refused where they are incoherent.
+impl TcpKeepalive {
+    /// The socket's keepalive this names, none for `None`.
     pub fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
-        coherently(self.convert())
+        match self {
+            Self::None => Ok(TcpConfig::default()),
+            Self::Probe(probe) => probe.to_config().map_err(|refused| refused.under("Probe")),
+        }
     }
+}
 
-    /// The keepalive, and the incoherences instead of a refusal for them: the probes then stay
-    /// off. Every value stated is checked, whether or not it is read.
-    pub(crate) fn convert(&self) -> Converted<TcpConfig> {
-        let whole = |key: &str, asked: Option<i32>, least: i32, most: i32| match asked {
-            Some(seconds) if !(least..=most).contains(&seconds) => Err(OptionRefusal::new(
-                key,
-                format!("{seconds} has to be from {least} to {most}"),
-            )),
-            Some(seconds) => Ok(Some(u64::try_from(seconds).unwrap_or(0))),
-            None => Ok(None),
+impl TcpProbe {
+    fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
+        let whole = |key: &str, seconds: i32| {
+            if (1..=32767).contains(&seconds) {
+                Ok(Duration::from_secs(seconds as u64))
+            } else {
+                Err(OptionRefusal::new(
+                    key,
+                    format!("{seconds} has to be from 1 to 32767"),
+                ))
+            }
         };
-        let idle = whole("IdleSeconds", self.idle_seconds, 0, 32767)?;
-        let interval = whole("IntervalSeconds", self.interval_seconds, 1, 32767)?;
         let retries = match self.retries {
             None => None,
             Some(retries) if !(1..=127).contains(&retries) => {
@@ -1742,43 +1828,31 @@ impl TcpKeepaliveOptions {
             }
             Some(retries) => Some(retries as u32),
         };
-        let off = TcpConfig {
-            keepalive: None,
-            keepalive_interval: None,
-            keepalive_retries: None,
-        };
-        match idle {
-            // Zero is none, and the others are what an earlier source left: unread, and not an
-            // incoherence, since turning the keepalive off over a source that set them is what
-            // zero is for.
-            Some(0) => Ok((off, Vec::new())),
-            Some(seconds) => Ok((
-                TcpConfig {
-                    keepalive: Some(Duration::from_secs(seconds)),
-                    keepalive_interval: interval.map(Duration::from_secs),
-                    keepalive_retries: retries,
-                },
-                Vec::new(),
-            )),
-            None => {
-                let mut keys = vec!["IdleSeconds"];
-                if interval.is_some() {
-                    keys.push("IntervalSeconds");
-                }
-                if retries.is_some() {
-                    keys.push("Retries");
-                }
-                let incoherent = if keys.len() > 1 {
-                    vec![OptionRefusal::incoherent(
-                        &keys,
-                        "the probes start at the operating system's idle time without IdleSeconds",
-                    )]
-                } else {
-                    Vec::new()
-                };
-                Ok((off, incoherent))
-            }
-        }
+        Ok(TcpConfig {
+            keepalive: Some(whole("IdleSeconds", self.idle_seconds)?),
+            keepalive_interval: self
+                .interval_seconds
+                .map(|seconds| whole("IntervalSeconds", seconds))
+                .transpose()?,
+            keepalive_retries: retries,
+        })
+    }
+}
+
+impl Http2Ping {
+    /// The interval, the timeout and whether to ping while idle, each unstated one `defaults`'.
+    fn to_config(
+        &self,
+        defaults: &Http2Config,
+    ) -> Result<(Option<Duration>, Duration, bool), OptionRefusal> {
+        let interval = stated_duration("IntervalSeconds", self.interval_seconds, 1e-9, None)?;
+        let timeout = duration("TimeoutSeconds", self.timeout_seconds, 1e-9, None)?
+            .unwrap_or(defaults.keep_alive_timeout);
+        Ok((
+            Some(interval),
+            timeout,
+            self.while_idle.unwrap_or(defaults.keep_alive_while_idle),
+        ))
     }
 }
 
@@ -1793,23 +1867,21 @@ impl Http2Options {
             )),
             Some(size) => Ok(size as u32),
         };
+        let (keep_alive_interval, keep_alive_timeout, keep_alive_while_idle) =
+            match &self.keep_alive {
+                None | Some(Http2KeepAlive::None) => (
+                    None,
+                    defaults.keep_alive_timeout,
+                    defaults.keep_alive_while_idle,
+                ),
+                Some(Http2KeepAlive::Ping(ping)) => ping
+                    .to_config(&defaults)
+                    .map_err(|refused| refused.under("KeepAlive.Ping"))?,
+            };
         Ok(Http2Config {
-            keep_alive_interval: duration_or_off(
-                "KeepAliveIntervalSeconds",
-                self.keep_alive_interval_seconds,
-                1e-9,
-                None,
-            )?,
-            keep_alive_timeout: duration(
-                "KeepAliveTimeoutSeconds",
-                self.keep_alive_timeout_seconds,
-                1e-9,
-                None,
-            )?
-            .unwrap_or(defaults.keep_alive_timeout),
-            keep_alive_while_idle: self
-                .keep_alive_while_idle
-                .unwrap_or(defaults.keep_alive_while_idle),
+            keep_alive_interval,
+            keep_alive_timeout,
+            keep_alive_while_idle,
             receive_windows: match &self.receive {
                 None => defaults.receive_windows,
                 Some(Http2ReceiveOptions::Fixed(windows)) => {
@@ -1831,21 +1903,21 @@ impl Http2Options {
                 }
                 Some(Http2ReceiveOptions::Adaptive) => ReceiveWindows::Adaptive,
             },
-            idle_timeout: duration_or_off(
-                "IdleTimeoutSeconds",
-                self.idle_timeout_seconds,
-                1e-9,
-                None,
-            )?,
-            simultaneous_calls_per_connection: match self.simultaneous_calls_per_connection {
-                None => defaults.simultaneous_calls_per_connection,
-                Some(calls) if calls < 1 => {
+            idle_timeout: match &self.idle_timeout {
+                None | Some(Http2IdleTimeout::None) => None,
+                Some(Http2IdleTimeout::After(seconds)) => {
+                    Some(stated_duration("IdleTimeout.After", *seconds, 1e-9, None)?)
+                }
+            },
+            simultaneous_calls_per_connection: match &self.simultaneous_calls_per_connection {
+                None | Some(CallsPerConnection::FromServer) => None,
+                Some(CallsPerConnection::Limit(calls)) if *calls < 1 => {
                     return Err(OptionRefusal::new(
-                        "SimultaneousCallsPerConnection",
+                        "SimultaneousCallsPerConnection.Limit",
                         format!("{calls} has to be at least 1"),
                     ))
                 }
-                Some(calls) => Some(calls as usize),
+                Some(CallsPerConnection::Limit(calls)) => Some(*calls as usize),
             },
             write_coalescing: match self.send.coalescing_bytes {
                 None => defaults.write_coalescing,
@@ -2550,16 +2622,35 @@ over_fields!(TlsOptions {
     server_certificates,
     client_certificate,
 });
-over_fields!(TcpKeepaliveOptions {
+over_variants!(TcpKeepalive {
+    None;
+    Probe,
+});
+over_fields!(TcpProbe {
     idle_seconds,
     interval_seconds,
     retries,
 });
+over_variants!(Http2KeepAlive {
+    None;
+    Ping,
+});
+over_fields!(Http2Ping {
+    interval_seconds,
+    timeout_seconds,
+    while_idle,
+});
+over_variants!(Http2IdleTimeout {
+    None;
+    After,
+});
+over_variants!(CallsPerConnection {
+    FromServer;
+    Limit,
+});
 over_fields!(Http2Options {
-    keep_alive_interval_seconds,
-    keep_alive_timeout_seconds,
-    keep_alive_while_idle,
-    idle_timeout_seconds,
+    keep_alive,
+    idle_timeout,
     simultaneous_calls_per_connection,
     send,
     receive,
@@ -2972,13 +3063,13 @@ mod tests {
         let written = |proxy: &TransportOptions| serde_json::to_string(proxy).expect("a document");
         assert_eq!(
             written(&proxy(ProxyOptions::None)),
-            r#"{"Tls":{},"TcpKeepalive":{},"Proxy":"None"}"#
+            r#"{"Tls":{},"Proxy":"None"}"#
         );
         assert_eq!(
             written(&proxy(ProxyOptions::UrlWithCredentials(CredentialedUrl(
                 "http://p".to_owned()
             )))),
-            r#"{"Tls":{},"TcpKeepalive":{},"Proxy":{"UrlWithCredentials":"http://p"}}"#
+            r#"{"Tls":{},"Proxy":{"UrlWithCredentials":"http://p"}}"#
         );
 
         let read = |document: &str| serde_json::from_str::<TransportOptions>(document);
@@ -3384,85 +3475,96 @@ mod tests {
 
     #[test]
     fn a_unit_refusal_is_named_from_where_the_unit_is_embedded() {
-        let refused = TcpKeepaliveOptions {
-            interval_seconds: Some(5),
-            ..TcpKeepaliveOptions::default()
-        }
+        let refused = TcpKeepalive::Probe(TcpProbe {
+            retries: Some(0),
+            ..TcpProbe::new(30)
+        })
         .to_config()
-        .expect_err("an interval with no keepalive")
+        .expect_err("no probe may go unanswered zero times")
         .under("Transport.TcpKeepalive");
-        assert_eq!(refused.key(), "Transport.TcpKeepalive.IdleSeconds");
-        assert_eq!(
-            refused.keys().collect::<Vec<_>>(),
-            [
-                "Transport.TcpKeepalive.IdleSeconds",
-                "Transport.TcpKeepalive.IntervalSeconds"
-            ]
-        );
-        assert!(refused.is_incoherence());
+        assert_eq!(refused.key(), "Transport.TcpKeepalive.Probe.Retries");
+        assert!(!refused.is_incoherence());
         assert!(!refused.to_string().contains("  "), "{refused}");
         assert!(refused
             .to_string()
-            .starts_with("Transport.TcpKeepalive.IdleSeconds and "));
+            .starts_with("Transport.TcpKeepalive.Probe.Retries is refused"));
     }
 
     #[test]
     fn the_keepalive_options_become_the_socket_configuration() {
-        let config = TcpKeepaliveOptions {
-            idle_seconds: Some(30),
+        let config = TcpKeepalive::Probe(TcpProbe {
+            idle_seconds: 30,
             interval_seconds: Some(5),
             retries: Some(3),
-        }
+        })
         .to_config()
         .expect("admissible");
         assert_eq!(config.keepalive, Some(Duration::from_secs(30)));
         assert_eq!(config.keepalive_interval, Some(Duration::from_secs(5)));
         assert_eq!(config.keepalive_retries, Some(3));
 
-        for refused in [
-            TcpKeepaliveOptions {
-                idle_seconds: Some(-1),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                retries: Some(3),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(30),
-                retries: Some(0),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(32768),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(30),
-                retries: Some(128),
-                ..TcpKeepaliveOptions::default()
-            },
+        let only_idle = TcpKeepalive::Probe(TcpProbe::new(30))
+            .to_config()
+            .expect("admissible");
+        assert_eq!(only_idle.keepalive, Some(Duration::from_secs(30)));
+        assert_eq!(only_idle.keepalive_interval, None);
+        assert_eq!(only_idle.keepalive_retries, None);
+
+        assert_eq!(
+            TcpKeepalive::None.to_config().expect("none"),
+            TcpConfig::default()
+        );
+
+        for (refused, key) in [
+            (TcpProbe::new(0), "IdleSeconds"),
+            (TcpProbe::new(-1), "IdleSeconds"),
+            (TcpProbe::new(32768), "IdleSeconds"),
+            (
+                TcpProbe {
+                    interval_seconds: Some(0),
+                    ..TcpProbe::new(30)
+                },
+                "IntervalSeconds",
+            ),
+            (
+                TcpProbe {
+                    retries: Some(0),
+                    ..TcpProbe::new(30)
+                },
+                "Retries",
+            ),
+            (
+                TcpProbe {
+                    retries: Some(128),
+                    ..TcpProbe::new(30)
+                },
+                "Retries",
+            ),
         ] {
-            assert!(refused.to_config().is_err(), "{refused:?}");
+            let error = TcpKeepalive::Probe(refused.clone())
+                .to_config()
+                .expect_err("out of its bounds");
+            assert_eq!(error.key(), format!("Probe.{key}"), "{refused:?}");
         }
     }
 
-    /// Zero is how a later source turns off what an earlier one set: an option left out leaves
-    /// the earlier value, so "none" has to be a value.
+    /// `None` is how a later source turns off what an earlier one set: an option left out leaves
+    /// the earlier value, so "none" has to be a variant.
     #[test]
-    fn a_zero_turns_off_what_an_earlier_source_set_and_an_absent_option_leaves_it() {
+    fn a_none_turns_off_what_an_earlier_source_set_and_an_absent_option_leaves_it() {
         let earlier = ChannelOptions {
             transport: TransportOptions {
-                tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(30),
+                tcp_keepalive: Some(TcpKeepalive::Probe(TcpProbe {
+                    idle_seconds: 30,
                     interval_seconds: Some(5),
                     retries: Some(3),
-                },
+                })),
                 ..TransportOptions::default()
             },
             http2: Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(10.0)),
-                idle_timeout_seconds: Some(Seconds(300.0)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(10.0)))),
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(4)),
                 ..Http2Options::default()
             },
             grpc: GrpcOptions {
@@ -3476,17 +3578,15 @@ mod tests {
             },
             ..ChannelOptions::default()
         };
-        let zeros = ChannelOptions {
+        let nones = ChannelOptions {
             transport: TransportOptions {
-                tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(0),
-                    ..TcpKeepaliveOptions::default()
-                },
+                tcp_keepalive: Some(TcpKeepalive::None),
                 ..TransportOptions::default()
             },
             http2: Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(0.0)),
-                idle_timeout_seconds: Some(Seconds(0.0)),
+                keep_alive: Some(Http2KeepAlive::None),
+                idle_timeout: Some(Http2IdleTimeout::None),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::FromServer),
                 ..Http2Options::default()
             },
             grpc: GrpcOptions {
@@ -3501,45 +3601,68 @@ mod tests {
             ..ChannelOptions::default()
         };
 
+        let tcp_of = |options: &ChannelOptions| {
+            options
+                .transport
+                .tcp_keepalive
+                .as_ref()
+                .expect("stated")
+                .to_config()
+                .expect("admissible")
+        };
         let kept = ChannelOptions::default().over(&earlier);
-        let tcp = kept.transport.tcp_keepalive.to_config().expect("kept");
+        let tcp = tcp_of(&kept);
         assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
         assert_eq!(tcp.keepalive_interval, Some(Duration::from_secs(5)));
         let http2 = kept.http2.to_config().expect("kept");
         assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(http2.idle_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(http2.simultaneous_calls_per_connection, Some(4));
         assert!(kept.grpc.rate.limit.to_config().expect("kept").is_some());
 
-        let off = zeros.over(&earlier);
-        let tcp = off.transport.tcp_keepalive.to_config().expect("off");
+        let off = nones.over(&earlier);
+        let tcp = tcp_of(&off);
         assert_eq!(
             (tcp.keepalive, tcp.keepalive_interval, tcp.keepalive_retries),
             (None, None, None),
-            "what goes with a keepalive that is off is not read, and not refused"
+            "what an earlier source said of the probes is not read"
         );
         let http2 = off.http2.to_config().expect("off");
         assert_eq!(http2.keep_alive_interval, None);
         assert_eq!(http2.idle_timeout, None);
+        assert_eq!(http2.simultaneous_calls_per_connection, None);
         assert_eq!(off.grpc.rate.limit.to_config().expect("off"), None);
     }
 
-    /// Zero is none for these options and nothing else: a value below what the option admits is
-    /// still refused.
+    /// A value that is stated is checked against what its option admits.
     #[test]
-    fn a_value_between_zero_and_the_least_an_option_admits_is_refused() {
-        assert!(TcpKeepaliveOptions {
-            idle_seconds: Some(-1),
-            ..TcpKeepaliveOptions::default()
-        }
-        .to_config()
-        .is_err());
+    fn a_value_below_what_an_option_admits_is_refused() {
         for options in [
             Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(1e-10)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(1e-10)))),
                 ..Http2Options::default()
             },
             Http2Options {
-                idle_timeout_seconds: Some(Seconds(1e-10)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(0.0)))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                    timeout_seconds: Some(Seconds(0.0)),
+                    ..Http2Ping::new(Seconds(1.0))
+                })),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(1e-10))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(0.0))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(0)),
                 ..Http2Options::default()
             },
         ] {
@@ -3551,15 +3674,73 @@ mod tests {
         }
         .to_config()
         .is_err());
-        assert!(
-            TcpKeepaliveOptions {
-                interval_seconds: Some(5),
-                ..TcpKeepaliveOptions::default()
-            }
-            .to_config()
-            .is_err(),
-            "an interval with no keepalive stated is still refused"
+    }
+
+    /// The keepalive and the idle timeout are alternatives, written and read as such, and a
+    /// probe cannot be stated without its idle time.
+    #[test]
+    fn the_keepalives_are_read_as_alternatives_with_their_mandatory_fields() {
+        let transport = |json: &str| serde_json::from_str::<TransportOptions>(json);
+        assert_eq!(
+            transport(r#"{"TcpKeepalive":"None"}"#)
+                .expect("none")
+                .tcp_keepalive,
+            Some(TcpKeepalive::None)
         );
+        assert_eq!(
+            transport(r#"{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"Retries":3}}}"#)
+                .expect("a probe")
+                .tcp_keepalive,
+            Some(TcpKeepalive::Probe(TcpProbe {
+                retries: Some(3),
+                ..TcpProbe::new(30)
+            }))
+        );
+        for refused in [
+            r#"{"TcpKeepalive":{"Probe":{"IntervalSeconds":5}}}"#,
+            r#"{"TcpKeepalive":{"Probe":{}}}"#,
+            r#"{"TcpKeepalive":"Probe"}"#,
+            r#"{"TcpKeepalive":{"None":true}}"#,
+        ] {
+            assert!(transport(refused).is_err(), "{refused}");
+        }
+
+        let http2 = |json: &str| serde_json::from_str::<Http2Options>(json);
+        assert_eq!(
+            http2(r#"{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}}}"#)
+                .expect("a ping")
+                .keep_alive,
+            Some(Http2KeepAlive::Ping(Http2Ping {
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(10.0))
+            }))
+        );
+        assert_eq!(
+            http2(r#"{"IdleTimeout":{"After":300},"SimultaneousCallsPerConnection":{"Limit":1}}"#)
+                .expect("a timeout and a limit"),
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(1)),
+                ..Http2Options::default()
+            }
+        );
+        assert_eq!(
+            http2(r#"{"IdleTimeout":"None","SimultaneousCallsPerConnection":"FromServer"}"#)
+                .expect("the neutral states"),
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::None),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::FromServer),
+                ..Http2Options::default()
+            }
+        );
+        for refused in [
+            r#"{"KeepAlive":{"Ping":{"TimeoutSeconds":2}}}"#,
+            r#"{"KeepAlive":"Ping"}"#,
+            r#"{"IdleTimeout":"After"}"#,
+            r#"{"SimultaneousCallsPerConnection":"Limit"}"#,
+        ] {
+            assert!(http2(refused).is_err(), "{refused}");
+        }
     }
 
     #[test]
@@ -3965,11 +4146,13 @@ mod tests {
     #[test]
     fn the_http2_options_become_the_session_configuration() {
         let config = Http2Options {
-            keep_alive_interval_seconds: Some(Seconds(10.0)),
-            keep_alive_timeout_seconds: Some(Seconds(2.5)),
-            keep_alive_while_idle: Some(true),
-            idle_timeout_seconds: Some(Seconds(300.0)),
-            simultaneous_calls_per_connection: Some(1),
+            keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                timeout_seconds: Some(Seconds(2.5)),
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(10.0))
+            })),
+            idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+            simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(1)),
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
                 stream_buffer_size: Some(4096),
@@ -4038,12 +4221,12 @@ mod tests {
         assert_eq!(refused.key(), "Send.StreamBufferSize");
 
         let refused = Http2Options {
-            simultaneous_calls_per_connection: Some(0),
+            simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(0)),
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a connection that carries no call");
-        assert_eq!(refused.key(), "SimultaneousCallsPerConnection");
+        assert_eq!(refused.key(), "SimultaneousCallsPerConnection.Limit");
 
         let refused = Http2Options {
             send: Http2SendOptions {
@@ -4105,7 +4288,10 @@ mod tests {
                 ..credits(2)
             },
             http2: Http2Options {
-                keep_alive_while_idle: Some(true),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                    while_idle: Some(true),
+                    ..Http2Ping::new(Seconds(10.0))
+                })),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                     stream_window_size: Some(70_000),
                     ..Http2FixedWindows::default()
@@ -4117,6 +4303,7 @@ mod tests {
         let merged = ChannelOptions {
             grpc: credits(3),
             http2: Http2Options {
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
                     stream_window_size: Some(80_000),
                     ..Http2FixedWindows::default()
@@ -4129,7 +4316,14 @@ mod tests {
 
         assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
         assert_eq!(merged.grpc.host.receive.window, Some(3));
-        assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
+        assert_eq!(
+            merged.http2.keep_alive,
+            Some(Http2KeepAlive::Ping(Http2Ping {
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(5.0))
+            })),
+            "a ping over a ping merges its fields"
+        );
         assert_eq!(
             merged.http2.receive,
             Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
@@ -4238,7 +4432,7 @@ mod tests {
             ..Http2Options::default()
         };
         let unstated = Http2Options {
-            keep_alive_while_idle: Some(true),
+            idle_timeout: Some(Http2IdleTimeout::None),
             ..Http2Options::default()
         };
 

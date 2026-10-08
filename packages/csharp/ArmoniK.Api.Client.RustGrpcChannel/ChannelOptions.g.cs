@@ -137,9 +137,7 @@ public sealed class TransportOptions
     Tls = other.Tls is null
             ? null
             : new TlsOptions(other.Tls);
-    TcpKeepalive = other.TcpKeepalive is null
-                     ? null
-                     : new TcpKeepaliveOptions(other.TcpKeepalive);
+    TcpKeepalive = other.TcpKeepalive;
     Proxy = other.Proxy;
     ConnectEagerly = other.ConnectEagerly;
   }
@@ -163,10 +161,10 @@ public sealed class TransportOptions
   public TlsOptions? Tls { get; set; }
 
   /// <summary>The socket's keepalive.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
+  /// <remarks>Defaults to <c>"None"</c>: no probe is sent.</remarks>
   [JsonPropertyName("TcpKeepalive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public TcpKeepaliveOptions? TcpKeepalive { get; set; }
+  public TcpKeepalive? TcpKeepalive { get; set; }
 
   /// <summary>The HTTP proxy every dial tunnels through.</summary>
   /// <remarks>
@@ -803,87 +801,126 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
   }
 }
 
-/// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
-/// <remarks>
-///   Each duration is a whole number of seconds, which is what the socket option holds.
-///   An <c>IdleSeconds</c> of 0 states that there is none, over what an earlier source set, and then
-///   <c>IntervalSeconds</c> and <c>Retries</c> are not read: they are what that source left.
-/// </remarks>
-public sealed class TcpKeepaliveOptions
+/// <summary>The socket's keepalive.</summary>
+[JsonConverter(typeof(TcpKeepaliveJsonConverter))]
+public abstract record TcpKeepalive
 {
-  /// <summary>Options nobody has set.</summary>
-  public TcpKeepaliveOptions()
+  private TcpKeepalive()
   {
   }
 
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public TcpKeepaliveOptions(TcpKeepaliveOptions other)
+  /// <summary>No probe is sent.</summary>
+  public sealed record None : TcpKeepalive
   {
-    if (other is null)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentNullException(nameof(other));
+      // The schema bounds nothing here.
     }
-
-    IdleSeconds = other.IdleSeconds;
-    IntervalSeconds = other.IntervalSeconds;
-    Retries = other.Retries;
   }
 
-  /// <summary>
+  /// <summary>Probes the peer once the connection has been idle, and drops it when they go unanswered.</summary>
+  /// <param name="IdleSeconds">
   ///   How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
-  ///   the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-  ///   the option leaves that source's value.
-  /// </remarks>
-  [JsonPropertyName("IdleSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? IdleSeconds { get; set; }
-
-  /// <summary>
+  ///   the most Linux holds: the operating system counts whole seconds.
+  /// </param>
+  /// <param name="IntervalSeconds">
   ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
   ///   system's.
-  /// </summary>
-  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
-  [JsonPropertyName("IntervalSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? IntervalSeconds { get; set; }
-
-  /// <summary>
+  /// </param>
+  /// <param name="Retries">
   ///   How many probes go unanswered before the connection is dropped, at most 127, the most
   ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
-  /// </summary>
-  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
-  [JsonPropertyName("Retries")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? Retries { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
+  /// </param>
+  public sealed record Probe(int IdleSeconds,
+                             int? IntervalSeconds = null,
+                             int? Retries = null) : TcpKeepalive
   {
-    if (IdleSeconds is int idleSeconds && (idleSeconds < 0 || idleSeconds > 32767))
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
-                                            idleSeconds,
-                                            "IdleSeconds has to be at least 0 and at most 32767.");
-    }
+      if (IdleSeconds is int idleSeconds && (idleSeconds < 1 || idleSeconds > 32767))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
+                                              idleSeconds,
+                                              "IdleSeconds has to be at least 1 and at most 32767.");
+      }
 
-    if (IntervalSeconds is int intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
-                                            intervalSeconds,
-                                            "IntervalSeconds has to be at least 1 and at most 32767.");
-    }
+      if (IntervalSeconds is int intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
+                                              intervalSeconds,
+                                              "IntervalSeconds has to be at least 1 and at most 32767.");
+      }
 
-    if (Retries is int retries && (retries < 1 || retries > 127))
+      if (Retries is int retries && (retries < 1 || retries > 127))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Retries),
+                                              retries,
+                                              "Retries has to be at least 1 and at most 127.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="TcpKeepalive" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class TcpKeepaliveJsonConverter : JsonConverter<TcpKeepalive>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override TcpKeepalive? Read(ref Utf8JsonReader reader,
+                                     Type typeToConvert,
+                                     JsonSerializerOptions options)
+    => throw new NotSupportedException("TcpKeepalive is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             TcpKeepalive value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  TcpKeepalive written)
+  {
+    switch (written)
     {
-      throw new ArgumentOutOfRangeException(nameof(Retries),
-                                            retries,
-                                            "Retries has to be at least 1 and at most 127.");
+      case TcpKeepalive.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case TcpKeepalive.Probe probe:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Probe");
+        writer.WriteNumber("IdleSeconds",
+                           probe.IdleSeconds);
+
+        if (probe.IntervalSeconds is int intervalSeconds)
+        {
+          writer.WriteNumber("IntervalSeconds",
+                             intervalSeconds);
+        }
+
+        if (probe.Retries is int retries)
+        {
+          writer.WriteNumber("Retries",
+                             retries);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
@@ -1159,10 +1196,8 @@ public sealed class Http2Options
       throw new ArgumentNullException(nameof(other));
     }
 
-    KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
-    KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
-    KeepAliveWhileIdle = other.KeepAliveWhileIdle;
-    IdleTimeoutSeconds = other.IdleTimeoutSeconds;
+    KeepAlive = other.KeepAlive;
+    IdleTimeout = other.IdleTimeout;
     SimultaneousCallsPerConnection = other.SimultaneousCallsPerConnection;
     Send = other.Send is null
              ? null
@@ -1170,49 +1205,31 @@ public sealed class Http2Options
     Receive = other.Receive;
   }
 
-  /// <summary>How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.</summary>
-  /// <remarks>Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.</remarks>
-  [JsonPropertyName("KeepAliveIntervalSeconds")]
+  /// <summary>Whether the session sends PINGs to check that the peer is there.</summary>
+  /// <remarks>Defaults to <c>"None"</c>: none is sent.</remarks>
+  [JsonPropertyName("KeepAlive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveIntervalSeconds { get; set; }
-
-  /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
-  /// <remarks>Defaults to 20.</remarks>
-  [JsonPropertyName("KeepAliveTimeoutSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveTimeoutSeconds { get; set; }
-
-  /// <summary>Whether a PING is also sent while no call is open.</summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("KeepAliveWhileIdle")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? KeepAliveWhileIdle { get; set; }
+  public Http2KeepAlive? KeepAlive { get; set; }
 
   /// <summary>
   ///   How long a connection stays open with no call on it before it is closed, the next call
   ///   dialling a new one. Each connection has its own. A call holds its connection to the end of
   ///   its response and of its request.
   /// </summary>
-  /// <remarks>
-  ///   At least a nanosecond, or 0 for none.
-  ///   Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
-  ///   earlier source set off.
-  /// </remarks>
-  [JsonPropertyName("IdleTimeoutSeconds")]
+  /// <remarks>Defaults to <c>"None"</c>: an idle connection stays open.</remarks>
+  [JsonPropertyName("IdleTimeout")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? IdleTimeoutSeconds { get; set; }
+  public Http2IdleTimeout? IdleTimeout { get; set; }
 
   /// <summary>
-  ///   How many calls one connection carries at once, never more than its server allows. A call
-  ///   that finds every connection full opens another, as many as the calls in flight need, and
-  ///   each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
-  ///   another on a connection but never share it, so that a GOAWAY a server sends because of one
-  ///   call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  ///   How many calls one connection carries at once. A call that finds every connection full
+  ///   opens another, as many as the calls in flight need, and each closes on its own idle
+  ///   timeout when <c>IdleTimeout</c> is set.
   /// </summary>
-  /// <remarks>Defaults to none: a connection carries as many calls as its server allows.</remarks>
+  /// <remarks>Defaults to <c>"FromServer"</c>.</remarks>
   [JsonPropertyName("SimultaneousCallsPerConnection")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? SimultaneousCallsPerConnection { get; set; }
+  public CallsPerConnection? SimultaneousCallsPerConnection { get; set; }
 
   /// <summary>What the session sends.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1230,36 +1247,297 @@ public sealed class Http2Options
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 0 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
-                                            keepAliveIntervalSeconds,
-                                            "KeepAliveIntervalSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveTimeoutSeconds),
-                                            keepAliveTimeoutSeconds,
-                                            "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 0 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
-                                            idleTimeoutSeconds,
-                                            "IdleTimeoutSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (SimultaneousCallsPerConnection is int simultaneousCallsPerConnection && simultaneousCallsPerConnection < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(SimultaneousCallsPerConnection),
-                                            simultaneousCallsPerConnection,
-                                            "SimultaneousCallsPerConnection has to be at least 1.");
-    }
-
+    KeepAlive?.Validate();
+    IdleTimeout?.Validate();
+    SimultaneousCallsPerConnection?.Validate();
     Send?.Validate();
     Receive?.Validate();
+  }
+}
+
+/// <summary>Whether the session sends PINGs, which an unresponsive peer ends it for.</summary>
+[JsonConverter(typeof(Http2KeepAliveJsonConverter))]
+public abstract record Http2KeepAlive
+{
+  private Http2KeepAlive()
+  {
+  }
+
+  /// <summary>No PING is sent.</summary>
+  public sealed record None : Http2KeepAlive
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>A PING is sent at an interval, and the session and its calls end when one goes unanswered.</summary>
+  /// <param name="IntervalSeconds">How often a PING is sent to the peer, at least a nanosecond.</param>
+  /// <param name="TimeoutSeconds">
+  ///   How long a PING may go unanswered before the session and its calls are ended.
+  ///   Defaults to 20.
+  /// </param>
+  /// <param name="WhileIdle">
+  ///   Whether a PING is also sent while no call is open.
+  ///   Defaults to false.
+  /// </param>
+  public sealed record Ping(double IntervalSeconds,
+                            double? TimeoutSeconds = null,
+                            bool? WhileIdle = null) : Http2KeepAlive
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (IntervalSeconds is double intervalSeconds && (intervalSeconds < 1E-09 || intervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(intervalSeconds) || double.IsInfinity(intervalSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
+                                              intervalSeconds,
+                                              "IntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+
+      if (TimeoutSeconds is double timeoutSeconds && (timeoutSeconds < 1E-09 || timeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(timeoutSeconds) || double.IsInfinity(timeoutSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(TimeoutSeconds),
+                                              timeoutSeconds,
+                                              "TimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Http2KeepAlive" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class Http2KeepAliveJsonConverter : JsonConverter<Http2KeepAlive>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Http2KeepAlive? Read(ref Utf8JsonReader reader,
+                                       Type typeToConvert,
+                                       JsonSerializerOptions options)
+    => throw new NotSupportedException("Http2KeepAlive is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Http2KeepAlive value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Http2KeepAlive written)
+  {
+    switch (written)
+    {
+      case Http2KeepAlive.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Http2KeepAlive.Ping ping:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Ping");
+        writer.WriteNumber("IntervalSeconds",
+                           ping.IntervalSeconds);
+
+        if (ping.TimeoutSeconds is double timeoutSeconds)
+        {
+          writer.WriteNumber("TimeoutSeconds",
+                             timeoutSeconds);
+        }
+
+        if (ping.WhileIdle is bool whileIdle)
+        {
+          writer.WriteBoolean("WhileIdle",
+                              whileIdle);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>When a connection with no call on it is closed.</summary>
+[JsonConverter(typeof(Http2IdleTimeoutJsonConverter))]
+public abstract record Http2IdleTimeout
+{
+  private Http2IdleTimeout()
+  {
+  }
+
+  /// <summary>Never: an idle connection stays open.</summary>
+  public sealed record None : Http2IdleTimeout
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>After this many seconds, at least a nanosecond.</summary>
+  /// <param name="Value">After this many seconds, at least a nanosecond.</param>
+  public sealed record After(double Value) : Http2IdleTimeout
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is double value && (value < 1E-09 || value >= 1.8446744073709552E+19 || double.IsNaN(value) || double.IsInfinity(value)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Http2IdleTimeout" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class Http2IdleTimeoutJsonConverter : JsonConverter<Http2IdleTimeout>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Http2IdleTimeout? Read(ref Utf8JsonReader reader,
+                                         Type typeToConvert,
+                                         JsonSerializerOptions options)
+    => throw new NotSupportedException("Http2IdleTimeout is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Http2IdleTimeout value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Http2IdleTimeout written)
+  {
+    switch (written)
+    {
+      case Http2IdleTimeout.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Http2IdleTimeout.After after:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("After",
+                           after.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>How many calls one connection carries at once.</summary>
+[JsonConverter(typeof(CallsPerConnectionJsonConverter))]
+public abstract record CallsPerConnection
+{
+  private CallsPerConnection()
+  {
+  }
+
+  /// <summary>As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.</summary>
+  public sealed record FromServer : CallsPerConnection
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   At most this many, and never more than the server allows. At 1, calls follow one another
+  ///   on a connection but never share it, so that a GOAWAY a server sends because of one call -
+  ///   nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  /// </summary>
+  /// <param name="Value">
+  ///   At most this many, and never more than the server allows. At 1, calls follow one another
+  ///   on a connection but never share it, so that a GOAWAY a server sends because of one call -
+  ///   nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  /// </param>
+  public sealed record Limit(int Value) : CallsPerConnection
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="CallsPerConnection" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class CallsPerConnectionJsonConverter : JsonConverter<CallsPerConnection>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override CallsPerConnection? Read(ref Utf8JsonReader reader,
+                                           Type typeToConvert,
+                                           JsonSerializerOptions options)
+    => throw new NotSupportedException("CallsPerConnection is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             CallsPerConnection value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  CallsPerConnection written)
+  {
+    switch (written)
+    {
+      case CallsPerConnection.FromServer:
+      {
+        writer.WriteStringValue("FromServer");
+        break;
+      }
+
+      case CallsPerConnection.Limit limit:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Limit",
+                           limit.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
   }
 }
 

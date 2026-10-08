@@ -75,7 +75,7 @@ fn channel(json: &str) -> Result<(), SettingRefusal> {
     ChannelSettings::settle(options(json)).map(drop)
 }
 
-const INCOHERENT: [(&str, &[&str]); 5] = [
+const INCOHERENT: [(&str, &[&str]); 3] = [
     (
         r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":10}}}"#,
         &[
@@ -90,21 +90,6 @@ const INCOHERENT: [(&str, &[&str]); 5] = [
     (
         r#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#,
         &["Grpc.Rate.Limit.Calls", "Grpc.Rate.Limit.PerSeconds"],
-    ),
-    (
-        r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5}}}"#,
-        &[
-            "Transport.TcpKeepalive.IdleSeconds",
-            "Transport.TcpKeepalive.IntervalSeconds",
-        ],
-    ),
-    (
-        r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5,"Retries":3}}}"#,
-        &[
-            "Transport.TcpKeepalive.IdleSeconds",
-            "Transport.TcpKeepalive.IntervalSeconds",
-            "Transport.TcpKeepalive.Retries",
-        ],
     ),
 ];
 
@@ -140,7 +125,7 @@ fn coherent_options_are_neither_refused_nor_said() {
         "{}",
         r#"{"Grpc":{"Retry":{"InitialBackoffSeconds":1,"MaxBackoffSeconds":1}}}"#,
         r#"{"Grpc":{"Rate":{"Limit":{"Calls":5,"PerSeconds":1}}}}"#,
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":5,"Retries":3}}}"#,
+        r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":5,"Retries":3}}}}"#,
     ] {
         channel(json).expect(json);
         assert_eq!(defaults(json), (Ok(()), Vec::new()), "{json}");
@@ -168,7 +153,6 @@ fn what_a_merge_completes_is_coherent() {
 #[test]
 fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
     for json in [
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":5,"Retries":3}}}"#,
         r#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":2}}}}"#,
         r#"{"Grpc":{"Rate":{"Limit":{"Calls":0}}}}"#,
     ] {
@@ -178,7 +162,7 @@ fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
 
     for (json, key) in [
         (
-            r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":0}}}"#,
+            r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":0}}}}"#,
             "IntervalSeconds",
         ),
         (

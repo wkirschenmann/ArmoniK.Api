@@ -410,7 +410,7 @@ mod tests {
         );
         let http2 = config.transport.http2;
         assert_eq!(
-            stated("/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/description"),
+            stated("/$defs/Http2Ping/properties/TimeoutSeconds/description"),
             http2.keep_alive_timeout.as_secs_f64()
         );
         let ReceiveWindows::Fixed(windows) = http2.receive_windows else {
@@ -603,17 +603,21 @@ mod tests {
         // The new units' integers, read from where each sits in the document.
         for (pointer, document) in [
             (
-                "/$defs/TcpKeepaliveOptions/properties/Retries/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
+                "/$defs/TcpProbe/properties/Retries/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"Retries":N}}}}"#,
             ),
-            // Whole seconds, as the operating system counts them, and zero is none.
+            // Whole seconds, as the operating system counts them.
             (
-                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
+                "/$defs/TcpProbe/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":N}}}}"#,
             ),
             (
-                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
+                "/$defs/TcpProbe/properties/IntervalSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":N}}}}"#,
+            ),
+            (
+                "/$defs/CallsPerConnection/oneOf/1/properties/Limit/minimum",
+                r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":N}}}"#,
             ),
             (
                 "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
@@ -651,8 +655,16 @@ mod tests {
         }
         for (pointer, document) in [
             (
-                "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
-                r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
+                "/$defs/Http2Ping/properties/TimeoutSeconds/minimum",
+                r#"{"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":1,"TimeoutSeconds":N}}}}"#,
+            ),
+            (
+                "/$defs/Http2Ping/properties/IntervalSeconds/minimum",
+                r#"{"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":N}}}}"#,
+            ),
+            (
+                "/$defs/Http2IdleTimeout/oneOf/1/properties/After/minimum",
+                r#"{"Http2":{"IdleTimeout":{"After":N}}}"#,
             ),
             (
                 "/$defs/RetryOptions/properties/InitialBackoffSeconds/minimum",
@@ -674,31 +686,6 @@ mod tests {
             let at = |value: f64| document.replace('N', &format!("{value:e}"));
             assert!(!admits(at(minimum / 2.0)), "{pointer}: below is admitted");
             assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
-        }
-
-        // These two state "none" as zero, which the schema's minimum is; what the engine admits
-        // above zero is its own bound, a nanosecond, stated in the option's description.
-        for (pointer, document, least) in [
-            (
-                "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
-                r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
-                1e-9,
-            ),
-            (
-                "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
-                r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
-                1e-9,
-            ),
-        ] {
-            assert_eq!(
-                schema.pointer(pointer).and_then(serde_json::Value::as_f64),
-                Some(0.0),
-                "{pointer}"
-            );
-            let at = |value: f64| document.replace('N', &format!("{value:e}"));
-            assert!(admits(at(0.0)), "{pointer}: zero is refused");
-            assert!(admits(at(least)), "{pointer}: the least is refused");
-            assert!(!admits(at(least / 2.0)), "{pointer}: below is admitted");
         }
     }
 
@@ -736,12 +723,10 @@ mod tests {
                         "ServerCertificates": {{ "CaPem": "{certificate}" }},
                         "ClientCertificate": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }}
                     }},
-                    "TcpKeepalive": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }}
+                    "TcpKeepalive": {{ "Probe": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }} }}
                 }},
                 "Http2": {{
-                    "KeepAliveIntervalSeconds": 10,
-                    "KeepAliveTimeoutSeconds": 2.5,
-                    "KeepAliveWhileIdle": true,
+                    "KeepAlive": {{ "Ping": {{ "IntervalSeconds": 10, "TimeoutSeconds": 2.5, "WhileIdle": true }} }},
                     "Receive": {{ "Fixed": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }} }}
                 }}
             }}"#
@@ -1081,8 +1066,8 @@ mod tests {
                 "Transport.Tls.ServerCertificates.CaPem",
             ),
             (
-                &br#"{"Transport":{"TcpKeepalive":{"Retries":3}}}"#[..],
-                "Transport.TcpKeepalive.Retries",
+                &br#"{"Transport":{"TcpKeepalive":{"Probe":{"Retries":3}}}}"#[..],
+                "Transport.TcpKeepalive.Probe",
             ),
             (
                 &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":65534}}}}"#[..],
@@ -1162,7 +1147,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"Receive":{"Fixed":{"StreamWindowSize":70000}}}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}},"Receive":{"Fixed":{"StreamWindowSize":70000}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(

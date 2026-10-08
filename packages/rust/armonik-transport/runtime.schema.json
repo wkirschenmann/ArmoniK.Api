@@ -65,8 +65,8 @@
           "$ref": "#/$defs/TlsOptions"
         },
         "TcpKeepalive": {
-          "description": "The socket's keepalive.\n\nDefaults to `{}`, which sets none.",
-          "$ref": "#/$defs/TcpKeepaliveOptions"
+          "description": "The socket's keepalive.\n\nDefaults to `\"None\"`: no probe is sent.",
+          "$ref": "#/$defs/TcpKeepalive"
         },
         "Proxy": {
           "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{\"System\": {}}`: the proxy the system names, if any, with no credentials of\nits own.",
@@ -317,33 +317,59 @@
         "Path"
       ]
     },
-    "TcpKeepaliveOptions": {
-      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is a whole number of seconds, which is what the socket option holds.\nAn `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then\n`IntervalSeconds` and `Retries` are not read: they are what that source left.",
+    "TcpKeepalive": {
+      "description": "The socket's keepalive.",
+      "oneOf": [
+        {
+          "description": "No probe is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "Probes the peer once the connection has been idle, and drops it when they go unanswered.",
+          "type": "object",
+          "properties": {
+            "Probe": {
+              "$ref": "#/$defs/TcpProbe"
+            }
+          },
+          "required": [
+            "Probe"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TcpProbe": {
+      "description": "The probes of a socket's keepalive, each duration a whole number of seconds, which is what the\nsocket option holds.",
       "type": "object",
       "properties": {
         "IdleSeconds": {
-          "description": "How many whole seconds the connection may be idle before the first probe, from 1 to 32767,\nthe most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.\n\nDefaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,\nthe option leaves that source's value.",
+          "description": "How many whole seconds the connection may be idle before the first probe, from 1 to 32767,\nthe most Linux holds: the operating system counts whole seconds.",
           "type": "integer",
           "format": "int32",
-          "minimum": 0,
+          "minimum": 1,
           "maximum": 32767
         },
         "IntervalSeconds": {
-          "description": "How many whole seconds between two probes, from 1 to 32767. Defaults to the operating\nsystem's.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
+          "description": "How many whole seconds between two probes, from 1 to 32767. Defaults to the operating\nsystem's.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
           "maximum": 32767
         },
         "Retries": {
-          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
           "maximum": 127
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "IdleSeconds"
+      ]
     },
     "ProxyOptions": {
       "description": "An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the\nserver.",
@@ -445,30 +471,17 @@
       "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",
       "type": "object",
       "properties": {
-        "KeepAliveIntervalSeconds": {
-          "description": "How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.\n\nDefaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "KeepAlive": {
+          "description": "Whether the session sends PINGs to check that the peer is there.\n\nDefaults to `\"None\"`: none is sent.",
+          "$ref": "#/$defs/Http2KeepAlive"
         },
-        "KeepAliveTimeoutSeconds": {
-          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
-        },
-        "KeepAliveWhileIdle": {
-          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
-          "type": "boolean"
-        },
-        "IdleTimeoutSeconds": {
-          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nAt least a nanosecond, or 0 for none.\n\nDefaults to none: an idle connection stays open. Zero is the way to turn a timeout an\nearlier source set off.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "IdleTimeout": {
+          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nDefaults to `\"None\"`: an idle connection stays open.",
+          "$ref": "#/$defs/Http2IdleTimeout"
         },
         "SimultaneousCallsPerConnection": {
-          "description": "How many calls one connection carries at once, never more than its server allows. A call\nthat finds every connection full opens another, as many as the calls in flight need, and\neach closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one\nanother on a connection but never share it, so that a GOAWAY a server sends because of one\ncall - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.\n\nDefaults to none: a connection carries as many calls as its server allows.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+          "description": "How many calls one connection carries at once. A call that finds every connection full\nopens another, as many as the calls in flight need, and each closes on its own idle\ntimeout when `IdleTimeout` is set.\n\nDefaults to `\"FromServer\"`.",
+          "$ref": "#/$defs/CallsPerConnection"
         },
         "Send": {
           "description": "What the session sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -480,6 +493,102 @@
         }
       },
       "additionalProperties": false
+    },
+    "Http2KeepAlive": {
+      "description": "Whether the session sends PINGs, which an unresponsive peer ends it for.",
+      "oneOf": [
+        {
+          "description": "No PING is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "A PING is sent at an interval, and the session and its calls end when one goes unanswered.",
+          "type": "object",
+          "properties": {
+            "Ping": {
+              "$ref": "#/$defs/Http2Ping"
+            }
+          },
+          "required": [
+            "Ping"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Http2Ping": {
+      "description": "The PINGs of a session.",
+      "type": "object",
+      "properties": {
+        "IntervalSeconds": {
+          "description": "How often a PING is sent to the peer, at least a nanosecond.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "TimeoutSeconds": {
+          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "WhileIdle": {
+          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "IntervalSeconds"
+      ]
+    },
+    "Http2IdleTimeout": {
+      "description": "When a connection with no call on it is closed.",
+      "oneOf": [
+        {
+          "description": "Never: an idle connection stays open.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "After this many seconds, at least a nanosecond.",
+          "type": "object",
+          "properties": {
+            "After": {
+              "$ref": "#/$defs/Seconds",
+              "minimum": 1e-9
+            }
+          },
+          "required": [
+            "After"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CallsPerConnection": {
+      "description": "How many calls one connection carries at once.",
+      "oneOf": [
+        {
+          "description": "As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.",
+          "type": "string",
+          "const": "FromServer"
+        },
+        {
+          "description": "At most this many, and never more than the server allows. At 1, calls follow one another\non a connection but never share it, so that a GOAWAY a server sends because of one call -\nnginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.",
+          "type": "object",
+          "properties": {
+            "Limit": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Limit"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "Http2SendOptions": {
       "description": "What an HTTP/2 session sends.",
