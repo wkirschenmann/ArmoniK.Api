@@ -242,6 +242,12 @@ impl Replay {
         }
     }
 
+    /// Compresses the messages the call's attempts take from its stream from now on, which are
+    /// the ones it sends after the first attempt has taken its turn.
+    pub(crate) fn compress_with(&self, encoding: Option<super::compression::Encoding>) {
+        self.kept().live.compress_with(encoding);
+    }
+
     /// The attempt that failed reads nothing more, while the call waits for the next one; what
     /// that one could be is read under the same lock, so no message the failed one takes after is
     /// missed.

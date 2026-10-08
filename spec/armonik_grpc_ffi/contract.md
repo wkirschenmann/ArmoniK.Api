@@ -204,8 +204,11 @@ pub struct GrpcChannelConfig {
     /// `armonik_transport`). A later head that lists it has calls compress
     /// again, logged at debug as a further refusal is. Behind a balancer whose
     /// backends differ, the state follows whichever answered last. A call
-    /// keeps the encoding it started with, so its messages and its
-    /// `grpc-encoding` agree through a retry; one sent compressed to a server
+    /// chooses its encoding when its first attempt has taken its turn at the
+    /// rate limit, and compresses nothing before: one that waits for its turn
+    /// and is ended there has compressed nothing. It keeps the encoding it
+    /// chose, so its messages and its `grpc-encoding` agree through a retry;
+    /// one sent compressed to a server
     /// that does not accept it ends UNIMPLEMENTED and is not sent again. A
     /// server that states no `grpc-accept-encoding` is not learned from.
     pub send_encoding: Option<Encoding>,

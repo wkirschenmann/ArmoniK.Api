@@ -22,7 +22,7 @@ use super::compression::{compressed, Encoding};
 use super::contained::contained;
 use super::metadata::Metadata;
 use super::origin::{Origin, Pushback};
-use super::request::RequestSlot;
+use super::request::{FramedMessage, RequestSlot};
 use super::retry::{jittered, OneReplay, Replay, RequestBody, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{Failure, GrpcStatus, Unprocessed};
@@ -84,8 +84,6 @@ pub(crate) struct Outgoing {
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
     pub(crate) wait_for_ready: bool,
-    /// What the call's messages are compressed with, as the channel stood when the call started.
-    pub(crate) encoding: Option<Encoding>,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -315,17 +313,22 @@ async fn run<S: ResponseSink>(
         read_gate,
         one_response,
         wait_for_ready,
-        encoding,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
     let replay_limit = policy.map(|policy| policy.call_replay_bytes);
-    let replay = match messages {
-        Sending::Stream(messages) => Sent::Stream(Replay::new(
-            messages,
-            replay_limit,
-            Arc::clone(&inner.replay),
-        )),
+    // What the call sent, kept for the attempts after the first. A stream's is made now; the
+    // one request is held, whole and as its caller wrote it, until the first attempt has its turn.
+    let mut replay: Option<Sent> = None;
+    let mut held: Option<FramedMessage> = None;
+    match messages {
+        Sending::Stream(messages) => {
+            replay = Some(Sent::Stream(Replay::new(
+                messages,
+                replay_limit,
+                Arc::clone(&inner.replay),
+            )));
+        }
         // Nothing goes out, not even the request's head, until the request is in: a call that ends
         // first has sent nothing its peer could act on.
         Sending::One(slot) => match until_stopped(stop, slot.taken()).await {
@@ -337,27 +340,14 @@ async fn run<S: ResponseSink>(
                         format!("a message of {len} bytes is past the {max} the channel sends"),
                     );
                 }
-                // Compressed once, here: every attempt sends the same bytes, and the replay is
-                // charged what is sent.
-                let request = match encoding {
-                    Some(encoding) => {
-                        match until_stopped(stop, compressed(encoding, request)).await {
-                            Some(request) => request,
-                            None => return GrpcStatus::cancelled(),
-                        }
-                    }
-                    None => request,
-                };
-                let body = request.body();
-                Sent::One(OneReplay::new(
-                    body,
-                    replay_limit,
-                    Arc::clone(&inner.replay),
-                ))
+                held = Some(request);
             }
             None | Some(None) => return GrpcStatus::cancelled(),
         },
-    };
+    }
+    // What the call's messages are compressed with, and the header says: the channel's, as it
+    // stands when the first attempt has taken its turn, and the call's for every attempt after.
+    let mut encoding: Option<Option<Encoding>> = None;
     // After the replay, so dropped before it: the call is marked cut before its end, or a panic's
     // unwinding, lets go of the request.
     let _cut_on_exit = CutOnExit {
@@ -408,6 +398,33 @@ async fn run<S: ResponseSink>(
                 }
             }
             None => {
+                let first = encoding.is_none();
+                let chosen = *encoding.get_or_insert_with(|| inner.send.now());
+                if let Some(Sent::Stream(stream)) = &replay {
+                    if first {
+                        stream.compress_with(chosen);
+                    }
+                } else if let Some(request) = held.take() {
+                    // Compressed once, here: every attempt sends the same bytes, and the replay
+                    // is charged what is sent.
+                    let request = match chosen {
+                        Some(encoding) => {
+                            match until_stopped(stop, compressed(encoding, request)).await {
+                                Some(request) => request,
+                                None => return GrpcStatus::cancelled(),
+                            }
+                        }
+                        None => request,
+                    };
+                    replay = Some(Sent::One(OneReplay::new(
+                        request.body(),
+                        replay_limit,
+                        Arc::clone(&inner.replay),
+                    )));
+                }
+                let sent = replay
+                    .as_ref()
+                    .expect("the replay is made by the first attempt");
                 // Only attempts that went out are previous ones: a skip sent nothing.
                 let mut headers = metadata.clone();
                 if previous > skipped {
@@ -417,13 +434,13 @@ async fn run<S: ResponseSink>(
                     inner,
                     path.clone(),
                     headers,
-                    replay.attempt(),
+                    sent.attempt(),
                     deadline,
                     read_gate.as_deref(),
                     one_response,
                     wait_for_ready,
-                    encoding,
-                    &replay,
+                    chosen,
+                    sent,
                     stop,
                     responding,
                 )
@@ -444,7 +461,11 @@ async fn run<S: ResponseSink>(
             }
             None => false,
         };
-        if again && replay.supersede().whole {
+        // A retry skipped for want of a turn follows an attempt that went out, and so a replay.
+        let sent = replay
+            .as_ref()
+            .expect("an attempt went out before one could fail or be skipped");
+        if again && sent.supersede().whole {
             continue;
         }
         previous += 1;
@@ -485,7 +506,7 @@ async fn run<S: ResponseSink>(
         }
         // Before the wait, so the failed attempt's stream reads nothing the host sends meanwhile;
         // under the same lock as that stream's last commit, so a call it committed is not retried.
-        if !replay.supersede().retryable {
+        if !sent.supersede().retryable {
             return status;
         }
         if until_stopped(stop, tokio::time::sleep(wait))

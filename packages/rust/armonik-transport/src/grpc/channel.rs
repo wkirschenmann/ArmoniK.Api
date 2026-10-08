@@ -195,8 +195,6 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let encoding = self.inner.send.now();
-        let grpc_call = grpc_call.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -205,7 +203,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding,
         };
         self.inner
             .spawner
@@ -226,8 +223,6 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let encoding = self.inner.send.now();
-        let send = send.compressing(encoding);
         let outgoing = Outgoing {
             path,
             metadata,
@@ -236,7 +231,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding,
         };
         Ok((
             send,
@@ -266,7 +260,6 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
-            encoding: self.inner.send.now(),
         };
         Ok((
             request,
@@ -828,8 +821,8 @@ pub(crate) struct Http2 {
     /// The request's body as it goes on the wire, framed already, in place of what tonic encoded
     /// from an empty stream of messages. Taken by the one request tonic's client sends.
     body: Option<RequestBody>,
-    /// What the call's messages are compressed with, decided when the call started: the header
-    /// has to say what its messages are, whatever the channel has learned since.
+    /// What the call's messages are compressed with, decided when its first attempt took its turn:
+    /// the header has to say what its messages are, whatever the channel has learned since.
     send: Option<Encoding>,
 }
 

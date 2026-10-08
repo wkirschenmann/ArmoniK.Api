@@ -27,6 +27,7 @@ static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
+static COMPRESSIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many writes the HTTP/2 connections of this process have made to the stream under them,
 /// TLS's when there is one: a write taken in parts counts each part.
@@ -46,6 +47,16 @@ pub fn delivery_rounds() -> usize {
 
 pub(crate) fn count_delivery_round() {
     DELIVERY_ROUNDS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// How many messages the engine has begun to compress in this process, whether or not the
+/// compression gained anything.
+pub fn compressions() -> usize {
+    COMPRESSIONS.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_compression() {
+    COMPRESSIONS.fetch_add(1, Ordering::SeqCst);
 }
 
 /// Runs `hook` at the start of every call's driver. `None` removes it.
