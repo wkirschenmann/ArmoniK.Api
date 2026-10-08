@@ -372,8 +372,9 @@ async fn run<S: ResponseSink>(
     let mut skipped = 0u32;
     let mut unsent_again = false;
     let mut refused_again = false;
-    // What the previous attempt failed with, while the attempt about to start is the policy's retry.
-    let mut retry_of: Option<GrpcStatus> = None;
+    // What the previous attempt failed with, and where that came from, while the attempt about to
+    // start is the policy's retry.
+    let mut retry_of: Option<(GrpcStatus, Origin)> = None;
     loop {
         // Before the attempt reads what is left of the deadline, so that `grpc-timeout` states what
         // remains after the wait. A retry the policy chose takes a turn only if one is free, and
@@ -395,11 +396,16 @@ async fn run<S: ResponseSink>(
             status,
             pushback,
             unprocessed,
-            ..
+            origin,
         } = match skip {
-            Some(failed) => {
+            Some((status, origin)) => {
                 skipped += 1;
-                Ended::local(failed)
+                Ended {
+                    status,
+                    pushback: Pushback::Unsaid,
+                    unprocessed: None,
+                    origin,
+                }
             }
             None => {
                 // Only attempts that went out are previous ones: a skip sent nothing.
@@ -446,7 +452,10 @@ async fn run<S: ResponseSink>(
         let Some(policy) = policy else {
             return status;
         };
+        // What the engine refused or ended itself is not the server's to try again, whatever code it
+        // carries: it would fail the same way, or the caller has ended it.
         let retryable = status.code != GrpcStatusCode::Ok
+            && origin != Origin::Local
             && policy.retryable_codes.contains(&status.code)
             && previous < policy.max_attempts;
         if !retryable {
@@ -485,7 +494,7 @@ async fn run<S: ResponseSink>(
         {
             return GrpcStatus::cancelled();
         }
-        retry_of = Some(status);
+        retry_of = Some((status, origin));
     }
 }
 

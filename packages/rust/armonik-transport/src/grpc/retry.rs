@@ -32,7 +32,8 @@ pub struct RetryConfig {
     pub max_backoff: Duration,
     /// What each bound is multiplied by, at least 1.
     pub backoff_multiplier: f64,
-    /// The codes a call is tried again for.
+    /// The codes a call is tried again for; at least one, or the channel is refused. A call is
+    /// not tried again for what the engine ended or refused itself, whatever the code.
     pub retryable_codes: Vec<GrpcStatusCode>,
     /// The bytes one call may keep for a replay.
     pub call_replay_bytes: usize,
@@ -88,6 +89,9 @@ impl RetryConfig {
         }
         if self.initial_backoff.is_zero() {
             return refuse("an `initial_backoff` of zero retries at once, with no backoff");
+        }
+        if self.retryable_codes.is_empty() {
+            return refuse("`retryable_codes` is empty, so no call would be tried again");
         }
         if self.max_backoff < self.initial_backoff {
             return refuse("`max_backoff` is below `initial_backoff`, the bound it starts from");
@@ -463,6 +467,10 @@ mod tests {
             },
             RetryConfig {
                 backoff_multiplier: f64::NAN,
+                ..RetryConfig::default()
+            },
+            RetryConfig {
+                retryable_codes: Vec::new(),
                 ..RetryConfig::default()
             },
         ] {

@@ -1736,20 +1736,17 @@ public abstract record RetryCodes
 
   /// <summary>
   ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  ///   one is needed, as in A6, and none is refused. <c>OK</c> is not a status a call fails with.
   /// </summary>
   /// <param name="Value">
   ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-  ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-  ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+  ///   one is needed, as in A6, and none is refused. <c>OK</c> is not a status a call fails with.
   /// </param>
   public sealed record List(global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value) : RetryCodes
   {
     /// <summary>
     ///   Exactly these statuses, spelled as gRFC A6's <c>retryableStatusCodes</c> spells them. At least
-    ///   one is needed, and a channel with none is refused when it is created: set <c>MaxAttempts</c> to
-    ///   1 to retry nothing. <c>OK</c> is not a status a call fails with.
+    ///   one is needed, as in A6, and none is refused. <c>OK</c> is not a status a call fails with.
     /// </summary>
     public global::System.Collections.Generic.IReadOnlyList<RetryableStatus> Value { get; init; } = new global::System.Collections.Generic.List<RetryableStatus>(Value ?? throw new ArgumentNullException(nameof(Value))).AsReadOnly();
 
@@ -1774,6 +1771,13 @@ public abstract record RetryCodes
     {
       if (Value is { } value)
       {
+        if (value.Count < 1)
+        {
+          throw new ArgumentOutOfRangeException(nameof(Value),
+                                                value.Count,
+                                                "Value has to name at least 1 item.");
+        }
+
         var valueUndeclared = value.Where(item => !Enum.IsDefined(typeof(RetryableStatus), item))
                                    .ToList();
 

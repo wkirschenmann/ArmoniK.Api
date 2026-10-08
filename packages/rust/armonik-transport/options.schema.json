@@ -652,14 +652,15 @@
           "additionalProperties": false
         },
         {
-          "description": "Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least\none is needed, and a channel with none is refused when it is created: set `MaxAttempts` to\n1 to retry nothing. `OK` is not a status a call fails with.",
+          "description": "Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least\none is needed, as in A6, and none is refused. `OK` is not a status a call fails with.",
           "type": "object",
           "properties": {
             "List": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/RetryableStatus"
-              }
+              },
+              "minItems": 1
             }
           },
           "required": [

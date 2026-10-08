@@ -350,6 +350,34 @@ async fn a_status_made_up_of_an_answer_that_ended_badly_is_not_the_servers() {
     );
 }
 
+/// A policy may name a code the engine also gives for its own refusals, and the engine's own
+/// refusal is not the server's to try again.
+#[tokio::test]
+async fn an_attempt_the_engine_ended_is_not_tried_again_whatever_codes_the_policy_names() {
+    let recorded = Recording::start();
+    let server = TestServer::start().await;
+    let mut config = GrpcChannelConfig::new(TransportConfig::new(
+        Uri::try_from(server.endpoint.as_str()).expect("an endpoint"),
+    ));
+    config.transport.http2.max_header_list_size = Some(8);
+    let mut retry = RetryConfig::default();
+    retry.retryable_codes = vec![GrpcStatusCode::ResourceExhausted];
+    retry.max_attempts = 3;
+    retry.initial_backoff = Duration::from_millis(5);
+    retry.max_backoff = Duration::from_millis(20);
+    config.retry = Some(retry);
+    let channel = channel_with(config).expect("a channel");
+
+    let code = run(&channel, CallStartOptions::new(ECHO)).await;
+
+    assert_eq!(code, GrpcStatusCode::ResourceExhausted);
+    assert_eq!(
+        recorded.ends(),
+        vec![(Origin::Local, GrpcStatusCode::ResourceExhausted)],
+        "one attempt, and no retry"
+    );
+}
+
 /// The call's own refusal of a message stops its attempt, which the engine ended.
 #[tokio::test]
 async fn a_message_past_the_send_limit_ends_the_attempt_as_the_engines() {

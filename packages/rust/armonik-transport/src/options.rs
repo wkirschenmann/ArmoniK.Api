@@ -1181,9 +1181,8 @@ pub enum RetryCodes {
     GrpcClient(Chosen),
 
     /// Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least
-    /// one is needed, and a channel with none is refused when it is created: set `MaxAttempts` to
-    /// 1 to retry nothing. `OK` is not a status a call fails with.
-    List(Vec<RetryableStatus>),
+    /// one is needed, as in A6, and none is refused. `OK` is not a status a call fails with.
+    List(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] Vec<RetryableStatus>),
 }
 
 impl Default for RetryCodes {
@@ -1200,7 +1199,7 @@ impl RetryCodes {
             Self::GrpcClient(_) => Ok(GRPC_CLIENT_CODES.to_vec()),
             Self::List(statuses) if statuses.is_empty() => Err(OptionRefusal::new(
                 "Codes.List",
-                "it names no status, so no call would be tried again; set MaxAttempts to 1 to retry nothing",
+                "it names no status, so no call would be tried again",
             )),
             Self::List(statuses) => {
                 let mut codes = Vec::with_capacity(statuses.len());

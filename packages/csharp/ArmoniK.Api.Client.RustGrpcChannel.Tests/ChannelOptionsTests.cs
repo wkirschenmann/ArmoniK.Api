@@ -222,6 +222,13 @@ public class ChannelOptionsTests
                     });
   }
 
+  /// <summary>A list that names no status is refused before it is sent.</summary>
+  [Test]
+  public void AnEmptyRetryListIsRefusedBeforeItIsSent()
+    => Assert.That(() => Retrying(new RetryCodes.List(Array.Empty<RetryableStatus>())).Encode(),
+                   Throws.TypeOf<ArgumentOutOfRangeException>()
+                         .With.Message.Contains("at least 1 item"));
+
   /// <summary>A number that is no status is refused before it is sent.</summary>
   [Test]
   public void ARetryListOfAnUndefinedStatusIsRefusedBeforeItIsSent()
