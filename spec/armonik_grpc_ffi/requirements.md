@@ -128,20 +128,20 @@ retried automatically, so that resilience is improved without additional applica
 
 ### Acceptance Criteria
 
-1. Calls that fail with status `UNAVAILABLE` are retried by default, which is what
-   `google.rpc.Code` advises for retrying the same call. `Grpc.Retry.Adaptive.Codes` selects the
-   statuses:
-   the `GoogleRpc` preset, `UNAVAILABLE` alone; the `GrpcClient` preset, `UNAVAILABLE`, `ABORTED`
-   and `UNKNOWN`, which is what `GrpcClient` retries; or an explicit `List`. The translation of
-   `GrpcClient`'s configuration states the `GrpcClient` preset, so that ArmoniK.Api.Client keeps
-   its behaviour.
-2. The default configuration is: 5 total attempts, initial backoff 1s, maximum 5s,
-   multiplier 1.5.
-3. The retry configuration is configurable. `Grpc.Retry` is `None`, which retries nothing, or
-   `Adaptive`, which carries the attempts, the codes, the backoff and the replay sizes; absent, it
-   is `Adaptive` with every default. `Adaptive` needs two attempts at least and one code at least:
-   a source that wants no retry states `None`, and neither one attempt nor an empty list of codes
-   says it.
+1. Calls that fail with status `UNAVAILABLE`, or on a connection that could not be made or ended
+   under the call, are retried by default: `UNAVAILABLE` alone is what `google.rpc.Code` advises for
+   retrying the same call. `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` names the
+   failures, as entries: `Status.X` for a gRPC status the server sent, `Http.N` for a proxy's
+   HTTP status, `Reset.R` for a stream the server reset, `Pushback`, `Dial` and `Connection`. An
+   entry that names none of these is refused, and an empty list retries nothing. The translation of
+   `GrpcClient`'s configuration states `Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`,
+   `Dial` and `Connection`, so that ArmoniK.Api.Client keeps its behaviour.
+2. The default configuration is: 5 total attempts, initial backoff 5s, maximum 120s,
+   multiplier 2.
+3. The retry configuration is configurable. `Grpc.OutboundTraffic.Retry` is `None`, which retries
+   nothing, or `ExponentialBackoff`, which carries the failures, the attempts and the backoff;
+   absent, it is `ExponentialBackoff` with every default. `ExponentialBackoff` needs two attempts at
+   least: a source that wants no retry states `None`, and one attempt does not say it.
 4. A client streaming call is only retried if the volume of data sent fits within a configurable
    replay buffer. Beyond that, the call is considered committed.
 5. A bidirectional call is retryable as long as no response (initial metadata or message) has
@@ -151,13 +151,29 @@ retried automatically, so that resilience is improved without additional applica
    insufficient for the backoff).
 8. The total number of attempts includes the initial attempt (5 attempts = 1 initial + 4
    retries).
-9. The replay buffer sizes are configurable on the channel: what one call may keep, and what all
-   of the channel's calls may keep together. A per-call size of 0 makes a call
-   non-retryable as soon as it sends a message that is not empty.
+9. The replay buffer sizes are configurable on the channel, as `Grpc.OutboundTraffic.Replay`, in
+   KiB: what one call may keep (`MaxPerCallKiB`, 1024), and what all of the channel's calls may keep
+   together (`MaxPerChannelKiB`, 16384). They apply to a retry and to a call its peer never
+   processed that is sent again, which also happens with `Retry` `None`. A per-call size of 0
+   makes a call non-retryable as soon as it sends a message that is not empty.
+10. Retries stop while the server fails more than it accepts. The channel keeps one estimate of
+    its server's health over a window of time, `Grpc.OutboundTraffic.Throttle`, on by default as
+    `Adaptive`: a retry is sent while the attempts that ended, less twice those the server
+    accepted, are at most a failure allowance of 10, and a retry is never sent while the rate is
+    capped. Two lists of failures, `TransientList` and `OverloadList`, say which failure counts as
+    which; a failure of the server's that neither names counts as an acceptance, and a deadline, a
+    cancel, a GOAWAY that left a call unprocessed and what the engine ended itself are never
+    counted.
+11. While the server is overloaded more than it lets through, first attempts start at a capped rate
+    and wait for their turns in the order they arrived, never under half a call a second; a call
+    whose deadline passes while it waits ends `DEADLINE_EXCEEDED` having sent nothing. A server
+    that is down, which fails transiently, never slows first attempts. `None` turns the
+    estimate off.
 
-**Status**: met, by the `Retry` option unit and the engine's attempts, which keep what any call
-sends and commit it at its head or past its ceiling or the channel's total. One ceiling serves
-every call, whatever it sends.
+**Status**: met, by the `Grpc.OutboundTraffic` option units and the engine's attempts, which keep
+what any call sends and commit it at its head or past its ceiling or the channel's total. One
+ceiling serves every call, whatever it sends. The estimate of criteria 10 and 11 is the engine's
+`AdaptiveConfig`, tested against a scripted server in `tests/grpc_adaptive.rs`.
 
 ---
 
