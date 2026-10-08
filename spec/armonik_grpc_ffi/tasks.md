@@ -875,8 +875,8 @@ scalar shapes today, and TLS's options may want an enumeration, a list or a choi
 Each arrives with the option that uses it, and not ahead of it.
 
 **Status**: done. The engine's connector dials `https://` through hyper-rustls, and each branch of
-it is reached from the engine in `tests/grpc_tls.rs`: given roots, the system's, none, another
-name, a client certificate. The three units are `Transport.Tls`, `Transport.TcpKeepalive` and
+it is reached from the engine in `tests/grpc_tls.rs`: given roots, the system's, none, a client
+certificate. The three units are `Transport.Tls`, `Transport.TcpKeepalive` and
 `Http2`, and `armonik-transport` converts each, reading the files `Tls` names; the FFI reader only
 calls the conversion. Three items read differently from the plan:
 

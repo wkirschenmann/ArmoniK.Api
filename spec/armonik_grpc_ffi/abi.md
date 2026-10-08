@@ -114,7 +114,8 @@ One prefix for the whole enum, `AK_STATUS_`: a value called `AK_RUNTIME_BUSY` wo
 The refusals divide by whether waiting helps. `AK_STATUS_SLOT_BUSY` and `AK_STATUS_BUDGET_BUSY`
 are backpressure, and the budget is not necessarily held by others: a call's own sends in flight
 hold it too. `AK_STATUS_MESSAGE_TOO_LARGE` asks the same ceiling for more than it is, so it is
-permanent where `AK_STATUS_BUDGET_BUSY` is transient. `AK_STATUS_INVALID_STATE` is a guard that
+permanent where `AK_STATUS_BUDGET_BUSY` is transient. Only a lend refused with it is woken
+by `AK_EVENT_BUDGET_WAKE`; a resize's refusal is not (see Calls). `AK_STATUS_INVALID_STATE` is a guard that
 refused - a destroy before quiescence, a start while stopping, a lend or a send on a call that
 is over or cancelled, a second end of sending - which is not a fault, and calling it `AK_STATUS_INTERNAL` would blame the
 runtime. `AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure
@@ -319,8 +320,8 @@ before the first byte - it calls `SetPayloadLength(CalculateSize())` - so no gro
 needed. The host says how many bytes it wrote when it commits, `ak_call_send_message(handle,
 buf, written)`, and only those are sent, so the host must have written them: the buffer is not
 zeroed, and nothing of it past `written` is read. A commit of more than the lend, or a
-write past its end that changed the bytes the library put after it, which the commit and
-`ak_return_call_buffer` check, is `AK_STATUS_CORRUPTED`: the memory around the buffer may be
+write past its end that changed the bytes the library put after it, which the commit,
+`ak_return_call_buffer` and `ak_resize_call_buffer` check, is `AK_STATUS_CORRUPTED`: the memory around the buffer may be
 corrupted, so the buffer is taken back without being freed and the runtime shuts down. The lend is refused with `AK_STATUS_INVALID_STATE` once the call is over or its cancellation
 requested, and its handle is stale once it is reclaimed; being refused on a call that has just ended is normal
 and not an error, and the same race exists on `ak_call_send_message`. Lending only on a live call
@@ -429,9 +430,9 @@ it had made and lets the exception through.
 #### Memory usage
 
 `ak_runtime_memory_usage` is the runtime's accounting, one number against the ceiling: the bytes
-of the buffers lent and of the messages received and not yet given back. A retry after
-`AK_STATUS_BUDGET_BUSY` does not read it - `AK_EVENT_BUDGET_WAKE` says when a release gave bytes
-back - but an operator does. A buffer occupies the ceiling from `ak_get_call_buffer` until the
+of the buffers lent and of the messages received and not yet given back. A retry after a lend
+refused with `AK_STATUS_BUDGET_BUSY` does not read it - `AK_EVENT_BUDGET_WAKE` says when a
+release gave bytes back - but an operator does. A buffer occupies the ceiling from `ak_get_call_buffer` until the
 runtime frees its bytes, and committing it frees nothing - it hands the same bytes from the host
 to the runtime - so only a fall in the total proves capacity came back. The number may pass the
 ceiling, the first threshold, by a message per call admitted to read below it, and never the
