@@ -441,6 +441,13 @@ method, as `GrpcClient` configures it, where gRPC would allow one per method; it
 `UNAVAILABLE` unless `Grpc.Retry.Codes` says otherwise, and `GrpcClient`'s three are its `GrpcClient`
 preset.
 
+**Where an attempt ended.** Several origins share one code: `UNAVAILABLE` is the server's own, a
+proxy's 503, a dial that failed, a refused stream and a GOAWAY. So each attempt that goes out and
+fails carries its `Origin` beside its status (see its documentation), and the `Pushback` its server
+stated, which is read after the head too. A stream a GOAWAY named as processed ends with the
+connection's own error, and its origin is the connection's. A caller sees nothing of it: the
+origin is logged at `debug` and told to a test by `hooks::on_attempt`.
+
 ---
 
 ## What is missing

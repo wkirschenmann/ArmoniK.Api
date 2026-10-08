@@ -21,10 +21,11 @@ use super::channel::Inner;
 use super::compression::{compressed, Encoding};
 use super::contained::contained;
 use super::metadata::Metadata;
+use super::origin::{Origin, Pushback};
 use super::request::RequestSlot;
 use super::retry::{jittered, OneReplay, Replay, RequestBody, Sent};
 use super::status::GrpcStatusCode;
-use super::status::{GrpcStatus, Unprocessed};
+use super::status::{Failure, GrpcStatus, Unprocessed};
 
 pub(crate) struct Driving<S> {
     stop: Stop,
@@ -294,35 +295,6 @@ async fn within_deadline<S: ResponseSink>(
 /// The header that tells the server how many attempts went before this one.
 const PREVIOUS_ATTEMPTS: &str = "grpc-previous-rpc-attempts";
 
-/// The trailer in which the server says how long to wait before a retry, or not to retry.
-const PUSHBACK: &str = "grpc-retry-pushback-ms";
-
-/// What a failed attempt's server said of a retry.
-enum Pushback {
-    /// Nothing: the backoff decides.
-    Unsaid,
-    /// Retry after this long.
-    After(std::time::Duration),
-    /// Do not retry: a negative or unreadable value, which gRFC A6 reads so.
-    Refused,
-}
-
-impl Pushback {
-    fn of(headers: &HeaderMap) -> Self {
-        let Some(value) = headers.get(PUSHBACK) else {
-            return Self::Unsaid;
-        };
-        match value
-            .to_str()
-            .ok()
-            .and_then(|text| text.parse::<u64>().ok())
-        {
-            Some(millis) => Self::After(std::time::Duration::from_millis(millis)),
-            None => Self::Refused,
-        }
-    }
-}
-
 /// The call's attempts: the first, then as many more as its retry policy allows while each
 /// fails with a code it names and with what it sent still kept for the replay, which a head
 /// reaching the reader ends.
@@ -423,10 +395,11 @@ async fn run<S: ResponseSink>(
             status,
             pushback,
             unprocessed,
+            ..
         } = match skip {
             Some(failed) => {
                 skipped += 1;
-                Ended::with(failed, Pushback::Unsaid)
+                Ended::local(failed)
             }
             None => {
                 // Only attempts that went out are previous ones: a skip sent nothing.
@@ -434,7 +407,7 @@ async fn run<S: ResponseSink>(
                 if previous > skipped {
                     headers.insert(PREVIOUS_ATTEMPTS, (previous - skipped).into());
                 }
-                attempt(
+                let ended = attempt(
                     inner,
                     path.clone(),
                     headers,
@@ -448,7 +421,9 @@ async fn run<S: ResponseSink>(
                     stop,
                     responding,
                 )
-                .await
+                .await;
+                ended.report();
+                ended
             }
         };
         // gRFC A6's transparent retry: a request the peer's application never saw goes again at
@@ -458,7 +433,9 @@ async fn run<S: ResponseSink>(
         // and its count rather than a loop of dials.
         let again = match unprocessed {
             Some(Unprocessed::Unsent) => !std::mem::replace(&mut unsent_again, true),
-            Some(Unprocessed::Refused) => !std::mem::replace(&mut refused_again, true),
+            Some(Unprocessed::RefusedStream | Unprocessed::GoAway) => {
+                !std::mem::replace(&mut refused_again, true)
+            }
             None => false,
         };
         if again && replay.supersede().whole {
@@ -512,21 +489,66 @@ async fn run<S: ResponseSink>(
     }
 }
 
-/// How an attempt ended, and what its peer said of another.
+/// How an attempt ended, where that came from, and what its peer said of another.
 struct Ended {
     status: GrpcStatus,
     pushback: Pushback,
     /// The peer's application never saw the request.
     unprocessed: Option<Unprocessed>,
+    origin: Origin,
 }
 
 impl Ended {
-    fn with(status: GrpcStatus, pushback: Pushback) -> Self {
+    /// An end that is the engine's own: a cancel, a limit, a refusing sink, a retry skipped.
+    fn local(status: GrpcStatus) -> Self {
+        Self {
+            status,
+            pushback: Pushback::Unsaid,
+            unprocessed: None,
+            origin: Origin::Local,
+        }
+    }
+
+    /// The server's status, in trailers or in a Trailers-Only head.
+    fn server(status: GrpcStatus, pushback: Pushback) -> Self {
         Self {
             status,
             pushback,
             unprocessed: None,
+            origin: Origin::Server,
         }
+    }
+
+    /// A status tonic returned. What the engine marked it with says where it came from; one it
+    /// did not mark is the server's when the peer stated a status that tonic read, and the engine's
+    /// or tonic's own when it did not.
+    fn of(status: tonic::Status, peer_stated: bool) -> Self {
+        let pushback = Pushback::of(&status.metadata().clone().into_headers());
+        let failure = Failure::marked(&status);
+        Self {
+            origin: match &failure {
+                Some(failure) => failure.origin.clone(),
+                None if peer_stated => Origin::Server,
+                None => Origin::Local,
+            },
+            unprocessed: failure.and_then(|failure| failure.unprocessed),
+            pushback,
+            status: GrpcStatus::from(status),
+        }
+    }
+
+    /// Tells the log, and a test that listens, of an attempt that went out and ended.
+    fn report(&self) {
+        if self.status.code != GrpcStatusCode::Ok {
+            tracing::debug!(
+                target: "armonik_transport",
+                code = ?self.status.code,
+                origin = %self.origin.describe(),
+                "an attempt failed"
+            );
+        }
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::attempt_ended(&self.origin, self.status.code, self.pushback);
     }
 }
 
@@ -572,14 +594,8 @@ async fn attempt<S: ResponseSink>(
         encoding,
     );
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
-        None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
-        Some(Err(status)) => {
-            return Ended {
-                pushback: Pushback::of(&status.metadata().clone().into_headers()),
-                unprocessed: Unprocessed::marked(&status),
-                status: GrpcStatus::from(status),
-            };
-        }
+        None => return Ended::local(GrpcStatus::cancelled()),
+        Some(Err(status)) => return Ended::of(status, responding.answered.stated()),
         Some(Ok(response)) => response,
     };
 
@@ -591,7 +607,7 @@ async fn attempt<S: ResponseSink>(
     // the head, so it is read from there, and nothing goes out as a head: delivering those
     // headers twice would have the reader see a head no such response has.
     if let Some(status) = tonic::Status::from_header_map(&head) {
-        return Ended::with(GrpcStatus::from(status), Pushback::of(&head));
+        return Ended::server(GrpcStatus::from(status), Pushback::of(&head));
     }
     // The reader has a head: whatever follows, this call is not tried again.
     replay.commit();
@@ -601,12 +617,13 @@ async fn attempt<S: ResponseSink>(
         origin: HeadOrigin::Wire,
     };
     // Given whatever the stop says: once a call has a head, the caller hears it before the end.
-    let status = match responding.sink.head(head).await {
-        Err(status) => status,
+    match responding.sink.head(head).await {
+        Err(status) => Ended::local(status),
         Ok(()) => {
             finish(
                 stop,
                 &mut responding.sink,
+                &responding.answered,
                 read_gate,
                 one_response,
                 inner.delivery_coalescing,
@@ -614,14 +631,13 @@ async fn attempt<S: ResponseSink>(
             )
             .await
         }
-    };
-    Ended::with(status, Pushback::Unsaid)
+    }
 }
 
 /// What the next read off the response found.
 enum Read {
     Message(Bytes),
-    End(GrpcStatus),
+    End(Ended),
 }
 
 /// The response's messages and trailers, once its head is given.
@@ -635,11 +651,12 @@ enum Read {
 async fn finish<S: ResponseSink>(
     stop: &mut Stop,
     sink: &mut S,
+    answered: &Answered,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
     coalescing: usize,
     body: &mut tonic::Streaming<Bytes>,
-) -> GrpcStatus {
+) -> Ended {
     let coalescing = if S::GATHERS { coalescing } else { 0 };
     let mut message_read = false;
     // The bytes of the messages read since the sink was last told to deliver, or none once it
@@ -649,7 +666,10 @@ async fn finish<S: ResponseSink>(
     loop {
         let turn_only = one_response && message_read;
         let read = {
-            let mut next = pin!(until_stopped(stop, read_next(read_gate, turn_only, body)));
+            let mut next = pin!(until_stopped(
+                stop,
+                read_next(answered, read_gate, turn_only, body)
+            ));
             let mut polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
             if polled.is_pending() && held.is_some_and(|bytes| bytes < coalescing) {
                 #[cfg(feature = "test-hooks")]
@@ -667,21 +687,22 @@ async fn finish<S: ResponseSink>(
             }
         };
         let message = match read {
-            None => return GrpcStatus::cancelled(),
-            Some(Read::End(status)) => return status,
+            None => return Ended::local(GrpcStatus::cancelled()),
+            Some(Read::End(ended)) => return ended,
             Some(Read::Message(message)) => message,
         };
         message_read = true;
         let bytes = message.len();
         match until_stopped(stop, sink.message(message)).await {
-            None => return GrpcStatus::cancelled(),
-            Some(Err(status)) => return status,
+            None => return Ended::local(GrpcStatus::cancelled()),
+            Some(Err(status)) => return Ended::local(status),
             Some(Ok(())) => held = Some(held.unwrap_or(0) + bytes),
         }
     }
 }
 
 async fn read_next(
+    answered: &Answered,
     read_gate: Option<&dyn ReadGate>,
     turn_only: bool,
     body: &mut tonic::Streaming<Bytes>,
@@ -696,12 +717,13 @@ async fn read_next(
         }
     }
     match body.message().await {
-        Err(status) => Read::End(GrpcStatus::from(past_the_limit(status))),
+        Err(status) => Read::End(Ended::of(past_the_limit(status), answered.stated())),
         Ok(Some(message)) => Read::Message(message),
         Ok(None) => Read::End(match body.trailers().await {
-            Err(status) => GrpcStatus::from(status),
+            Err(status) => Ended::of(status, answered.stated()),
             Ok(trailers) => {
-                GrpcStatus::ok(&trailers.map(MetadataMap::into_headers).unwrap_or_default())
+                let trailers = trailers.map(MetadataMap::into_headers).unwrap_or_default();
+                Ended::server(GrpcStatus::ok(&trailers), Pushback::of(&trailers))
             }
         }),
     }
@@ -716,7 +738,9 @@ fn past_the_limit(status: tonic::Status) -> tonic::Status {
     const TONIC_SAYS: &str = "Error, decoded message length too large";
 
     if status.code() == Code::OutOfRange && status.message().starts_with(TONIC_SAYS) {
-        tonic::Status::resource_exhausted(status.message())
+        let mut refused = tonic::Status::resource_exhausted(status.message());
+        refused.set_source(Arc::new(Failure::of(Origin::Local)));
+        refused
     } else {
         status
     }

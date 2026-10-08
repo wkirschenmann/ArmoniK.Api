@@ -1626,6 +1626,12 @@ the `GrpcClient` preset. The `armonik` crate has no translation of `GrpcClient`'
 and reads the loader's, so a Rust client that states nothing retries `UNAVAILABLE` alone.
 decisions.md has the reasons.
 
+**Error origins: done in the engine.** Each attempt that goes out and fails carries its `Origin`
+beside its status, `Unprocessed::Refused` is split into `REFUSED_STREAM` and a stream a GOAWAY left
+unprocessed, and the pushback is read on every failed attempt. It is the prerequisite of the health
+estimate and changes nothing a caller sees. `tests/grpc_origins.rs` records each origin through
+`hooks::on_attempt`; contract.md states what a GOAWAY that processed the stream leaves.
+
 **`Rate.Limit`: done in the engine.** It is `Grpc.Rate.Limit`, `Calls` and `PerSeconds`, read
 into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any
 other option: `Calls` requests start in a window of

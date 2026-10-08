@@ -710,6 +710,27 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
                 .header("grpc-message", "no%20room%20left"),
             vec![],
         ),
+        // An HTTP error that no gRPC status goes with, as a gateway answers: the status is the one
+        // `x-http-status` names.
+        "HttpError" => (
+            hyper::Response::builder()
+                .status(
+                    header_of(request, "x-http-status")
+                        .and_then(|status| status.parse::<u16>().ok())
+                        .and_then(|status| StatusCode::from_u16(status).ok())
+                        .unwrap_or(StatusCode::BAD_GATEWAY),
+                )
+                .header("content-type", "text/html"),
+            vec![Frame::data(Bytes::from_static(b"<h1>gateway</h1>"))],
+        ),
+        // A server that asks for a wait in the trailers of a call it has begun to answer.
+        "PushbackAfterHead" => (
+            grpc_head(),
+            vec![
+                Frame::data(grpc_message(0, b"first")),
+                trailers(&[("grpc-status", "14"), ("grpc-retry-pushback-ms", "700")]),
+            ],
+        ),
         "NotGrpc" => (
             hyper::Response::builder()
                 .status(StatusCode::OK)
@@ -881,8 +902,9 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             vec![],
         ),
         // A body that fails mid-stream, which is how hyper's server is made to send a
-        // RST_STREAM: it resets with INTERNAL_ERROR rather than finishing the response.
-        "ResetsMidBody" => (
+        // RST_STREAM: it resets with INTERNAL_ERROR rather than finishing the response. Paced, the
+        // head is out first and the stream breaks after the reader has it.
+        "ResetsMidBody" | "PacedReset" => (
             grpc_head(),
             vec![Frame::data(grpc_message(0, b"before the reset"))],
         ),
@@ -892,8 +914,8 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
     builder
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
-            then_fails: case == "ResetsMidBody",
-            paced: case == "Paced",
+            then_fails: case == "ResetsMidBody" || case == "PacedReset",
+            paced: case == "Paced" || case == "PacedReset",
             gave_way: false,
         }))
         .expect("a well-formed canned response")
