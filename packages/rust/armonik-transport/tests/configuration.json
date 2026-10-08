@@ -247,6 +247,144 @@
     "unknown": ["ChannelDefaults.Grpc.Nope"]
   },
   {
+    "name": "a file and a document give a list as an array, a later source's list replacing an earlier one's whole",
+    "files": {
+      "list.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Grpc\":{\"Receive\":{\"Compression\":[\"Gzip\",\"Deflate\"]},\"UserAgent\":\"base\"}}}}}}"
+    },
+    "sources": [
+      { "file": "list.json" },
+      { "document": { "ChannelDefaults": { "Grpc": { "Receive": { "Compression": ["Zstd"] } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Grpc": { "Receive": { "Compression": ["Zstd"] }, "UserAgent": "base" } }
+    }
+  },
+  {
+    "name": "an environment variable states a list as a JSON array, in the order written",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[\"Zstd\", \"Gzip\", \"Deflate\"]",
+      "ArmoniKFixture__ChannelDefaults__Grpc__Send__Compression": "Gzip"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": { "Grpc": { "Receive": { "Compression": ["Zstd", "Gzip", "Deflate"] }, "Send": { "Compression": "Gzip" } } }
+    }
+  },
+  {
+    "name": "the names in an environment list are matched without case, as the other variables' values are",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[\"zstd\", \"GZIP\"]"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": { "Grpc": { "Receive": { "Compression": ["Zstd", "Gzip"] } } }
+    }
+  },
+  {
+    "name": "an environment list given as a JSON array and as indices is refused with the form that is read",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[\"Gzip\"]",
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression__0": "Deflate"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "one variable states as a JSON array", "never": "Deflate" }
+  },
+  {
+    "name": "an empty array in the environment states an empty list, which replaces the earlier source's whole",
+    "prefix": "ArmoniKFixture",
+    "files": {
+      "list.json": "{\"ArmoniKFixture\":{\"ChannelDefaults\":{\"Grpc\":{\"Receive\":{\"Compression\":[\"Gzip\"]}}}}}"
+    },
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[]"
+    },
+    "sources": [
+      { "file": "list.json" },
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": { "Grpc": { "Receive": { "Compression": [] } } }
+    }
+  },
+  {
+    "name": "an environment list that is not JSON is refused by its path, with the form it takes, and never quoted",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[Deflate,"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "one variable states as a JSON array", "never": "[Deflate," }
+  },
+  {
+    "name": "a bare value where an environment list is expected is refused, not read as a list of one or split at commas",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "Deflate,Zstd"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "one variable states as a JSON array", "never": "Deflate,Zstd" }
+  },
+  {
+    "name": "JSON that is not an array where an environment list is expected is refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "{\"0\": \"Deflate\"}"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "one variable states as a JSON array", "never": "Deflate" }
+  },
+  {
+    "name": "keys under an environment list, as indices, are refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression__0": "Deflate"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "one variable states as a JSON array", "never": "Deflate" }
+  },
+  {
+    "name": "an element of an environment list that is not of its type is refused by its index and never quoted",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Receive__Compression": "[\"Gzip\", \"Brotli\"]"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Receive.Compression.1", "never": "Brotli" }
+  },
+  {
+    "name": "pairs refuse a list by its path, and say which sources state one",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__Receive__Compression": "Deflate" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "a file, a document or an environment variable states, and neither pairs nor a command line", "never": "Deflate" }
+  },
+  {
+    "name": "pairs refuse a list given as indices",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__Receive__Compression__0": "Deflate" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.Receive.Compression", "says": "neither pairs nor a command line", "never": "Deflate" }
+  },
+  {
     "name": "pairs that are not text values are refused",
     "sources": [
       { "pairs": "{\"Endpoint\":5}" }
