@@ -36,10 +36,12 @@ pub struct ChannelSettings {
     proxy: ProxyConfig,
     retry: RetryConfig,
     rate_limit: Option<RateLimitConfig>,
+    accept_encodings: Vec<crate::grpc::Encoding>,
 }
 
 impl ChannelSettings {
-    /// Settles the options, refusing exactly what the schema refuses, and saying over which key.
+    /// Settles the options, refusing what the schema refuses, and saying over which key, and the
+    /// `None` that a list of encodings to accept cannot hold.
     /// Options that cannot hold together are refused too, naming each: a channel's options are
     /// settled once they are merged, and then nothing can state another.
     pub fn settle(options: ChannelOptions) -> Result<Self, SettingRefusal> {
@@ -166,6 +168,10 @@ impl ChannelSettings {
             .convert()
             .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
         converted(found, "Grpc.Retry");
+        let accept_encodings = grpc
+            .receive
+            .accepted_encodings()
+            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Receive")))?;
         let (rate_limit, found) = grpc
             .rate_limit
             .convert()
@@ -183,6 +189,7 @@ impl ChannelSettings {
                 proxy,
                 retry,
                 rate_limit,
+                accept_encodings,
             },
             incoherent,
         ))
@@ -233,15 +240,8 @@ impl ChannelSettings {
         if let Some(max) = grpc.receive.max_message_size {
             config.max_recv_message_size = max as usize;
         }
-        config.send_encoding = grpc.send.compression.map(MessageEncoding::encoding);
-        config.accept_encodings = grpc
-            .receive
-            .compression
-            .iter()
-            .flatten()
-            .copied()
-            .map(MessageEncoding::encoding)
-            .collect();
+        config.send_encoding = grpc.send.compression.and_then(MessageEncoding::encoding);
+        config.accept_encodings = self.accept_encodings;
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
         }

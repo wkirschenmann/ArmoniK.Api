@@ -1884,16 +1884,41 @@ pub enum MessageEncoding {
     Deflate,
     /// RFC 8878 Zstandard, `zstd` on the wire.
     Zstd,
+    /// No compression, `identity` on the wire: the messages go out as they are and no
+    /// `grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the
+    /// compression off. It names no encoding to accept, and a list of them refuses it.
+    None,
 }
 
 impl MessageEncoding {
-    /// The engine's encoding of the same name.
-    pub fn encoding(self) -> crate::grpc::Encoding {
+    /// The engine's encoding of the same name, none for `None`.
+    pub fn encoding(self) -> Option<crate::grpc::Encoding> {
         match self {
-            Self::Gzip => crate::grpc::Encoding::Gzip,
-            Self::Deflate => crate::grpc::Encoding::Deflate,
-            Self::Zstd => crate::grpc::Encoding::Zstd,
+            Self::Gzip => Some(crate::grpc::Encoding::Gzip),
+            Self::Deflate => Some(crate::grpc::Encoding::Deflate),
+            Self::Zstd => Some(crate::grpc::Encoding::Zstd),
+            Self::None => None,
         }
+    }
+}
+
+impl GrpcReceiveOptions {
+    /// The encodings this client accepts besides `identity`, in the order stated. `None` is
+    /// refused: `identity` is always accepted, and an empty list says that there is no other.
+    pub fn accepted_encodings(&self) -> Result<Vec<crate::grpc::Encoding>, OptionRefusal> {
+        self.compression
+            .iter()
+            .flatten()
+            .map(|encoding| {
+                encoding.encoding().ok_or_else(|| {
+                    OptionRefusal::new(
+                        "Compression",
+                        "None names no encoding to accept: identity is always accepted, and an \
+                         empty list accepts no other",
+                    )
+                })
+            })
+            .collect()
     }
 }
 
@@ -1924,7 +1949,8 @@ pub struct GrpcSendOptions {
     /// compress again. A call that reached a server which does not accept the encoding ends
     /// `UNIMPLEMENTED` and is not sent again.
     ///
-    /// Defaults to none, the messages going out as they are.
+    /// Defaults to none, the messages going out as they are, which `None` says too, over an
+    /// encoding an earlier source set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
     pub compression: Option<MessageEncoding>,
@@ -1950,7 +1976,8 @@ pub struct GrpcReceiveOptions {
     /// which it states as `grpc-accept-encoding` in the order given, `identity` last. A server
     /// may then compress what it sends, in the first of them that it knows. A name given twice
     /// counts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A
-    /// message compressed in an encoding that is not listed ends its call `INTERNAL`.
+    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is
+    /// refused here: `identity` is always accepted.
     ///
     /// Defaults to none, only `identity` being accepted, which an empty list says too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3617,13 +3644,22 @@ mod tests {
         assert_eq!(sending.grpc.receive.compression, None);
 
         for (name, encoding, wire) in [
-            ("Gzip", MessageEncoding::Gzip, crate::grpc::Encoding::Gzip),
+            (
+                "Gzip",
+                MessageEncoding::Gzip,
+                Some(crate::grpc::Encoding::Gzip),
+            ),
             (
                 "Deflate",
                 MessageEncoding::Deflate,
-                crate::grpc::Encoding::Deflate,
+                Some(crate::grpc::Encoding::Deflate),
             ),
-            ("Zstd", MessageEncoding::Zstd, crate::grpc::Encoding::Zstd),
+            (
+                "Zstd",
+                MessageEncoding::Zstd,
+                Some(crate::grpc::Encoding::Zstd),
+            ),
+            ("None", MessageEncoding::None, None),
         ] {
             let sends = read(&format!(
                 r#"{{"Grpc":{{"Send":{{"Compression":"{name}"}}}}}}"#

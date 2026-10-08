@@ -180,6 +180,124 @@ public class CompressionTests : EchoServerFixture
                     });
   }
 
+  /// <summary>None sends the messages as they are.</summary>
+  [Test]
+  public async Task NoneSendsTheMessagesAsTheyAre()
+  {
+    var (reply, head, _) = await Say(Compressing(MessageEncoding.None))
+                             .ConfigureAwait(false);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(reply.Text,
+                                  Is.EqualTo(Text));
+                      Assert.That(head.GetValue("x-saw-encoding"),
+                                  Is.Null.Or.Empty);
+                      Assert.That(WireBytes(head),
+                                  Is.GreaterThanOrEqualTo(Text.Length));
+                    });
+  }
+
+  /// <summary>A name that accepts nothing is refused in the list of encodings to accept.</summary>
+  [Test]
+  public void NoneIsRefusedInTheListOfEncodingsToAccept()
+    => Assert.That(() => Runtime.Channel(Endpoint,
+                                         Compressing(accept: new[]
+                                                             {
+                                                               MessageEncoding.Gzip,
+                                                               MessageEncoding.None,
+                                                             })),
+                   Throws.InstanceOf<ArgumentException>()
+                         .With.Message.Contains("Grpc.Receive.Compression")
+                         .And.Message.Contains("identity is always accepted"));
+
+  /// <summary>A later source's None over an earlier one's Gzip sends the messages as they are, whichever sources they are.</summary>
+  [Test]
+  public async Task ALaterNoneOverAnEarlierGzipSendsUncompressed()
+  {
+    const string name = "ArmoniK__Client__Grpc__ChannelDefaults__Grpc__Send__Compression";
+
+    async Task<(string? Encoding, long Wire)> Sent(Func<NativeConfiguration, NativeConfiguration> sources)
+    {
+      var configuration = sources(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+                                                                                      {
+                                                                                        $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
+                                                                                      }));
+      var runtime = await RestartAsync(() => NativeRuntime.Create(configuration))
+                      .ConfigureAwait(false);
+      await using var channel = runtime.Channel(string.Empty);
+      using var call = Client(channel)
+        .SayAsync(new EchoRequest
+                  {
+                    Text = Text,
+                  });
+      await call.ResponseAsync.ConfigureAwait(false);
+      var head = await call.ResponseHeadersAsync.ConfigureAwait(false);
+      return (head.GetValue("x-saw-encoding"), WireBytes(head));
+    }
+
+    // Gzip from the environment, then None from the command line.
+    Environment.SetEnvironmentVariable(name,
+                                       "Gzip");
+    try
+    {
+      var gzip = await Sent(configuration => configuration.LoadConfigFromEnvironment())
+                   .ConfigureAwait(false);
+      Assert.That(gzip.Encoding,
+                  Is.EqualTo("gzip"),
+                  "the environment's Gzip");
+
+      var off = await Sent(configuration => configuration.LoadConfigFromEnvironment()
+                                                         .LoadConfigFromCommandLine(new[]
+                                                                                    {
+                                                                                      "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Send:Compression=None",
+                                                                                    }))
+                  .ConfigureAwait(false);
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(off.Encoding,
+                                    Is.Null.Or.Empty,
+                                    "None from the command line over the environment's Gzip");
+                        Assert.That(off.Wire,
+                                    Is.GreaterThanOrEqualTo(Text.Length));
+                      });
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+
+    // Gzip from the command line, then None from the environment, which is read later.
+    Environment.SetEnvironmentVariable(name,
+                                       "None");
+    try
+    {
+      var gzip = await Sent(configuration => configuration.LoadConfigFromCommandLine(new[]
+                                                                                     {
+                                                                                       "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Send:Compression=Gzip",
+                                                                                     }))
+                   .ConfigureAwait(false);
+      Assert.That(gzip.Encoding,
+                  Is.EqualTo("gzip"));
+
+      var off = await Sent(configuration => configuration.LoadConfigFromCommandLine(new[]
+                                                                                    {
+                                                                                      "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Send:Compression=Gzip",
+                                                                                    })
+                                                         .LoadConfigFromEnvironment())
+                  .ConfigureAwait(false);
+      Assert.That(off.Encoding,
+                  Is.Null.Or.Empty,
+                  "None from the environment over the command line's Gzip");
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(name,
+                                         null);
+    }
+  }
+
   /// <summary>What the engine compresses, grpc-dotnet's server inflates.</summary>
   [Test]
   public async Task AMessageTheEngineCompressesIsInflatedByTheReferenceServer()

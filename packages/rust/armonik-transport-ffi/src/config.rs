@@ -823,6 +823,46 @@ mod tests {
         assert!(parse(br#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#).is_err());
     }
 
+    /// `None` sends no compression, over an encoding the defaults state, and is no encoding to
+    /// accept.
+    #[test]
+    fn none_turns_the_send_compression_off_and_names_nothing_to_accept() {
+        let none = config_of(br#"{"Grpc":{"Send":{"Compression":"None"}}}"#);
+        assert_eq!(none.send_encoding, None);
+
+        let defaults =
+            defaults(br#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("valid defaults");
+        let kept = parse_over(defaults.as_ref(), b"{}").expect("the default's");
+        assert_eq!(
+            kept.into_channel_config("http://127.0.0.1:1".parse().expect("a uri"))
+                .send_encoding,
+            Some(Encoding::Gzip)
+        );
+        let off = parse_over(
+            defaults.as_ref(),
+            br#"{"Grpc":{"Send":{"Compression":"None"}}}"#,
+        )
+        .expect("None over Gzip");
+        assert_eq!(
+            off.into_channel_config("http://127.0.0.1:1".parse().expect("a uri"))
+                .send_encoding,
+            None
+        );
+
+        for document in [
+            &br#"{"Grpc":{"Receive":{"Compression":["None"]}}}"#[..],
+            &br#"{"Grpc":{"Receive":{"Compression":["Gzip","None"]}}}"#[..],
+        ] {
+            let refused = parse(document).err().expect("refused").to_string();
+            assert!(refused.starts_with("Grpc.Receive.Compression"), "{refused}");
+            assert!(refused.contains("identity is always accepted"), "{refused}");
+        }
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"Compression":[]}}}"#).accept_encodings,
+            vec![]
+        );
+    }
+
     #[test]
     fn a_document_that_names_nothing_is_a_valid_configuration() {
         // The endpoint crosses the ABI on its own, so nothing here is mandatory and every option

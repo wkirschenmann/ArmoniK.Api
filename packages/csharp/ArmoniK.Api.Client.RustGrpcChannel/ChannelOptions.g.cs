@@ -1825,7 +1825,8 @@ public sealed class GrpcSendOptions
   ///   are, and the channel logs a warning once. A later response that lists it has the channel
   ///   compress again. A call that reached a server which does not accept the encoding ends
   ///   <c>UNIMPLEMENTED</c> and is not sent again.
-  ///   Defaults to none, the messages going out as they are.
+  ///   Defaults to none, the messages going out as they are, which <c>None</c> says too, over an
+  ///   encoding an earlier source set.
   /// </remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -1866,6 +1867,13 @@ public enum MessageEncoding
 
   /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
   Zstd,
+
+  /// <summary>
+  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
+  ///   <c>grpc-encoding</c> is sent. Stated over an encoding an earlier source set, it turns the
+  ///   compression off. It names no encoding to accept, and a list of them refuses it.
+  /// </summary>
+  None,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -1907,7 +1915,8 @@ public sealed class GrpcReceiveOptions
   ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
   ///   may then compress what it sends, in the first of them that it knows. A name given twice
   ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
-  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>.
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>None</c> is
+  ///   refused here: <c>identity</c> is always accepted.
   /// </summary>
   /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]
