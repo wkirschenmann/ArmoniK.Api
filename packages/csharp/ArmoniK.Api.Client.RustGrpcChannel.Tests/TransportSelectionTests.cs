@@ -486,6 +486,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""IdleSeconds"":30")
                                       .And.Contain(@"""MaxAttempts"":5")
+                                      .And.Contain(@"""Codes"":{""GrpcClient"":true}")
                                       .And.Contain(@"""IdleTimeoutSeconds"":300"),
                                   "with no floor, the defaults of GrpcClient are translated");
                     });

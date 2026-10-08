@@ -1137,10 +1137,12 @@ raising the one value. T6.1 has settled what happens when either is reached.
 
 **Status**: done, for every cardinality alike, since nothing in the mechanism tells them apart;
 T6.4 is what exercises streams. `GrpcChannelConfig::retry` is a `RetryConfig` - `MaxAttempts`,
-the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, the codes
-UNAVAILABLE, ABORTED and UNKNOWN, `CallReplayBytes` and `ChannelReplayBytes` - which the `Retry`
-option unit fills, its defaults `GrpcClient`'s and grpc-dotnet's; the engine's own config has none,
-and an options document that sets nothing retries. The driver keeps each message a call sends,
+the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, the codes,
+`CallReplayBytes` and `ChannelReplayBytes` - which the `Retry` option unit fills,
+its backoff and replay defaults `GrpcClient`'s and grpc-dotnet's, its codes `UNAVAILABLE` alone
+(`Codes`'s `GoogleRpc` preset; the `GrpcClient` preset is the three of `UNAVAILABLE`, `ABORTED` and
+`UNKNOWN`, and a `List` is explicit); the engine's own config has none, and an options document
+that sets nothing retries. The driver keeps each message a call sends,
 within both limits, and runs attempts while one fails with a named code, no head has reached the
 reader and what it kept is whole: each after a wait drawn uniformly below a bound that grows by
 the multiplier to the maximum, or the server's `grpc-retry-pushback-ms`, which a negative or
@@ -1615,6 +1617,14 @@ built for win-x64 and win-x86 (x86_64 and i686 `pc-windows-msvc`); win-arm64, li
 linux-arm, linux-arm64, the three musl identifiers, osx-x64 and osx-arm64 are to be checked. A
 server that refuses an encoding without stating `grpc-accept-encoding`, as grpc-go's source does,
 is not learned from, so every call toward it ends UNIMPLEMENTED.
+
+**`Retry.Codes`: done in the engine, decided 2026-10-07.** `Grpc.Retry.Codes` is an enum of
+`GoogleRpc` (`UNAVAILABLE`), `GrpcClient` (`UNAVAILABLE`, `ABORTED`, `UNKNOWN`) and `List`, and the
+engine's default is `GoogleRpc`: `RetryConfig::default` carries `UNAVAILABLE` alone, and
+`RetryConfig::grpc_client()` the three. The translation of `GrpcClient` in ArmoniK.Api.Client states
+the `GrpcClient` preset. The `armonik` crate has no translation of `GrpcClient`'s configuration
+and reads the loader's, so a Rust client that states nothing retries `UNAVAILABLE` alone.
+decisions.md has the reasons.
 
 **`Rate.Limit`: done in the engine.** It is `Grpc.Rate.Limit`, `Calls` and `PerSeconds`, read
 into `GrpcChannelConfig.rate_limit`, and the `armonik` client reads it through the loader as any

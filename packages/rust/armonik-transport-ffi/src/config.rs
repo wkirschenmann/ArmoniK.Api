@@ -691,6 +691,37 @@ mod tests {
     }
 
     #[test]
+    fn the_retry_codes_reach_the_engine_and_a_list_naming_none_is_refused() {
+        use armonik_transport::grpc::GrpcStatusCode;
+
+        let codes = |document: &[u8]| {
+            config_of(document)
+                .retry
+                .expect("a retry policy")
+                .retryable_codes
+        };
+        assert_eq!(codes(b"{}"), [GrpcStatusCode::Unavailable]);
+        assert_eq!(
+            codes(br#"{"Grpc":{"Retry":{"Codes":{"GrpcClient":true}}}}"#),
+            [
+                GrpcStatusCode::Unavailable,
+                GrpcStatusCode::Aborted,
+                GrpcStatusCode::Unknown
+            ]
+        );
+        assert_eq!(
+            codes(br#"{"Grpc":{"Retry":{"Codes":{"List":["ABORTED"]}}}}"#),
+            [GrpcStatusCode::Aborted]
+        );
+
+        let refused = parse(br#"{"Grpc":{"Retry":{"Codes":{"List":[]}}}}"#)
+            .err()
+            .expect("refused")
+            .to_string();
+        assert!(refused.starts_with("Grpc.Retry.Codes.List"), "{refused}");
+    }
+
+    #[test]
     fn the_rate_limit_reaches_the_engine_and_a_limit_that_starts_nothing_is_refused() {
         assert_eq!(config_of(b"{}").rate_limit, None);
         assert_eq!(

@@ -115,6 +115,15 @@ namespace ArmoniK.Api.Client.Submitter
       }
 
       var retry = new RetryOptions();
+
+      // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the codes. The engine's
+      // own default is UNAVAILABLE alone, so the defaults of GrpcClient state the preset, which the
+      // sources below may still replace; a channel states none, since its options cannot differ here.
+      if (floor is null)
+      {
+        retry.Codes = new RetryCodes.GrpcClient();
+      }
+
       if (Stated(o => o.MaxAttempts))
       {
         retry.MaxAttempts = options.MaxAttempts;

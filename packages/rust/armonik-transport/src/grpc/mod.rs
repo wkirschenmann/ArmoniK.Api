@@ -22,5 +22,5 @@ pub use error::{CallError, ChannelError, GrpcChannelConfigError};
 pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 pub use rate_limit::RateLimitConfig;
 pub use request::{FramedMessage, OneRequest, FRAME_PREFIX};
-pub use retry::RetryConfig;
+pub use retry::{RetryConfig, GOOGLE_RPC_CODES, GRPC_CLIENT_CODES};
 pub use status::{GrpcStatus, GrpcStatusCode};

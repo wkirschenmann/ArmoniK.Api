@@ -128,7 +128,12 @@ retried automatically, so that resilience is improved without additional applica
 
 ### Acceptance Criteria
 
-1. Calls that fail with status `UNAVAILABLE`, `ABORTED` or `UNKNOWN` are retried.
+1. Calls that fail with status `UNAVAILABLE` are retried by default, which is what
+   `google.rpc.Code` advises for retrying the same call. `Grpc.Retry.Codes` selects the statuses:
+   the `GoogleRpc` preset, `UNAVAILABLE` alone; the `GrpcClient` preset, `UNAVAILABLE`, `ABORTED`
+   and `UNKNOWN`, which is what `GrpcClient` retries; or an explicit `List`. The translation of
+   `GrpcClient`'s configuration states the `GrpcClient` preset, so that ArmoniK.Api.Client keeps
+   its behaviour.
 2. The default configuration is: 5 total attempts, initial backoff 1s, maximum 5s,
    multiplier 1.5.
 3. The retry configuration is configurable.

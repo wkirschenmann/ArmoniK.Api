@@ -40,7 +40,20 @@ pub struct RetryConfig {
     pub channel_replay_bytes: usize,
 }
 
-/// The policy `GrpcClient` gives grpc-dotnet, with grpc-dotnet's replay limits.
+/// What `google.rpc.Code` advises for retrying the same call: UNAVAILABLE alone. ABORTED is for
+/// the caller to start its unit of work again, and UNKNOWN is a status from an error space this
+/// one does not know.
+pub const GOOGLE_RPC_CODES: [GrpcStatusCode; 1] = [GrpcStatusCode::Unavailable];
+
+/// The codes `GrpcClient` retries, which is the .NET `GrpcClient` default.
+pub const GRPC_CLIENT_CODES: [GrpcStatusCode; 3] = [
+    GrpcStatusCode::Unavailable,
+    GrpcStatusCode::Aborted,
+    GrpcStatusCode::Unknown,
+];
+
+/// The backoff and the replay limits `GrpcClient` gives grpc-dotnet, and the codes of
+/// [`GOOGLE_RPC_CODES`].
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
@@ -48,11 +61,7 @@ impl Default for RetryConfig {
             initial_backoff: Duration::from_secs(1),
             max_backoff: Duration::from_secs(5),
             backoff_multiplier: 1.5,
-            retryable_codes: vec![
-                GrpcStatusCode::Unavailable,
-                GrpcStatusCode::Aborted,
-                GrpcStatusCode::Unknown,
-            ],
+            retryable_codes: GOOGLE_RPC_CODES.to_vec(),
             call_replay_bytes: 1024 * 1024,
             channel_replay_bytes: 16 * 1024 * 1024,
         }
@@ -60,6 +69,14 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
+    /// The default policy with the codes `GrpcClient` retries, [`GRPC_CLIENT_CODES`].
+    pub fn grpc_client() -> Self {
+        Self {
+            retryable_codes: GRPC_CLIENT_CODES.to_vec(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn admissible(&self) -> Result<(), GrpcChannelConfigError> {
         let refuse = |why: &str| {
             Err(GrpcChannelConfigError::Retry {

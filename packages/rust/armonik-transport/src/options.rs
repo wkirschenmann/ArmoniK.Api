@@ -18,7 +18,9 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret;
 
-use crate::grpc::{RateLimitConfig, RetryConfig};
+use crate::grpc::{
+    GrpcStatusCode, RateLimitConfig, RetryConfig, GOOGLE_RPC_CODES, GRPC_CLIENT_CODES,
+};
 use crate::http2::{
     ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
     TlsConfig, LARGEST_FRAMES_PER_WRITE,
@@ -1094,8 +1096,8 @@ pub struct Http2FixedWindows {
 
 /// When a failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound
 /// that starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to
-/// `MaxBackoffSeconds`, for UNAVAILABLE, ABORTED and UNKNOWN, while no response head has reached
-/// the reader and what the call sent is still kept for the replay.
+/// `MaxBackoffSeconds`, for the statuses `Codes` names, while no response head has reached the
+/// reader and what the call sent is still kept for the replay.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -1130,6 +1132,17 @@ pub struct RetryOptions {
     )]
     pub max_backoff_seconds: Option<Seconds>,
 
+    /// The statuses a call is tried again for.
+    ///
+    /// Defaults to `{"GoogleRpc": true}`: UNAVAILABLE alone.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "RetryCodes"))]
+    pub codes: Option<RetryCodes>,
+
     /// What each bound is multiplied by; 1 retries at a fixed bound.
     ///
     /// Defaults to 1.5.
@@ -1151,6 +1164,135 @@ pub struct RetryOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub channel_replay_bytes: Option<i32>,
+}
+
+/// The statuses a call is tried again for.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum RetryCodes {
+    /// UNAVAILABLE alone, which is what `google.rpc.Code` advises for retrying the same call.
+    ///
+    /// ABORTED is for the caller to start its unit of work again, not to repeat the call, and
+    /// UNKNOWN is a status from an error space the client does not know.
+    GoogleRpc(Chosen),
+
+    /// UNAVAILABLE, ABORTED and UNKNOWN, which is the .NET `GrpcClient` default.
+    GrpcClient(Chosen),
+
+    /// Exactly these statuses, spelled as gRFC A6's `retryableStatusCodes` spells them. At least
+    /// one is needed, and a channel with none is refused when it is created: set `MaxAttempts` to
+    /// 1 to retry nothing. `OK` is not a status a call fails with.
+    List(Vec<RetryableStatus>),
+}
+
+impl Default for RetryCodes {
+    fn default() -> Self {
+        Self::GoogleRpc(Chosen)
+    }
+}
+
+impl RetryCodes {
+    /// The statuses this names, which are refused if it names none.
+    pub fn to_config(&self) -> Result<Vec<GrpcStatusCode>, OptionRefusal> {
+        match self {
+            Self::GoogleRpc(_) => Ok(GOOGLE_RPC_CODES.to_vec()),
+            Self::GrpcClient(_) => Ok(GRPC_CLIENT_CODES.to_vec()),
+            Self::List(statuses) if statuses.is_empty() => Err(OptionRefusal::new(
+                "Codes.List",
+                "it names no status, so no call would be tried again; set MaxAttempts to 1 to retry nothing",
+            )),
+            Self::List(statuses) => {
+                let mut codes = Vec::with_capacity(statuses.len());
+                for status in statuses {
+                    let code = status.code();
+                    if !codes.contains(&code) {
+                        codes.push(code);
+                    }
+                }
+                Ok(codes)
+            }
+        }
+    }
+}
+
+/// The name of a gRPC status a call may fail with, as gRFC A6 spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum RetryableStatus {
+    /// The call was cancelled, which a retry would undo.
+    Cancelled,
+
+    /// A status from an error space the client does not know, or an error with no status.
+    Unknown,
+
+    /// The request is wrong whatever the state of the server.
+    InvalidArgument,
+
+    /// The deadline passed before the call ended.
+    DeadlineExceeded,
+
+    /// Something the request names does not exist.
+    NotFound,
+
+    /// Something the request creates exists already.
+    AlreadyExists,
+
+    /// The caller may not do this.
+    PermissionDenied,
+
+    /// A quota or a resource is exhausted.
+    ResourceExhausted,
+
+    /// The system is not in the state the request needs.
+    FailedPrecondition,
+
+    /// A conflict, such as a failed sequencer check or a transaction abort.
+    Aborted,
+
+    /// The request is past a valid range.
+    OutOfRange,
+
+    /// The server does not implement the method.
+    Unimplemented,
+
+    /// An invariant of the server is broken.
+    Internal,
+
+    /// The service is unavailable, which is transient.
+    Unavailable,
+
+    /// Data is lost or corrupt.
+    DataLoss,
+
+    /// The request has no valid credentials.
+    Unauthenticated,
+}
+
+impl RetryableStatus {
+    /// The status code of the name.
+    pub fn code(self) -> GrpcStatusCode {
+        match self {
+            Self::Cancelled => GrpcStatusCode::Cancelled,
+            Self::Unknown => GrpcStatusCode::Unknown,
+            Self::InvalidArgument => GrpcStatusCode::InvalidArgument,
+            Self::DeadlineExceeded => GrpcStatusCode::DeadlineExceeded,
+            Self::NotFound => GrpcStatusCode::NotFound,
+            Self::AlreadyExists => GrpcStatusCode::AlreadyExists,
+            Self::PermissionDenied => GrpcStatusCode::PermissionDenied,
+            Self::ResourceExhausted => GrpcStatusCode::ResourceExhausted,
+            Self::FailedPrecondition => GrpcStatusCode::FailedPrecondition,
+            Self::Aborted => GrpcStatusCode::Aborted,
+            Self::OutOfRange => GrpcStatusCode::OutOfRange,
+            Self::Unimplemented => GrpcStatusCode::Unimplemented,
+            Self::Internal => GrpcStatusCode::Internal,
+            Self::Unavailable => GrpcStatusCode::Unavailable,
+            Self::DataLoss => GrpcStatusCode::DataLoss,
+            Self::Unauthenticated => GrpcStatusCode::Unauthenticated,
+        }
+    }
 }
 
 impl RetryOptions {
@@ -1190,7 +1332,12 @@ impl RetryOptions {
                 ))
             }
         };
+        let retryable_codes = match &self.codes {
+            None => defaults.retryable_codes.clone(),
+            Some(codes) => codes.to_config()?,
+        };
         Ok(RetryConfig {
+            retryable_codes,
             max_attempts: count(
                 "MaxAttempts",
                 self.max_attempts,
@@ -1704,9 +1851,9 @@ pub struct GrpcOptions {
 
     /// When a failed call is sent again.
     ///
-    /// Defaults to `{}`: five attempts in all, as `GrpcClient` has them. A call its peer never
-    /// processed goes again besides, whatever `MaxAttempts` is, while every message it sent is
-    /// kept.
+    /// Defaults to `{}`: five attempts in all, with `GrpcClient`'s backoff, for UNAVAILABLE alone.
+    /// A call its peer never processed goes again besides, whatever `MaxAttempts` is, while every
+    /// message it sent is kept.
     #[serde(default)]
     pub retry: RetryOptions,
 
@@ -1930,6 +2077,7 @@ over_values!(
     MessageEncoding,
     Vec<MessageEncoding>,
     CredentialedUrl,
+    Vec<RetryableStatus>,
 );
 
 /// `Over` for an enum whose every variant carries one value: the same variant merges what the two
@@ -2234,10 +2382,16 @@ over_fields!(Http2FixedWindows {
     connection_window_size,
 });
 over_variants!(Http2ReceiveOptions { Fixed, Adaptive });
+over_variants!(RetryCodes {
+    GoogleRpc,
+    GrpcClient,
+    List,
+});
 over_fields!(RetryOptions {
     max_attempts,
     initial_backoff_seconds,
     max_backoff_seconds,
+    codes,
     backoff_multiplier,
     call_replay_bytes,
     channel_replay_bytes,
@@ -3016,6 +3170,11 @@ mod tests {
             initial_backoff_seconds: Some(Seconds(0.5)),
             max_backoff_seconds: Some(Seconds(2.0)),
             backoff_multiplier: Some(2.0),
+            codes: Some(RetryCodes::List(vec![
+                RetryableStatus::Aborted,
+                RetryableStatus::Unavailable,
+                RetryableStatus::Aborted,
+            ])),
             call_replay_bytes: Some(10),
             channel_replay_bytes: Some(100),
         }
@@ -3025,6 +3184,11 @@ mod tests {
         assert_eq!(config.initial_backoff, Duration::from_millis(500));
         assert_eq!(config.max_backoff, Duration::from_secs(2));
         assert_eq!(config.backoff_multiplier, 2.0);
+        assert_eq!(
+            config.retryable_codes,
+            [GrpcStatusCode::Aborted, GrpcStatusCode::Unavailable],
+            "a list keeps its order and names each status once"
+        );
         assert_eq!(
             (config.call_replay_bytes, config.channel_replay_bytes),
             (10, 100)
@@ -3074,6 +3238,226 @@ mod tests {
             let refused = options.to_config().expect_err(key);
             assert_eq!(refused.key(), key, "{refused}");
         }
+    }
+
+    #[test]
+    fn the_retry_codes_are_the_standards_unless_stated() {
+        let codes = |codes: Option<RetryCodes>| {
+            RetryOptions {
+                codes,
+                ..RetryOptions::default()
+            }
+            .to_config()
+            .map(|config| config.retryable_codes)
+        };
+
+        assert_eq!(
+            codes(None).expect("the default"),
+            [GrpcStatusCode::Unavailable],
+            "google.rpc.Code retries UNAVAILABLE alone"
+        );
+        assert_eq!(
+            codes(Some(RetryCodes::GoogleRpc(Chosen))).expect("a preset"),
+            [GrpcStatusCode::Unavailable]
+        );
+        assert_eq!(
+            codes(Some(RetryCodes::GrpcClient(Chosen))).expect("a preset"),
+            [
+                GrpcStatusCode::Unavailable,
+                GrpcStatusCode::Aborted,
+                GrpcStatusCode::Unknown
+            ]
+        );
+        assert_eq!(
+            RetryOptions {
+                codes: Some(RetryCodes::GrpcClient(Chosen)),
+                ..RetryOptions::default()
+            }
+            .to_config()
+            .expect("a preset"),
+            RetryConfig::grpc_client()
+        );
+        assert_eq!(
+            codes(Some(RetryCodes::List(vec![
+                RetryableStatus::ResourceExhausted
+            ])))
+            .expect("a list"),
+            [GrpcStatusCode::ResourceExhausted]
+        );
+
+        let refused = codes(Some(RetryCodes::List(Vec::new()))).expect_err("an empty list");
+        assert_eq!(refused.key(), "Codes.List", "{refused}");
+    }
+
+    #[test]
+    fn the_retry_codes_are_read_as_an_alternative_of_names() {
+        let read = |document: &str| serde_json::from_str::<RetryOptions>(document);
+
+        assert_eq!(
+            read(r#"{"Codes":{"GoogleRpc":true}}"#)
+                .expect("a preset")
+                .codes,
+            Some(RetryCodes::GoogleRpc(Chosen))
+        );
+        assert_eq!(
+            read(r#"{"Codes":{"List":["UNAVAILABLE","DEADLINE_EXCEEDED"]}}"#)
+                .expect("a list")
+                .codes,
+            Some(RetryCodes::List(vec![
+                RetryableStatus::Unavailable,
+                RetryableStatus::DeadlineExceeded
+            ]))
+        );
+        assert_eq!(
+            read(r#"{"Codes":{"Elsewhere":true}}"#)
+                .expect("a key that names none is read past")
+                .codes,
+            None
+        );
+
+        for document in [
+            r#"{"Codes":{"GoogleRpc":true,"GrpcClient":true}}"#,
+            r#"{"Codes":{"GoogleRpc":true,"List":["ABORTED"]}}"#,
+            r#"{"Codes":{"GoogleRpc":false}}"#,
+            r#"{"Codes":{"List":["OK"]}}"#,
+            r#"{"Codes":{"List":["NOT_A_STATUS"]}}"#,
+            r#"{"Codes":{"List":["unavailable"]}}"#,
+            r#"{"Codes":{"List":[14]}}"#,
+            r#"{"Codes":{"List":"UNAVAILABLE"}}"#,
+        ] {
+            assert!(read(document).is_err(), "{document}");
+        }
+
+        let written = serde_json::to_string(&RetryOptions {
+            codes: Some(RetryCodes::List(vec![RetryableStatus::Aborted])),
+            ..RetryOptions::default()
+        })
+        .expect("serializable");
+        assert_eq!(written, r#"{"Codes":{"List":["ABORTED"]}}"#);
+    }
+
+    #[test]
+    fn every_retryable_status_names_the_code_of_its_spelling() {
+        for (status, name, code) in [
+            (
+                RetryableStatus::Cancelled,
+                "CANCELLED",
+                GrpcStatusCode::Cancelled,
+            ),
+            (RetryableStatus::Unknown, "UNKNOWN", GrpcStatusCode::Unknown),
+            (
+                RetryableStatus::InvalidArgument,
+                "INVALID_ARGUMENT",
+                GrpcStatusCode::InvalidArgument,
+            ),
+            (
+                RetryableStatus::DeadlineExceeded,
+                "DEADLINE_EXCEEDED",
+                GrpcStatusCode::DeadlineExceeded,
+            ),
+            (
+                RetryableStatus::NotFound,
+                "NOT_FOUND",
+                GrpcStatusCode::NotFound,
+            ),
+            (
+                RetryableStatus::AlreadyExists,
+                "ALREADY_EXISTS",
+                GrpcStatusCode::AlreadyExists,
+            ),
+            (
+                RetryableStatus::PermissionDenied,
+                "PERMISSION_DENIED",
+                GrpcStatusCode::PermissionDenied,
+            ),
+            (
+                RetryableStatus::ResourceExhausted,
+                "RESOURCE_EXHAUSTED",
+                GrpcStatusCode::ResourceExhausted,
+            ),
+            (
+                RetryableStatus::FailedPrecondition,
+                "FAILED_PRECONDITION",
+                GrpcStatusCode::FailedPrecondition,
+            ),
+            (RetryableStatus::Aborted, "ABORTED", GrpcStatusCode::Aborted),
+            (
+                RetryableStatus::OutOfRange,
+                "OUT_OF_RANGE",
+                GrpcStatusCode::OutOfRange,
+            ),
+            (
+                RetryableStatus::Unimplemented,
+                "UNIMPLEMENTED",
+                GrpcStatusCode::Unimplemented,
+            ),
+            (
+                RetryableStatus::Internal,
+                "INTERNAL",
+                GrpcStatusCode::Internal,
+            ),
+            (
+                RetryableStatus::Unavailable,
+                "UNAVAILABLE",
+                GrpcStatusCode::Unavailable,
+            ),
+            (
+                RetryableStatus::DataLoss,
+                "DATA_LOSS",
+                GrpcStatusCode::DataLoss,
+            ),
+            (
+                RetryableStatus::Unauthenticated,
+                "UNAUTHENTICATED",
+                GrpcStatusCode::Unauthenticated,
+            ),
+        ] {
+            assert_eq!(status.code(), code, "{name}");
+            assert_eq!(
+                serde_json::to_string(&status).expect("a name"),
+                format!("\"{name}\"")
+            );
+        }
+    }
+
+    #[test]
+    fn retry_codes_are_merged_as_an_alternative_and_a_list_is_one_value() {
+        let over = |own: Option<RetryCodes>, default: Option<RetryCodes>| {
+            let with = |codes| ChannelOptions {
+                grpc: GrpcOptions {
+                    retry: RetryOptions {
+                        codes,
+                        ..RetryOptions::default()
+                    },
+                    ..GrpcOptions::default()
+                },
+                ..ChannelOptions::default()
+            };
+            with(own).over(&with(default)).grpc.retry.codes
+        };
+        let list = |statuses: &[RetryableStatus]| Some(RetryCodes::List(statuses.to_vec()));
+        let preset = || Some(RetryCodes::GrpcClient(Chosen));
+
+        assert_eq!(over(preset(), preset()), preset(), "the same preset");
+        assert_eq!(over(None, preset()), preset(), "the default's, unstated");
+        assert_eq!(
+            over(Some(RetryCodes::GoogleRpc(Chosen)), preset()),
+            Some(RetryCodes::GoogleRpc(Chosen)),
+            "another alternative is taken whole"
+        );
+        assert_eq!(
+            over(list(&[RetryableStatus::Aborted]), preset()),
+            list(&[RetryableStatus::Aborted])
+        );
+        assert_eq!(
+            over(
+                list(&[RetryableStatus::Aborted]),
+                list(&[RetryableStatus::Unavailable, RetryableStatus::Unknown])
+            ),
+            list(&[RetryableStatus::Aborted]),
+            "a list replaces a list: it is one value"
+        );
+        assert_eq!(over(preset(), list(&[RetryableStatus::Aborted])), preset());
     }
 
     #[test]
