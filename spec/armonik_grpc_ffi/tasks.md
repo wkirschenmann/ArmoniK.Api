@@ -1519,6 +1519,14 @@ array of `Complete(byte[])`. The model has `ResizeSendBuffer` at level 1 and
 `WriteResizesBuffer` at level 2. Not done: a send window above one, its measurement, and its
 default.
 
+**Follow-up, decided on 2026-10-07**: the compressed copy of a message, which gRPC compression
+(T6.15) makes, counts against the FFI's memory ceiling, in addition to the host's buffer and
+released with the message. The ceiling charges only the buffer today and leaves the encoder's
+copy outside it (`architecture.md`, what the ceiling bounds), a paragraph that is amended when
+this is built. Open: what the engine does when the ceiling has no room for the compressed bytes.
+The committed buffer holds its charge until its WRITE_DONE, so waiting as a lend does has
+nothing to wake it; ending the call is the candidate.
+
 ---
 
 ## Phase 7 — Rust ArmoniK Client on armonik-transport
