@@ -25,6 +25,9 @@ using Grpc.Core;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>A message that turns out longer than the buffer it was lent is written on, not
@@ -410,5 +413,195 @@ public class ResizeTests : EchoServerFixture
 
     Assert.That(reply.Text,
                 Is.EqualTo(text));
+  }
+
+  /// <summary>A serializer that announces nothing, which Grpc.Core allows, still writes: its first
+  /// bytes are the first lend, and the buffer grows from there.</summary>
+  [Test]
+  public async Task AMessageThatAnnouncedNothingIsWrittenThroughTheLendItAsksFor()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+
+    var text = new string('n',
+                          100_000);
+    var requests = Serializing((request,
+                                context) =>
+                               {
+                                 Write(context.GetBufferWriter(),
+                                       request.ToByteArray());
+                                 context.Complete();
+                               });
+
+    var reply = channel.CreateCallInvoker()
+                       .BlockingUnaryCall(Say(requests),
+                                          null,
+                                          new CallOptions(),
+                                          new EchoRequest
+                                          {
+                                            Text = text,
+                                          });
+
+    Assert.That(reply.Text,
+                Is.EqualTo(text));
+  }
+
+  /// <summary>A serializer that announces zero bytes and then writes is in the same state as one
+  /// that announced nothing: no buffer is lent yet.</summary>
+  [Test]
+  public async Task AMessageThatAnnouncedZeroBytesIsWrittenThroughTheLendItAsksFor()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+
+    var requests = Serializing((request,
+                                context) =>
+                               {
+                                 context.SetPayloadLength(0);
+                                 Write(context.GetBufferWriter(),
+                                       request.ToByteArray());
+                                 context.Complete();
+                               });
+
+    var reply = channel.CreateCallInvoker()
+                       .BlockingUnaryCall(Say(requests),
+                                          null,
+                                          new CallOptions(),
+                                          new EchoRequest
+                                          {
+                                            Text = "written after announcing nothing",
+                                          });
+
+    Assert.That(reply.Text,
+                Is.EqualTo("written after announcing nothing"));
+  }
+
+  /// <summary>Lengths above this are the ones the failing allocator below refuses.</summary>
+  private const int Affordable = 4096;
+
+  /// <summary>An allocator that fails on a doubled size serves the size the message needs: the
+  /// write is not aborted for a size it did not ask for.</summary>
+  /// <remarks>The engine's allocator does not fail on request within a ceiling, so the exchange is
+  /// replaced for the test by one that answers with the allocator's failure once, for the first
+  /// length above <see cref="Affordable" />, and is the engine's otherwise.</remarks>
+  [Test]
+  public async Task AnAllocatorThatFailsOnTheDoubledSizeIsAskedForWhatTheMessageNeeds()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+
+    var text     = new string('a',
+                              20_000);
+    var failures = 0;
+    var requests = Serializing((request,
+                                context) =>
+                               {
+                                 context.SetPayloadLength(8);
+                                 Write(context.GetBufferWriter(),
+                                       request.ToByteArray());
+                                 context.Complete();
+                               });
+
+    var engine = LentBuffer.Exchanger;
+    LentBuffer.Exchanger = (ak_buffer     buffer,
+                            nuint         length,
+                            nuint         keep,
+                            out ak_buffer resized) =>
+                           {
+                             if (length > Affordable && failures == 0)
+                             {
+                               ++failures;
+                               resized = default;
+                               return ak_status.AK_STATUS_INTERNAL;
+                             }
+
+                             return LentBuffer.Engine(buffer,
+                                                      length,
+                                                      keep,
+                                                      out resized);
+                           };
+    try
+    {
+      var reply = channel.CreateCallInvoker()
+                         .BlockingUnaryCall(Say(requests),
+                                            null,
+                                            new CallOptions(),
+                                            new EchoRequest
+                                            {
+                                              Text = text,
+                                            });
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(failures,
+                                    Is.EqualTo(1),
+                                    "the allocator failed once");
+                        Assert.That(reply.Text,
+                                    Is.EqualTo(text));
+                      });
+    }
+    finally
+    {
+      LentBuffer.Exchanger = engine;
+    }
+  }
+
+  /// <summary>An allocator that fails on the size the message needs too ends the write as an
+  /// internal fault, after the one retry and no more.</summary>
+  [Test]
+  public async Task AnAllocatorThatFailsOnWhatTheMessageNeedsAbortsTheWriteAfterOneRetry()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+
+    var attempts = 0;
+    var requests = Serializing((request,
+                                context) =>
+                               {
+                                 context.SetPayloadLength(8);
+                                 Write(context.GetBufferWriter(),
+                                       request.ToByteArray());
+                                 context.Complete();
+                               });
+
+    var engine = LentBuffer.Exchanger;
+    LentBuffer.Exchanger = (ak_buffer     buffer,
+                            nuint         length,
+                            nuint         keep,
+                            out ak_buffer resized) =>
+                           {
+                             if (length > Affordable)
+                             {
+                               ++attempts;
+                               resized = default;
+                               return ak_status.AK_STATUS_INTERNAL;
+                             }
+
+                             return LentBuffer.Engine(buffer,
+                                                      length,
+                                                      keep,
+                                                      out resized);
+                           };
+    try
+    {
+      var refused = Assert.Throws<RpcException>(() => channel.CreateCallInvoker()
+                                                             .BlockingUnaryCall(Say(requests),
+                                                                                null,
+                                                                                new CallOptions(),
+                                                                                new EchoRequest
+                                                                                {
+                                                                                  Text = new string('b',
+                                                                                                    20_000),
+                                                                                }));
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(refused!.StatusCode,
+                                    Is.EqualTo(StatusCode.Internal));
+                        Assert.That(attempts,
+                                    Is.EqualTo(2),
+                                    "the doubled size, then the size asked for");
+                      });
+    }
+    finally
+    {
+      LentBuffer.Exchanger = engine;
+    }
   }
 }

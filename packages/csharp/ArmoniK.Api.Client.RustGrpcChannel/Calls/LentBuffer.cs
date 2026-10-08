@@ -28,8 +28,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 ///
 /// An instance serves that message and is then thrown away, which is what lets the buffer be asked
 /// for at the announced length and the written count be checked against it. The buffer is the
-/// state: holding none is a message not begun or already sent, and both refuse a write through a
-/// capacity of zero.
+/// state: holding none is a message not begun, with no length announced or an empty one, and a
+/// write then lends the first buffer.
 ///
 /// A message that turns out longer than it announced is not refused: the buffer is exchanged for a
 /// larger one, with what was written carried over. Memory the serializer holds then is a disposed
@@ -40,6 +40,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, IDisposable
 {
   private const int Page = 4096;
+
+  /// <summary>The engine's exchange of a lent buffer for another.</summary>
+  internal delegate ak_status Exchange(ak_buffer buffer,
+                                       nuint     length,
+                                       nuint     keep,
+                                       out ak_buffer resized);
+
+  /// <summary>What exchanges the buffer, which a test replaces to make the allocator fail where a
+  /// real one will not within the ceiling.</summary>
+  internal static Exchange Exchanger = Engine;
 
   private readonly int atLeast_;
   private readonly ulong call_;
@@ -231,7 +241,7 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   private UnmanagedMemoryManager Block
     => block_ ??= new UnmanagedMemoryManager(buffer_);
 
-  // Reached holding nothing, both callers having made sure of it, so no view can be naming an
+  // Reached holding nothing, all callers having made sure of it, so no view can be naming an
   // older buffer here.
   private unsafe ak_status Take(int length)
   {
@@ -284,16 +294,23 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   /// length.</remarks>
   private void Grow(long wanted)
   {
-    if (!Holding)
-    {
-      throw new RpcException(new Status(StatusCode.Internal,
-                                        $"the marshaller announced {Capacity} bytes and then asked to write {wanted}"));
-    }
-
     if (wanted > int.MaxValue)
     {
       throw new RpcException(new Status(StatusCode.ResourceExhausted,
                                         $"a message of {wanted} bytes does not fit one buffer"));
+    }
+
+    // Nothing is lent when the serializer announced no length, or zero: the first bytes are the
+    // first lend, whose refusal for room is a wait the engine wakes.
+    if (!Holding)
+    {
+      if (Take(Math.Max((int)wanted,
+                        atLeast_)) == ak_status.AK_STATUS_BUDGET_BUSY)
+      {
+        throw new NoRoomYet();
+      }
+
+      return;
     }
 
     var length = (int)Math.Min(Math.Max(wanted,
@@ -305,14 +322,17 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
                                                                  Capacity / 4)));
 
     // A smaller size is refused for room only when every larger one was, so what is left of the
-    // refusal after the last try is the room what was asked for needs.
+    // refusal after the last try is the room what was asked for needs. An allocator that fails
+    // on a larger size may serve what was asked for, so that is the one retry it gets.
     var status = Resize(length,
                         written_);
     while (status != ak_status.AK_STATUS_OK && length > wanted)
     {
-      length = length > least
-                 ? least
-                 : (int)(wanted + (length - wanted) / 2);
+      length = status == ak_status.AK_STATUS_INTERNAL
+                 ? (int)wanted
+                 : length > least
+                   ? least
+                   : (int)(wanted + (length - wanted) / 2);
       status = Resize(length,
                       written_);
     }
@@ -339,6 +359,10 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         RefusedExchange = true;
         throw new NoRoomYet();
 
+      case ak_status.AK_STATUS_INTERNAL:
+        throw new RpcException(new Status(StatusCode.Internal,
+                                          $"no buffer of {length} bytes to serialize into ({status})"));
+
       default:
         throw new RpcException(new Status(StatusCode.ResourceExhausted,
                                           $"a message of {length} bytes does not fit the ceiling"));
@@ -347,18 +371,16 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
 
   /// <summary>Exchanges the buffer for one of <paramref name="length" /> bytes, keeping the first
   /// <paramref name="keep" /> of what was written, unless the ceiling has no room for it, now or
-  /// ever, which is the status that says so.</summary>
+  /// ever, or the allocator failed, each of which is a status of its own.</summary>
   /// <remarks>Whatever else is refused leaves the buffer lent, and disposal returns it. What
   /// succeeds disposes the memory the serializer was handed, which names the old arena.</remarks>
-  private unsafe ak_status Resize(int length,
-                                  int keep)
+  private ak_status Resize(int length,
+                           int keep)
   {
-    ak_buffer resized;
-    var status = NativeMethods.ak_resize_call_buffer(buffer_,
-                                                     (nuint)length,
-                                                     (nuint)keep,
-                                                     &resized,
-                                                     null);
+    var status = Exchanger(buffer_,
+                           (nuint)length,
+                           (nuint)keep,
+                           out var resized);
     switch (status)
     {
       case ak_status.AK_STATUS_OK:
@@ -366,8 +388,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         buffer_ = resized;
         return status;
 
+      // An allocator failure leaves the buffer lent too, and a smaller size may be one the
+      // allocator serves.
       case ak_status.AK_STATUS_BUDGET_BUSY:
       case ak_status.AK_STATUS_MESSAGE_TOO_LARGE:
+      case ak_status.AK_STATUS_INTERNAL:
         return status;
 
       case ak_status.AK_STATUS_INVALID_STATE:
@@ -387,6 +412,21 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
         throw new RpcException(new Status(StatusCode.Internal,
                                           $"no buffer to serialize into ({status})"));
     }
+  }
+
+  internal static unsafe ak_status Engine(ak_buffer     buffer,
+                                          nuint         length,
+                                          nuint         keep,
+                                          out ak_buffer resized)
+  {
+    ak_buffer made = default;
+    var status = NativeMethods.ak_resize_call_buffer(buffer,
+                                                     length,
+                                                     keep,
+                                                     &made,
+                                                     null);
+    resized = made;
+    return status;
   }
 
   private void ReleaseBlock()
