@@ -449,41 +449,38 @@ const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication c
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TlsOptions {
-    /// How the server certificate is verified.
+    /// Which certificates the server's certificate is verified against, under the endpoint's host:
+    /// that name is also the one sent as SNI.
     ///
-    /// Defaults to the system's roots.
+    /// Defaults to `"System"`.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
         skip_serializing_if = "Option::is_none"
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "ServerVerification"))]
-    pub server: Option<ServerVerification>,
+    #[cfg_attr(feature = "schema", schemars(with = "ServerCertificates"))]
+    pub server_certificates: Option<ServerCertificates>,
 
     /// The certificate the client presents, and its key.
     ///
-    /// Defaults to none.
+    /// Defaults to `"None"`.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ClientCertificate"))]
-    pub client: Option<ClientCertificate>,
-
-    /// The host the server certificate is verified against, and sent as SNI, in place of the
-    /// endpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is
-    /// not read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub override_target_name: Option<String>,
+    pub client_certificate: Option<ClientCertificate>,
 }
 
-/// How the server certificate is verified.
+/// Which certificates the server's certificate is verified against.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub enum ServerVerification {
+pub enum ServerCertificates {
+    /// The system's roots.
+    System,
+
     /// Against the roots of a PEM file, named by its path, in place of the system's. Every
     /// certificate the file holds is a root.
     CaPem(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
@@ -494,9 +491,9 @@ pub enum ServerVerification {
     /// Refused off Windows.
     CaStore(StoreCertificate),
 
-    /// Not at all: any server certificate is accepted. The connection is still encrypted, to
-    /// whoever answers.
-    Unverified,
+    /// No verification: any server certificate is accepted. The connection is still encrypted,
+    /// to whoever answers.
+    None,
 }
 
 /// The certificate the client presents, and its key.
@@ -504,6 +501,9 @@ pub enum ServerVerification {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum ClientCertificate {
+    /// No certificate is presented.
+    None,
+
     /// From PEM files.
     Pem(PemCertificate),
 
@@ -1674,44 +1674,41 @@ fn open_pkcs12(bundle: &[u8], password: &str) -> Result<ClientIdentity, Unopened
 impl TlsOptions {
     /// What these options say, with every file they name read.
     pub fn load(&self) -> Result<TlsConfig, OptionRefusal> {
-        let (roots, accept_any_server) = match &self.server {
-            None => (Vec::new(), false),
-            Some(ServerVerification::CaPem(path)) => (certificates("Server.CaPem", path)?, false),
-            Some(ServerVerification::CaStore(store)) => (
+        let (roots, accept_any_server) = match &self.server_certificates {
+            None | Some(ServerCertificates::System) => (Vec::new(), false),
+            Some(ServerCertificates::CaPem(path)) => {
+                (certificates("ServerCertificates.CaPem", path)?, false)
+            }
+            Some(ServerCertificates::CaStore(store)) => (
                 vec![store
                     .root()
-                    .map_err(|refused| refused.under("Server.CaStore"))?],
+                    .map_err(|refused| refused.under("ServerCertificates.CaStore"))?],
                 false,
             ),
-            Some(ServerVerification::Unverified) => (Vec::new(), true),
+            Some(ServerCertificates::None) => (Vec::new(), true),
         };
 
-        let identity = match &self.client {
-            None => None,
-            Some(ClientCertificate::Pem(pem)) => {
-                Some(pem.load().map_err(|refused| refused.under("Client.Pem"))?)
-            }
+        let identity = match &self.client_certificate {
+            None | Some(ClientCertificate::None) => None,
+            Some(ClientCertificate::Pem(pem)) => Some(
+                pem.load()
+                    .map_err(|refused| refused.under("ClientCertificate.Pem"))?,
+            ),
             Some(ClientCertificate::P12(p12)) => Some(
                 pkcs12("Path", &p12.path, p12.password.as_ref())
-                    .map_err(|refused| refused.under("Client.P12"))?,
+                    .map_err(|refused| refused.under("ClientCertificate.P12"))?,
             ),
             Some(ClientCertificate::Store(store)) => Some(
                 store
                     .identity()
-                    .map_err(|refused| refused.under("Client.Store"))?,
+                    .map_err(|refused| refused.under("ClientCertificate.Store"))?,
             ),
         };
-
-        if let Some(name) = &self.override_target_name {
-            crate::http2::verified_name(name)
-                .map_err(|refused| OptionRefusal::new("OverrideTargetName", refused.to_string()))?;
-        }
 
         Ok(TlsConfig {
             roots,
             accept_any_server,
             identity,
-            server_name: self.override_target_name.clone(),
         })
     }
 }
@@ -2474,12 +2471,18 @@ mod alternative {
     }
 }
 
-over_variants!(ServerVerification {
-    Unverified;
+over_variants!(ServerCertificates {
+    System,
+    None;
     CaPem,
     CaStore,
 });
-over_variants!(ClientCertificate { ; Pem, P12, Store });
+over_variants!(ClientCertificate {
+    None;
+    Pem,
+    P12,
+    Store,
+});
 over_variants!(ProxyOptions {
     None;
     System,
@@ -2544,9 +2547,8 @@ over_fields!(HostReceiveOptions {
     coalescing_bytes,
 });
 over_fields!(TlsOptions {
-    server,
-    client,
-    override_target_name,
+    server_certificates,
+    client_certificate,
 });
 over_fields!(TcpKeepaliveOptions {
     idle_seconds,
@@ -2873,16 +2875,15 @@ mod tests {
         let (certificate, key) = pem_pair();
         let two = format!("{certificate}{certificate}");
         let options = TlsOptions {
-            server: Some(ServerVerification::CaPem(write(
+            server_certificates: Some(ServerCertificates::CaPem(write(
                 &directory,
                 "ca.pem",
                 &certificate,
             ))),
-            client: Some(ClientCertificate::Pem(PemCertificate::new(
+            client_certificate: Some(ClientCertificate::Pem(PemCertificate::new(
                 write(&directory, "chain.pem", &two),
                 write(&directory, "key.pem", &key),
             ))),
-            override_target_name: Some("server.test".to_owned()),
         };
 
         let config = options.load().expect("readable files");
@@ -2893,11 +2894,10 @@ mod tests {
             2,
             "the whole chain, in the file's order"
         );
-        assert_eq!(config.server_name.as_deref(), Some("server.test"));
         assert!(!config.accept_any_server);
 
         let unverified = TlsOptions {
-            server: Some(ServerVerification::Unverified),
+            server_certificates: Some(ServerCertificates::None),
             ..TlsOptions::default()
         }
         .load()
@@ -2918,7 +2918,7 @@ mod tests {
         let empty = write(&directory, "empty.pem", "no PEM here");
         let certificate = write(&directory, "cert.pem", &certificate);
         let pem = |certificate: &str, key: &str| TlsOptions {
-            client: Some(ClientCertificate::Pem(PemCertificate::new(
+            client_certificate: Some(ClientCertificate::Pem(PemCertificate::new(
                 certificate,
                 key,
             ))),
@@ -2928,28 +2928,24 @@ mod tests {
         for (options, key) in [
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaPem(missing.clone())),
+                    server_certificates: Some(ServerCertificates::CaPem(missing.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaPem",
+                "ServerCertificates.CaPem",
             ),
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaPem(empty.clone())),
+                    server_certificates: Some(ServerCertificates::CaPem(empty.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaPem",
+                "ServerCertificates.CaPem",
             ),
-            (pem(&missing, &certificate), "Client.Pem.Certificate"),
-            (pem(&certificate, &certificate), "Client.Pem.Key"),
-            (pem(&certificate, &missing), "Client.Pem.Key"),
             (
-                TlsOptions {
-                    override_target_name: Some("-nope-".to_owned()),
-                    ..TlsOptions::default()
-                },
-                "OverrideTargetName",
+                pem(&missing, &certificate),
+                "ClientCertificate.Pem.Certificate",
             ),
+            (pem(&certificate, &certificate), "ClientCertificate.Pem.Key"),
+            (pem(&certificate, &missing), "ClientCertificate.Pem.Key"),
         ] {
             let refused = options.load().expect_err(key);
             assert_eq!(refused.key(), key, "{refused}");
@@ -3015,14 +3011,14 @@ mod tests {
     #[test]
     fn a_document_naming_two_alternatives_is_refused() {
         for document in [
-            r#"{"Server":{"CaPem":"ca.pem","Unverified":null}}"#,
-            r#"{"Client":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
-            r#"{"Server":{"Unverified":true}}"#,
-            r#"{"Server":{"Unverified":false}}"#,
-            r#"{"Server":"CaPem"}"#,
-            r#"{"Server":"Elsewhere"}"#,
-            r#"{"Client":{"Pem":{"Certificate":"c.pem"}}}"#,
-            r#"{"Client":{"P12":{"Password":"s3cret"}}}"#,
+            r#"{"ServerCertificates":{"CaPem":"ca.pem","None":null}}"#,
+            r#"{"ClientCertificate":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
+            r#"{"ServerCertificates":{"None":true}}"#,
+            r#"{"ServerCertificates":{"None":false}}"#,
+            r#"{"ServerCertificates":"CaPem"}"#,
+            r#"{"ServerCertificates":"Elsewhere"}"#,
+            r#"{"ClientCertificate":{"Pem":{"Certificate":"c.pem"}}}"#,
+            r#"{"ClientCertificate":{"P12":{"Password":"s3cret"}}}"#,
         ] {
             let read = serde_json::from_str::<TlsOptions>(document);
             assert!(read.is_err(), "{document}");
@@ -3032,12 +3028,12 @@ mod tests {
             );
         }
         let read: TlsOptions = serde_json::from_str(
-            r#"{"Server":"Unverified","Client":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
+            r#"{"ServerCertificates":"None","ClientCertificate":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
         )
         .expect("one alternative each");
-        assert_eq!(read.server, Some(ServerVerification::Unverified));
+        assert_eq!(read.server_certificates, Some(ServerCertificates::None));
         assert_eq!(
-            read.client,
+            read.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new(
                 "c.p12",
                 Some(Password::new("x"))
@@ -3075,7 +3071,7 @@ mod tests {
 
     fn p12(path: &str, password: Option<&str>) -> TlsOptions {
         TlsOptions {
-            client: Some(ClientCertificate::P12(P12Certificate::new(
+            client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                 path,
                 password.map(Password::new),
             ))),
@@ -3171,7 +3167,7 @@ mod tests {
             p12(&two, Some("s3cret-word")),
         ] {
             let refused = options.load().expect_err("refused");
-            assert_eq!(refused.key(), "Client.P12.Path", "{refused}");
+            assert_eq!(refused.key(), "ClientCertificate.P12.Path", "{refused}");
             let said = refused.to_string();
             for secret in ["s3cret", "hunter2", &protected, &empty, &garbage, &two] {
                 assert!(!said.contains(secret), "{said}");
@@ -3190,17 +3186,17 @@ mod tests {
         for (options, unit) in [
             (
                 TlsOptions {
-                    client: Some(ClientCertificate::Store(store.clone())),
+                    client_certificate: Some(ClientCertificate::Store(store.clone())),
                     ..TlsOptions::default()
                 },
-                "Client.Store",
+                "ClientCertificate.Store",
             ),
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaStore(store.clone())),
+                    server_certificates: Some(ServerCertificates::CaStore(store.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaStore",
+                "ServerCertificates.CaStore",
             ),
         ] {
             let refused = options.load().expect_err(unit);
@@ -4259,6 +4255,37 @@ mod tests {
         );
     }
 
+    /// A later source returns to the system's roots and to no client certificate over a root and
+    /// a certificate an earlier one named: the neutral states are variants, which an absent key
+    /// could not say.
+    #[test]
+    fn the_system_roots_and_no_certificate_replace_what_an_earlier_source_set() {
+        let earlier: TlsOptions = serde_json::from_str(
+            r#"{"ServerCertificates":{"CaPem":"ca.pem"},"ClientCertificate":{"P12":{"Path":"me.p12"}}}"#,
+        )
+        .expect("an earlier source");
+        let later: TlsOptions =
+            serde_json::from_str(r#"{"ServerCertificates":"System","ClientCertificate":"None"}"#)
+                .expect("a later source");
+        assert_eq!(later.server_certificates, Some(ServerCertificates::System));
+        assert_eq!(later.client_certificate, Some(ClientCertificate::None));
+
+        let merged = later.over(&earlier);
+        assert_eq!(merged.server_certificates, Some(ServerCertificates::System));
+        assert_eq!(merged.client_certificate, Some(ClientCertificate::None));
+        let config = merged.load().expect("nothing to read");
+        assert!(config.roots.is_empty());
+        assert!(!config.accept_any_server);
+        assert!(config.identity.is_none());
+
+        // And what a source leaves out is what the earlier one set.
+        let kept = TlsOptions::default().over(&earlier);
+        assert_eq!(
+            kept.server_certificates,
+            Some(ServerCertificates::CaPem("ca.pem".to_owned()))
+        );
+    }
+
     /// An alternative stated over another is taken whole: nothing of the default's is combined
     /// into it. Beside it, every other option cumulates, the two backoff bounds included.
     #[test]
@@ -4268,9 +4295,10 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaPem("ca.pem".to_owned())),
-                    client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
-                    override_target_name: Some("server".to_owned()),
+                    server_certificates: Some(ServerCertificates::CaPem("ca.pem".to_owned())),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                        "me.p12", None,
+                    ))),
                 },
                 proxy: Some(ProxyOptions::Url(url)),
                 ..TransportOptions::default()
@@ -4287,7 +4315,7 @@ mod tests {
         let merged = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::Unverified),
+                    server_certificates: Some(ServerCertificates::None),
                     ..TlsOptions::default()
                 },
                 proxy: Some(ProxyOptions::None),
@@ -4305,13 +4333,12 @@ mod tests {
         .over(&defaults);
 
         let tls = &merged.transport.tls;
-        assert_eq!(tls.server, Some(ServerVerification::Unverified));
+        assert_eq!(tls.server_certificates, Some(ServerCertificates::None));
         assert_eq!(
-            tls.client,
+            tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
             "the identity is another alternative, which the channel leaves to its default"
         );
-        assert_eq!(tls.override_target_name.as_deref(), Some("server"));
         assert_eq!(merged.transport.proxy, Some(ProxyOptions::None));
         assert_eq!(
             merged.grpc.retry.initial_backoff_seconds,
@@ -4332,8 +4359,8 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaStore(store)),
-                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                    server_certificates: Some(ServerCertificates::CaStore(store)),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                         "default.p12",
                         Some(Password::new("bundle")),
                     ))),
@@ -4351,8 +4378,10 @@ mod tests {
         let merged = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaStore(own_store)),
-                    client: Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
+                    server_certificates: Some(ServerCertificates::CaStore(own_store)),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                        "own.p12", None,
+                    ))),
                     ..TlsOptions::default()
                 },
                 proxy: Some(ProxyOptions::Url(own_url)),
@@ -4371,14 +4400,15 @@ mod tests {
             url.password, None,
             "the default's password is for another proxy"
         );
-        let Some(ServerVerification::CaStore(store)) = &merged.transport.tls.server else {
-            panic!("{:?}", merged.transport.tls.server);
+        let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
+        else {
+            panic!("{:?}", merged.transport.tls.server_certificates);
         };
         assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
         assert_eq!(store.name.as_deref(), Some("Pinned"));
         assert_eq!(store.location, Some(StoreLocation::LocalMachine));
         assert_eq!(
-            merged.transport.tls.client,
+            merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
             "the default's password is for another bundle"
         );
@@ -4394,7 +4424,7 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                         "me.p12",
                         Some(Password::new("bundle")),
                     ))),
@@ -4411,7 +4441,9 @@ mod tests {
             ChannelOptions {
                 transport: TransportOptions {
                     tls: TlsOptions {
-                        client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
+                        client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                            "me.p12", None,
+                        ))),
                         ..TlsOptions::default()
                     },
                     proxy: Some(ProxyOptions::Url(own_url)),
@@ -4438,7 +4470,7 @@ mod tests {
             "another username takes none of the default's password"
         );
         assert_eq!(
-            merged.transport.tls.client,
+            merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new(
                 "me.p12",
                 Some(Password::new("bundle"))

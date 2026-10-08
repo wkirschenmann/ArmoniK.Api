@@ -57,25 +57,25 @@
       "description": "How an `https://` endpoint is secured. Each file is read when the channel is created, so a\npath that names nothing usable is refused then, by its option's name.",
       "type": "object",
       "properties": {
-        "Server": {
-          "description": "How the server certificate is verified.\n\nDefaults to the system's roots.",
-          "$ref": "#/$defs/ServerVerification"
+        "ServerCertificates": {
+          "description": "Which certificates the server's certificate is verified against, under the endpoint's host:\nthat name is also the one sent as SNI.\n\nDefaults to `\"System\"`.",
+          "$ref": "#/$defs/ServerCertificates"
         },
-        "Client": {
-          "description": "The certificate the client presents, and its key.\n\nDefaults to none.",
+        "ClientCertificate": {
+          "description": "The certificate the client presents, and its key.\n\nDefaults to `\"None\"`.",
           "$ref": "#/$defs/ClientCertificate"
-        },
-        "OverrideTargetName": {
-          "description": "The host the server certificate is verified against, and sent as SNI, in place of the\nendpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is\nnot read.",
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false
     },
-    "ServerVerification": {
-      "description": "How the server certificate is verified.",
+    "ServerCertificates": {
+      "description": "Which certificates the server's certificate is verified against.",
       "oneOf": [
+        {
+          "description": "The system's roots.",
+          "type": "string",
+          "const": "System"
+        },
         {
           "description": "Against the roots of a PEM file, named by its path, in place of the system's. Every\ncertificate the file holds is a root.",
           "type": "object",
@@ -104,9 +104,9 @@
           "additionalProperties": false
         },
         {
-          "description": "Not at all: any server certificate is accepted. The connection is still encrypted, to\nwhoever answers.",
+          "description": "No verification: any server certificate is accepted. The connection is still encrypted,\nto whoever answers.",
           "type": "string",
-          "const": "Unverified"
+          "const": "None"
         }
       ]
     },
@@ -198,6 +198,11 @@
     "ClientCertificate": {
       "description": "The certificate the client presents, and its key.",
       "oneOf": [
+        {
+          "description": "No certificate is presented.",
+          "type": "string",
+          "const": "None"
+        },
         {
           "description": "From PEM files.",
           "type": "object",

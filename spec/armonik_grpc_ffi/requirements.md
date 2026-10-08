@@ -173,7 +173,8 @@ infrastructure's security policy.
    (X509Store), identified by Thumbprint, SubjectName or FriendlyName. Resolution is performed
    on the Rust side.
 5. Unverified connection mode (insecure) is available via explicit opt-in.
-6. The `OverrideTargetName` option effectively modifies the name verified by the TLS handshake.
+6. The name verified by the TLS handshake, and sent as SNI, is the host of the endpoint. There is no option
+   to change it, `OverrideTargetName` of the existing client included: another name is another endpoint.
 7. A TLS error produces a diagnosable error message (without exposing secrets: private key paths,
    passwords).
 

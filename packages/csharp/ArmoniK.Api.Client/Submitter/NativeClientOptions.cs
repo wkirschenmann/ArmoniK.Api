@@ -48,15 +48,22 @@ namespace ArmoniK.Api.Client.Submitter
       var clear = options.Endpoint is not null && options.Endpoint.StartsWith("http://",
                                                                               StringComparison.OrdinalIgnoreCase);
       var tls = new TlsOptions();
+
+      // Stated either way, even when it says that nothing is set: the system's roots and no
+      // client certificate are values, which turn off what the sources below set.
       if (!clear && (Stated(nameof(GrpcClient.AllowUnsafeConnection)) || Stated(nameof(GrpcClient.CaCert))))
       {
         if (options.AllowUnsafeConnection)
         {
-          tls.Server = new ServerVerification.Unverified();
+          tls.ServerCertificates = new ServerCertificates.None();
         }
         else if (!string.IsNullOrWhiteSpace(options.CaCert))
         {
-          tls.Server = new ServerVerification.CaPem(options.CaCert);
+          tls.ServerCertificates = new ServerCertificates.CaPem(options.CaCert);
+        }
+        else
+        {
+          tls.ServerCertificates = new ServerCertificates.System();
         }
       }
 
@@ -64,18 +71,17 @@ namespace ArmoniK.Api.Client.Submitter
       {
         if (!string.IsNullOrWhiteSpace(options.CertP12))
         {
-          tls.Client = new ClientCertificate.P12(options.CertP12);
+          tls.ClientCertificate = new ClientCertificate.P12(options.CertP12);
         }
         else if (!string.IsNullOrWhiteSpace(options.CertPem) && !string.IsNullOrWhiteSpace(options.KeyPem))
         {
-          tls.Client = new ClientCertificate.Pem(options.CertPem,
-                                                 options.KeyPem);
+          tls.ClientCertificate = new ClientCertificate.Pem(options.CertPem,
+                                                            options.KeyPem);
         }
-      }
-
-      if (!clear && Stated(nameof(GrpcClient.OverrideTargetName)) && !string.IsNullOrEmpty(options.OverrideTargetName))
-      {
-        tls.OverrideTargetName = options.OverrideTargetName;
+        else
+        {
+          tls.ClientCertificate = new ClientCertificate.None();
+        }
       }
 
       var transport = new TransportOptions
@@ -212,6 +218,6 @@ namespace ArmoniK.Api.Client.Submitter
            : 0;
 
     private static bool IsEmpty(TlsOptions tls)
-      => tls.Server is null && tls.Client is null && tls.OverrideTargetName is null;
+      => tls.ServerCertificates is null && tls.ClientCertificate is null;
   }
 }

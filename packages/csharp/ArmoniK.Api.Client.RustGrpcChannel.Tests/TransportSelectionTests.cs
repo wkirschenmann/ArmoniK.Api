@@ -25,6 +25,7 @@ using Grpc.Core;
 using Grpc.Net.Client;
 
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 using NUnit.Framework;
 
@@ -172,7 +173,86 @@ public class TransportSelectionTests
                                                                                      },
                                                                                      true)
                                                                           .Encode()),
-                   Does.Contain(@"""Server"":""Unverified"""));
+                   Does.Contain(@"""ServerCertificates"":""None"""));
+
+  /// <summary>A TLS option set to nothing is stated as the system's roots and no client certificate, over what the sources below set.</summary>
+  [Test]
+  public void ATlsOptionSetToNothingIsStatedAsItsNeutralValue()
+  {
+    string Encoded(GrpcClient options)
+      => System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                           true)
+                                                                .Encode());
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            Endpoint              = "https://server.test:5001",
+                                            AllowUnsafeConnection = false,
+                                            CertPem               = string.Empty,
+                                          }),
+                                  Does.Contain(@"""ServerCertificates"":""System""")
+                                      .And.Contain(@"""ClientCertificate"":""None"""));
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            Endpoint = "https://server.test:5001",
+                                            CaCert   = "ca.pem",
+                                          }),
+                                  Does.Contain(@"""ServerCertificates"":{""CaPem"":""ca.pem""}")
+                                      .And.Not.Contain("ClientCertificate"),
+                                  "an option left alone is left to the sources below");
+                    });
+  }
+
+  /// <summary>The target name is not sent to the engine, which verifies the host of the endpoint, and the translation says so.</summary>
+  [Test]
+  public async Task TheTargetNameIsNotSentAndIsWarnedOf()
+  {
+    var options = new GrpcClient
+                  {
+                    Endpoint           = "https://server.test:5001",
+                    Transport          = ClientTransport.Native,
+                    OverrideTargetName = "other.test",
+                  };
+
+    Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(options,
+                                                                                  true)
+                                                                       .Encode()),
+                Does.Not.Contain("other.test"));
+
+    var logger = new RecordingLogger();
+    await using var channel = (NativeChannel)GrpcChannelFactory.CreateChannelBase(options,
+                                                                                  logger);
+    Assert.That(logger.Warnings,
+                Has.Some.Contain("OverrideTargetName is not read by the native transport"));
+  }
+
+  /// <summary>Keeps the warnings it is given.</summary>
+  private sealed class RecordingLogger : ILogger
+  {
+    public List<string> Warnings { get; } = new();
+
+    public IDisposable? BeginScope<TState>(TState state)
+      where TState : notnull
+      => null;
+
+    public bool IsEnabled(LogLevel logLevel)
+      => true;
+
+    public void Log<TState>(LogLevel                         logLevel,
+                            EventId                          eventId,
+                            TState                           state,
+                            Exception?                       exception,
+                            Func<TState, Exception?, string> formatter)
+    {
+      if (logLevel == LogLevel.Warning)
+      {
+        Warnings.Add(formatter(state,
+                               exception));
+      }
+    }
+  }
 
   /// <summary>Only the backoff that is set is sent, and the engine checks the pair once the options are merged.</summary>
   [Test]
@@ -740,8 +820,8 @@ public class TransportSelectionTests
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(stated,
                                                                                                     true)
                                                                                          .Encode()),
-                                  Does.Contain(@"""Server"":""Unverified""")
-                                      .And.Contain(@"""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}")
+                                  Does.Contain(@"""ServerCertificates"":""None""")
+                                      .And.Contain(@"""ClientCertificate"":{""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}}")
                                       .And.Contain(@"""Url"":{""Address"":""http://proxy.test:3128"",""Username"":""user""}")
                                       .And.Contain(@"""MaxAttempts"":3")
                                       .And.Contain(@"""DefaultDeadlineSeconds"":7"));

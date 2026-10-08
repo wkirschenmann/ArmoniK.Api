@@ -45,19 +45,18 @@ public class OptionVocabularyTests
   /// <summary>A `GrpcClient` option and the path of the option that answers it here.</summary>
   /// <remarks>
   ///   `CaCert` is a path on both sides, the `CaPem` alternative here. `AllowUnsafeConnection` is the
-  ///   `Unverified` alternative, and `Proxy` with its credentials the `Url` one: what excludes another
+  ///   `None` alternative of the server's certificates, and `Proxy` with its credentials the `Url` one: what excludes another
   ///   is an alternative here, where `GrpcClient` has options that refuse or ignore one another.
   ///   `KeepAliveTime` and `KeepAliveTimeInterval` are a socket's keepalive in `GrpcClient`, which
   ///   sets them through `ServicePoint.SetTcpKeepAlive`.
   /// </remarks>
   private static readonly IReadOnlyDictionary<string, string> Counterparts = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                              {
-                                                                               ["AllowUnsafeConnection"] = "Transport.Tls.Server.Unverified",
-                                                                               ["CaCert"]                = "Transport.Tls.Server.CaPem",
-                                                                               ["CertPem"]               = "Transport.Tls.Client.Pem.Certificate",
-                                                                               ["CertP12"]               = "Transport.Tls.Client.P12.Path",
-                                                                               ["KeyPem"]                = "Transport.Tls.Client.Pem.Key",
-                                                                               ["OverrideTargetName"]    = "Transport.Tls.OverrideTargetName",
+                                                                               ["AllowUnsafeConnection"] = "Transport.Tls.ServerCertificates.None",
+                                                                               ["CaCert"]                = "Transport.Tls.ServerCertificates.CaPem",
+                                                                               ["CertPem"]               = "Transport.Tls.ClientCertificate.Pem.Certificate",
+                                                                               ["CertP12"]               = "Transport.Tls.ClientCertificate.P12.Path",
+                                                                               ["KeyPem"]                = "Transport.Tls.ClientCertificate.Pem.Key",
                                                                                ["KeepAliveTime"]         = "Transport.TcpKeepalive.IdleSeconds",
                                                                                ["KeepAliveTimeInterval"] = "Transport.TcpKeepalive.IntervalSeconds",
                                                                                ["Proxy"]                 = "Transport.Proxy.Url.Address",
@@ -84,11 +83,14 @@ public class OptionVocabularyTests
                                                                             ["HttpMessageHandler"] = "grpc-dotnet chooses a handler, and this engine is the handler",
                                                                             ["Transport"] = "chooses between grpc-dotnet and this engine, so it is no option of the engine",
                                                                             ["ReusePorts"] = "a socket option of grpc-dotnet's handler, which this engine does not use",
+                                                                            ["OverrideTargetName"] = "this engine verifies the certificate against the host of the endpoint, and sends it as SNI: another name is another endpoint",
                                                                           };
 
   /// <summary>An option of this channel that `GrpcClient` has no name for.</summary>
   private static readonly IReadOnlyDictionary<string, string> Ours = new Dictionary<string, string>(StringComparer.Ordinal)
                                                                      {
+                                                                       ["Transport.Tls.ServerCertificates.System"] = "the system's roots, which GrpcClient states when it has neither an authority nor an unsafe connection",
+                                                                       ["Transport.Tls.ClientCertificate.None"] = "no client certificate, which GrpcClient states when it has no bundle and no pair of files",
                                                                        ["Transport.ConnectEagerly"] = "grpc-dotnet connects through GrpcChannel.ConnectAsync, a call rather than an option",
                                                                        ["Grpc.Host.Receive.Window"] = "the delivery window, which only this ABI has",
                                                                        ["Grpc.Host.Receive.CoalescingBytes"] = "the delivery to the host, which only this ABI has",
@@ -107,17 +109,17 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Rate.Limit.PerSeconds"] = "grpc-dotnet has no rate limit",
                                                                        ["Transport.ConnectTimeoutSeconds"] = "grpc-dotnet leaves the dial to its handler",
                                                                        ["Transport.TcpKeepalive.Retries"] = "ServicePoint.SetTcpKeepAlive takes no count",
-                                                                       ["Transport.Tls.Client.P12.Password"] = "GrpcClient opens its bundle with no password",
-                                                                       ["Transport.Tls.Client.Store.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Client.Store.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Client.Store.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Client.Store.Location"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Client.Store.Name"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Server.CaStore.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Server.CaStore.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Server.CaStore.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Server.CaStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
-                                                                       ["Transport.Tls.Server.CaStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ClientCertificate.P12.Password"] = "GrpcClient opens its bundle with no password",
+                                                                       ["Transport.Tls.ClientCertificate.Store.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ClientCertificate.Store.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ClientCertificate.Store.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ClientCertificate.Store.Location"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ClientCertificate.Store.Name"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ServerCertificates.CaStore.Find.Thumbprint"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ServerCertificates.CaStore.Find.SubjectName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ServerCertificates.CaStore.Find.FriendlyName"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ServerCertificates.CaStore.Location"] = "the Windows store, which GrpcClient reads nothing from",
+                                                                       ["Transport.Tls.ServerCertificates.CaStore.Name"] = "the Windows store, which GrpcClient reads nothing from",
                                                                        ["Transport.Proxy.UrlWithCredentials"] = "GrpcClient's Proxy when its URL carries user:password@, an alternative here",
                                                                        ["Transport.Proxy.None"] = "GrpcClient's Proxy set to `none`, an alternative here rather than a value of an address",
                                                                        ["Transport.Proxy.System.Username"] = "GrpcClient's proxy credentials go with its own address only",

@@ -60,7 +60,6 @@ pub struct TlsConfig {
     pub roots: Vec<CertificateDer<'static>>, // empty: the system's
     pub accept_any_server: bool,            // verifies nothing (opt-in)
     pub identity: Option<ClientIdentity>,   // for mTLS
-    pub server_name: Option<String>,        // verified and sent as SNI instead of the host
 }
 
 pub struct ClientIdentity {

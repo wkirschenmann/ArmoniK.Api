@@ -225,54 +225,50 @@ public sealed class TlsOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    Server = other.Server;
-    Client = other.Client;
-    OverrideTargetName = other.OverrideTargetName;
+    ServerCertificates = other.ServerCertificates;
+    ClientCertificate = other.ClientCertificate;
   }
 
-  /// <summary>How the server certificate is verified.</summary>
-  /// <remarks>Defaults to the system's roots.</remarks>
-  [JsonPropertyName("Server")]
+  /// <summary>
+  ///   Which certificates the server's certificate is verified against, under the endpoint's host:
+  ///   that name is also the one sent as SNI.
+  /// </summary>
+  /// <remarks>Defaults to <c>"System"</c>.</remarks>
+  [JsonPropertyName("ServerCertificates")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ServerVerification? Server { get; set; }
+  public ServerCertificates? ServerCertificates { get; set; }
 
   /// <summary>The certificate the client presents, and its key.</summary>
-  /// <remarks>Defaults to none.</remarks>
-  [JsonPropertyName("Client")]
+  /// <remarks>Defaults to <c>"None"</c>.</remarks>
+  [JsonPropertyName("ClientCertificate")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ClientCertificate? Client { get; set; }
-
-  /// <summary>
-  ///   The host the server certificate is verified against, and sent as SNI, in place of the
-  ///   endpoint's: a DNS name or an IP address, <c>[::1]</c> for IPv6, with an optional port that is
-  ///   not read.
-  /// </summary>
-  [JsonPropertyName("OverrideTargetName")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? OverrideTargetName { get; set; }
+  public ClientCertificate? ClientCertificate { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
-                                            overrideTargetName,
-                                            "OverrideTargetName has to be at least 1 character long.");
-    }
-
-    Server?.Validate();
-    Client?.Validate();
+    ServerCertificates?.Validate();
+    ClientCertificate?.Validate();
   }
 }
 
-/// <summary>How the server certificate is verified.</summary>
-[JsonConverter(typeof(ServerVerificationJsonConverter))]
-public abstract record ServerVerification
+/// <summary>Which certificates the server's certificate is verified against.</summary>
+[JsonConverter(typeof(ServerCertificatesJsonConverter))]
+public abstract record ServerCertificates
 {
-  private ServerVerification()
+  private ServerCertificates()
   {
+  }
+
+  /// <summary>The system's roots.</summary>
+  public sealed record System : ServerCertificates
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
   }
 
   /// <summary>
@@ -283,7 +279,7 @@ public abstract record ServerVerification
   ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
   ///   certificate the file holds is a root.
   /// </param>
-  public sealed record CaPem(string Value) : ServerVerification
+  public sealed record CaPem(string Value) : ServerCertificates
   {
     /// <summary>
     ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
@@ -316,7 +312,7 @@ public abstract record ServerVerification
   /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
   public sealed record CaStore(StoreSearch Find,
                                StoreLocation? Location = null,
-                               string? Name = null) : ServerVerification
+                               string? Name = null) : ServerCertificates
   {
     /// <summary>How the certificate is found in the store.</summary>
     public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
@@ -343,10 +339,10 @@ public abstract record ServerVerification
   }
 
   /// <summary>
-  ///   Not at all: any server certificate is accepted. The connection is still encrypted, to
-  ///   whoever answers.
+  ///   No verification: any server certificate is accepted. The connection is still encrypted,
+  ///   to whoever answers.
   /// </summary>
-  public sealed record Unverified : ServerVerification
+  public sealed record None : ServerCertificates
   {
     /// <inheritdoc />
     public override void Validate()
@@ -360,19 +356,19 @@ public abstract record ServerVerification
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ServerVerification" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
-internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVerification>
+/// <summary>Writes a <see cref="ServerCertificates" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class ServerCertificatesJsonConverter : JsonConverter<ServerCertificates>
 {
   /// <inheritdoc />
   /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
-  public override ServerVerification? Read(ref Utf8JsonReader reader,
+  public override ServerCertificates? Read(ref Utf8JsonReader reader,
                                            Type typeToConvert,
                                            JsonSerializerOptions options)
-    => throw new NotSupportedException("ServerVerification is written to the engine, and never read back.");
+    => throw new NotSupportedException("ServerCertificates is written to the engine, and never read back.");
 
   /// <inheritdoc />
   public override void Write(Utf8JsonWriter writer,
-                             ServerVerification value,
+                             ServerCertificates value,
                              JsonSerializerOptions options)
     => WriteValue(writer,
                   value);
@@ -381,11 +377,17 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
   /// <param name="writer">Where it is written.</param>
   /// <param name="written">The alternative.</param>
   internal static void WriteValue(Utf8JsonWriter writer,
-                                  ServerVerification written)
+                                  ServerCertificates written)
   {
     switch (written)
     {
-      case ServerVerification.CaPem caPem:
+      case ServerCertificates.System:
+      {
+        writer.WriteStringValue("System");
+        break;
+      }
+
+      case ServerCertificates.CaPem caPem:
       {
         writer.WriteStartObject();
         writer.WriteString("CaPem",
@@ -394,7 +396,7 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
         break;
       }
 
-      case ServerVerification.CaStore caStore:
+      case ServerCertificates.CaStore caStore:
       {
         writer.WriteStartObject();
         writer.WriteStartObject("CaStore");
@@ -419,9 +421,9 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
         break;
       }
 
-      case ServerVerification.Unverified:
+      case ServerCertificates.None:
       {
-        writer.WriteStringValue("Unverified");
+        writer.WriteStringValue("None");
         break;
       }
     }
@@ -590,6 +592,16 @@ public abstract record ClientCertificate
   {
   }
 
+  /// <summary>No certificate is presented.</summary>
+  public sealed record None : ClientCertificate
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
   /// <summary>From PEM files.</summary>
   /// <param name="Certificate">Path to a PEM file of the client's certificate, then each issuer the server may not hold.</param>
   /// <param name="Key">Path to a PEM file of the certificate's key.</param>
@@ -726,6 +738,12 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
   {
     switch (written)
     {
+      case ClientCertificate.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
       case ClientCertificate.Pem pem:
       {
         writer.WriteStartObject();

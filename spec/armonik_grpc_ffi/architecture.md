@@ -1284,7 +1284,7 @@ the shape every option takes, and gives the reasons:
 - options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
   which serde writes in its externally tagged form: a variant that carries nothing is its name, a
   string, and one that carries something is an object of one key that holds it -
-  `"Server": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
+  `"ServerCertificates": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
   whose constructor is private, and its alternatives the sealed records nested in it, a
   variant that carries nothing included; the compiler does not know that they are all of them,
   so a switch over them needs a default case. An enum whose variants all carry nothing is a
@@ -1342,11 +1342,11 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | Existing option | ChannelOptions field |
 |-----------------|--------------------------|
 | `Address` | `Endpoint` |
-| `CaCert` | `Transport.Tls.Server.CaPem` |
-| `ClientCert` / `ClientKey` | `Transport.Tls.Client.Pem.Certificate` / `Transport.Tls.Client.Pem.Key` |
-| `ClientP12` | `Transport.Tls.Client.P12.Path`; its password, `Transport.Tls.Client.P12.Password`, has no counterpart |
-| `AllowUnsafeConnection` | `Transport.Tls.Server.Unverified` |
-| `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
+| `CaCert` | `Transport.Tls.ServerCertificates.CaPem`; stated as `System` when neither it nor `AllowUnsafeConnection` is set |
+| `ClientCert` / `ClientKey` | `Transport.Tls.ClientCertificate.Pem.Certificate` / `Transport.Tls.ClientCertificate.Pem.Key`; stated as `None` when no certificate is set |
+| `ClientP12` | `Transport.Tls.ClientCertificate.P12.Path`; its password, `Transport.Tls.ClientCertificate.P12.Password`, has no counterpart |
+| `AllowUnsafeConnection` | `Transport.Tls.ServerCertificates.None` |
+| `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
 | `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |

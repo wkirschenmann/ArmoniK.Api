@@ -31,7 +31,7 @@
   {
     "name": "YAML and TOML are read as JSON is",
     "files": {
-      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            Server: Unverified\n",
+      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            ServerCertificates: None\n",
       "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2]\nKeepAliveWhileIdle = true\nKeepAliveTimeoutSeconds = 2.5\n"
     },
     "sources": [
@@ -43,7 +43,7 @@
       "MemoryCeiling": 1024,
       "MemoryHardCeiling": 2048,
       "ChannelDefaults": {
-        "Transport": { "Tls": { "Server": "Unverified" } },
+        "Transport": { "Tls": { "ServerCertificates": "None" } },
         "Http2": { "KeepAliveWhileIdle": true, "KeepAliveTimeoutSeconds": 2.5 }
       }
     }
@@ -173,7 +173,7 @@
     "environment": {
       "ArmoniKFixture__Endpoint": "http://environment.test:6",
       "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection": "4",
-      "ArmoniKFixture__ChannelDefaults__Transport__Tls__Server": "unverified",
+      "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__DefaultDeadlineSeconds": "2.5",
       "ArmoniKFixture__MemoryCeiling": "8192",
       "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
@@ -186,7 +186,7 @@
       "Endpoint": "http://environment.test:6",
       "MemoryCeiling": 8192,
       "ChannelDefaults": {
-        "Transport": { "Tls": { "Server": "Unverified" } },
+        "Transport": { "Tls": { "ServerCertificates": "None" } },
         "Http2": { "SimultaneousCallsPerConnection": 4 },
         "Grpc": { "DefaultDeadlineSeconds": 2.5 }
       }
@@ -401,9 +401,9 @@
   {
     "name": "a value of the wrong type is refused by its path and never quoted",
     "sources": [
-      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12", "Password": 123456 } } } } } } }
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "ClientCertificate": { "P12": { "Path": "client.p12", "Password": 123456 } } } } } } }
     ],
-    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.Client.P12.Password", "never": "123456" }
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.P12.Password", "never": "123456" }
   },
   {
     "name": "an alternative that names no variant keeps the earlier source's, its key logged",

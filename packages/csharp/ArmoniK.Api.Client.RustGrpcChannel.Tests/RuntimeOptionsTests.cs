@@ -123,14 +123,14 @@ public class RuntimeOptionsTests : RuntimeFixture
                                                                                                                {
                                                                                                                  Tls = new TlsOptions
                                                                                                                        {
-                                                                                                                         Server = new ServerVerification.CaPem("no/such/ca.pem"),
+                                                                                                                         ServerCertificates = new ServerCertificates.CaPem("no/such/ca.pem"),
                                                                                                                        },
                                                                                                                },
                                                                                                  },
                                                                              }))
                                  .ConfigureAwait(false),
                    Throws.InstanceOf<InvalidOperationException>()
-                         .With.Message.Contains("ChannelDefaults: Transport.Tls.Server.CaPem"));
+                         .With.Message.Contains("ChannelDefaults: Transport.Tls.ServerCertificates.CaPem"));
 
   /// <summary>The engine runs with what its configuration says, read back from its own accounting.</summary>
   [Test]

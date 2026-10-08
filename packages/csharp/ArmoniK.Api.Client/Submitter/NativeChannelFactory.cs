@@ -42,8 +42,8 @@ namespace ArmoniK.Api.Client.Submitter
   ///   <para>
   ///     Each channel states the options of its own <see cref="GrpcClient" /> that the caller set, even to their
   ///     defaults, and they win over the engine's sources: a certificate or a proxy differs from one channel to the
-  ///     next. The TLS verification, the certificates and the target name have no neutral value, so an empty or
-  ///     false one sends nothing.
+  ///     next. The TLS verification and the client certificate state the system's roots and no certificate when
+  ///     they are set to nothing. <see cref="GrpcClient.OverrideTargetName" /> is not sent, and logs a warning.
   ///     The engine refuses a value outside its bounds, such as a keepalive interval of zero, when the channel is
   ///     opened.
   ///   </para>
@@ -109,6 +109,11 @@ namespace ArmoniK.Api.Client.Submitter
       if (!string.IsNullOrEmpty(options.HttpMessageHandler))
       {
         logger?.LogWarning("HttpMessageHandler is not read by the native transport");
+      }
+
+      if (!string.IsNullOrEmpty(options.OverrideTargetName))
+      {
+        logger?.LogWarning("OverrideTargetName is not read by the native transport: the certificate is verified against the host of the endpoint, so give another endpoint for another name");
       }
 
       var translated = NativeClientOptions.Translate(options,

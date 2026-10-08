@@ -415,14 +415,14 @@ public class ChannelOptionsTests
                                          {
                                            Tls = new TlsOptions
                                                  {
-                                                   Server = new ServerVerification.CaStore(new StoreSearch.Thumbprint("ab"),
+                                                   ServerCertificates = new ServerCertificates.CaStore(new StoreSearch.Thumbprint("ab"),
                                                                                            StoreLocation.LocalMachine),
-                                                   Client = new ClientCertificate.P12("me.p12"),
+                                                   ClientCertificate = new ClientCertificate.P12("me.p12"),
                                                  },
                                            Proxy = new ProxyOptions.None(),
                                          },
                            }),
-                   Is.EqualTo(@"{""Transport"":{""Tls"":{""Server"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""Client"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":""None""}}"));
+                   Is.EqualTo(@"{""Transport"":{""Tls"":{""ServerCertificates"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""ClientCertificate"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":""None""}}"));
 
   /// <summary>An alternative that carries nothing is a string, and its sibling that carries something is an object.</summary>
   [Test]
@@ -456,7 +456,7 @@ public class ChannelOptionsTests
                                        {
                                          Tls = new TlsOptions
                                                {
-                                                 Server = new ServerVerification.CaPem(string.Empty),
+                                                 ServerCertificates = new ServerCertificates.CaPem(string.Empty),
                                                },
                                        },
                          }.Encode(),
@@ -466,7 +466,7 @@ public class ChannelOptionsTests
   /// <summary>An enum is a number, and a number its type does not name is refused.</summary>
   [Test]
   public void ALocationNoNameDeclaresIsRefused()
-    => Assert.That(() => new ServerVerification.CaStore(new StoreSearch.FriendlyName("root"),
+    => Assert.That(() => new ServerCertificates.CaStore(new StoreSearch.FriendlyName("root"),
                                                         (StoreLocation)7).Validate(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
                          .With.Message.Contains("Location has to be a name StoreLocation declares"));

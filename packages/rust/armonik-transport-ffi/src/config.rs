@@ -733,9 +733,8 @@ mod tests {
             r#"{{
                 "Transport": {{
                     "Tls": {{
-                        "Server": {{ "CaPem": "{certificate}" }},
-                        "Client": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }},
-                        "OverrideTargetName": "server.test"
+                        "ServerCertificates": {{ "CaPem": "{certificate}" }},
+                        "ClientCertificate": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }}
                     }},
                     "TcpKeepalive": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }}
                 }},
@@ -761,7 +760,6 @@ mod tests {
             tls.identity.as_ref().map(|identity| identity.chain.len()),
             Some(1)
         );
-        assert_eq!(tls.server_name.as_deref(), Some("server.test"));
 
         let tcp = config.transport.tcp;
         assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
@@ -780,7 +778,7 @@ mod tests {
             })
         );
 
-        let unsafe_document = br#"{"Transport":{"Tls":{"Server":"Unverified"}}}"#;
+        let unsafe_document = br#"{"Transport":{"Tls":{"ServerCertificates":"None"}}}"#;
         let config = parse(unsafe_document)
             .expect("admissible")
             .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
@@ -1079,8 +1077,8 @@ mod tests {
                 "Transport.ConnectTimeoutSeconds",
             ),
             (
-                &br#"{"Transport":{"Tls":{"Server":{"CaPem":"no/such/file.pem"}}}}"#[..],
-                "Transport.Tls.Server.CaPem",
+                &br#"{"Transport":{"Tls":{"ServerCertificates":{"CaPem":"no/such/file.pem"}}}}"#[..],
+                "Transport.Tls.ServerCertificates.CaPem",
             ),
             (
                 &br#"{"Transport":{"TcpKeepalive":{"Retries":3}}}"#[..],
@@ -1091,9 +1089,9 @@ mod tests {
                 "Http2.Receive.Fixed.ConnectionWindowSize",
             ),
             (
-                &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
+                &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
                     [..],
-                "Transport.Tls.Client.P12.Password",
+                "Transport.Tls.ClientCertificate.P12.Password",
             ),
             (
                 &br#"{"Transport":{"Proxy":{"Url":{"Address":"https://proxy.test"}}}}"#[..],
@@ -1135,16 +1133,16 @@ mod tests {
     #[test]
     fn a_password_of_the_wrong_type_is_refused_without_being_quoted() {
         for document in [
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":-123456.5}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":["s3cret"]}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":{"s3cret":1}}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":123456}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":-123456.5}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":["s3cret"]}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":{"s3cret":1}}}}}}"#[..],
         ] {
             let Err(refused) = parse(document) else {
                 panic!("{} is admitted", String::from_utf8_lossy(document));
             };
             let said = refused.to_string();
-            assert!(said.contains("Transport.Tls.Client.P12.Password"), "{said}");
+            assert!(said.contains("Transport.Tls.ClientCertificate.P12.Password"), "{said}");
             assert!(!said.contains("123456"), "{said}");
             assert!(!said.contains("s3cret"), "{said}");
         }

@@ -897,7 +897,7 @@ its own, and a binding that wants `GrpcClient`'s writes them.
 **Source**: the #7xx stack
 **Deliverable**: mTLS with a P12 bundle and its password, the password read as a `Secret`.
 
-**Status**: done. `Transport.Tls.Client.P12` names the bundle by its `Path`, and its `Password`,
+**Status**: done. `Transport.Tls.ClientCertificate.P12` names the bundle by its `Path`, and its `Password`,
 held in a `Password` over `secrecy`'s `SecretString`: no Debug print shows it, no refusal
 quotes it, the schema marks it `writeOnly`, and it is zeroed when dropped. The bundle is read by
 `TlsOptions::load` with `p12-keystore`, strictly, so a chain it cannot rebuild is refused rather
@@ -931,8 +931,8 @@ that loads them.
 
 **Deliverable**: mTLS from the store, on the Windows CI.
 
-**Status**: done. `Transport.Tls.Client.Store` names the client's certificate and
-`Transport.Tls.Server.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
+**Status**: done. `Transport.Tls.ClientCertificate.Store` names the client's certificate and
+`Transport.Tls.ServerCertificates.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
 `LocalMachine`), `Name` (`My` and `Root` by default) and `Find`, one of `Thumbprint`, `SubjectName`
 - a text the subject contains, without case, as .NET's `FindBySubjectName` reads it - and
 `FriendlyName`. The identity leaves the store as a PKCS#12 export read by T4.2's loader, followed by

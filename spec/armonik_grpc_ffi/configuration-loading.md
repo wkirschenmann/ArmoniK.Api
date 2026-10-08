@@ -126,7 +126,7 @@ them, the channel options every channel takes by default among them, under `Chan
         "MemoryCeiling": 2147483648,
         "ChannelDefaults": {
           "Http2": { "SimultaneousCallsPerConnection": 4 },
-          "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12" } } } }
+          "Transport": { "Tls": { "ClientCertificate": { "P12": { "Path": "client.p12" } } } }
         }
       }
     }

@@ -158,8 +158,9 @@ namespace ArmoniK.Api.Client.Options
 
     /// <summary>
     ///   Override the endpoint name during SSL verification. This option is only used when AllowUnsafeConnection is true and
-    ///   only when the runtime is .NET Framework; the native transport applies it whenever it is set.
-    ///   Automatic target name by default. Should be overriden by the right name to reduce performance cost.
+    ///   only when the runtime is .NET Framework; the native transport does not read it, and the certificate is verified
+    ///   against the host of the endpoint, which is also the name it sends as SNI: for another name, give another endpoint.
+    ///   Automatic target name by default; the managed transport takes the right name to reduce performance cost.
     /// </summary>
     public string OverrideTargetName
     {
@@ -303,8 +304,8 @@ namespace ArmoniK.Api.Client.Options
     ///   `ArmoniK__Client__Grpc__` and from the command line.
     ///   The other options are sent when they are set, even to their defaults, over those sources, except
     ///   `HttpMessageHandler` and `ReusePorts`, which are not read.
-    ///   An empty or false value of the TLS verification, the certificates and the target name sends nothing:
-    ///   they have no neutral value. See NativeChannelFactory.
+    ///   The TLS verification and the certificates are sent when they are set, the system's roots and no client
+    ///   certificate included. See NativeChannelFactory.
     /// </summary>
     public ClientTransport Transport { get; set; } = ClientTransport.Managed;
 
