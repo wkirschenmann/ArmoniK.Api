@@ -124,7 +124,7 @@ them, the channel options every channel takes by default among them, under `Chan
     "Client": {
       "Grpc": {
         "Endpoint": "https://armonik.example.com:5001",
-        "MemoryCeiling": 2147483648,
+        "MemoryCeiling": { "SoftMiB": 2048 },
         "ChannelDefaults": {
           "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
           "Transport": { "Tls": { "ClientCertificate": { "P12": { "Path": "client.p12" } } } }
@@ -304,7 +304,7 @@ var configuration = new NativeConfiguration()                // or NativeConfigu
                       .LoadConfigFromFiles("appsettings.json", "appsettings.Production.yaml")
                       .LoadConfigFromEnvironment()
                       .LoadConfigFromCommandLine(args)
-                      .LoadConfigFromObject(new RuntimeOptions { MemoryCeiling = 1L << 31 });
+                      .LoadConfigFromObject(new RuntimeOptions { MemoryCeiling = new MemoryCeilingOptions { SoftMiB = 2048 } });
 await using var runtime = NativeRuntime.Create(configuration);
 ```
 

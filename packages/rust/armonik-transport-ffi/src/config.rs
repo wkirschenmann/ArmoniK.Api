@@ -18,9 +18,9 @@ pub(crate) enum ConfigRefusal {
     Loaded(LoadRefusal),
     /// A document whose bytes are not UTF-8, the only encoding the ABI takes JSON in.
     NotUtf8,
-    /// A memory ceiling of zero, which a configuration has no reason to write: it leaves the
-    /// option out for the default.
-    ZeroCeiling { key: &'static str },
+    /// A memory ceiling the options cannot hold: zero, which a configuration leaves out for the
+    /// default, or a hard one below the soft one.
+    Ceiling(OptionRefusal),
     /// An Endpoint that names nothing a channel could reach.
     Endpoint { why: &'static str },
     /// Options the engine cannot be configured with, by the key at fault.
@@ -39,7 +39,7 @@ impl fmt::Display for ConfigRefusal {
         match self {
             Self::Loaded(refused) => refused.fmt(f),
             Self::NotUtf8 => f.write_str("the configuration document is not UTF-8"),
-            Self::ZeroCeiling { key } => write!(f, "{key} is 0, and has to be at least 1"),
+            Self::Ceiling(refused) => refused.fmt(f),
             Self::Endpoint { why } => write!(f, "Endpoint {why}"),
             Self::Settled(refused) => refused.fmt(f),
             Self::Option(refused) => refused.fmt(f),
@@ -82,14 +82,10 @@ fn admit_defaults(options: &ChannelOptions) -> Result<(), ConfigRefusal> {
 /// would be refused for.
 pub(crate) fn runtime(configuration: &Configuration) -> Result<RuntimeOptions, ConfigRefusal> {
     let options: RuntimeOptions = configuration.load().map_err(ConfigRefusal::Loaded)?;
-    for (key, ceiling) in [
-        ("MemoryCeiling", options.memory_ceiling),
-        ("MemoryHardCeiling", options.memory_hard_ceiling),
-    ] {
-        if ceiling == Some(0) {
-            return Err(ConfigRefusal::ZeroCeiling { key });
-        }
-    }
+    options
+        .memory_ceiling
+        .check()
+        .map_err(ConfigRefusal::Ceiling)?;
     // Not quoted: a URI may carry credentials in its userinfo.
     match options.endpoint.as_deref() {
         Some("") => {
@@ -219,15 +215,15 @@ pub(crate) fn parse_effective(
 /// What a runtime was created with, logged once: every option, each as its own type renders it, so
 /// that a password and a proxy's credentials show redacted and a certificate shows as the path it
 /// names.
-pub(crate) fn log_runtime(options: &RuntimeOptions) {
+pub(crate) fn log_runtime(options: &RuntimeOptions, ceilings: (u64, u64)) {
     tracing::info!(
         endpoint = options
             .endpoint
             .as_deref()
             .and_then(|endpoint| endpoint.parse::<Uri>().ok())
             .map(|endpoint| armonik_transport::safe_endpoint(&endpoint)),
-        memory_ceiling = options.memory_ceiling,
-        memory_hard_ceiling = options.memory_hard_ceiling,
+        memory_ceiling = ceilings.0,
+        memory_hard_ceiling = ceilings.1,
         channel_defaults = ?options.channel_defaults,
         log_filter = options
             .logging
@@ -311,9 +307,9 @@ mod tests {
     }
 
     /// Every option of the runtime's schema but the endpoint and the logging filter is a field of
-    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads;
-    /// the endpoint is what a channel names itself there, and the filter is given through the
-    /// loader's options alone.
+    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads,
+    /// the memory ceiling being its two fields, in bytes; the endpoint is what a channel names
+    /// itself there, and the filter is given through the loader's options alone.
     #[test]
     fn every_runtime_option_but_the_endpoint_and_the_filter_is_a_field_of_the_config() {
         let schema: serde_json::Value =
@@ -350,13 +346,7 @@ mod tests {
         );
         assert_eq!(
             names,
-            [
-                "ChannelDefaults",
-                "Endpoint",
-                "Logging",
-                "MemoryCeiling",
-                "MemoryHardCeiling"
-            ]
+            ["ChannelDefaults", "Endpoint", "Logging", "MemoryCeiling"]
         );
     }
 

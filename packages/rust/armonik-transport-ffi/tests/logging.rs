@@ -170,7 +170,7 @@ fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
 fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     let _turn = turn();
     let host = create(
-        r#"{"MemoryCeiling":1048576,"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#,
+        r#"{"MemoryCeiling":{"SoftMiB":1},"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#,
     )
     .expect("a runtime");
 
@@ -428,7 +428,7 @@ fn an_ignored_directive_is_reported_whatever_the_filter_selects() {
 #[test]
 fn a_refused_creation_still_delivers_what_its_load_logged_and_nothing_after() {
     let _turn = turn();
-    let Err(refused) = create(r#"{"Unknown":1,"MemoryCeiling":"many"}"#) else {
+    let Err(refused) = create(r#"{"Unknown":1,"MemoryCeiling":{"SoftMiB":"many"}}"#) else {
         panic!("a ceiling that is not a number is admitted");
     };
     assert_eq!(refused.status, ak_status::AK_STATUS_INVALID_ARG);

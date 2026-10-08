@@ -2904,7 +2904,7 @@ impl ChannelOptions {
     }
 }
 
-/// What a caller may set on the runtime: the endpoint, the memory ceilings, the options every
+/// What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
 /// channel takes where its own state none, and what the engine logs.
 #[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -2920,25 +2920,11 @@ pub struct RuntimeOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub endpoint: Option<String>,
 
-    /// The bytes the runtime holds before work waits, counting the buffers lent to send and the
-    /// messages received until the host gives them back: a call stops reading, and a send waits
-    /// for room.
+    /// The memory the runtime holds, in two thresholds.
     ///
-    /// Defaults to 4294967295, four gigabytes, or half the address space where that is smaller;
-    /// a larger value is that too.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    pub memory_ceiling: Option<u64>,
-
-    /// The bytes past which the runtime stops: a received message that would take the count past
-    /// them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may
-    /// pass it together, by a message each, and this bounds them. At least MemoryCeiling, or
-    /// MemoryCeiling's default when that is left out.
-    ///
-    /// Defaults to a quarter above MemoryCeiling.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    pub memory_hard_ceiling: Option<u64>,
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[serde(default)]
+    pub memory_ceiling: MemoryCeilingOptions,
 
     /// Channel options every channel of the runtime takes where its own options state none: the
     /// two are merged option by option, a struct's options within it, and the channel's win; an
@@ -2955,6 +2941,70 @@ pub struct RuntimeOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[serde(default)]
     pub logging: LoggingOptions,
+}
+
+/// The memory the runtime holds: the bytes counting the buffers lent to send and the messages
+/// received until the host gives them back, and where work waits and where the runtime stops.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct MemoryCeilingOptions {
+    /// The MiB the runtime holds before work waits: a call stops reading, and a send waits for
+    /// room.
+    ///
+    /// Defaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger
+    /// value is that too.
+    #[serde(default, rename = "SoftMiB", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub soft_mib: Option<u64>,
+
+    /// The MiB past which the runtime stops: a received message that would take the count past
+    /// them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below `SoftMiB` may pass
+    /// it together, by a message each, and this bounds them. At least `SoftMiB`, or its default
+    /// when that is left out, which is checked once the options are merged.
+    ///
+    /// Defaults to a quarter above `SoftMiB`.
+    #[serde(default, rename = "HardMiB", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub hard_mib: Option<u64>,
+}
+
+impl MemoryCeilingOptions {
+    /// The default of `SoftMiB`, where the address space holds four gigabytes.
+    pub const DEFAULT_SOFT_MIB: u64 = if usize::BITS >= 64 { 4096 } else { 2048 };
+
+    /// Refuses what the options cannot hold, once they are merged: a ceiling of 0, and a hard
+    /// ceiling below the soft one. Nothing states another option after the runtime's, so the
+    /// incoherence is an error.
+    pub fn check(&self) -> Result<(), OptionRefusal> {
+        self.unqualified_check()
+            .map_err(|refused| refused.under("MemoryCeiling"))
+    }
+
+    fn unqualified_check(&self) -> Result<(), OptionRefusal> {
+        for (key, mib) in [("SoftMiB", self.soft_mib), ("HardMiB", self.hard_mib)] {
+            if mib == Some(0) {
+                return Err(OptionRefusal::new(key, "it is 0, and has to be at least 1"));
+            }
+        }
+        let soft = self.soft_mib.unwrap_or(Self::DEFAULT_SOFT_MIB);
+        match self.hard_mib {
+            Some(hard) if hard < soft => Err(OptionRefusal::incoherent(
+                &["SoftMiB", "HardMiB"],
+                format!("the hard ceiling is {hard} MiB, below the soft one, {soft} MiB"),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// The soft and the hard ceiling in bytes, 0 where the library's own is meant. A count past
+    /// what 64 bits hold is the largest one.
+    pub fn bytes(&self) -> (u64, u64) {
+        let bytes = |mib: Option<u64>| mib.map_or(0, |mib| mib.saturating_mul(1 << 20));
+        (bytes(self.soft_mib), bytes(self.hard_mib))
+    }
 }
 
 /// Which of the engine's log events a host receives.
@@ -2992,17 +3042,16 @@ impl std::fmt::Debug for RuntimeOptions {
         f.debug_struct("RuntimeOptions")
             .field("endpoint", &self.endpoint.as_deref().map(elided))
             .field("memory_ceiling", &self.memory_ceiling)
-            .field("memory_hard_ceiling", &self.memory_hard_ceiling)
             .field("channel_defaults", &self.channel_defaults)
             .field("logging", &self.logging)
             .finish()
     }
 }
 
+over_fields!(MemoryCeilingOptions { soft_mib, hard_mib });
 over_fields!(RuntimeOptions {
     endpoint,
     memory_ceiling,
-    memory_hard_ceiling,
     channel_defaults,
     logging,
 });
@@ -4575,6 +4624,73 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    /// The memory ceiling is a pair in MiB: read under the schema's spelling, merged field by
+    /// field, converted to bytes, and checked once merged, a hard ceiling below the soft one being
+    /// refused naming both keys.
+    #[test]
+    fn the_memory_ceiling_is_a_pair_of_mib_checked_once_merged() {
+        let read = |json: &str| {
+            crate::configuration::Configuration::with_prefix("")
+                .document(json)
+                .load::<RuntimeOptions>()
+                .expect("a document")
+        };
+        let soft = read(r#"{"MemoryCeiling":{"SoftMiB":8}}"#);
+        let hard = read(r#"{"MemoryCeiling":{"HardMiB":4}}"#);
+        assert_eq!(soft.memory_ceiling.soft_mib, Some(8));
+        assert_eq!(hard.memory_ceiling.hard_mib, Some(4));
+        assert_eq!(soft.memory_ceiling.bytes(), (8 << 20, 0));
+        assert_eq!(hard.memory_ceiling.bytes(), (0, 4 << 20));
+        assert_eq!(
+            MemoryCeilingOptions::default().bytes(),
+            (0, 0),
+            "the library's own"
+        );
+        soft.memory_ceiling.check().expect("a soft ceiling alone");
+        assert_eq!(
+            hard.memory_ceiling
+                .check()
+                .expect_err("under the default")
+                .keys()
+                .collect::<Vec<_>>(),
+            ["MemoryCeiling.SoftMiB", "MemoryCeiling.HardMiB"],
+            "a hard ceiling is held against the soft one's default"
+        );
+
+        let merged = crate::configuration::Document::over(hard.clone(), soft.clone());
+        assert_eq!(merged.memory_ceiling.soft_mib, Some(8));
+        assert_eq!(merged.memory_ceiling.hard_mib, Some(4));
+        let refused = merged.memory_ceiling.check().expect_err("hard below soft");
+        assert!(refused.is_incoherence(), "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .starts_with("MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent"),
+            "{refused}"
+        );
+
+        for zero in [
+            r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
+            r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+        ] {
+            let refused = read(zero).memory_ceiling.check().expect_err(zero);
+            assert!(refused.to_string().contains("at least 1"), "{refused}");
+        }
+        let number = crate::configuration::Configuration::with_prefix("")
+            .document(r#"{"MemoryCeiling":1048576}"#)
+            .load::<RuntimeOptions>();
+        assert!(
+            number.is_err(),
+            "a number where a pair is expected is refused"
+        );
+        let unknown = read(r#"{"MemoryHardCeiling":1048576}"#);
+        assert_eq!(
+            unknown,
+            RuntimeOptions::default(),
+            "a key the schema does not know is ignored"
+        );
     }
 
     /// The two directions are stated apart, an encoding that is not named is refused, and a

@@ -105,13 +105,13 @@ impl AkRuntime {
         LIVE.store(false, Ordering::Release);
     }
 
-    /// A ceiling the options leave out is zero, which the ledger reads as its own.
-    pub(crate) fn new(options: RuntimeOptions, host: Host) -> Result<Arc<Self>, Refusal> {
-        let ledger = Ledger::new(
-            options.memory_ceiling.unwrap_or(0),
-            options.memory_hard_ceiling.unwrap_or(0),
-        )
-        .map_err(|_| THRESHOLDS_CROSSED)?;
+    /// A ceiling of zero bytes, soft then hard, is the ledger's own.
+    pub(crate) fn new(
+        options: RuntimeOptions,
+        (ceiling, hard_ceiling): (u64, u64),
+        host: Host,
+    ) -> Result<Arc<Self>, Refusal> {
+        let ledger = Ledger::new(ceiling, hard_ceiling).map_err(|_| THRESHOLDS_CROSSED)?;
 
         // One worker: what runs here is the shutdown's orchestration, the channels' work running
         // on threads of their own.
@@ -380,12 +380,13 @@ mod tests {
 
     #[test]
     fn a_second_threshold_below_the_first_is_refused_with_its_reason() {
-        let mut options = RuntimeOptions::default();
-        options.memory_ceiling = Some(64);
-        options.memory_hard_ceiling = Some(32);
-        let refused = AkRuntime::new(options, Host::new(never_called, std::ptr::null_mut()))
-            .err()
-            .expect("a second threshold below the first is refused");
+        let refused = AkRuntime::new(
+            RuntimeOptions::default(),
+            (64, 32),
+            Host::new(never_called, std::ptr::null_mut()),
+        )
+        .err()
+        .expect("a second threshold below the first is refused");
 
         assert_eq!(refused.status(), ak_status::AK_STATUS_INVALID_ARG);
         assert!(

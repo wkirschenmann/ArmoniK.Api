@@ -7,9 +7,9 @@
   {
     "name": "a document is read as it is written",
     "sources": [
-      { "document": { "Endpoint": "http://server.test:5001", "MemoryCeiling": 1048576 } }
+      { "document": { "Endpoint": "http://server.test:5001", "MemoryCeiling": { "SoftMiB": 1048576 } } }
     ],
-    "options": { "Endpoint": "http://server.test:5001", "MemoryCeiling": 1048576 }
+    "options": { "Endpoint": "http://server.test:5001", "MemoryCeiling": { "SoftMiB": 1048576 } }
   },
   {
     "name": "a later source wins over an earlier one, option by option",
@@ -31,8 +31,8 @@
   {
     "name": "YAML and TOML are read as JSON is",
     "files": {
-      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            ServerCertificates: None\n",
-      "over.toml": "[ArmoniK.Client.Grpc]\nMemoryHardCeiling = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2.KeepAlive.Ping]\nIntervalSeconds = 10\nWhileIdle = true\nTimeoutSeconds = 2.5\n"
+      "base.yaml": "ArmoniK:\n  Client:\n    Grpc:\n      Endpoint: https://yaml.test:2\n      MemoryCeiling:\n        SoftMiB: 1024\n      ChannelDefaults:\n        Transport:\n          Tls:\n            ServerCertificates: None\n",
+      "over.toml": "[ArmoniK.Client.Grpc.MemoryCeiling]\nHardMiB = 2048\n\n[ArmoniK.Client.Grpc.ChannelDefaults.Http2.KeepAlive.Ping]\nIntervalSeconds = 10\nWhileIdle = true\nTimeoutSeconds = 2.5\n"
     },
     "sources": [
       { "file": "base.yaml" },
@@ -40,8 +40,7 @@
     ],
     "options": {
       "Endpoint": "https://yaml.test:2",
-      "MemoryCeiling": 1024,
-      "MemoryHardCeiling": 2048,
+      "MemoryCeiling": { "SoftMiB": 1024, "HardMiB": 2048 },
       "ChannelDefaults": {
         "Transport": { "Tls": { "ServerCertificates": "None" } },
         "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 10, "WhileIdle": true, "TimeoutSeconds": 2.5 } } }
@@ -67,17 +66,17 @@
     },
     "sources": [
       { "file": "other.json" },
-      { "document": { "MemoryCeiling": 5 } }
+      { "document": { "MemoryCeiling": { "SoftMiB": 5 } } }
     ],
-    "options": { "MemoryCeiling": 5 }
+    "options": { "MemoryCeiling": { "SoftMiB": 5 } }
   },
   {
     "name": "an optional file that does not exist contributes nothing",
     "sources": [
       { "optional_file": "absent.json" },
-      { "document": { "MemoryCeiling": 6 } }
+      { "document": { "MemoryCeiling": { "SoftMiB": 6 } } }
     ],
-    "options": { "MemoryCeiling": 6 }
+    "options": { "MemoryCeiling": { "SoftMiB": 6 } }
   },
   {
     "name": "a file that does not exist is refused",
@@ -129,19 +128,19 @@
   {
     "name": "a file whose sections stop short of the prefix's contributes nothing",
     "files": {
-      "short.json": "{\"ArmoniK\":{\"Other\":{\"MemoryCeiling\":3}}}"
+      "short.json": "{\"ArmoniK\":{\"Other\":{\"MemoryCeiling\":{\"SoftMiB\":3}}}}"
     },
     "sources": [
       { "file": "short.json" },
-      { "document": { "MemoryCeiling": 4 } }
+      { "document": { "MemoryCeiling": { "SoftMiB": 4 } } }
     ],
-    "options": { "MemoryCeiling": 4 }
+    "options": { "MemoryCeiling": { "SoftMiB": 4 } }
   },
   {
     "name": "a prefix of several parts is nested sections in a file and the start of a variable's name",
     "prefix": "Outer__Inner",
     "files": {
-      "nested.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":9}}}"
+      "nested.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":{\"SoftMiB\":9}}}}"
     },
     "environment": {
       "OUTER__INNER__Endpoint": "http://nested.test:8"
@@ -150,13 +149,13 @@
       { "file": "nested.json" },
       { "environment": true }
     ],
-    "options": { "Endpoint": "http://nested.test:8", "MemoryCeiling": 9 }
+    "options": { "Endpoint": "http://nested.test:8", "MemoryCeiling": { "SoftMiB": 9 } }
   },
   {
     "name": "a prefix is also read as .NET writes a section's path",
     "prefix": "Outer:Inner",
     "files": {
-      "colon.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":11}}}"
+      "colon.json": "{\"Outer\":{\"Inner\":{\"MemoryCeiling\":{\"SoftMiB\":11}}}}"
     },
     "environment": {
       "Outer__Inner__Endpoint": "http://colon.test:9"
@@ -165,7 +164,7 @@
       { "file": "colon.json" },
       { "environment": true }
     ],
-    "options": { "Endpoint": "http://colon.test:9", "MemoryCeiling": 11 }
+    "options": { "Endpoint": "http://colon.test:9", "MemoryCeiling": { "SoftMiB": 11 } }
   },
   {
     "name": "the environment is read under its prefix, its names without case, its values by their key's type",
@@ -175,7 +174,7 @@
       "armonikfixture__channeldefaults__http2__simultaneouscallsperconnection__limit": "4",
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
-      "ArmoniKFixture__MemoryCeiling": "8192",
+      "ArmoniKFixture__MemoryCeiling__SoftMiB": "8192",
       "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
       "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
     },
@@ -184,7 +183,7 @@
     ],
     "options": {
       "Endpoint": "http://environment.test:6",
-      "MemoryCeiling": 8192,
+      "MemoryCeiling": { "SoftMiB": 8192 },
       "ChannelDefaults": {
         "Transport": { "Tls": { "ServerCertificates": "None" } },
         "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
@@ -197,12 +196,12 @@
     "name": "an environment value that is not of its key's type is refused by its path",
     "prefix": "ArmoniKFixture",
     "environment": {
-      "ArmoniKFixture__MemoryCeiling": "a great deal"
+      "ArmoniKFixture__MemoryCeiling__SoftMiB": "a great deal"
     },
     "sources": [
       { "environment": true }
     ],
-    "refused": { "source": "the environment", "key": "MemoryCeiling", "never": "a great deal" }
+    "refused": { "source": "the environment", "key": "MemoryCeiling.SoftMiB", "never": "a great deal" }
   },
   {
     "name": "an environment value where options are expected is refused",
@@ -467,19 +466,19 @@
   {
     "name": "a key a document states twice is refused rather than taken once",
     "sources": [
-      { "document": "{\"MemoryCeiling\":1,\"MemoryCeiling\":2}" }
+      { "document": "{\"MemoryCeiling\":{\"SoftMiB\":1},\"MemoryCeiling\":{\"SoftMiB\":2}}" }
     ],
     "refused": { "source": "a document", "says": "MemoryCeiling is stated twice" }
   },
   {
     "name": "a file that starts with a byte order mark is read as one without",
     "files": {
-      "marked.json": "\ufeff{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":7}}}}"
+      "marked.json": "\ufeff{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":7}}}}}"
     },
     "sources": [
       { "file": "marked.json" }
     ],
-    "options": { "MemoryCeiling": 7 }
+    "options": { "MemoryCeiling": { "SoftMiB": 7 } }
   },
   {
     "name": "a key a YAML file states twice is refused",
@@ -505,7 +504,7 @@
     "name": "the first refusal ends the load",
     "sources": [
       { "document": "not JSON" },
-      { "document": { "MemoryCeiling": "many" } }
+      { "document": { "MemoryCeiling": { "SoftMiB": "many" } } }
     ],
     "refused": { "source": "a document", "says": "not JSON" }
   }

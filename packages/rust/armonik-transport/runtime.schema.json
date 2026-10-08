@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime: the endpoint, the memory ceilings, the options every\nchannel takes where its own state none, and what the engine logs.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, and what the engine logs.",
   "type": "object",
   "properties": {
     "Endpoint": {
@@ -10,16 +10,8 @@
       "minLength": 1
     },
     "MemoryCeiling": {
-      "description": "The bytes the runtime holds before work waits, counting the buffers lent to send and the\nmessages received until the host gives them back: a call stops reading, and a send waits\nfor room.\n\nDefaults to 4294967295, four gigabytes, or half the address space where that is smaller;\na larger value is that too.",
-      "type": "integer",
-      "format": "int64",
-      "minimum": 1
-    },
-    "MemoryHardCeiling": {
-      "description": "The bytes past which the runtime stops: a received message that would take the count past\nthem ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may\npass it together, by a message each, and this bounds them. At least MemoryCeiling, or\nMemoryCeiling's default when that is left out.\n\nDefaults to a quarter above MemoryCeiling.",
-      "type": "integer",
-      "format": "int64",
-      "minimum": 1
+      "description": "The memory the runtime holds, in two thresholds.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+      "$ref": "#/$defs/MemoryCeilingOptions"
     },
     "ChannelDefaults": {
       "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - merges its fields\nover the same alternative and is taken whole over another.\n\nDefaults to none.",
@@ -32,6 +24,25 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "MemoryCeilingOptions": {
+      "description": "The memory the runtime holds: the bytes counting the buffers lent to send and the messages\nreceived until the host gives them back, and where work waits and where the runtime stops.",
+      "type": "object",
+      "properties": {
+        "SoftMiB": {
+          "description": "The MiB the runtime holds before work waits: a call stops reading, and a send waits for\nroom.\n\nDefaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger\nvalue is that too.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        },
+        "HardMiB": {
+          "description": "The MiB past which the runtime stops: a received message that would take the count past\nthem ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below `SoftMiB` may pass\nit together, by a message each, and this bounds them. At least `SoftMiB`, or its default\nwhen that is left out, which is checked once the options are merged.\n\nDefaults to a quarter above `SoftMiB`.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "ChannelOptions": {
       "description": "What a caller may set on one channel.",
       "type": "object",

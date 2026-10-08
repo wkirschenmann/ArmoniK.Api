@@ -36,7 +36,7 @@ internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
 }
 
 /// <summary>
-///   What a caller may set on the runtime: the endpoint, the memory ceilings, the options every
+///   What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
 ///   channel takes where its own state none, and what the engine logs.
 /// </summary>
 public sealed class RuntimeOptions
@@ -57,8 +57,9 @@ public sealed class RuntimeOptions
     }
 
     Endpoint = other.Endpoint;
-    MemoryCeiling = other.MemoryCeiling;
-    MemoryHardCeiling = other.MemoryHardCeiling;
+    MemoryCeiling = other.MemoryCeiling is null
+                      ? null
+                      : new MemoryCeilingOptions(other.MemoryCeiling);
     ChannelDefaults = other.ChannelDefaults is null
                         ? null
                         : new ChannelOptions(other.ChannelDefaults);
@@ -76,29 +77,11 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? Endpoint { get; set; }
 
-  /// <summary>
-  ///   The bytes the runtime holds before work waits, counting the buffers lent to send and the
-  ///   messages received until the host gives them back: a call stops reading, and a send waits
-  ///   for room.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to 4294967295, four gigabytes, or half the address space where that is smaller;
-  ///   a larger value is that too.
-  /// </remarks>
+  /// <summary>The memory the runtime holds, in two thresholds.</summary>
+  /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
   [JsonPropertyName("MemoryCeiling")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public long? MemoryCeiling { get; set; }
-
-  /// <summary>
-  ///   The bytes past which the runtime stops: a received message that would take the count past
-  ///   them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may
-  ///   pass it together, by a message each, and this bounds them. At least MemoryCeiling, or
-  ///   MemoryCeiling's default when that is left out.
-  /// </summary>
-  /// <remarks>Defaults to a quarter above MemoryCeiling.</remarks>
-  [JsonPropertyName("MemoryHardCeiling")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public long? MemoryHardCeiling { get; set; }
+  public MemoryCeilingOptions? MemoryCeiling { get; set; }
 
   /// <summary>
   ///   Channel options every channel of the runtime takes where its own options state none: the
@@ -128,20 +111,7 @@ public sealed class RuntimeOptions
                                             "Endpoint has to be at least 1 character long.");
     }
 
-    if (MemoryCeiling is long memoryCeiling && memoryCeiling < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MemoryCeiling),
-                                            memoryCeiling,
-                                            "MemoryCeiling has to be at least 1.");
-    }
-
-    if (MemoryHardCeiling is long memoryHardCeiling && memoryHardCeiling < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MemoryHardCeiling),
-                                            memoryHardCeiling,
-                                            "MemoryHardCeiling has to be at least 1.");
-    }
-
+    MemoryCeiling?.Validate();
     ChannelDefaults?.Validate();
     Logging?.Validate();
   }
@@ -159,6 +129,74 @@ public sealed class RuntimeOptions
 
     return JsonSerializer.SerializeToUtf8Bytes(this,
                                                RuntimeOptionsJsonContext.Default.RuntimeOptions);
+  }
+}
+
+/// <summary>
+///   The memory the runtime holds: the bytes counting the buffers lent to send and the messages
+///   received until the host gives them back, and where work waits and where the runtime stops.
+/// </summary>
+public sealed class MemoryCeilingOptions
+{
+  /// <summary>Options nobody has set.</summary>
+  public MemoryCeilingOptions()
+  {
+  }
+
+  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
+  /// <param name="other">The options to copy.</param>
+  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
+  public MemoryCeilingOptions(MemoryCeilingOptions other)
+  {
+    if (other is null)
+    {
+      throw new ArgumentNullException(nameof(other));
+    }
+
+    SoftMiB = other.SoftMiB;
+    HardMiB = other.HardMiB;
+  }
+
+  /// <summary>
+  ///   The MiB the runtime holds before work waits: a call stops reading, and a send waits for
+  ///   room.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger
+  ///   value is that too.
+  /// </remarks>
+  [JsonPropertyName("SoftMiB")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public long? SoftMiB { get; set; }
+
+  /// <summary>
+  ///   The MiB past which the runtime stops: a received message that would take the count past
+  ///   them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below <c>SoftMiB</c> may pass
+  ///   it together, by a message each, and this bounds them. At least <c>SoftMiB</c>, or its default
+  ///   when that is left out, which is checked once the options are merged.
+  /// </summary>
+  /// <remarks>Defaults to a quarter above <c>SoftMiB</c>.</remarks>
+  [JsonPropertyName("HardMiB")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public long? HardMiB { get; set; }
+
+  /// <summary>Refuses an option outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    if (SoftMiB is long softMiB && softMiB < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(SoftMiB),
+                                            softMiB,
+                                            "SoftMiB has to be at least 1.");
+    }
+
+    if (HardMiB is long hardMiB && hardMiB < 1)
+    {
+      throw new ArgumentOutOfRangeException(nameof(HardMiB),
+                                            hardMiB,
+                                            "HardMiB has to be at least 1.");
+    }
   }
 }
 

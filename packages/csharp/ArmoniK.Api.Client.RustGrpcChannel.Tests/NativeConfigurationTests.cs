@@ -82,7 +82,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public Task AYamlFileIsReadUnderTheNamedPrefix()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration("Engine").LoadConfigFromFiles(File("engine.yaml",
-                                                                                                $"Engine:\n  Endpoint: {Endpoint}\n  MemoryCeiling: 1048576\n")));
+                                                                                                $"Engine:\n  Endpoint: {Endpoint}\n  MemoryCeiling:\n    SoftMiB: 1\n")));
 
   /// <summary>The command line reaches the engine as text, read by each key's type.</summary>
   [Test]
@@ -98,7 +98,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public Task WithNoPrefixAFileIsTheWholeDocument()
     => CallsThroughTheRuntimesEndpoint(new NativeConfiguration(string.Empty).LoadConfigFromFiles(File("whole.json",
-                                                                                                     "{ \"MemoryCeiling\": 1048576 }"))
+                                                                                                     "{ \"MemoryCeiling\": { \"SoftMiB\": 1 } }"))
                                                                             .LoadConfigFromCommandLine(new[]
                                                                                                        {
                                                                                                          $"--Endpoint={Endpoint}",
@@ -281,11 +281,11 @@ public class NativeConfigurationTests : EchoServerFixture
   public void AValueNotOfItsTypeIsRefusedAtTheCreateAndNotQuoted()
     => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                                                                              {
-                                                                                                                               "--ArmoniK:Client:Grpc:MemoryCeiling=a-great-deal",
+                                                                                                                               "--ArmoniK:Client:Grpc:MemoryCeiling:SoftMiB=a-great-deal",
                                                                                                                              })))
                                  .ConfigureAwait(false),
                    Throws.InstanceOf<InvalidOperationException>()
-                         .With.Message.Contains("pairs: MemoryCeiling is refused")
+                         .With.Message.Contains("pairs: MemoryCeiling.SoftMiB is refused")
                          .And.Message.Not.Contains("a-great-deal"));
 
   /// <summary>A command line states no list: it is refused by the list's path, with the sources that do state one.</summary>

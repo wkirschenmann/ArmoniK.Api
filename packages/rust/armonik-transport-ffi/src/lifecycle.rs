@@ -24,12 +24,10 @@ pub(crate) fn create_runtime(
     // logs nothing to the callback of the one that lives.
     let loading = log::begin(sink);
     let mut options = RuntimeOptions::default();
-    options.memory_ceiling = (memory_ceiling != 0).then_some(memory_ceiling);
-    options.memory_hard_ceiling = (memory_hard_ceiling != 0).then_some(memory_hard_ceiling);
     let defaults = crate::config::defaults(channel_defaults);
     loading.settle(None);
     options.channel_defaults = defaults.map_err(Refusal::config)?;
-    start(claim, options, host)
+    start(claim, options, (memory_ceiling, memory_hard_ceiling), host)
 }
 
 pub(crate) fn create_runtime_from(
@@ -50,12 +48,20 @@ pub(crate) fn create_runtime_from(
             .and_then(|options| options.logging.filter.as_deref()),
     );
     let options = loaded.map_err(Refusal::config)?;
-    start(claim, options, host)
+    let ceilings = options.memory_ceiling.bytes();
+    start(claim, options, ceilings, host)
 }
 
-fn start(claim: Claim, options: RuntimeOptions, host: Host) -> Result<ak_handle, Refusal> {
-    let runtime = AkRuntime::new(options, host)?;
-    crate::config::log_runtime(runtime.options());
+/// Starts a runtime whose ceilings, soft then hard, are `ceilings` in bytes, 0 for the library's
+/// own.
+fn start(
+    claim: Claim,
+    options: RuntimeOptions,
+    ceilings: (u64, u64),
+    host: Host,
+) -> Result<ak_handle, Refusal> {
+    let runtime = AkRuntime::new(options, ceilings, host)?;
+    crate::config::log_runtime(runtime.options(), ceilings);
     let handle = tables::runtimes()
         .insert(runtime)
         .ok_or(ak_status::AK_STATUS_INTERNAL)?;
