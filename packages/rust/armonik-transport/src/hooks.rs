@@ -19,6 +19,50 @@ pub struct Attempt {
     pub pushback: Pushback,
 }
 
+/// Where a channel's estimate of its server stands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AdaptiveState {
+    /// Attempts in the window that the server accepted.
+    pub accepted: u64,
+    /// Attempts in the window that failed transiently.
+    pub transient: u64,
+    /// Attempts in the window that said the server is over capacity.
+    pub overloaded: u64,
+    /// Whether retries are open: the retry reading is under the slack.
+    pub retries_open: bool,
+    /// The rate of first attempts the channel may start, a second, while it is capped.
+    pub cap_per_second: Option<f64>,
+}
+
+/// A channel's estimate of its server, alone, for the benchmark of its hot path.
+pub struct EstimateBench(crate::grpc::Adaptive);
+
+impl EstimateBench {
+    pub fn new(config: crate::grpc::AdaptiveConfig) -> Self {
+        Self(crate::grpc::Adaptive::new(config))
+    }
+
+    /// Counts an attempt the server accepted.
+    pub fn record_accept(&self) {
+        self.0.record(crate::grpc::Class::Accept);
+    }
+
+    /// Counts an attempt that said the server is over capacity.
+    pub fn record_overload(&self) {
+        self.0.record(crate::grpc::Class::Overload);
+    }
+
+    /// The decision a retry meets at its failure.
+    pub fn retries_open(&self) -> bool {
+        self.0.retries_open()
+    }
+
+    /// The decision a first attempt meets, on the path where nothing is capped and nobody waits.
+    pub async fn first_attempt(&self) {
+        self.0.admit_first().await;
+    }
+}
+
 /// What a hook runs on the thread that ends an attempt.
 pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 

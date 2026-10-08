@@ -22,7 +22,7 @@ fn closed_endpoint() -> String {
 }
 
 /// One attempt, so that a call that fails fast does so at once.
-const NO_RETRY: &str = r#"{"Grpc":{"Retry":{"None":true}}}"#;
+const NO_RETRY: &str = r#"{"Grpc":{"OutboundTraffic":{"Retry":{"None":true}}}}"#;
 
 #[test]
 fn a_call_that_declares_it_waits_for_a_server_that_comes_up() {

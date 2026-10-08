@@ -238,11 +238,11 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__Retry__Adaptive__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
-      "ChannelDefaults": { "Grpc": { "Retry": { "Adaptive": { "MaxAttempts": 3 } } } }
+      "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
     },
     "unknown": ["ChannelDefaults.Grpc.Nope"]
   },

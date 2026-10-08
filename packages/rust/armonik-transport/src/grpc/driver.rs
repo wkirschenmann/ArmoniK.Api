@@ -17,6 +17,7 @@ use super::call::{
     Answered, CallControl, HeadOrigin, OwnedMessage, ReadGate, RequestMessages, ResponseHead,
     ResponseSink,
 };
+use super::cause;
 use super::channel::Inner;
 use super::compression::{compressed, Encoding};
 use super::contained::contained;
@@ -316,7 +317,7 @@ async fn run<S: ResponseSink>(
     } = outgoing;
 
     let policy = inner.retry.as_ref();
-    let replay_limit = policy.map(|policy| policy.call_replay_bytes);
+    let replay_limit = Some(inner.call_replay_bytes);
     // What the call sent, kept for the attempts after the first. A stream's is made now; the
     // one request is held, whole and as its caller wrote it, until the first attempt has its turn.
     let mut replay: Option<Sent> = None;
@@ -372,15 +373,27 @@ async fn run<S: ResponseSink>(
         // call goes on to its next backoff. A first attempt, and a resend of a request its peer
         // never processed, wait their turn; a call whose deadline passes while it waits ends
         // DEADLINE_EXCEEDED.
-        let skip = match (&inner.rate_limit, retry_of.take()) {
-            (Some(limiter), Some(failed)) => (!limiter.try_admit()).then_some(failed),
-            (Some(limiter), None) => {
-                if until_stopped(stop, limiter.admit()).await.is_none() {
+        let skip = match retry_of.take() {
+            Some((status, origin)) => (!inner.admission.retry_turn()).then_some((status, origin)),
+            None => {
+                // A call that waits for a connection takes its turn once there is one, when it has a
+                // turn to wait for, so that the calls waiting for a connection hold none, and do not
+                // all start together when it opens. A connection that fails in between makes the request a resend, with a turn
+                // of its own.
+                if wait_for_ready
+                    && inner.admission.may_wait()
+                    && until_stopped(stop, inner.connected()).await.is_none()
+                {
+                    return GrpcStatus::cancelled();
+                }
+                if until_stopped(stop, inner.admission.first_attempt())
+                    .await
+                    .is_none()
+                {
                     return GrpcStatus::cancelled();
                 }
                 None
             }
-            (None, _) => None,
         };
         let Ended {
             status,
@@ -446,6 +459,9 @@ async fn run<S: ResponseSink>(
                 )
                 .await;
                 ended.report();
+                inner
+                    .admission
+                    .record(&ended.origin, ended.status.code, ended.pushback);
                 ended
             }
         };
@@ -453,7 +469,9 @@ async fn run<S: ResponseSink>(
         // once, whatever the policy, and counts as no attempt. Once a call for each way of not
         // being seen, so that a GOAWAY and the request it leaves unsent are both covered, and a
         // peer that refuses every stream, or drops every connection, meets the policy's backoff
-        // and its count rather than a loop of dials.
+        // and its count rather than a loop of dials: a further GOAWAY or unsent request is the
+        // connection's end, and a further refusal is a reset of `REFUSED_STREAM`, which the
+        // policy's list names or does not.
         let again = match unprocessed {
             Some(Unprocessed::Unsent) => !std::mem::replace(&mut unsent_again, true),
             Some(Unprocessed::RefusedStream | Unprocessed::GoAway) => {
@@ -477,9 +495,15 @@ async fn run<S: ResponseSink>(
         // carries: it would fail the same way, or the caller has ended it.
         let retryable = status.code != GrpcStatusCode::Ok
             && origin != Origin::Local
-            && policy.retryable_codes.contains(&status.code)
+            && cause::retried(&policy.failures, &origin, status.code, pushback)
             && previous < policy.max_attempts;
         if !retryable {
+            return status;
+        }
+        // The estimate has this attempt counted. A retry is judged worth sending while the server
+        // accepts what is sent, here and again once the backoff has passed, so that a call that
+        // will not be retried does not sleep first.
+        if !inner.admission.retries_open() {
             return status;
         }
         let wait = match pushback {
@@ -514,6 +538,9 @@ async fn run<S: ResponseSink>(
             .is_none()
         {
             return GrpcStatus::cancelled();
+        }
+        if !inner.admission.retries_open() {
+            return status;
         }
         retry_of = Some((status, origin));
     }

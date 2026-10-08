@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use hyper::Uri;
 
-use crate::grpc::{GrpcChannelConfig, RateLimitConfig, RetryConfig};
+use crate::grpc::{AdaptiveConfig, GrpcChannelConfig, ReplayConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
     ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, RetryOptions, Seconds,
-    LARGEST_WINDOW,
+    ThrottleOptions, LARGEST_WINDOW,
 };
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -36,7 +36,8 @@ pub struct ChannelSettings {
     http2: Http2Config,
     proxy: ProxyConfig,
     retry: Option<RetryConfig>,
-    rate_limit: Option<RateLimitConfig>,
+    adaptive: Option<AdaptiveConfig>,
+    replay: ReplayConfig,
 }
 
 impl ChannelSettings {
@@ -125,19 +126,30 @@ impl ChannelSettings {
                 ProxyOptions::to_config,
             )
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.Proxy")))?;
-        let retry = grpc
+        let traffic = &grpc.outbound_traffic;
+        let retry = traffic
             .retry
             .as_ref()
             .map_or_else(
                 || RetryOptions::default().to_config(),
                 RetryOptions::to_config,
             )
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Retry")))?;
-        let rate_limit = grpc
-            .rate
-            .limit
-            .to_config()
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Rate.Limit")))?;
+            .map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Retry"))
+            })?;
+        let adaptive = traffic
+            .throttle
+            .as_ref()
+            .map_or_else(
+                || ThrottleOptions::default().to_config(),
+                ThrottleOptions::to_config,
+            )
+            .map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Throttle"))
+            })?;
+        let replay = traffic.replay.to_config().map_err(|refused| {
+            SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Replay"))
+        })?;
 
         Ok(Self {
             options,
@@ -148,7 +160,8 @@ impl ChannelSettings {
             http2,
             proxy,
             retry,
-            rate_limit,
+            adaptive,
+            replay,
         })
     }
 
@@ -211,7 +224,8 @@ impl ChannelSettings {
         }
         config.default_deadline = self.default_deadline;
         config.retry = self.retry;
-        config.rate_limit = self.rate_limit;
+        config.adaptive = self.adaptive;
+        config.replay = self.replay;
         config
     }
 }

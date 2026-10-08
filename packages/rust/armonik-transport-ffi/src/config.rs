@@ -234,7 +234,7 @@ mod tests {
 
     use super::*;
     use armonik_transport::grpc::Encoding;
-    use armonik_transport::grpc::{GrpcChannelConfig, RateLimitConfig};
+    use armonik_transport::grpc::{AdaptiveConfig, GrpcChannelConfig, ReplayConfig};
     use armonik_transport::http2::{FixedWindows, ReceiveWindows};
     use armonik_transport::options::LARGEST_WINDOW;
 
@@ -369,14 +369,40 @@ mod tests {
             ("InitialBackoffSeconds", retry.initial_backoff.as_secs_f64()),
             ("MaxBackoffSeconds", retry.max_backoff.as_secs_f64()),
             ("BackoffMultiplier", retry.backoff_multiplier),
-            ("CallReplayBytes", retry.call_replay_bytes as f64),
-            ("ChannelReplayBytes", retry.channel_replay_bytes as f64),
         ] {
             assert_eq!(
                 stated(&format!(
-                    "/$defs/AdaptiveRetryOptions/properties/{option}/description"
+                    "/$defs/ExponentialBackoffOptions/properties/{option}/description"
                 )),
                 applied,
+                "{option}"
+            );
+        }
+        let throttle = config.adaptive.expect("a judgment by default");
+        for (option, applied) in [
+            ("Multiplier", throttle.multiplier),
+            ("ThrottleMultiplier", throttle.throttle_multiplier),
+            ("FailureAllowance", f64::from(throttle.slack)),
+            ("WindowSeconds", throttle.window.as_secs_f64()),
+            ("FloorPerSecond", throttle.floor_per_second),
+        ] {
+            assert_eq!(
+                stated(&format!(
+                    "/$defs/AdaptiveOptions/properties/{option}/description"
+                )),
+                applied,
+                "{option}"
+            );
+        }
+        for (option, applied) in [
+            ("MaxPerCallKiB", config.replay.call_bytes / 1024),
+            ("MaxPerChannelKiB", config.replay.channel_bytes / 1024),
+        ] {
+            assert_eq!(
+                stated(&format!(
+                    "/$defs/ReplayOptions/properties/{option}/description"
+                )),
+                applied as f64,
                 "{option}"
             );
         }
@@ -544,16 +570,20 @@ mod tests {
                 r#"{"Http2":{"Send":{"StreamBufferSize":N}}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/MaxAttempts/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"MaxAttempts":N}}}}"#,
+                "/$defs/ExponentialBackoffOptions/properties/MaxAttempts/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxAttempts":N}}}}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/CallReplayBytes/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"CallReplayBytes":N}}}}"#,
+                "/$defs/ReplayOptions/properties/MaxPerCallKiB/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":N}}}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/ChannelReplayBytes/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"ChannelReplayBytes":N}}}}"#,
+                "/$defs/ReplayOptions/properties/MaxPerChannelKiB/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerChannelKiB":N}}}}"#,
+            ),
+            (
+                "/$defs/AdaptiveOptions/properties/FailureAllowance/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Throttle":{"Adaptive":{"FailureAllowance":N}}}}}"#,
             ),
         ] {
             let minimum = stated(pointer).unwrap_or_else(|| panic!("{pointer} states none"));
@@ -583,16 +613,28 @@ mod tests {
                 r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/InitialBackoffSeconds/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":N}}}}"#,
+                "/$defs/ExponentialBackoffOptions/properties/InitialBackoffSeconds/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":N}}}}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/MaxBackoffSeconds/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}}}"#,
+                "/$defs/ExponentialBackoffOptions/properties/MaxBackoffSeconds/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":1e-9,"MaxBackoffSeconds":N}}}}}"#,
             ),
             (
-                "/$defs/AdaptiveRetryOptions/properties/BackoffMultiplier/minimum",
-                r#"{"Grpc":{"Retry":{"Adaptive":{"BackoffMultiplier":N}}}}"#,
+                "/$defs/ExponentialBackoffOptions/properties/BackoffMultiplier/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"BackoffMultiplier":N}}}}}"#,
+            ),
+            (
+                "/$defs/AdaptiveOptions/properties/Multiplier/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Throttle":{"Adaptive":{"Multiplier":N}}}}}"#,
+            ),
+            (
+                "/$defs/AdaptiveOptions/properties/ThrottleMultiplier/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Throttle":{"Adaptive":{"ThrottleMultiplier":N}}}}}"#,
+            ),
+            (
+                "/$defs/AdaptiveOptions/properties/WindowSeconds/minimum",
+                r#"{"Grpc":{"OutboundTraffic":{"Throttle":{"Adaptive":{"WindowSeconds":N}}}}}"#,
             ),
         ] {
             let minimum = schema
@@ -691,81 +733,72 @@ mod tests {
     }
 
     #[test]
-    fn the_retry_codes_reach_the_engine_and_a_list_naming_none_is_refused() {
-        use armonik_transport::grpc::GrpcStatusCode;
+    fn the_outbound_traffic_reaches_the_engine_and_an_unknown_entry_is_refused() {
+        use armonik_transport::grpc::{Cause, GrpcStatusCode};
 
-        let codes = |document: &[u8]| {
-            config_of(document)
-                .retry
-                .expect("a retry policy")
-                .retryable_codes
-        };
-        assert_eq!(codes(b"{}"), [GrpcStatusCode::Unavailable]);
+        let engine = config_of(b"{}");
         assert_eq!(
-            codes(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"GrpcClient":true}}}}}"#),
+            engine.retry.expect("a policy by default").failures,
             [
-                GrpcStatusCode::Unavailable,
-                GrpcStatusCode::Aborted,
-                GrpcStatusCode::Unknown
+                Cause::Status(GrpcStatusCode::Unavailable),
+                Cause::Dial,
+                Cause::Connection
             ]
         );
+        assert_eq!(engine.adaptive, Some(AdaptiveConfig::default()));
+        assert_eq!(engine.replay, ReplayConfig::default());
+
+        let engine = config_of(
+            br#"{"Grpc":{"OutboundTraffic":{
+                "Retry":{"ExponentialBackoff":{"FailureList":["Status.ABORTED","Reset.REFUSED_STREAM"]}},
+                "Throttle":{"Adaptive":{"TransientList":["Dial"],"OverloadList":[],"FailureAllowance":3}},
+                "Replay":{"MaxPerCallKiB":2,"MaxPerChannelKiB":8}}}}"#,
+        );
         assert_eq!(
-            codes(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"List":["ABORTED"]}}}}}"#),
-            [GrpcStatusCode::Aborted]
+            engine.retry.expect("a policy").failures,
+            [Cause::Status(GrpcStatusCode::Aborted), Cause::Reset(7)]
+        );
+        let judged = engine.adaptive.expect("a judgment");
+        assert_eq!(judged.transient, [Cause::Dial]);
+        assert!(judged.overload.is_empty(), "an empty list names nothing");
+        assert_eq!(judged.slack, 3);
+        assert_eq!(
+            (engine.replay.call_bytes, engine.replay.channel_bytes),
+            (2048, 8192)
         );
 
-        let refused = parse(br#"{"Grpc":{"Retry":{"Adaptive":{"Codes":{"List":[]}}}}}"#)
-            .err()
-            .expect("refused")
-            .to_string();
+        let engine = config_of(
+            br#"{"Grpc":{"OutboundTraffic":{"Retry":{"None":true},"Throttle":{"None":true}}}}"#,
+        );
+        assert!(engine.retry.is_none() && engine.adaptive.is_none());
         assert!(
-            refused.starts_with("Grpc.Retry.Adaptive.Codes.List"),
-            "{refused}"
-        );
-    }
-
-    #[test]
-    fn the_rate_limit_reaches_the_engine_and_a_limit_that_starts_nothing_is_refused() {
-        assert_eq!(config_of(b"{}").rate_limit, None);
-        assert_eq!(
-            config_of(br#"{"Grpc":{"Rate":{"Limit":{"Calls":100,"PerSeconds":0.25}}}}"#).rate_limit,
-            Some(RateLimitConfig::new(100, Duration::from_millis(250)))
+            config_of(
+                br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"FailureList":[]}}}}}"#
+            )
+            .retry
+            .expect("a policy")
+            .failures
+            .is_empty(),
+            "an empty list retries nothing, and is not refused"
         );
 
         for (document, key) in [
             (
-                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":0,"PerSeconds":1}}}}"#[..],
-                "Grpc.Rate.Limit.Calls",
+                &br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"FailureList":["Status.UNAVAILABLE","Status.Nope"]}}}}}"#[..],
+                "Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList[1]",
             ),
             (
-                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1,"PerSeconds":0}}}}"#[..],
-                "Grpc.Rate.Limit.PerSeconds",
+                &br#"{"Grpc":{"OutboundTraffic":{"Throttle":{"Adaptive":{"OverloadList":["Status.CANCELLED"]}}}}}"#[..],
+                "Grpc.OutboundTraffic.Throttle.Adaptive.OverloadList[0]",
             ),
             (
-                &br#"{"Grpc":{"Rate":{"Limit":{"Calls":1}}}}"#[..],
-                "Grpc.Rate.Limit.PerSeconds",
-            ),
-            (
-                &br#"{"Grpc":{"Rate":{"Limit":{"PerSeconds":1}}}}"#[..],
-                "Grpc.Rate.Limit.Calls",
+                &br#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":-1}}}}"#[..],
+                "Grpc.OutboundTraffic.Replay.MaxPerCallKiB",
             ),
         ] {
             let refused = parse(document).err().expect("refused").to_string();
             assert!(refused.starts_with(key), "{refused}");
         }
-
-        // The bounds the schema states are the ones refused above.
-        let schema: serde_json::Value = serde_json::from_str(&armonik_transport::options::schema())
-            .expect("the schema renders as JSON");
-        let minimum = |option: &str| {
-            schema
-                .pointer(&format!(
-                    "/$defs/RateLimitOptions/properties/{option}/minimum"
-                ))
-                .and_then(serde_json::Value::as_f64)
-        };
-        assert_eq!(minimum("Calls"), Some(1.0));
-        assert_eq!(minimum("PerSeconds"), Some(1e-9));
     }
 
     #[test]
@@ -1088,9 +1121,11 @@ mod tests {
     /// disagree is refused as the merge's, the channel's own document being admitted alone.
     #[test]
     fn bounds_that_disagree_once_merged_refuse_the_merge() {
-        let defaults = defaults(br#"{"Grpc":{"Retry":{"Adaptive":{"MaxBackoffSeconds":2}}}}"#)
-            .expect("valid defaults");
-        let own = br#"{"Grpc":{"Retry":{"Adaptive":{"InitialBackoffSeconds":3}}}}"#;
+        let defaults = defaults(
+            br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":100}}}}}"#,
+        )
+        .expect("valid defaults");
+        let own = br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":50}}}}}"#;
         assert!(
             parse(own).is_ok(),
             "the channel's document alone is admitted"

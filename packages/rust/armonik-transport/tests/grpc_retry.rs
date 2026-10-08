@@ -6,8 +6,9 @@ mod common;
 use std::time::{Duration, Instant};
 
 use armonik_transport::grpc::{
-    CallStartOptions, Deadline, FramedMessage, GrpcChannel, GrpcChannelConfig, GrpcStatus,
-    GrpcStatusCode, MetadataValue, RecvResult, ResponseHead, ResponseSink, RetryConfig,
+    CallStartOptions, Cause, Deadline, FramedMessage, GrpcChannel, GrpcChannelConfig, GrpcStatus,
+    GrpcStatusCode, MetadataValue, RecvResult, ReplayConfig, ResponseHead, ResponseSink,
+    RetryConfig,
 };
 use armonik_transport::http2::TransportConfig;
 use bytes::Bytes;
@@ -16,6 +17,15 @@ use common::refuser::{Refusal, Refuser};
 use http::Uri;
 
 fn retrying(endpoint: &str, change: impl FnOnce(&mut RetryConfig)) -> GrpcChannel {
+    keeping(endpoint, ReplayConfig::default(), change)
+}
+
+/// A channel that retries, and keeps at most `replay` of what its calls sent.
+fn keeping(
+    endpoint: &str,
+    replay: ReplayConfig,
+    change: impl FnOnce(&mut RetryConfig),
+) -> GrpcChannel {
     let mut config = GrpcChannelConfig::new(TransportConfig::new(
         Uri::try_from(endpoint).expect("an endpoint"),
     ));
@@ -24,7 +34,16 @@ fn retrying(endpoint: &str, change: impl FnOnce(&mut RetryConfig)) -> GrpcChanne
     retry.max_backoff = Duration::from_millis(50);
     change(&mut retry);
     config.retry = Some(retry);
+    config.replay = replay;
     channel_with(config).expect("a channel")
+}
+
+/// The most a call and a channel keep, in bytes.
+fn replay(call_bytes: usize, channel_bytes: usize) -> ReplayConfig {
+    let mut replay = ReplayConfig::default();
+    replay.call_bytes = call_bytes;
+    replay.channel_bytes = channel_bytes;
+    replay
 }
 
 /// The options of a flaky call under a key of its own, failing `times` times with what `extra`
@@ -85,14 +104,18 @@ async fn a_code_the_policy_does_not_name_is_not_retried() {
     assert_eq!(flaky_seen("denied").len(), 1);
 }
 
-/// The default policy retries what `google.rpc.Code` advises, UNAVAILABLE alone; the codes of
-/// `GrpcClient` are `RetryConfig::grpc_client`'s.
+/// The default policy retries UNAVAILABLE alone, which is what `google.rpc.Code` advises; a list
+/// that names ABORTED and UNKNOWN retries them.
 #[tokio::test]
-async fn aborted_and_unknown_are_retried_by_the_grpc_client_codes_and_not_by_the_default() {
+async fn aborted_and_unknown_are_retried_when_the_list_names_them_and_not_by_the_default() {
     let server = TestServer::start().await;
     let standard = retrying(&server.endpoint, |_| {});
     let grpc_client = retrying(&server.endpoint, |retry| {
-        retry.retryable_codes = RetryConfig::grpc_client().retryable_codes;
+        retry.failures = vec![
+            Cause::Status(GrpcStatusCode::Unavailable),
+            Cause::Status(GrpcStatusCode::Aborted),
+            Cause::Status(GrpcStatusCode::Unknown),
+        ];
     });
 
     for (name, code, expected) in [
@@ -105,7 +128,7 @@ async fn aborted_and_unknown_are_retried_by_the_grpc_client_codes_and_not_by_the
         assert_eq!(status.code, expected, "{key}: {status}");
         assert_eq!(flaky_seen(&key).len(), 1, "{key}");
 
-        let key = format!("preset-{name}");
+        let key = format!("listed-{name}");
         let options = flaky_options(&key, 1, &[("x-fail-code", code)]);
         let (messages, status) = call(&grpc_client, options, b"x").await;
         assert_eq!(status.code, GrpcStatusCode::Ok, "{key}: {status}");
@@ -143,10 +166,7 @@ async fn a_call_past_its_replay_ceiling_or_the_channels_is_committed() {
     let server = TestServer::start().await;
     for (key, call_bytes, channel_bytes) in [("ceiling", 2, 1 << 20), ("channel-total", 1 << 20, 2)]
     {
-        let channel = retrying(&server.endpoint, |retry| {
-            retry.call_replay_bytes = call_bytes;
-            retry.channel_replay_bytes = channel_bytes;
-        });
+        let channel = keeping(&server.endpoint, replay(call_bytes, channel_bytes), |_| {});
         let (_, status) = call(&channel, flaky_options(key, 1, &[]), b"hello").await;
         assert_eq!(status.code, GrpcStatusCode::Unavailable, "{key}: {status}");
         assert_eq!(flaky_seen(key).len(), 1, "{key}");
@@ -295,7 +315,7 @@ async fn a_bidi_stream_answered_is_not_sent_again() {
 #[tokio::test]
 async fn a_stream_past_its_ceiling_is_not_sent_again() {
     let server = TestServer::start().await;
-    let channel = retrying(&server.endpoint, |retry| retry.call_replay_bytes = 4);
+    let channel = keeping(&server.endpoint, replay(4, 1 << 20), |_| {});
 
     for (method, key) in [
         (FLAKY_COLLECT, "client-stream-past"),
@@ -350,7 +370,8 @@ async fn a_stream_reset_for_another_reason_is_not_sent_again() {
     assert_eq!(refuser.seen().len(), 1);
 }
 
-/// Once a call: a second refusal is the policy's to retry, after its backoff and as an attempt.
+/// Once a call: a second refusal is the policy's to retry, after its backoff and as an attempt,
+/// when its list names a reset for REFUSED_STREAM.
 #[tokio::test]
 async fn a_second_refusal_meets_the_policy() {
     let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
@@ -362,22 +383,61 @@ async fn a_second_refusal_meets_the_policy() {
     let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
     let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 2);
     let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    assert_eq!(
+        status.code,
+        GrpcStatusCode::Unavailable,
+        "the default list names no reset: {status}"
+    );
+    assert_eq!(refuser.seen().len(), 2);
+
+    let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
+    let channel = retrying(&refuser.endpoint, |retry| {
+        retry.max_attempts = 2;
+        retry.failures.push(Cause::Reset(7));
+    });
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
     assert_eq!(refuser.seen(), vec![None, None, Some("1".to_owned())]);
 }
 
+/// Once a call: a second GOAWAY that leaves the call unprocessed is the connection's end, which the
+/// policy's list names or does not.
+#[tokio::test]
+async fn a_second_goaway_meets_the_policy() {
+    let refuser = Refuser::start(Refusal::GoAway, 2).await;
+    let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 2);
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+    assert_eq!(refuser.seen().len(), 3);
+
+    let refuser = Refuser::start(Refusal::GoAway, 2).await;
+    let channel = retrying(&refuser.endpoint, |retry| {
+        retry.max_attempts = 2;
+        retry.failures = vec![Cause::Status(GrpcStatusCode::Unavailable)];
+    });
+    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
+    assert_eq!(refuser.seen().len(), 2);
+}
+
 /// A call that did not keep all it sent is not sent again, even unprocessed: what it sent could not
-/// be sent again whole. Past its ceiling here, and with no policy, which keeps nothing.
+/// be sent again whole. Past its ceiling here, and with a ceiling of nothing.
 #[tokio::test]
 async fn a_call_refused_without_all_it_sent_kept_is_not_sent_again() {
-    let past_ceiling = |endpoint: &str| retrying(endpoint, |retry| retry.call_replay_bytes = 2);
-    let no_policy = |endpoint: &str| channel(endpoint);
+    let past_ceiling = |endpoint: &str| keeping(endpoint, replay(2, 1 << 20), |_| {});
+    let nothing_kept = |endpoint: &str| {
+        let mut config = GrpcChannelConfig::new(TransportConfig::new(
+            Uri::try_from(endpoint).expect("an endpoint"),
+        ));
+        config.replay = replay(0, 0);
+        channel_with(config).expect("a channel")
+    };
     for (case, open) in [
         (
             "past its ceiling",
             &past_ceiling as &dyn Fn(&str) -> GrpcChannel,
         ),
-        ("no policy", &no_policy),
+        ("a ceiling of nothing", &nothing_kept),
     ] {
         let refuser = Refuser::start(Refusal::RefusedStream, 1).await;
         let (_, status) = call(
