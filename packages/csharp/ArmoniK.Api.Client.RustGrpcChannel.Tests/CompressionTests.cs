@@ -446,8 +446,8 @@ public class CompressionTests : EchoServerFixture
   ///   the send encoding from the command line, the accepted ones, a list, from a file.
   /// </summary>
   /// <remarks>
-  ///   The loader reads a list from a file or a document only: a command line, the environment
-  ///   and pairs give a key an index under it, which it refuses where it expects a list.
+  ///   A list is stated by a file, a document or an environment variable holding a JSON array: a
+  ///   command line and pairs state none.
   /// </remarks>
   [Test]
   public async Task TheLoaderReadsTheEncodingsByTheirNames()
@@ -472,13 +472,55 @@ public class CompressionTests : EchoServerFixture
                                                                                                                     "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Send:Compression=Gzip",
                                                                                                                   })))
                   .ConfigureAwait(false);
+
+      await SendsInGzipAndAcceptsZstdThenGzip(runtime)
+        .ConfigureAwait(false);
     }
     finally
     {
       Directory.Delete(directory,
                        true);
     }
+  }
 
+  /// <summary>The environment states the list as one variable holding a JSON array.</summary>
+  [Test]
+  public async Task TheLoaderReadsTheEncodingsFromTheEnvironment()
+  {
+    const string prefix = "AKCOMPRESSIONLIST";
+
+    var variables = new[]
+                    {
+                      ("Endpoint", Endpoint),
+                      ("ChannelDefaults__Grpc__Send__Compression", "Gzip"),
+                      ("ChannelDefaults__Grpc__Receive__Compression", @"[""Zstd"", ""Gzip""]"),
+                    };
+
+    foreach (var (name, value) in variables)
+    {
+      Environment.SetEnvironmentVariable(prefix + "__" + name,
+                                         value);
+    }
+
+    try
+    {
+      var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(prefix).LoadConfigFromEnvironment()))
+                      .ConfigureAwait(false);
+      await SendsInGzipAndAcceptsZstdThenGzip(runtime)
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      foreach (var (name, _) in variables)
+      {
+        Environment.SetEnvironmentVariable(prefix + "__" + name,
+                                           null);
+      }
+    }
+  }
+
+  private async Task SendsInGzipAndAcceptsZstdThenGzip(NativeRuntime runtime)
+  {
     await using var channel = runtime.Channel(string.Empty);
     using var call = Client(channel)
       .SayAsync(new EchoRequest
