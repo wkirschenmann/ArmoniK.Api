@@ -480,6 +480,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         Blank(source);
       }
 
+      // An optional list is copied as a required one is, and stays null when it was not given.
+      foreach (var field in parameters.Where(field => !field.Required && field.Kind == OptionKind.EnumerationList))
+      {
+        Document(source,
+                 field.Description);
+        source.WriteLine($"public {ParameterType(field)}? {field.Name} {{ get; init; }} = {field.Name} is null ? null : new {ListOf(field.Type)}({field.Name}).AsReadOnly();");
+        Blank(source);
+      }
+
       if (parameters.Any(field => field.Kind == OptionKind.EnumerationList))
       {
         AppendListEquality(source,
@@ -525,7 +534,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         var printed = field.Secret
                         ? $"{field.Name} is null ? \"null\" : \"***\""
                         : field.Kind == OptionKind.EnumerationList
-                          ? $"\"[\" + string.Join(\", \", {field.Name}) + \"]\""
+                          ? field.Required
+                              ? $"\"[\" + string.Join(\", \", {field.Name}) + \"]\""
+                              : $"{field.Name} is null ? \"null\" : \"[\" + string.Join(\", \", {field.Name}) + \"]\""
                           : $"(object?){field.Name}";
 
         source.WriteLine($"builder.Append(\"{(n == 0 ? "" : ", ")}{field.Name} = \");");
@@ -549,8 +560,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     {
       var equal = string.Join(" && ",
                               alternative.Fields.Select(field => field.Kind == OptionKind.EnumerationList
-                                                                   ? $"global::System.Linq.Enumerable.SequenceEqual({field.Name}, other.{field.Name})"
-                                                                   : $"global::System.Collections.Generic.EqualityComparer<{field.Type}>.Default.Equals({field.Name}, other.{field.Name})"));
+                                                                   ? field.Required
+                                                                       ? $"global::System.Linq.Enumerable.SequenceEqual({field.Name}, other.{field.Name})"
+                                                                       : $"({field.Name} is null ? other.{field.Name} is null : other.{field.Name} is not null && global::System.Linq.Enumerable.SequenceEqual({field.Name}, other.{field.Name}))"
+                                                                   : $"global::System.Collections.Generic.EqualityComparer<{field.Type}{(field.Required ? "" : "?")}>.Default.Equals({field.Name}, other.{field.Name})"));
 
       Lines(source,
             $$"""
@@ -570,12 +583,23 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       {
         if (field.Kind == OptionKind.EnumerationList)
         {
-          source.WriteLine($"foreach (var item in {field.Name})");
+          // An optional list that was not given has no items and hashes as an empty one would not:
+          // the null is its own value.
+          source.WriteLine(field.Required
+                             ? $"foreach (var item in {field.Name})"
+                             : $"foreach (var item in {field.Name} ?? global::System.Linq.Enumerable.Empty<{field.Type}>())");
           source.WriteLine("{");
           source.Indent++;
-          source.WriteLine("hash = hash * 31 + item.GetHashCode();");
+          source.WriteLine(field.Type == "string"
+                             ? "hash = hash * 31 + (item?.GetHashCode() ?? 0);"
+                             : "hash = hash * 31 + item.GetHashCode();");
           source.Indent--;
           source.WriteLine("}");
+
+          if (!field.Required)
+          {
+            source.WriteLine($"hash = hash * 31 + ({field.Name} is null ? 0 : 1);");
+          }
         }
         else
         {
@@ -688,7 +712,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
               var value = Local(field.Name);
               Blank(source);
-              source.WriteLine($"if ({local}.{field.Name} is {field.Type} {value})");
+              source.WriteLine($"if ({local}.{field.Name} is {(field.Kind == OptionKind.EnumerationList ? ParameterType(field) : field.Type)} {value})");
               source.WriteLine("{");
               source.Indent++;
               AppendWrite(source,
@@ -757,7 +781,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
           source.WriteLine($"foreach (var item in {value})");
           source.WriteLine("{");
           source.Indent++;
-          source.WriteLine("writer.WriteStringValue(item.ToString());");
+          source.WriteLine(option.Type == "string"
+                             ? "writer.WriteStringValue(item);"
+                             : "writer.WriteStringValue(item.ToString());");
           source.Indent--;
           source.WriteLine("}");
           source.WriteLine("writer.WriteEndArray();");
@@ -911,7 +937,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                        IReadOnlyList<Option> options,
                                        string signature)
     {
-      var checks = options.Where(option => option.Kind is OptionKind.Enumeration or OptionKind.EnumerationList ||
+      var checks = options.Where(option => (option.Kind == OptionKind.EnumerationList && option.Type != "string") ||
+                                           option.Kind == OptionKind.Enumeration ||
                                            (option.Kind == OptionKind.Value && (option.Bounds.Count > 0 || option.Type == "double")))
                           .ToList();
       var nested = options.Where(option => option.Kind is OptionKind.Group or OptionKind.Choice)
