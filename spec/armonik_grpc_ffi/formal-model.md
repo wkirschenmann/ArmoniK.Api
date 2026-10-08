@@ -227,14 +227,15 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
 
 - `buffer_charge`: per call and per buffer, the bytes the allocator handed out for that
   allocation. It is what the budget counts, and it is written once on a fresh buffer and
-  never rewritten - the discipline `buffer_send` already follows
+  rewritten only by an exchange (`ResizeSendBuffer`), to zero, when it becomes the new
+  buffer's
 - `buffer_length`: per call and per buffer, the bytes `ak_buffer.len` exposes. Distinct from
   the charge because the allocator may round a request up: `FitsInBuffer` reads the length,
   so a commit must fit the view the host was given, while the ceiling counts what was really
   taken. `CoversRequest` ties them at the lend and nothing relates them afterwards
 - `memory_used`: the runtime-wide counter, moved the way an implementation moves it rather
   than evaluated as a sum on demand: up by the lend and by a received message as it arrives
-  decoded, down by the free, by the consumption of a message payload, and by a cancelled
+  decoded, by the difference on an exchange of a lent buffer, down by the free, by the consumption of a message payload, and by a cancelled
   call's end, which gives back what it received and never delivered. Typed `Int`;
   `MemoryAccountingExact` is what makes it non-negative and what makes the thresholds mean
   anything
@@ -263,6 +264,32 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
   waited. `EmitBudgetWake` pays it, one step with its callback's return: the engine raises the
   event from the task that drives the call, the one that also delivers the terminal, so the two
   never overlap. Not on a call being cancelled or whose trailers are in
+
+**The exchange of a lent buffer.** `ResizeSendBuffer(cId, b, nb, len, charge)` is
+`ak_resize_call_buffer`: the host holds `b` and asks for another buffer, `nb`, of `len` bytes.
+It is a lend of `nb` and the return of `b` in one step, which is the point of it: `memory_used`
+moves by `charge - buffer_charge[b]`, so the two charges are never both on the counter, and the
+room `b` held is not offered to another call between the return and the lend, which two
+downcalls would leave open. `IsMemoryAvailableForExchange` is the guard, the lend's with `b`'s
+charge taken off first, and asked only for a growth: received messages may have taken the
+counter past the first threshold, and giving memory back is never refused. `b` is `returned` with its charge set to zero, since the charge is now
+`nb`'s: its release, `FreeReturnedBuffer`, is owed at once, carries no send, and takes nothing
+off the counter. It stays a state of the chain `lent`, `returned`, `freed`, which is what keeps
+the liveness proofs about a lent buffer standing. `buffers_held_by_host`,
+`last_lend_status`, `lend_waiting` and `buffer_send` do not move. The call's one lent buffer
+and its slot of the send window are `b`'s and become `nb`'s, and nothing waits: the host holds
+a buffer, and a call whose send waits holds none, which is why the exchange has no
+`EndWaitOf`. A release owes the waiting calls their wake-up, so a shrink does, and a growth
+does not. The bytes kept are not an argument: what the host wrote is no state of the model,
+and `FitsInBuffer` is read at the commit against `nb`.
+
+Its refusals - the ceiling, a call that is over, a buffer that is not lent - take no step, as a
+refusal of any other downcall that is not a lend does, and a refusal for room records no wait:
+a host that waits gives the buffer back and lends, and that is the wait the model has. The
+overrun the ABI answers with `AK_STATUS_CORRUPTED` is not modelled, as at the commit. The
+action carries no fairness - exchanging is never owed - and the buffer it lends is
+under the fairness `HostReturnsBuffer` already has, per buffer. Each exchange spends a fresh
+identity, so `BufferIds` bounds the exchanges of a behaviour as it bounds its lends.
 
 Deliberately absent: no handle registry (validity is modeled, not the numbering, so the
 registry's counter is an implementation of handle validity rather than a modelled object), no read-credit variable (`ak_event_consumed` frees and arms in one
@@ -408,8 +435,8 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   Both sit outside the `NotFailed` umbrella: failing changes neither the counter nor any
   charge, so a host still gets its memory back afterwards and the observers still answer
 - **MemoryWithinHardCeiling**: the counter never passes the second threshold. Carried by
-  the guards of the two steps that add - a lend below the first threshold, a received message
-  below the second - every other step only ever subtracting. The first threshold is not an
+  the guards of the three steps that add - a lend and the growth of an exchange below the
+  first threshold, a received message below the second - every other step only subtracting. The first threshold is not an
   invariant: calls admitted together may pass it, by a message each
 - **ReceiveAccountingInv**: what the received side's accounting reads of a call's counts. It
   delivers no more than it received, holds at most one message past its deliveries, and an
@@ -540,7 +567,7 @@ unordered - a per-call conjunct would let a host cycle some buffers while starvi
 `AdmitRead` carries none either: what arrives is the peer's to drive, as the level-0 receive
 is, and a call held back below the threshold reads again only when a release makes room.
 
-The remaining downcalls (`CallStart`, `LendSendBuffer`, `SendMessage`, `EndSend`,
+The remaining downcalls (`CallStart`, `LendSendBuffer`, `ResizeSendBuffer`, `SendMessage`, `EndSend`,
 `RequestCallCancellation`, `RuntimeBeginShutdown`, `RuntimeDestroy`) carry no fairness:
 the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
 is not among them, because it is not a downcall - the runtime reclaims a settled call
@@ -558,7 +585,7 @@ proved with tlapm by lifting each level-0 fairness conjunct to the level-1 machi
 `DotNetBinding.tla` refines `FfiGrpc`: the state space, the actions, the fairness and
 the properties below are the specification as written, and they cover three mechanisms -
 the runtime's lifetime, the write machine, and the managed completions.  The modules are
-TLC-vetted: thirty-eight of the thirty-nine actions fire, the thirty-ninth being dead by
+TLC-vetted: thirty-nine of the forty actions fire, the fortieth being dead by
 design, below.  No one configuration fires them all: a call's shape is fixed per
 configuration, so the stream's write steps and the one-request call's are covered by
 different runs.
@@ -745,7 +772,10 @@ ring and the dispose would wait forever on a status nobody can produce.
 `CancelWriterWait` resolves it on cancellation or dispose; `WriteRefusedTooLarge` faults
 without waiting; `CommitWrite` sends and enters `awaiting_write_done`, or `sealing` on a
 one-request call; `WriteAborted` is the disposable wrapper closing over a throwing
-marshaller or a refused commit; `WriteDoneCompletes` conjoins the level-1 callback return
+marshaller or a refused commit; `WriteResizesBuffer` is a marshaller that needs another
+length than it announced, the buffer exchanged while the writer stays `serializing` - level
+1's `ResizeSendBuffer`, whose refusals are no step, the wrapper then giving the buffer back
+and lending again at the length it asked for; `WriteDoneCompletes` conjoins the level-1 callback return
 and completes the write.  A one-request commit is one downcall in the engine and two steps
 here: `SealRequest` ends the sending and closes the writer, reading no binding guard, and
 while the writer seals the runtime steps that would close the end of the sending's guard
@@ -1118,8 +1148,10 @@ on its own - `TrampolineStaysUntilItReturns` says the callback cannot slip off t
 while the writer waits, without which a single callback is not the standing enabling weak
 fairness asks for.
 
-The four proofs modules verify with the fingerprint cache disabled: 1809, 11421, 23 and
-33437 obligations, no failure.  That distinction matters here, because a green run over a
+Three of the four proofs modules verify with the fingerprint cache disabled: 1809, 13512
+and 23 obligations, no failure. The level-2 module has 33928, summed over windows of 500 lines,
+which may count an obligation twice at a boundary: its first 87 windows ran with the cache
+disabled and the remaining 36 with it enabled, no failure.  That distinction matters here, because a green run over a
 warm cache says only that the obligations were once discharged by a text that may since
 have changed.
 
@@ -1150,7 +1182,8 @@ Refinement mapping, by direct reuse:
   If the token won instead, the same slot is acquitted by `FinishCancelledParse`, which
   resolves the status too. No `decode_failure` state is needed at this level, and adding one
   would record a value the level has no use for
-- `WriteAsync` ↔ `WriteLendSucceeds` or a refusal, `CommitWrite` or `WriteAborted`,
+- `WriteAsync` ↔ `WriteLendSucceeds` or a refusal, `WriteResizesBuffer` as often as the
+  serializer outgrows its buffer, `CommitWrite` or `WriteAborted`,
   then `WriteDoneCompletes`; `CompleteAsync` ↔ `CloseWriter`.  On a one-request call the
   commit is `CommitWrite` then `SealRequest`, one downcall, and the engine's
   `PassWriteDoneReturns` follows
@@ -1361,8 +1394,8 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Model-checking configurations | Nine configurations exist - five at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
-| Level 1, one pass at `--stretch 1` | **11421 obligations, all proved, 10m42s at `--threads 12`**, this revision, plus **23 obligations in 26s** for `FfiGrpcEnabledTheorems_proofs` - the three conditional-enabledness theorems, which live in their own pair for the reason given below, so the level's total is 11444. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
+| Model-checking configurations | Ten configurations exist - six at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
+| Level 1, one pass at `--stretch 1` | **13512 obligations, all proved, at `--threads 4` with the cache disabled**, plus **23 obligations** for `FfiGrpcEnabledTheorems_proofs` - the three conditional-enabledness theorems, which live in their own pair for the reason given below, so the level's total is 13535. A single pass is the whole verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
 | Level 0, one pass at `--stretch 1` | **1805 obligations, all proved, 2m13s at `--threads 12`**, this revision - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
@@ -1371,10 +1404,10 @@ the artefact rather than left to rot:
 | `ci/check_action_footprints.py`, `check_abi_coverage.py`, `check_proofs_present.py`, `check_arity.py` | Green |
 | `ci/check_sketch_actions.py` | Green: 11 action citations in the sketches, all defined. The implementation sketches are normative, and each step names the action it realizes in a `// TLA:` comment; this checks the citations resolve. It does not check the ORDER - nothing short of a proof does - but a citation pointing at nothing is the first sign a sketch and the machine have parted, and it is mechanical where reading prose against prose is not: two reviews called one sketch consistent with the machine while it released a payload before the read's result was decided, a state the machine does not have |
 | `ci/check_state_literals.py` | Green: 16 typed state variables, 2303 literals, all admissible. A retired value neither fails to parse nor fails to type - a comparison against it is simply always false, so a guard becomes dead and a model constraint prunes more than intended while every property still reports clean. A constraint reading `call_dispose_state = "disposed"` after that value became `settled` shrank two configurations that way. Assignments are covered as well as comparisons, and by choice rather than for symmetry: `TypeOK` catches a bad one only in a run that reaches that branch, so an assignment on a rare path can sit wrong indefinitely. The binding comes from the typing conjuncts rather than a table - including the sentinel idiom `var \in OtherIds \union {"none"}`, whose only admissible literal is that sentinel - so a renamed state is caught wherever it is still spelled |
-| SANY, on the twenty-two SANY-clean modules | Green |
+| SANY, on the twenty-four SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted, `ReceivedLength` the length of each message received, and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding + BytesReceived` and `MemoryWithinHardCeiling` that the total never passes `HardCeiling`. Both are in `IndInv` and proved inductive. The category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld` on the send side, `BytesHostReceived` and `BytesRuntimeReceived` on the receive side - are sums over the pairs each state selects, and `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` are the snapshot identities the observers must report |
-| Level 2 | **Refined and proved, liveness included.** Twelve modules exist, SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in seven configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected` is exhaustive - 628413 states, depth 39, its one call declaring both shapes. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, 30 seconds each: the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Three configurations are witnesses rather than checks: their targets are stated negatively, so a violation trace is the result. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of the three branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved, and the four proofs modules verify with the fingerprint cache disabled - 1809, 11421, 23 and 33437 obligations, no failure.  The seventeen cost fifteen derived invariants, listed above. |
+| Level 2 | **Refined and proved, liveness included.** Thirteen modules exist, twelve of them SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in eight configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected`, its one call declaring both shapes, is exhaustive - 628413 states, depth 39 - and its constraint prunes every state with a returned buffer before the shutdown, which an exchange always leaves, so it never explores past one; `DotNetBinding_MC`, which has no such constraint, does: an exploratory run of four minutes, beyond the 30 seconds above, covered over a million states, `WriteResizesBuffer` taking 69350 of them, with no violation. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, 30 seconds each: the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Four configurations are witnesses rather than checks at level 2, and one more at level 1: their targets are stated negatively, so a violation trace is the result. `FfiGrpc_MCwitnessResize` and `DotNetBinding_MCwitnessResize` each show a lent buffer exchangeable for a larger one, the case `ResizeSendBuffer` and `WriteResizesBuffer` exist for, reached in 112 and 131 distinct states. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of these branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved, and three of the four proofs modules verify with the fingerprint cache disabled - 1809, 13512 and 23 obligations, no failure; the fourth, 33928 obligations summed over windows, ran its first 87 of 123 windows with the cache disabled and the rest with it enabled, no failure.  The seventeen cost fifteen derived invariants, listed above. |
 | Deadlock detection at level 2 | `ci/tlc.sh` passes `-deadlock`, which switches TLC's deadlock check off, so the gate has never used it at any level - worth knowing before reading a clean run as evidence of progress. Invoked directly, `DotNetBinding_MC` reaches a deadlock: every channel refused and the runtime torn down, the finite `ChannelIds` set spent, a rejected channel being terminal. That is quiescence rather than a stall, and an artefact of the bound rather than a property of the system, which the configuration now states. `AbsentRuntimeOwesNothing` carries the content instead, and a genuine mid-flight stall still breaks the liveness configuration |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
@@ -1383,11 +1416,11 @@ pairs `buffer_state` selects, so `CategoriesPartitionTotal` discriminates no des
 catch no defect on its own. Where the objection stops holding is `MemoryAccountingExact`, which
 is not of that kind. It relates a counter
 the actions update by arithmetic - `memory_used' = memory_used + charge` on the lend,
-`- buffer_charge[<<cId, b>>]` on the free - to a sum over a set those same actions reshape, and
+`- buffer_charge[<<cId, b>>]` on the free, the difference on an exchange - to a sum over a set those same actions reshape, and
 nothing makes the two agree except the actions being written correctly. It is what makes the
 ceiling mean anything: without it `MemoryWithinHardCeiling` bounds a number with no stated
 relation to the memory that is out. It is also the only reason `memory_used` can be typed `Int` and still
-be known non-negative, the free being the one action that subtracts.
+be known non-negative.
 
 The price the objection names is real and is paid: the sums over sets are the expensive
 part of these proofs. `SumFunctionOnSet` from the standard `Functions` module and its theory in
@@ -1464,6 +1497,7 @@ refinement.
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
 | `FreeReturnedBuffer` | the runtime releases the buffer's bytes from its count, once no unacquitted send lives in it; the allocation goes when nothing holds it, which the model does not see. Not a downcall: giving a buffer back is the host's step, releasing its bytes is the runtime's |
+| `ResizeSendBuffer` | `ak_resize_call_buffer`: the one bounded step on the ledger's count that moves it by the new charge less the old, once the new arena is in hand. Every refusal comes before that step or at it and leaves the old buffer lent and charged, so none is a step of the model; `AK_STATUS_CORRUPTED` is not modelled, as at the commit. The old arena goes to the channel's spares after the step, which the model does not see |
 | `SendMessage` | `ak_call_send_message` hands the filled buffer to the actor; on a call that declared one request, it puts the request in the call's slot, the sending still open and no status pending |
 | `EndSend` | `ak_call_end_send`: the actor takes the END_STREAM command off its queue; on a call that declared one request, `ak_call_send_message` right after `SendMessage`, in the same downcall, which ends the sending with the request |
 | `EmitWriteDone` | the actor invokes the callback with `AK_EVENT_WRITE_DONE`; on a call that declared one request, the commit, after `EndSend`, gives back the send's slot and bytes with no callback |
@@ -1500,6 +1534,11 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_get_call_buffer`'s `*out` | `b` in `LendSendBuffer(cId, b)` - the allocation lent |
 | `ak_call_send_message`'s `buffer` | `b` in `SendMessage(cId, msg, b)`. An argument, not a choice made inside the action: the host names the allocation it commits, and letting the model pick would make `buffer_send` a record of nondeterminism rather than of what the caller passed |
 | `ak_return_call_buffer`'s `buffer` | `(cId, b)` in `HostReturnsBuffer(cId, b)` - a buffer determines its call, so the pair *is* the buffer |
+| `ak_call_send_message`'s `written` | **not modelled.** What the host wrote is no state: a commit fits when `MessageLength[msg]` is at most the buffer's length, which is `FitsInBuffer`. A `written` past the lend is the overrun answered with `AK_STATUS_CORRUPTED`, which a conforming host never commits |
+| `ak_resize_call_buffer`'s `buffer` | `(cId, b)` in `ResizeSendBuffer(cId, b, nb, len, charge)`, as for `ak_return_call_buffer`: a buffer determines its call |
+| `ak_resize_call_buffer`'s `new_len` | `len`, as `ak_get_call_buffer`'s: `IsLendable(len)` the request being in range, `CoversRequest(charge, len)` the allocator's rounding, and `IsMemoryAvailableForExchange(cId, b, charge)` the ceiling admitting the difference. A length of zero is refused as an invalid argument |
+| `ak_resize_call_buffer`'s `keep` | **not modelled**, as `written`: the bytes the host wrote are no state of the model, and a `keep` past the lend or past `new_len` is a refusal or an overrun, which take no step |
+| `ak_resize_call_buffer`'s `*out` | `nb` in `ResizeSendBuffer(cId, b, nb, len, charge)` - the allocation lent in place of `b` |
 | `ak_events_consumed`'s `payloads` and `count` | **not modelled**, as `ak_event_consumed`'s `payload`: `count` is how many `HostConsumesEvent` steps the downcall is |
 | `ak_event_consumed`'s `payload` | **not modelled.** Release is FIFO by ABI rule, so the release count already says which payload is owed. That makes `ReleasesNeverExceedDeliveries` conservation of a count under a conformance assumption rather than a proof about identities - the one place the send side is now stronger than the receive side, and an open item rather than an oversight |
 | `ak_get_call_buffer`'s `len` | The model takes the length directly: `LendSendBuffer(cId, b, len, charge)`, with `charge` the size the allocator returned. The lend sees only a length, exactly as the C function does; the message identity is born at the commit, where `SendMessage` requires `MessageLength[msg] <= buffer_length` for the buffer it sends: the commit says how many bytes the host wrote, at most the lend, as the ABI's does. The overrun the ABI answers with `AK_STATUS_CORRUPTED` is not modelled, since a conforming host never commits it. `IsLendable(len)` is the request being in range, `IsMemoryAvailable(charge)` the ceiling admitting what backs it, and `CoversRequest(charge, len)` ties the two. A length of zero is refused as an invalid argument: an empty message needs no buffer, and `ak_call_send_message` sends it with none, a send the model does not represent since it takes no memory. Level 0 carries no sizes: its send window counts allocations |

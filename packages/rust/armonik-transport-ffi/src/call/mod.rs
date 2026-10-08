@@ -226,21 +226,26 @@ impl CallState {
         lent
     }
 
-    fn fill(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
+    /// What a buffer of `len` bytes asks of the call and of the ceiling's size, before any of its
+    /// bytes: a lend and a resize alike.
+    fn admits_buffer(&self, len: usize) -> Result<(), ak_status> {
         if !self.accepts_work() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
         // Its one request committed, a call takes no other, and no WRITE_DONE will come for a
         // SLOT_BUSY to wait on.
-        let one_request = self.sends_one_request();
-        if one_request && self.sending.load(Ordering::Acquire) & SENDING_ENDED != 0 {
+        if self.sends_one_request() && self.sending.load(Ordering::Acquire) & SENDING_ENDED != 0 {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
         // The ceiling covers what the wire and the allocator can carry as well as what the host
         // budgeted: `Ledger` caps one by the other. Refused here rather than at the send, where
         // the engine's refusal is swallowed behind a WRITE_DONE and the host is told a message it
         // never sent has left.
-        self.ledger.could_ever_fit(len)?;
+        self.ledger.could_ever_fit(len)
+    }
+
+    fn fill(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
+        self.admits_buffer(len)?;
         let Ok(slot) = self.window.try_acquire() else {
             return Err(ak_status::AK_STATUS_SLOT_BUSY);
         };
@@ -317,13 +322,78 @@ impl CallState {
             len,
             charged,
         });
-        // SAFETY: `arena` reserved `HEADROOM + len` bytes and more.
-        let ptr = unsafe { lent.data.as_mut_ptr().add(HEADROOM) };
+        let ptr = lent.lent_ptr();
         Ok(ak_buffer {
             ptr,
             len,
             owner: Box::into_raw(lent) as *mut c_void,
         })
+    }
+
+    /// Exchanges the buffer the host holds for one of `new_len` bytes, with the first `carried`
+    /// bytes it wrote carried over: a lend of the new length and a return of the old that are one
+    /// step for the ceiling, which sees the difference alone.
+    ///
+    /// A refusal leaves the buffer as it was, lent and charged, and the host holds it still; an
+    /// overrun is the exception, as it is at the commit. A refusal for room records no wait and
+    /// owes no wake-up: the host holds a buffer, and the wait is the lend's, made by a host that
+    /// holds none. The call's one buffer, its window slot and its count against the ledger are the
+    /// old buffer's and stay so, which is why none of the handshakes `lend` makes with the
+    /// terminal is made again.
+    pub(crate) fn resize(
+        self: &Arc<Self>,
+        mut lent: Box<Lent>,
+        new_len: usize,
+        carried: usize,
+    ) -> Result<ak_buffer, ak_status> {
+        // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
+        if carried > lent.len || !lent.intact() {
+            self.overrun(lent);
+            return Err(ak_status::AK_STATUS_CORRUPTED);
+        }
+        let outcome = self
+            .admits_buffer(new_len)
+            .and_then(|()| self.exchange(&mut lent, new_len, carried));
+        if let Err(status) = outcome {
+            return Err(keep(lent, status));
+        }
+        let ptr = lent.lent_ptr();
+        Ok(ak_buffer {
+            ptr,
+            len: new_len,
+            owner: Box::into_raw(lent) as *mut c_void,
+        })
+    }
+
+    /// Replaces the lend's arena by one of `new_len` bytes, if the ceiling admits what that
+    /// changes: an arena first, a spare of the channel's if one fits, and then the charge, which
+    /// is the last step that can refuse, so there is nothing to take back.
+    fn exchange(&self, lent: &mut Lent, new_len: usize, carried: usize) -> Result<(), ak_status> {
+        if !self.ledger.has_room_to_recharge(lent.charged, new_len) {
+            return Err(ak_status::AK_STATUS_BUDGET_BUSY);
+        }
+        let spares = &self.channel.spares;
+        let mut data = arena(HEADROOM, new_len, Some(spares))?;
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::run_before_charge();
+        let mut charged = new_len + slack(&data, HEADROOM, new_len);
+        if !self.ledger.recharge(lent.charged, charged) {
+            // The slack of a spare may have no room beside the request: an arena of its own is
+            // charged the request alone.
+            if charged == new_len {
+                return Err(ak_status::AK_STATUS_BUDGET_BUSY);
+            }
+            drop(spares.returning(data));
+            data = arena(HEADROOM, new_len, None)?;
+            charged = new_len;
+            if !self.ledger.recharge(lent.charged, charged) {
+                return Err(ak_status::AK_STATUS_BUDGET_BUSY);
+            }
+        }
+        let left = lent.move_to(data, new_len, charged, carried);
+        // Parked once the charge is off, which is what makes room for it beside the others.
+        drop(spares.returning(left));
+        Ok(())
     }
 
     fn took_back(&self, len: usize) {

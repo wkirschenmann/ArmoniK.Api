@@ -82,8 +82,8 @@ statement that writes ENABLED cannot be reached through an instance.
 
 **Deliverable**: Level 2 TLA+ spec. Refinement verified.
 **Status**: done. `Spec => L1!Spec` proved, so level 1's guarantees are inherited
-rather than restated.  Six TLC configurations plus two witnesses, whose targets
-are stated negatively so a violation trace is the result - without them either
+rather than restated.  Four TLC configurations plus four witnesses, whose targets
+are stated negatively so a violation trace is the result - without them any
 branch could be dead code.
 
 ### T0.4: TLAPS proofs (3 levels)
@@ -1689,6 +1689,24 @@ beat one.
 
 **Deliverable**: a host that finds its buffer too small asks for another size without giving
 the message up, and the window's default is set by a measurement.
+
+**Status**: half done: the resize is built, and the send window above one is not. Decided on
+2026-10-07: `ak_resize_call_buffer(buffer, new_len, keep, out, out_error)` exchanges the lent
+buffer for one of `new_len` bytes - larger or smaller - keeping the first `keep` bytes the host
+wrote. It takes no call handle, as the return does. The ledger moves by the difference alone,
+and a refusal leaves the old buffer lent; `abi.md` and `architecture.md` carry the rules. The
+.NET binding exchanges the buffer where a serializer writes past its announcement, and for the
+array of `Complete(byte[])`. The model has `ResizeSendBuffer` at level 1 and
+`WriteResizesBuffer` at level 2. Not done: a send window above one, its measurement, and its
+default.
+
+**Follow-up, decided on 2026-10-07**: the compressed copy of a message, which gRPC compression
+(T6.15) makes, counts against the FFI's memory ceiling, in addition to the host's buffer and
+released with the message. The ceiling charges only the buffer today and leaves the encoder's
+copy outside it (`architecture.md`, what the ceiling bounds), a paragraph that is amended when
+this is built. Open: what the engine does when the ceiling has no room for the compressed bytes.
+The committed buffer holds its charge until its WRITE_DONE, so waiting as a lend does has
+nothing to wake it; ending the call is the candidate.
 
 ---
 

@@ -120,9 +120,10 @@ VARIABLES
 \* checking a commit against the charge would admit a message the view cannot
 \* hold.  CoversRequest ties them at the lend and nothing relates them after.
 \* The budget, in bytes.  buffer_charge records what the allocator handed out
-\* for a buffer, written once when the buffer is lent and read by the commit
-\* and the free; memory_used is the runtime-wide counter, kept the way the
-\* implementation keeps it - an independent quantity moved by the lend, the
+\* for a buffer, written when the buffer is lent, to zero when an exchange
+\* hands it to another, and read by the commit and the free; memory_used is
+\* the runtime-wide counter, kept the way the implementation keeps it - an
+\* independent quantity moved by the lend, the exchange, the
 \* free, a received message, its consumption and a cancelled call's end, not a
 \* sum evaluated on demand.
 \* Independent is the point.  MemoryAccountingExact ties the counter to the

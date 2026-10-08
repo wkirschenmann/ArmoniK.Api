@@ -172,6 +172,31 @@ impl Ledger {
         self.add_bytes(len)
     }
 
+    /// Whether a lend charged `old` bytes could be charged `new` instead right now, which is the
+    /// ceiling's answer without the step: a resize that finds none allocates nothing.
+    pub(crate) fn has_room_to_recharge(&self, old: usize, new: usize) -> bool {
+        new <= old
+            || self
+                .bytes
+                .load(Ordering::SeqCst)
+                .checked_add((new - old) as u64)
+                .is_some_and(|wanted| wanted <= self.limit())
+    }
+
+    /// Charges a lend already counted `new` bytes where it was charged `old`, in one step: the
+    /// count moves by the difference alone, so it is never both and never neither, and a growth
+    /// is admitted against the first threshold as a lend of that difference is.
+    pub(crate) fn recharge(&self, old: usize, new: usize) -> bool {
+        if new > old {
+            return self.add_bytes(new - old);
+        }
+        if new < old {
+            self.bytes.fetch_sub((old - new) as u64, Ordering::AcqRel);
+            self.room_made();
+        }
+        true
+    }
+
     // Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
     // count and then reads the spares', a spare is kept and then the trim reads the charges, so
     // the second of the two sees both and gives the spares up.
@@ -394,6 +419,44 @@ mod tests {
         ledger.release_bytes(40);
         assert!(ledger.empty());
         assert_eq!(ledger.usage().bytes_used, 0);
+    }
+
+    /// A lend recharged moves the count by the difference alone: a growth that the ceiling holds
+    /// whole is admitted though the two sizes together would pass it, one it does not hold leaves
+    /// the charge as it was, and a shrink gives the difference back.
+    #[test]
+    fn a_recharge_is_admitted_by_its_difference() {
+        let ledger = Ledger::new(64, 0).expect("a valid ledger");
+        assert_eq!(ledger.hold_bytes(40), Ok(()));
+
+        assert!(ledger.has_room_to_recharge(40, 64));
+        assert!(ledger.recharge(40, 64), "40 and 64 are never held at once");
+        assert_eq!(ledger.usage().bytes_used, 64);
+
+        assert!(!ledger.has_room_to_recharge(64, 65));
+        assert!(!ledger.recharge(64, 65));
+        assert_eq!(ledger.usage().bytes_used, 64, "the refusal charged nothing");
+
+        assert!(ledger.recharge(64, 8));
+        assert_eq!(ledger.usage().bytes_used, 8);
+        assert!(!ledger.empty(), "the lend is still counted");
+
+        ledger.release_bytes(8);
+        assert!(ledger.empty());
+        assert_eq!(ledger.usage().bytes_used, 0);
+    }
+
+    /// A shrink gives bytes back, so it owes the sends waiting for room their wake-up.
+    #[test]
+    fn a_shrink_wakes_a_waiting_send() {
+        let ledger = Ledger::new(64, 0).expect("a valid ledger");
+        let waiter = Arc::new(Waiter::default());
+        assert_eq!(ledger.hold_bytes(60), Ok(()));
+        ledger.wait(&waiter, 30);
+
+        assert!(ledger.recharge(60, 20));
+        assert!(waiter.take_owed());
+        ledger.release_bytes(20);
     }
 
     /// The second threshold is a quarter above the first unless set, and never below it.

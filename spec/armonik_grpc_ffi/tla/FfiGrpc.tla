@@ -239,6 +239,14 @@ IsLendable(len) == len <= Ceiling
 \* allocator picked, recorded per request, while a smaller charge may fit.
 IsMemoryAvailable(charge) == memory_used + charge <= Ceiling
 
+\* Room for a charge once the charge of the buffer it replaces is off: an
+\* exchange is one step for the counter, which sees the difference alone.
+\* The first threshold is asked only for a growth: received messages may
+\* have taken the counter past it, and giving memory back is never refused.
+IsMemoryAvailableForExchange(cId, b, charge) ==
+    \/ charge <= buffer_charge[<<cId, b>>]
+    \/ memory_used - buffer_charge[<<cId, b>>] + charge <= Ceiling
+
 \* The allocator hands out at least what was asked.  The budget charges what
 \* it handed out, not what was asked: the ceiling then bounds the bytes the
 \* runtime really holds.  Nothing here models a rounding policy.
@@ -875,9 +883,10 @@ LendSendBuffer(cId, b, len, charge) ==
     /\ buffers_held_by_host' =
            [buffers_held_by_host EXCEPT ![cId] = @ + 1]
     /\ buffer_state' = [buffer_state EXCEPT ![cId][b] = "lent"]
-    \* The charge is recorded once, on a fresh buffer, and never rewritten -
-    \* the discipline buffer_send already follows.  The counter moves by it
-    \* here and back by it at the free, which is what the accounting checks.
+    \* The charge is recorded once, on a fresh buffer, and rewritten only by
+    \* an exchange, to zero, when it becomes the new buffer's.  The counter
+    \* moves by it here and back by it at the free, which is what the
+    \* accounting checks.
     /\ buffer_charge' = [buffer_charge EXCEPT ![<<cId, b>>] = charge]
     /\ buffer_length' = [buffer_length EXCEPT ![<<cId, b>>] = len]
     /\ memory_used' = memory_used + charge
@@ -1032,6 +1041,61 @@ FreeReturnedBuffer(cId, b) ==
                    runtime_destroyed,
                    buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   read_admitted, lend_waiting>>
+
+\* ak_resize_call_buffer: the host exchanges the buffer it holds for one of
+\* another length, keeping what it wrote.  A lend of the new buffer and the
+\* return of the old one in one step: the old charge becomes the new one on
+\* the counter, which moves by the difference alone, so the two are never
+\* both on it and the room the old one held is never offered to another call
+\* in between.  The old buffer is returned with nothing left to free: its
+\* charge is the new buffer's, so its release takes nothing off the counter,
+\* and it carries no send, so that release is owed at once.  The call's one
+\* lent buffer, its slot and its count are the old buffer's and do not move,
+\* which is why the count and the window are unchanged.  What the host wrote
+\* is no state of the model, so the bytes kept are not an argument.
+\* A refusal takes no step, and a refused resize records no wait: the host
+\* holds a buffer, and the wait is the lend's.
+ResizeSendBuffer(cId, b, nb, len, charge) ==
+    /\ L0!IsActiveCall(cId)
+    /\ ~IsHandleReleased(cId)
+    /\ ~IsCancelRequested(cId)
+    /\ IsLentBuffer(cId, b)
+    /\ IsFreshBuffer(cId, nb)
+    /\ 0 < len
+    /\ IsLendable(len)
+    /\ CoversRequest(charge, len)
+    /\ IsMemoryAvailableForExchange(cId, b, charge)
+    \* Written pointwise: two entries of one row move, and a lookup of the
+    \* result then needs no reading of an update applied twice.
+    /\ buffer_state' =
+           [c \in CallIds |-> [x \in BufferIds |->
+               IF c = cId /\ x = b THEN "returned"
+               ELSE IF c = cId /\ x = nb THEN "lent"
+               ELSE buffer_state[c][x]]]
+    /\ buffer_charge' =
+           [q \in CallIds \X BufferIds |->
+               IF q = <<cId, b>> THEN 0
+               ELSE IF q = <<cId, nb>> THEN charge
+               ELSE buffer_charge[q]]
+    /\ buffer_length' = [buffer_length EXCEPT ![<<cId, nb>>] = len]
+    /\ memory_used' = memory_used - buffer_charge[<<cId, b>>] + charge
+    \* A release of bytes owes the calls whose send waits their wake-up; a
+    \* growth releases none.
+    /\ IF buffer_charge[<<cId, b>>] > charge
+       THEN OweBudgetWakeToWaitingCalls
+       ELSE UNCHANGED budget_wake_owed
+    /\ UNCHANGED l0_vars
+    /\ UNCHANGED <<buffers_held_by_host,
+                   write_dones_emitted, write_done_callback_running,
+                   delivery_callback_running, payloads_consumed_by_host,
+                   handle_released, cancel_requested,
+                   shutdown_event_emitted, shutdown_callback_running,
+                   runtime_destroyed,
+                   buffer_send,
+                   second_event_owed, last_lend_status,
+                   resources_released_emitted,
                    resources_released_callback_running,
                    read_admitted, lend_waiting>>
 
@@ -1387,6 +1451,9 @@ Next ==
            HostReturnsBuffer(cId, b)
     \/ \E cId \in CallIds, b \in BufferIds :
            FreeReturnedBuffer(cId, b)
+    \/ \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+          len \in Sizes, charge \in Sizes :
+           ResizeSendBuffer(cId, b, nb, len, charge)
     \/ \E cId \in CallIds, msg \in Messages, b \in BufferIds :
            SendMessage(cId, msg, b)
     \/ \E cId \in CallIds : EndSend(cId)
@@ -1603,10 +1670,10 @@ LivenessProperties ==
 (* HostConsumesEvent per call is enough because release is FIFO, whereas   *)
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
-(* The remaining downcalls (CallStart, LendSendBuffer, SendMessage,        *)
-(* EndSend, RequestCallCancellation, RuntimeBeginShutdown) carry no        *)
-(* fairness: the model never promises the host acts, only what follows    *)
-(* when it does.                                                           *)
+(* The remaining downcalls (CallStart, LendSendBuffer, ResizeSendBuffer,  *)
+(* SendMessage, EndSend, RequestCallCancellation, RuntimeBeginShutdown)    *)
+(* carry no fairness: the model never promises the host acts, only what    *)
+(* follows when it does.                                                   *)
 (***************************************************************************)
 
 Fairness ==

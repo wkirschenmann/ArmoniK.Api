@@ -159,8 +159,9 @@ went unstated until it was violated.
 
 **Rust never reclaims a lent buffer.** Not on cancellation, not on channel close, not on
 shutdown: the buffer comes back only through `ak_call_send_message` or
-`ak_return_call_buffer`, both host calls. That is what removes the race between a thread
-serializing into the buffer and a thread cancelling the call - there is no moment at
+`ak_return_call_buffer`, both host calls, or is replaced by another through
+`ak_resize_call_buffer`, which the host owes in its turn. That is what removes the race
+between a thread serializing into the buffer and a thread cancelling the call - there is no moment at
 which two parties may touch the allocation, so no lock is needed and no cancellation
 token is load-bearing for memory safety. A `try/catch` around the write would not be an
 alternative: on .NET Core and later an access violation is a corrupted-state exception
@@ -314,7 +315,8 @@ may still be reading.
 - `ak_get_call_buffer(handle, len, &buf)` — Rust lends writable native memory
 - the host serializes into it and commits the bytes it wrote with
   `ak_call_send_message(handle, buf, written)`, or gives it back unused with
-  `ak_return_call_buffer(buf)`
+  `ak_return_call_buffer(buf)`, or exchanges it for another size, keeping what it wrote, with
+  `ak_resize_call_buffer(buf, new_len, keep, &out)`
 - at most `Grpc.Host.Send.Window` buffers out of one arena (natural backpressure, on top of HTTP/2
   flow control)
 - nothing to pin on the .NET side: no `GCHandle`, no pinned object heap, no fragmentation of
@@ -322,8 +324,10 @@ may still be reading.
 
 The length is known before the first byte, so a plain `len` suffices and no growable writer is
 needed: the generated marshaller calls `context.SetPayloadLength(message.CalculateSize())` and
-only then writes. The commit says how many bytes were written, so the arena is not zeroed and only
-those bytes are sent; a sentinel after the lent bytes may catch a write past them, and that, or a
+only then writes. A serializer that turns out to need another length than it announced asks
+for it with `ak_resize_call_buffer`, and the buffer it holds is exchanged, not given back and
+lent again: see below. The commit says how many bytes were written, so the arena is not zeroed
+and only those bytes are sent; a sentinel after the lent bytes may catch a write past them, and that, or a
 commit of more than was lent, shuts the runtime down.
 
 `AK_EVENT_WRITE_DONE` now says one thing, the slot is free - and free at emission, so
@@ -479,6 +483,21 @@ allocation interface does not report it, and it is small against a message.
 What the ceiling bounds is what the engine lends and what it has received and not had back.
 The copy tonic's encoder makes of each message is outside it, and so is what hyper buffers below
 the decoder within the flow-control window; neither is bounded runtime-wide.
+
+**What an exchange of a buffer charges** is the difference. `ak_resize_call_buffer` is a lend of
+the new length and a return of the old one that the ledger sees as one step: the charge moves
+from the old buffer's to the new one's, a growth is admitted against the first threshold as a
+lend of the difference would be, and a shrink gives the difference back and owes the sends that
+wait their wake-up. The count is never both charges, which a return and a lend would put on it
+in between, and the room the old buffer held is not offered to another call in that interval.
+The arena is taken before the charge, a spare of the channel's when one fits, charged its slack
+as a lend is, and the charge is the last step that can refuse: a refusal has nothing to take
+back, and the old buffer stays lent, charged and the host's. The ceiling counts the charge, not
+the instant - the old arena is still allocated while the bytes are copied - and the old arena
+goes to the channel's spares once its charge is off. A refusal for room records no wait and owes
+no wake-up: the host holds a buffer, so it is not the host whose send waits. One that waits for
+room gives the buffer back and lends the new length, and that lend is refused, woken and served
+as any other. The model's `ResizeSendBuffer` is this step.
 
 What that costs is the predictability of one refusal, and only one. `MESSAGE_TOO_LARGE` stays
 a predicate the host can evaluate *before* it calls, because it reads `len` and the ceiling
@@ -795,7 +814,10 @@ call is `IClientStreamWriter`'s own contract - no concurrent `WriteAsync`, no
 - *idle*: no write pending. `WriteAsync` begins with the lend;
 - *serializing*: the lend succeeded, the marshaller writes into the lent buffer - the
   one state that holds a buffer, closed by the disposable wrapper on success and
-  exception alike;
+  exception alike. A marshaller that needs another length than it announced stays
+  here while the buffer is exchanged (`WriteResizesBuffer`); when the ceiling has no room
+  the wrapper gives the buffer back and the next lend is at the length the exchange asked
+  for, whose refusal is the wait below;
 - *waiting_budget*: `BUDGET_BUSY` - the cancellable wait, remembering the refused
   length;
 - *awaiting_write_done*: the commit was accepted; the write's task completes when its

@@ -247,14 +247,19 @@ internal sealed class Sender
     // One whole attempt per turn, serialization included: the lend is asked for at the announced
     // length, before a byte is written, so a ceiling with no room is met there and not halfway
     // through. Serializing again costs a second pass over a message that has not changed, and it
-    // is what lets the ceiling be waited on instead of allocated around.
+    // is what lets the ceiling be waited on instead of allocated around. The next attempt lends at
+    // the least length the ceiling had no room for, which a serializer that outgrew its
+    // announcement had asked for: the wait is then for the room the message has been found to
+    // need, as the lend of a host that holds nothing.
+    var needed = 0;
     while (true)
     {
       // Taken before the lend, so a wake-up raised between its refusal and the wait below is not
       // lost: the engine owes one only to a send it has already refused.
       var woken = woken_.Next();
 
-      using var lent = new LentBuffer(call_.Handle);
+      using var lent = new LentBuffer(call_.Handle,
+                                      needed);
 
       ak_status status;
       try
@@ -271,6 +276,17 @@ internal sealed class Sender
       catch (NoRoomYet)
       {
         status = ak_status.AK_STATUS_BUDGET_BUSY;
+        needed = Math.Max(needed,
+                          lent.Needed);
+
+        // A refused resize leaves the buffer lent and records no wait, so no wake-up is owed to
+        // it: the buffer goes back, and the lend at the length it asked for is what waits, or
+        // finds the room the buffer left.
+        if (lent.RefusedExchange)
+        {
+          lent.Dispose();
+          continue;
+        }
       }
 
       if (status == ak_status.AK_STATUS_OK)

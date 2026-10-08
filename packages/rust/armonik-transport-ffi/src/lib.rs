@@ -655,6 +655,82 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
     });
 }
 
+/// Exchanges a lent buffer for one of `new_len` bytes, larger or smaller, carrying over the first
+/// `keep` bytes the host wrote: a host that finds its buffer too small asks for another size
+/// without giving the message up. It is a lend of the new length and a return of the old one, and
+/// the ceiling sees one step: the charge moves by the difference, and a growth is admitted as a
+/// lend of that difference would be. The ceiling counts the charge, not the instant: the old
+/// arena is still allocated while the bytes are copied.
+///
+/// On success `*out` is the new buffer, whose first `keep` bytes are the old one's and whose
+/// others are as a lend leaves them. The host gives back `*out`, in its turn, and never `buffer`:
+/// the old memory may be reused at once. The host's one buffer and its slot of the send window
+/// are the new buffer's.
+///
+/// On every refusal but AK_STATUS_CORRUPTED the old buffer is still lent and the host's, as it
+/// was, and `*out` is untouched. AK_STATUS_BUDGET_BUSY says the ceiling has no room for the new
+/// size now: it records no wait and owes no AK_EVENT_BUDGET_WAKE, and a host that waits for room
+/// gives the buffer back and lends the new length, as one that waits holds none.
+/// AK_STATUS_MESSAGE_TOO_LARGE is permanent. A call that is over, or whose cancellation has been
+/// requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
+/// it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
+/// `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
+/// allocator failure is AK_STATUS_INTERNAL.
+///
+/// A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
+/// after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back
+/// without being freed, nothing carried over, and the runtime shutting down.
+///
+/// # Safety
+///
+/// `buffer` must be one this call lent and the host has not given back, and the host must have
+/// written its first `keep` bytes: they are carried over as they are.
+/// `out` must be writable.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_resize_call_buffer(
+    buffer: ak_buffer,
+    new_len: usize,
+    keep: usize,
+    out: *mut ak_buffer,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| {
+        if out.is_null() {
+            return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+        }
+        if new_len == 0 {
+            return Err(EMPTY_LEND);
+        }
+        if keep > new_len {
+            return Err(KEEP_PAST_THE_NEW_LENGTH);
+        }
+        let lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
+        let call = Arc::clone(lent.call());
+        match call.resize(lent, new_len, keep) {
+            Ok(resized) => {
+                unsafe { *out = resized };
+                Ok(())
+            }
+            Err(ak_status::AK_STATUS_CORRUPTED) => Err(OVERRUN_ON_RESIZE),
+            Err(refused) => Err(refused.into()),
+        }
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
+const KEEP_PAST_THE_NEW_LENGTH: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_INVALID_ARG,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the bytes to keep are more than the new length holds",
+);
+const OVERRUN_ON_RESIZE: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_CORRUPTED,
+    ak_error_kind::AK_ERROR_USAGE,
+    "the buffer was written past its end, or kept longer than it was lent: memory may be \
+     corrupted, and the runtime is shutting down",
+);
+
 /// Signals end of sending. No ak_call_send_message after this: a send that comes after the end,
 /// and a second end, answer AK_STATUS_INVALID_STATE. So does any end on a call that declared
 /// AK_CALL_ONE_REQUEST, whose commit ends the sending, and which a host that wants no request

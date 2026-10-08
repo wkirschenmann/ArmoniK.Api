@@ -30,7 +30,8 @@ header = """
  *     faulting - and so does one on an object of another kind.
  *   - Memory crosses in one direction at a time. What the library hands over, the host gives
  *     back exactly once - a payload through ak_event_consumed, a lent buffer through
- *     ak_call_send_message or ak_return_call_buffer - and the runtime cannot finish until it has.
+ *     ak_call_send_message or ak_return_call_buffer, and the buffer ak_resize_call_buffer hands
+ *     back in its place counts as the one owed - and the runtime cannot finish until it has.
  *     Exactly once is the host's to keep: unlike a handle, the owner in ak_bytes and ak_buffer is
  *     a pointer, so giving one back twice reads memory this library has freed. Undefined
  *     behaviour, not a refusal - there is nothing left to refuse with.

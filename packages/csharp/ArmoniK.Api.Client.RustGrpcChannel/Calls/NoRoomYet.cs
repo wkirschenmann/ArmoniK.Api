@@ -19,12 +19,13 @@ using System;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
-/// <summary>Raised where the runtime-wide ceiling has no room for a lend yet.</summary>
+/// <summary>Raised where the runtime-wide ceiling has no room for a lend or for the exchange of a
+/// lent buffer yet.</summary>
 ///
 /// The ceiling is backpressure and not a refusal, so the answer is to wait. It travels as an
 /// exception because the method that meets it is a `SerializationContext` override and cannot
-/// await: the send loop catches this, waits for room, and serializes again. Never leaves the
-/// binding.
+/// await: the send loop catches this and serializes again, after the wake-up a refused lend is
+/// owed, or at once after a refused exchange, which is owed none. Never leaves the binding.
 internal sealed class NoRoomYet : Exception
 {
   internal NoRoomYet()

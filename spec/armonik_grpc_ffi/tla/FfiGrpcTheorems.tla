@@ -113,6 +113,8 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ \A ln \in Sizes, ch \in CandidateCharges :
                  ~RefuseLendForBudget(cId, ln, ch)
            /\ \A b \in BufferIds : ~HostReturnsBuffer(cId, b)
+           /\ \A b \in BufferIds, nb \in BufferIds, ln \in Sizes, ch \in Sizes :
+                 ~ResizeSendBuffer(cId, b, nb, ln, ch)
 
 (***************************************************************************)
 (* REFINEMENT - the step half                                              *)

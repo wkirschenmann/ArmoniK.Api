@@ -1449,8 +1449,14 @@ LEMMA PrologueIsNeverEntered ==
     BY <1>13, SMT DEF  WriteAborted, ManagedStutter, ManagedTypeOK, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedStutter, ManagedTypeOK, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA TailMovesOnlyByCarrier ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK, [Next]_vars,
@@ -1799,8 +1805,16 @@ LEMMA TailMovesOnlyByCarrier ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, RingTail,
+       ManagedTypeOK, L1!TypeOK, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA EventsFrozenAfterStatus ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK, [Next]_vars,
@@ -2142,8 +2156,17 @@ LEMMA EventsFrozenAfterStatus ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer,
+       L1!L0!HasStatus, L1!L0!StatusKinds, ManagedTypeOK, L1!TypeOK,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA FinishedOnlyByTerminal ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK, [Next]_vars,
@@ -2528,8 +2551,17 @@ LEMMA FinishedOnlyByTerminal ==
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer,
+       ConsumingTerminal, RingHead, RingTail, ManagedTypeOK, L1!TypeOK,
+       L1!L0!HasStatus, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE TWO DERIVED INVARIANTS                                              *)
@@ -3063,8 +3095,19 @@ LEMMA DrainPhasePersists ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+       ReaderInv, ConsumerPhaseMatchesDispose, L1!TypeOK, L1!IndInv,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA DrainReleaseIsEnabled ==
     ASSUME NEW cId \in CallIds
@@ -3558,8 +3601,20 @@ LEMMA CancelledParseHoldsUntilItReturns ==
        FinishCancelledParse, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, ReaderInv, ConsumerPhaseMatchesDispose,
+       L1!TypeOK, L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       FinishCancelledParse, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA CancelledParseIsEnabled ==
     ASSUME NEW cId \in CallIds
@@ -4124,8 +4179,21 @@ LEMMA LiveChannelPreserved ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer,
+       LiveCallHasLiveChannel, ManagedIndInv, ManagedTypeOK,
+       ManagedMachineInv, LifecycleInv, ReaderInv, ManagedGlue,
+       ConsumerPhaseMatchesDispose, TokenPublishedBeforeStart,
+       ChannelStateMatchesNative, ChannelSettled, EveryChannelSettled,
+       L1!TypeOK, L1!IndInv, L1!L0!TypeOK, L1!L0!IsUnusedCall, L1!vars,
+       L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ParsingHoldsUntilItEnds ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
@@ -4634,8 +4702,21 @@ LEMMA ParsingHoldsUntilItEnds ==
        L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       ConsumerPhaseMatchesDispose, ReadCancelPendingOnlyInFlight,
+       ReadInFlight, L1!TypeOK, L1!IndInv, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA RequestHoldsUntilTheParseEnds ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, read_cancel_pending[cId],
@@ -5144,8 +5225,21 @@ LEMMA RequestHoldsUntilTheParseEnds ==
        L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       ConsumerPhaseMatchesDispose, ReadCancelPendingOnlyInFlight,
+       ReadInFlight, L1!TypeOK, L1!IndInv, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, FinishConsumePayload, CancelParsingRead,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA DisposeNeverReturnsToActive ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -5645,8 +5739,21 @@ LEMMA DisposeNeverReturnsToActive ==
        L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       ConsumerPhaseMatchesDispose, ReadCancelPendingOnlyInFlight,
+       ReadInFlight, L1!TypeOK, L1!IndInv, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A debt means the call was used: an unused one is FFI-clean, and owing a
 \* payload is not clean.
@@ -6414,8 +6521,23 @@ LEMMA PrologueHoldsUntilItIsAnswered ==
        L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, ConsumeHeader, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WaitingHoldsUntilItIsRetracted ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
@@ -6992,8 +7114,23 @@ LEMMA WaitingHoldsUntilItIsRetracted ==
        L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, CancelWaiter, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA DrainingHoldsUntilTheHandoff ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
@@ -7573,8 +7710,23 @@ LEMMA DrainingHoldsUntilTheHandoff ==
        L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, ConsumingTerminal, ReadCancellationSettled, ReadInFlight,
+       ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
+       LifecycleInv, ManagedGlue, ConsumerPhaseMatchesDispose,
+       PrologueReaderOnlyWaits, SettledCallOwesNothing,
+       TokenPublishedBeforeStart, L1!TypeOK, L1!IndInv,
+       L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer, L1!vars, L1!l0_vars,
+       L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars, HandoffToDrain, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WaitingHoldsUntilTheParseBegins ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
@@ -8145,8 +8297,23 @@ LEMMA WaitingHoldsUntilTheParseBegins ==
        BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginParseEvent, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA IdleHoldsUntilTheStreamIsRead ==
     ASSUME NEW cId \in CallIds, ManagedIndInv, PayloadOwed(cId),
@@ -8717,8 +8884,23 @@ LEMMA IdleHoldsUntilTheStreamIsRead ==
        BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, PayloadOwed,
+       L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
+       RingTail, RingOccupancy, ConsumingTerminal,
+       ReadCancellationSettled, ReadInFlight, ManagedIndInv,
+       ManagedTypeOK, ManagedMachineInv, ReaderInv, LifecycleInv,
+       ManagedGlue, ConsumerPhaseMatchesDispose, PrologueReaderOnlyWaits,
+       SettledCallOwesNothing, TokenPublishedBeforeStart, L1!TypeOK,
+       L1!IndInv, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       BeginMoveNext, BeginDisposeCall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (* Enabledness of the five steps the traversal needs.  None of them is a
    downcall, so none inherits a level-1 guard: what each wants is its own
@@ -13339,6 +13521,38 @@ LEMMA ProjectsWriteAborted ==
     PROVE  L1!Next \/ UNCHANGED l1_vars
     BY DEF WriteAborted, L1!Next
 
+\* What an exchange leaves where it was: the level-0 state, every FFI variable
+\* but the buffers' and the counter's, and the managed state. The invariants
+\* that never read those cite this instead of opening the level-1 action,
+\* whose update of the buffers is a function the solver need not see.
+WriteResizeFrame ==
+    /\ UNCHANGED L1!l0_vars
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running, delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   cancel_requested, shutdown_event_emitted,
+                   shutdown_callback_running, runtime_destroyed,
+                   buffer_send, second_event_owed, last_lend_status,
+                   resources_released_emitted,
+                   resources_released_callback_running, read_admitted,
+                   lend_waiting>>
+    /\ UNCHANGED managed_vars
+
+LEMMA WriteResizeFrameOf ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW nb \in BufferIds,
+           NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+           WriteResizesBuffer(cId, b, nb, len, charge)
+    PROVE  WriteResizeFrame
+    BY SMT DEF WriteResizeFrame, WriteResizesBuffer, L1!ResizeSendBuffer,
+       ManagedStutter
+
+LEMMA ProjectsWriteResizesBuffer ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW nb \in BufferIds,
+           NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+           WriteResizesBuffer(cId, b, nb, len, charge)
+    PROVE  L1!Next \/ UNCHANGED l1_vars
+    BY DEF WriteResizesBuffer, L1!Next
+
 LEMMA ProjectsAskHeaders ==
     ASSUME NEW cId \in CallIds, AskHeaders(cId)
     PROVE  L1!Next \/ UNCHANGED l1_vars
@@ -13380,7 +13594,8 @@ THEOREM RefinesNext == ManagedSafety /\ [Next]_vars => [L1!Next]_l1_vars
            ProjectsStartCall, ProjectsWriteLendSucceeds,
            ProjectsWriteRefusedBudget, ProjectsWriteRefusedTooLarge,
            ProjectsRetryLendSucceeds, ProjectsCommitWrite,
-           ProjectsWriteAborted, ProjectsAskHeaders, ProjectsSealRequest,
+           ProjectsWriteAborted, ProjectsWriteResizesBuffer,
+           ProjectsAskHeaders, ProjectsSealRequest,
            ProjectsPassWriteDoneReturns
            DEF Next, Passthrough, RuntimeSteps, BindingDowncalls,
                ManagedStutter, L1!Next, ManagedSafety
@@ -18738,6 +18953,141 @@ LEMMA KeepsWriteAborted ==
     <1>q. QED
         BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
 
+LEMMA KeepsWriteResizesBuffer ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds, NEW nb \in BufferIds,
+           NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+           WriteResizesBuffer(cId, b, nb, len, charge), ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        OBVIOUS
+    <1>2. AtMostOneReaderOutstanding'
+        OBVIOUS
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        OBVIOUS
+    <1>4. ReadCancelPendingOnlyInFlight'
+        OBVIOUS
+    <1>5. ParsingReadOwnsItsSlot'
+        BY ParsingReadOwnsItsSlotIsFramed
+    <1>6. WriterInv'
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!LendStatuses
+    <1>7. TokenPublishedBeforeStart'
+        BY TokenPublishedBeforeStartIsFramed
+    <1>8. RootSurvivesCallbacks'
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
+    <1>10. DisposeAwaitsDestroy'
+        OBVIOUS
+    <1>11. RuntimeManagerCoherent'
+        OBVIOUS
+    <1>12. LiveChannelUsesCurrentRuntime'
+        OBVIOUS
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        OBVIOUS
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
+        OBVIOUS
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY ChannelAgreementIsFramed
+    <1>17. ChannelStateMatchesNative'
+        BY ChannelAgreementIsFramed
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
+    <1>19. DisposeLeavesNoManagedWaiter'
+        OBVIOUS
+    <1>20. SettledCallOwesNothing'
+        BY SettledCallOwesNothingIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, BindingMayDowncall, L1!L0!HasStatus,
+           L1!L0!StatusKinds, L1!L0!IsTerminalCall, L1!L0!IsActiveCall,
+           L1!L0!ActiveCallStates, FinishedReaderDrainedTheRing,
+           StatusMeansTerminal, L1!ActiveCallHasNoStatus, ReaderStates
+    <1>21. AbsentRuntimeOwesNothing'
+        OBVIOUS
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+
 LEMMA KeepsAskHeaders ==
     ASSUME NEW cId \in CallIds, AskHeaders(cId), ManagedIndInv
     PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
@@ -19497,9 +19847,13 @@ LEMMA ManagedLayerPreserved ==
     BY <1>0, <1>12,  KeepsCommitWrite, Zenon
 <1>13. CASE \E cId \in CallIds, b \in BufferIds : WriteAborted(cId, b)
     BY <1>0, <1>13,  KeepsWriteAborted, Zenon
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>0, <1>14,  KeepsWriteResizesBuffer, Zenon
 <1>q. QED
     BY <1>0,  <1>s, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9,
-       <1>10, <1>11, <1>12, <1>13, Zenon
+       <1>10, <1>11, <1>12, <1>13, <1>14, Zenon
     DEF Next
 
 (***************************************************************************)
@@ -20521,8 +20875,16 @@ LEMMA CancellationIsLatched ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA StartedCallNeverRestarts ==
     ASSUME NEW cId \in CallIds,
@@ -20946,8 +21308,17 @@ LEMMA StartedCallNeverRestarts ==
        L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA RuntimeReturnsToActiveOnlyFromAbsent ==
     ASSUME ManagedTypeOK,
@@ -21269,8 +21640,14 @@ LEMMA RuntimeReturnsToActiveOnlyFromAbsent ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, RuntimeDisposeStates,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, RuntimeDisposeStates,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 
 
@@ -21890,8 +22267,16 @@ LEMMA CallNeverBecomesUnused ==
        L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
     ASSUME NEW cId \in CallIds,
@@ -22337,8 +22722,17 @@ LEMMA WriterLeavesIdleOnlyOnAStartedCall ==
        L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!L0!IsUnusedCall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 
 
@@ -22867,8 +23261,14 @@ LEMMA ConstructionHoldsUntilItAnswers ==
     BY <1>13, SMT DEF  WriteAborted, ChannelIsAnswered, ManagedTypeOK, ChannelDisposeStates,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ChannelIsAnswered, ManagedTypeOK, ChannelDisposeStates,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 
 LEMMA PassthroughKeepsTheNamedBuffer ==
@@ -23147,6 +23547,8 @@ LEMMA TheNamedBufferStaysLent ==
            writer_state[c] = "serializing",
            (writer_state[c] = "serializing")',
            L1!IsLentBuffer(c, b),
+           \A nb \in BufferIds, len \in L1!Sizes, charge \in L1!Sizes :
+               ~L1!ResizeSendBuffer(c, b, nb, len, charge),
            [Next]_vars
     PROVE  L1!IsLentBuffer(c, b)'
 <1>0. CASE UNCHANGED vars
@@ -23635,8 +24037,24 @@ LEMMA TheNamedBufferStaysLent ==
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b2 \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b2, nb, len, charge)
+  <2>1. PICK cId \in CallIds, b2 \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b2, nb, len, charge)
+    BY <1>14
+  <2>2. L1!ResizeSendBuffer(cId, b2, nb, len, charge)
+    BY <2>1 DEF WriteResizesBuffer
+  <2>3. ~(cId = c /\ b2 = b)
+    BY <2>2, Zenon
+  <2>4. ~(cId = c /\ nb = b)
+    BY <2>2, Zenon DEF L1!ResizeSendBuffer, L1!IsFreshBuffer, L1!IsLentBuffer
+  <2>5. QED
+    BY <2>2, <2>3, <2>4, SMT DEF L1!ResizeSendBuffer, L1!IsLentBuffer,
+       L1!BufferStates
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA EnteringSerializationNamesABuffer ==
     ASSUME NEW c \in CallIds,
@@ -24147,8 +24565,19 @@ LEMMA EnteringSerializationNamesABuffer ==
        ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+       L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+       L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+       ManagedTypeOK, WriterStates, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* And so the invariant: the witness the hypothesis names stays lent while
 \* the writer serializes, and the lend that enters serialization names one.
@@ -24167,9 +24596,31 @@ LEMMA NamedBufferStaysNamed ==
 <1>1. CASE writer_state[c] = "serializing"
   <2>1. PICK b \in BufferIds : L1!IsLentBuffer(c, b)
       BY <1>1 DEF SerializingWriterHoldsANamedBuffer
-  <2>2. L1!IsLentBuffer(c, b)'
-      BY <1>0, <1>1, <1>t, <2>1, TheNamedBufferStaysLent
-  <2>3. QED BY <2>1, <2>2
+\* An exchange of the named buffer names the one it lends; any other step
+\* leaves the buffer lent.
+  <2>2. CASE \E nb \in BufferIds, len \in L1!Sizes, charge \in L1!Sizes :
+                L1!ResizeSendBuffer(c, b, nb, len, charge)
+    <3>1. PICK nb \in BufferIds, len \in L1!Sizes, charge \in L1!Sizes :
+              L1!ResizeSendBuffer(c, b, nb, len, charge)
+      BY <2>2
+    <3>15. buffer_state' =
+               [c2 \in CallIds |-> [x \in BufferIds |->
+                   IF c2 = c /\ x = b THEN "returned"
+                   ELSE IF c2 = c /\ x = nb THEN "lent"
+                   ELSE buffer_state[c2][x]]]
+      BY <3>1, Zenon DEF L1!ResizeSendBuffer
+    <3>16. b # nb
+      BY <3>1, <2>1, Zenon DEF L1!ResizeSendBuffer, L1!IsFreshBuffer,
+         L1!IsLentBuffer
+    <3>2. L1!IsLentBuffer(c, nb)'
+      BY <3>15, <3>16, Zenon DEF L1!IsLentBuffer
+    <3>3. QED BY <3>2
+  <2>3. CASE \A nb \in BufferIds, len \in L1!Sizes, charge \in L1!Sizes :
+                ~L1!ResizeSendBuffer(c, b, nb, len, charge)
+    <3>1. L1!IsLentBuffer(c, b)'
+      BY <1>0, <1>1, <1>t, <2>1, <2>3, TheNamedBufferStaysLent
+    <3>2. QED BY <3>1
+  <2>4. QED BY <2>1, <2>2, <2>3
 <1>2. CASE writer_state[c] # "serializing"
     BY <1>0, <1>2, <1>t, EnteringSerializationNamesABuffer
 <1>3. QED BY <1>1, <1>2
@@ -24557,6 +25008,23 @@ LEMMA CommitWriteKeepsTheAcquittalComing ==
        ManagedWriterNeverObservesSlotBusy, ManagedIndInv, ManagedTypeOK,
        ManagedMachineInv, LifecycleInv, ManagedGlue, ReaderInv, WriterInv,
        L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+
+LEMMA WriteResizesBufferKeepsTheAcquittalComing ==
+    ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+           NEW nb \in BufferIds, NEW len \in L1!Sizes, NEW charge \in L1!Sizes,
+           ManagedIndInv, AwaitingWriteDoneHasOneComing,
+           WriteResizesBuffer(cId, b, nb, len, charge)
+    PROVE  AwaitingWriteDoneHasOneComing'
+<1>1. UNCHANGED <<submitted, write_dones_emitted, write_done_callback_running>>
+    BY SMT DEF WriteResizesBuffer, L1!ResizeSendBuffer, L1!l0_vars,
+       L1!L0!vars
+<1>2. UNCHANGED writer_state
+    BY SMT DEF WriteResizesBuffer, ManagedStutter, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars, ReaderVars,
+       WriterVars
+<1>3. QED
+    BY <1>1, <1>2, SMT DEF AwaitingWriteDoneHasOneComing,
+       L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning, OneRequestCall
 
 LEMMA WriteAbortedKeepsTheAcquittalComing ==
     ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
@@ -25035,8 +25503,19 @@ LEMMA AcquittalStaysComing ==
       BY <1>13
   <2>1. QED
       BY <2>0, WriteAbortedKeepsTheAcquittalComing
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+  <2>0. SUFFICES ASSUME NEW cId \in CallIds, NEW b \in BufferIds,
+                        NEW nb \in BufferIds, NEW len \in L1!Sizes,
+                        NEW charge \in L1!Sizes,
+                        WriteResizesBuffer(cId, b, nb, len, charge)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>14
+  <2>1. QED
+      BY <2>0, WriteResizesBufferKeepsTheAcquittalComing
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 
 \* And the derived ones, which Init makes vacuous: no call has
@@ -26031,8 +26510,21 @@ LEMMA DeliveryFlagStepsAtLevelOne ==
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars
+<1>40. CASE \E c2 \in CallIds, b2 \in BufferIds, nb2 \in BufferIds,
+              ln2 \in L1!Sizes, ch2 \in L1!Sizes :
+              L1!ResizeSendBuffer(c2, b2, nb2, ln2, ch2)
+  <2>1. PICK c2 \in CallIds, b2 \in BufferIds, nb2 \in BufferIds,
+             ln2 \in L1!Sizes, ch2 \in L1!Sizes :
+            L1!ResizeSendBuffer(c2, b2, nb2, ln2, ch2)
+    BY <1>40
+  <2>2. QED BY <2>1, SMT DEF  L1!ResizeSendBuffer,
+         L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39 DEF
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40 DEF
        L1!Next
 
 LEMMA WriteDoneCountersStepAtLevelOne ==
@@ -26413,8 +26905,21 @@ LEMMA WriteDoneCountersStepAtLevelOne ==
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars
+<1>40. CASE \E c2 \in CallIds, b2 \in BufferIds, nb2 \in BufferIds,
+              ln2 \in L1!Sizes, ch2 \in L1!Sizes :
+              L1!ResizeSendBuffer(c2, b2, nb2, ln2, ch2)
+  <2>1. PICK c2 \in CallIds, b2 \in BufferIds, nb2 \in BufferIds,
+             ln2 \in L1!Sizes, ch2 \in L1!Sizes :
+            L1!ResizeSendBuffer(c2, b2, nb2, ln2, ch2)
+    BY <1>40
+  <2>2. QED BY <2>1, SMT DEF  L1!ResizeSendBuffer, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39 DEF
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40 DEF
        L1!Next
 
 
@@ -27459,8 +27964,21 @@ LEMMA OneSendStaysOne ==
        L1!WriteDonesNeverExceedSends, L1!L0!IsUnusedCall, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, OneSendInFlight,
+       L1!HasNoSendInFlight, L1!IsWriteDoneCallbackRunning,
+       L1!IsAwaitingWriteDone, OneRequestCall, IsSealing, ManagedIndInv,
+       ManagedTypeOK, WriterStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       L1!FfiCallInv, L1!UnusedCallsAreFfiClean,
+       L1!WriteDonesNeverExceedSends, L1!L0!IsUnusedCall, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The seal holds its end of the sending's guard.
 
@@ -28597,8 +29115,28 @@ LEMMA SealingStaysHeld ==
        L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+  <2>1. PICK cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14
+  <2>2. WriteResizeFrame
+    BY <2>1, WriteResizeFrameOf
+  <2>3. QED
+    BY <1>14, <2>2, SMT DEF  WriteResizeFrame, L1!vars, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       SealingHoldsTheEndOfSending, IsSealing, OneRequestCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, L1!IsHandleReleased, L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+       L1!HasNoSendInFlight, OneSendInFlight, ManagedIndInv, ManagedTypeOK,
+       WriterStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       L1!FfiCallInv, L1!ReleasedCallIsClean, L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer,
+       L1!WriteDonesNeverExceedSends, L1!L0!IsUnusedCall, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA InitEstablishesTheDerived ==
     Init => /\ PrologueHasReleasedNothing
@@ -28728,7 +29266,8 @@ LEMMA SealingHoldsUntilItEnds ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        WriterStates, vars, l1_vars, managed_vars
 
 \* And a closed writer stays closed: no step reopens it.
@@ -28752,7 +29291,8 @@ LEMMA ClosedWriterStaysClosed ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        WriterStates, vars, l1_vars, managed_vars
 
 LEMMA ClosedIsNotSealing ==
@@ -29114,7 +29654,8 @@ LEMMA AwaitingHoldsUntilItReturns ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        WriterStates, vars, l1_vars, managed_vars
 
 
@@ -29151,7 +29692,8 @@ LEMMA SerializingHoldsUntilItSettles ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        WriterStates, vars, l1_vars, managed_vars
 
 \* Serialization settles, on the application's own promise: whether the
@@ -29879,8 +30421,17 @@ LEMMA TrampolineStaysUntilItReturns ==
        ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsWriteDoneCallbackRunning,
+       ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A writer that waits is not idle.  Spelled as the negation of
 \* the equality the chain uses, because the temporal prover reads
@@ -30487,8 +31038,17 @@ LEMMA EventsGrowOrFreeze ==
        L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, RingHead, ManagedTypeOK,
+       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A resolved status is never withdrawn: the three consumers that
 \* write it write "resolved" or leave the entry alone.
@@ -30789,8 +31349,14 @@ LEMMA StatusIsResolvedForGood ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The invariant holds through a step.  Two cases, on whether the status was
 \* already there: if it was, the events are frozen and the only question is
@@ -31347,8 +31913,17 @@ LEMMA PublishedStartsTheCall ==
        L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!IsUnusedCall,
+       L1!CallStart, L1!L0!CallStart, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The token is a latch: only StartCall sets it, and nothing clears it.
 LEMMA TokenIsALatch ==
@@ -31728,8 +32303,16 @@ LEMMA TokenIsALatch ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The token and the start move together, and neither is ever undone: only
 \* StartCall publishes, and it starts the call in the same step, so the only
@@ -32377,8 +32960,21 @@ LEMMA DrainBeginsCancelled ==
        L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
        vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsCancelRequested,
+       L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!L0!TerminalStatusEquivalence, L1!L0!IsTerminalCall,
+       L1!L0!UsedCalls, L1!L0!IsUnusedCall, L1!L0!IsActiveCall,
+       L1!L0!ActiveCallStates, ManagedIndInv, L1!IndInv, L1!TypeOK,
+       L1!L0!TypeOK, ManagedTypeOK, CallDisposeStates, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* And it stays cancelled: both disjuncts are latches, and the pair of
 \* lemmas that say so is already in hand.
@@ -32739,8 +33335,14 @@ LEMMA DrainingStaysUntilSettled ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* And the drain phase with it: only the settlement moves the
 \* consumer out of it.
@@ -33045,8 +33647,14 @@ LEMMA DrainPhaseStaysUntilSettled ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A resting reader stays resting while the call is not active:
 \* every entry into a read is a downcall, and a downcall wants an
@@ -33349,8 +33957,14 @@ LEMMA ReaderRestsWhileNotActive ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* And a settled writer, for the same reason.
 
@@ -33671,8 +34285,14 @@ LEMMA WriterRestsWhileNotActive ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, BindingMayDowncall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A drained ring stays drained once the status is in it: nothing appends,
 \* and nothing is consumed either - every consumer wants a payload owed, and
@@ -34458,7 +35078,8 @@ LEMMA AskedStays ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        vars, l1_vars, managed_vars
 
 \* In the prologue a read waits until it takes the head or the call is
@@ -34487,7 +35108,8 @@ LEMMA PrologueWaitStays ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        ReaderStates, vars, l1_vars, managed_vars
 
 \* And an idle reader there stays idle until the application reads.
@@ -34516,7 +35138,8 @@ LEMMA PrologueIdleStays ==
        AskHeaders, SealRequest, PassWriteDoneReturns, IsSealing,
        OneRequestCall,
        WriteLendSucceeds, WriteRefusedBudget, WriteRefusedTooLarge,
-       RetryLendSucceeds, CommitWrite, WriteAborted, ManagedTypeOK,
+       RetryLendSucceeds, CommitWrite, WriteAborted, WriteResizesBuffer,
+       ManagedTypeOK,
        ReaderStates, vars, l1_vars, managed_vars
 
 \* A read that is woken stays woken while it waits: no consumer takes a
@@ -36538,8 +37161,14 @@ LEMMA CompletedTokenArmsNothing ==
     BY <1>13, SMT DEF  WriteAborted, ReadInFlight, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ReadInFlight, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA LiveRequestNeedsAReaction ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK,
@@ -36912,8 +37541,16 @@ LEMMA LiveRequestNeedsAReaction ==
        ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, CancelWaitingRead, CancelParsingRead,
+       ReadCancellationSettled, CancelledParseHasNoPendingRequest,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA CancelledParseIsTheOnlyRelease ==
     ASSUME NEW cId \in CallIds, ManagedTypeOK, L1!TypeOK,
@@ -37592,8 +38229,15 @@ LEMMA InFlightTokenPreserved ==
        ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, InFlightReaderHoldsTheToken,
+       ReadInFlight, ManagedTypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ConsumedTerminalPreserved ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -38206,8 +38850,21 @@ LEMMA ConsumedTerminalPreserved ==
        ManagedMachineInv, ReaderInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars,
+       ConsumedTerminalFinishesTheReader, RingDrained, RingHead, RingTail,
+       L1!L0!HasStatus, L1!L0!StatusKinds, ConsumingTerminal,
+       ManagedIndInv, ManagedTypeOK, ManagedGlue,
+       ConsumerPhaseMatchesDispose, CancelledParseHasNoPendingRequest,
+       ManagedMachineInv, ReaderInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA PassthroughKeepsTheFailure ==
     ASSUME L1!TypeOK,
@@ -38780,8 +39437,14 @@ LEMMA SettledIsForever ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA UnfailedStickyHere ==
     ASSUME ManagedTypeOK, L1!TypeOK,
@@ -39199,8 +39862,17 @@ LEMMA UnfailedStickyHere ==
        L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!NotFailed, ManagedTypeOK,
+       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA DestroyedHoldsUntilTheFree ==
     ASSUME ManagedIndInv, ManagedTypeOK,
@@ -39502,8 +40174,14 @@ LEMMA DestroyedHoldsUntilTheFree ==
     BY <1>13, SMT DEF  WriteAborted, ManagedTypeOK, ManagedStutter, vars,
        l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK, ManagedStutter, vars,
+       l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The dispose's last edge: enabled exactly on its guard, and it settles.
 LEMMA FinishDisposeCallIsEnabled ==
@@ -39898,8 +40576,14 @@ LEMMA WaitingHoldsWhileDisposing ==
     BY <1>13, SMT DEF  WriteAborted, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA HandoffHoldsWhileDraining ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -40228,8 +40912,14 @@ LEMMA HandoffHoldsWhileDraining ==
     BY <1>13, SMT DEF  WriteAborted, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WaitLeavesOnlyIdleWhileDisposing ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -40560,8 +41250,15 @@ LEMMA WaitLeavesOnlyIdleWhileDisposing ==
        BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       BindingMayDowncall, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE TERMINAL CHAIN                                                      *)
@@ -41551,8 +42248,15 @@ LEMMA PendingWaitingHolds ==
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ReadCancellationSettled, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA PendingParsingHolds ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -41892,8 +42596,15 @@ LEMMA PendingParsingHolds ==
        ReadCancellationSettled, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ReadCancellationSettled, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE READ-SIDE PROMISES                                                  *)
@@ -42711,8 +43422,18 @@ LEMMA WaitingAppOwedHolds ==
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK,
+       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WaitingPrologueOwedHolds ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -43301,8 +44022,18 @@ LEMMA WaitingPrologueOwedHolds ==
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK,
+       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE WAITING READER                                                      *)
@@ -43726,8 +44457,14 @@ LEMMA AppHoldsWhileActive ==
     BY <1>13, SMT DEF  WriteAborted, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The waiting reader resolves, per call and boxed.
 \* A read in flight is on a used call.
@@ -44712,8 +45449,18 @@ LEMMA HeadersPendingOwedHolds ==
        L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, L1!TypeOK,
+       L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE PROLOGUE'S TWO COMPLETIONS                                          *)
@@ -45497,8 +46244,17 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
        L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WriterRestsOnDeadCall ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -45954,8 +46710,17 @@ LEMMA WriterRestsOnDeadCall ==
        L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       L1!L0!IsActiveCall, L1!L0!ActiveCallStates, BindingMayDowncall,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA FinishedReaderHoldsWhileActive ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -46275,8 +47040,14 @@ LEMMA FinishedReaderHoldsWhileActive ==
     BY <1>13, SMT DEF  WriteAborted, ManagedIndInv, ManagedTypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedIndInv, ManagedTypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE SETTLEMENT                                                          *)
@@ -47669,8 +48440,18 @@ LEMMA ServedRootPreserved ==
        L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
        ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
        ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, LiveRootIsServed, ManagedIndInv,
+       ManagedTypeOK, L1!L0!HasStatus, L1!L0!StatusKinds,
+       L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+       ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA RootedStatusHolds ==
     ASSUME NEW cId \in CallIds, ManagedIndInv,
@@ -48280,8 +49061,18 @@ LEMMA RootedStatusHolds ==
        L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedIndInv, ManagedTypeOK,
+       L1!L0!HasStatus, L1!L0!StatusKinds, L1!IsDeliveryCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE CALL ROOT                                                           *)
@@ -48792,8 +49583,15 @@ LEMMA DisposingHoldsUntilTheRelease ==
        ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ChannelSettled,
+       ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE CHANNEL'S LEASE                                                     *)
@@ -49442,8 +50240,15 @@ LEMMA CurrentHoldsWhileDestroying ==
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedTypeOK,
+       ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
+       ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+       ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA CurrentHoldsWhilePending ==
     ASSUME NEW rtId, rtId \in RuntimeIds, ManagedIndInv,
@@ -49786,8 +50591,23 @@ LEMMA CurrentHoldsWhilePending ==
        ChannelSettled, ManagedStutter, vars, l1_vars, managed_vars,
        ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
        ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+  <2>1. PICK cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14
+  <2>2. WriteResizeFrame
+    BY <2>1, WriteResizeFrameOf
+  <2>3. QED
+    BY <1>14, <2>2, SMT DEF  WriteResizeFrame, ManagedTypeOK, ChannelSettled, ManagedStutter,
+       vars, l1_vars, managed_vars, ManagedRuntimeVars,
+       ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars,
+       L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 LEMMA FreeRuntimeRootEffect ==
     ASSUME FreeRuntimeRoot
     PROVE  /\ UNCHANGED l1_vars
@@ -51774,8 +52594,20 @@ LEMMA ReleasedHoldsWhileDestroying ==
        L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ShutdownCbStaysDownWhileDestroying ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -52335,8 +53167,20 @@ LEMMA ShutdownCbStaysDownWhileDestroying ==
        L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ResourcesPairHoldsWhileDestroying ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -52905,8 +53749,20 @@ LEMMA ResourcesPairHoldsWhileDestroying ==
        L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, L1!IsRuntimeQuiescent,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!NoHostDebt,
+       L1!RuntimeHoldsNoReturnedBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA HostDebtStaysZeroWhileDestroying ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -53454,8 +54310,17 @@ LEMMA HostDebtStaysZeroWhileDestroying ==
              L1!OwedPayloads, L1!L0!ChannelsOf, L1!IsRuntimeQuiescent, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
              L1!TypeOK, L1!L0!TypeOK
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT
+    DEF WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer,
+       L1!HostHoldsSomeBuffer, L1!NoHostDebt, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+             L1!OwedPayloads, L1!L0!ChannelsOf, L1!IsRuntimeQuiescent, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+             L1!TypeOK, L1!L0!TypeOK
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ReturnedBytesStayZeroWhileDestroying ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -54008,8 +54873,19 @@ LEMMA ReturnedBytesStayZeroWhileDestroying ==
        L1!L0!ChannelsOf, L1!IsRuntimeQuiescent, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
              L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        L1!TypeOK, L1!L0!TypeOK
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT
+    DEF WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer,
+       L1!HostHoldsSomeBuffer, L1!HostHoldsNoBuffer,
+       L1!NoHostDebt, L1!HostOwnsNoPayload, L1!OwedPayloads,
+       L1!RuntimeHoldsNoReturnedBytes, L1!IsReturnedBuffer,
+       L1!L0!ChannelsOf, L1!IsRuntimeQuiescent, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
+             L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!TypeOK, L1!L0!TypeOK
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 (***************************************************************************)
 (* THE RUNTIME TEARDOWN, FIRST HALF                                        *)
@@ -54444,8 +55320,14 @@ LEMMA ActiveChannelLandsOnTheDispose ==
     BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* A settled channel stays settled while the sweep runs: the one step
 \* that unsettles one is a creation, and the door is shut.
@@ -54733,8 +55615,14 @@ LEMMA SettledStaysWhileDisposing ==
     BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA NotDisposingSplits ==
     runtime_dispose_state # "disposing"
@@ -56912,8 +57800,16 @@ LEMMA DeliveryFlagRestsWhileDestroyed ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA WriteDoneFlagRestsWhileDestroyed ==
     ASSUME NEW cId, cId \in CallIds,
@@ -57298,8 +58194,16 @@ LEMMA WriteDoneFlagRestsWhileDestroyed ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ShutdownFlagRestsWhileDestroyed ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -57684,8 +58588,16 @@ LEMMA ShutdownFlagRestsWhileDestroyed ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ResourcesFlagSettlesWhileDestroyed ==
     ASSUME NEW rtId, rtId \in RuntimeIds,
@@ -58077,8 +58989,16 @@ LEMMA ResourcesFlagSettlesWhileDestroyed ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ResourcesArmingEmits ==
     ASSUME NEW rtId, rtId \in RuntimeIds, ManagedTypeOK,
@@ -58433,8 +59353,16 @@ LEMMA ResourcesArmingEmits ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA ResourcesEmittedIsALatch ==
     ASSUME NEW rtId, rtId \in RuntimeIds, ManagedTypeOK,
@@ -58790,8 +59718,16 @@ LEMMA ResourcesEmittedIsALatch ==
        L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, L1!ResizeSendBuffer, L1!vars,
+       L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The rest steps, joined once at top level: the projections the untils
 \* ask for are read off the boxed invariant here, where the context is a
@@ -59537,8 +60473,14 @@ LEMMA ReleasedHoldsUntilTheResolve ==
     BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 LEMMA DisposingLandsOnTheRelease ==
     ASSUME NEW chId, chId \in ChannelIds, ManagedTypeOK,
@@ -59827,8 +60769,14 @@ LEMMA DisposingLandsOnTheRelease ==
     BY <1>13, SMT DEF  WriteAborted, ManagedStutter, vars, l1_vars,
        managed_vars, ManagedRuntimeVars, ManagedChannelVars,
        ManagedCallVars, ReaderVars, WriterVars
+<1>14. CASE \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
+             len \in L1!Sizes, charge \in L1!Sizes :
+             WriteResizesBuffer(cId, b, nb, len, charge)
+    BY <1>14, SMT DEF  WriteResizesBuffer, BindingMayDowncall, ManagedStutter, vars, l1_vars,
+       managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+       ManagedCallVars, ReaderVars, WriterVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13 DEF Next
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14 DEF Next
 
 \* The four callback families rest together, joined over their finite
 \* domains inside any destroyed suffix.
