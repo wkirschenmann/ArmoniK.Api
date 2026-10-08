@@ -243,7 +243,7 @@ channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
 
-**Request headers are bounded where they are built.** With `Http2.Send.MaxHeaderListSize`, a
+**Request headers are bounded where they are built.** With `Http2.Send.HeaderListBytes`, a
 call whose header list - counted as RFC 9113 counts one - is past the limit ends
 RESOURCE_EXHAUSTED before a connection is taken: nginx answers such a header by closing the
 connection, which ends every call on it, and the channel refuses the one call instead.
@@ -1303,12 +1303,14 @@ the shape every option takes, and gives the reasons:
   does not declare; the engine ignores such a key rather than refusing it, and logs it with its
   source and path, so that a misspelled key does not give the defaults unsaid
   (configuration-loading.md);
-- options that exclude one another are one Rust enum, which the schema renders as a `oneOf` of
-  objects of one key: the key names the alternative and holds what it carries, `true` for
-  nothing - `"Server": {"CaPem": "ca.pem"}`, `"Proxy": {"None": true}`. In C# a choice is an
-  abstract record whose constructor is private, and its alternatives the sealed records nested in
-  it, so a switch over them is complete. An enum whose variants carry nothing is a `oneOf` of
-  names, and a C# enum;
+- options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
+  which serde writes in its externally tagged form: a variant that carries nothing is its name, a
+  string, and one that carries something is an object of one key that holds it -
+  `"ServerCertificates": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
+  whose constructor is private, and its alternatives the sealed records nested in it, a
+  variant that carries nothing included; the compiler does not know that they are all of them,
+  so a switch over them needs a default case. An enum whose variants all carry nothing is a
+  `oneOf` of names, and a C# enum;
 - nothing is required but a field an alternative cannot do without, and `{}` is a valid
   configuration;
 - an option belongs to the layer it acts on: `Transport` the dial and the socket, `Http2` the
@@ -1362,14 +1364,14 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | Existing option | ChannelOptions field |
 |-----------------|--------------------------|
 | `Address` | `Endpoint` |
-| `CaCert` | `Transport.Tls.Server.CaPem` |
-| `ClientCert` / `ClientKey` | `Transport.Tls.Client.Pem.Certificate` / `Transport.Tls.Client.Pem.Key` |
-| `ClientP12` | `Transport.Tls.Client.P12.Path`; its password, `Transport.Tls.Client.P12.Password`, has no counterpart |
-| `AllowUnsafeConnection` | `Transport.Tls.Server.Unverified` |
-| `OverrideTargetName` | `Transport.Tls.OverrideTargetName` |
+| `CaCert` | `Transport.Tls.ServerCertificates.CaPem`; stated as `System` when neither it nor `AllowUnsafeConnection` is set |
+| `ClientCert` / `ClientKey` | `Transport.Tls.ClientCertificate.Pem.Certificate` / `Transport.Tls.ClientCertificate.Pem.Key`; stated as `None` when no certificate is set |
+| `ClientP12` | `Transport.Tls.ClientCertificate.P12.Path`; its password, `Transport.Tls.ClientCertificate.P12.Password`, has no counterpart |
+| `AllowUnsafeConnection` | `Transport.Tls.ServerCertificates.None` |
+| `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
 | `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
-| `RequestTimeout` | `Grpc.DefaultDeadlineSeconds` |
+| `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
 | `MaxAttempts` | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts`, or `Grpc.OutboundTraffic.Retry.None` for 1, with nothing else of the retries |
 | `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |
 

@@ -42,7 +42,7 @@ public class CompressionTests : EchoServerFixture
   private static readonly string Text = new('a',
                                             200 * 1024);
 
-  private static ChannelOptions Compressing(MessageEncoding?   send   = null,
+  private static ChannelOptions Compressing(SendCompression?  send   = null,
                                             MessageEncoding[]? accept = null)
     => new()
        {
@@ -96,7 +96,7 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public void TheOptionsAreSpelledAsTheSchemaNamesThem()
   {
-    Assert.That(Encoding.UTF8.GetString(Compressing(MessageEncoding.Gzip,
+    Assert.That(Encoding.UTF8.GetString(Compressing(SendCompression.Gzip,
                                                     new[]
                                                     {
                                                       MessageEncoding.Gzip,
@@ -104,7 +104,7 @@ public class CompressionTests : EchoServerFixture
                                           .Encode()),
                 Is.EqualTo(@"{""Grpc"":{""Send"":{""Compression"":""Gzip""},""Receive"":{""Compression"":[""Gzip""]}}}"));
 
-    Assert.That(Encoding.UTF8.GetString(Compressing(MessageEncoding.Zstd,
+    Assert.That(Encoding.UTF8.GetString(Compressing(SendCompression.Zstd,
                                                     new[]
                                                     {
                                                       MessageEncoding.Zstd,
@@ -120,10 +120,10 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public void AnEncodingTheVocabularyDoesNotDeclareIsRefusedBeforeItIsSent()
   {
-    Assert.That(() => Compressing((MessageEncoding)42)
+    Assert.That(() => Compressing((SendCompression)42)
                         .Encode(),
                 Throws.TypeOf<ArgumentOutOfRangeException>()
-                      .With.Message.Contains("Compression has to be a name MessageEncoding declares"));
+                      .With.Message.Contains("Compression has to be a name SendCompression declares"));
 
     Assert.That(() => Compressing(accept: new[]
                                           {
@@ -184,7 +184,7 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public async Task NoneSendsTheMessagesAsTheyAre()
   {
-    var (reply, head, _) = await Say(Compressing(MessageEncoding.None))
+    var (reply, head, _) = await Say(Compressing(SendCompression.None))
                              .ConfigureAwait(false);
 
     Assert.Multiple(() =>
@@ -197,19 +197,6 @@ public class CompressionTests : EchoServerFixture
                                   Is.GreaterThanOrEqualTo(Text.Length));
                     });
   }
-
-  /// <summary>A name that accepts nothing is refused in the list of encodings to accept.</summary>
-  [Test]
-  public void NoneIsRefusedInTheListOfEncodingsToAccept()
-    => Assert.That(() => Runtime.Channel(Endpoint,
-                                         Compressing(accept: new[]
-                                                             {
-                                                               MessageEncoding.Gzip,
-                                                               MessageEncoding.None,
-                                                             })),
-                   Throws.InstanceOf<ArgumentException>()
-                         .With.Message.Contains("Grpc.Receive.Compression")
-                         .And.Message.Contains("identity is always accepted"));
 
   /// <summary>A later source's None over an earlier one's Gzip sends the messages as they are, whichever sources they are.</summary>
   [Test]
@@ -302,7 +289,7 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public async Task AMessageTheEngineCompressesIsInflatedByTheReferenceServer()
   {
-    var (reply, head, trailers) = await Say(Compressing(MessageEncoding.Gzip))
+    var (reply, head, trailers) = await Say(Compressing(SendCompression.Gzip))
                                     .ConfigureAwait(false);
 
     Assert.Multiple(() =>
@@ -352,7 +339,7 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public async Task BothDirectionsCompressedWorkTogether()
   {
-    var options = Compressing(MessageEncoding.Gzip,
+    var options = Compressing(SendCompression.Gzip,
                               new[]
                               {
                                 MessageEncoding.Gzip,
@@ -450,7 +437,7 @@ public class CompressionTests : EchoServerFixture
   [Test]
   public async Task AMessageTheEngineCompressesWithDeflateIsInflatedByTheReferenceServer()
   {
-    var (reply, head, _) = await Say(Compressing(MessageEncoding.Deflate))
+    var (reply, head, _) = await Say(Compressing(SendCompression.Deflate))
                              .ConfigureAwait(false);
 
     Assert.Multiple(() =>
@@ -501,7 +488,7 @@ public class CompressionTests : EchoServerFixture
   public async Task AServerThatDoesNotAcceptTheEncodingFailsTheFirstCallAndNotTheNext()
   {
     await using var channel = Runtime.Channel(Endpoint,
-                                              Compressing(MessageEncoding.Zstd));
+                                              Compressing(SendCompression.Zstd));
     var client = Client(channel);
 
     var refused = Assert.ThrowsAsync<RpcException>(async () => await client.SayAsync(new EchoRequest
@@ -541,7 +528,7 @@ public class CompressionTests : EchoServerFixture
   public async Task AnEncodingTheServerAcceptsGoesOnBeingUsed()
   {
     await using var channel = Runtime.Channel(Endpoint,
-                                              Compressing(MessageEncoding.Gzip));
+                                              Compressing(SendCompression.Gzip));
     var client = Client(channel);
 
     for (var call = 0; call < 3; call++)

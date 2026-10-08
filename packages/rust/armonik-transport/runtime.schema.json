@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime: the endpoint, the memory ceilings, the options every\nchannel takes where its own state none, and what the engine logs.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, and what the engine logs.",
   "type": "object",
   "properties": {
     "Endpoint": {
@@ -10,16 +10,8 @@
       "minLength": 1
     },
     "MemoryCeiling": {
-      "description": "The bytes the runtime holds before work waits, counting the buffers lent to send and the\nmessages received until the host gives them back: a call stops reading, and a send waits\nfor room.\n\nDefaults to 4294967295, four gigabytes, or half the address space where that is smaller;\na larger value is that too.",
-      "type": "integer",
-      "format": "int64",
-      "minimum": 1
-    },
-    "MemoryHardCeiling": {
-      "description": "The bytes past which the runtime stops: a received message that would take the count past\nthem ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may\npass it together, by a message each, and this bounds them. At least MemoryCeiling, or\nMemoryCeiling's default when that is left out.\n\nDefaults to a quarter above MemoryCeiling.",
-      "type": "integer",
-      "format": "int64",
-      "minimum": 1
+      "description": "The memory the runtime holds, in two thresholds.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
+      "$ref": "#/$defs/MemoryCeilingOptions"
     },
     "ChannelDefaults": {
       "description": "Channel options every channel of the runtime takes where its own options state none: the\ntwo are merged option by option, a struct's options within it, and the channel's win; an\nalternative - how the server is verified, who the client is, which proxy - merges its fields\nover the same alternative and is taken whole over another.\n\nDefaults to none.",
@@ -32,6 +24,25 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "MemoryCeilingOptions": {
+      "description": "The memory the runtime holds: the bytes counting the buffers lent to send and the messages\nreceived until the host gives them back, and where work waits and where the runtime stops.",
+      "type": "object",
+      "properties": {
+        "SoftMiB": {
+          "description": "The MiB the runtime holds before work waits: a call stops reading, and a send waits for\nroom.\n\nDefaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger\nvalue is that too.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        },
+        "HardMiB": {
+          "description": "The MiB past which the runtime stops: a received message that would take the count past\nthem ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below `SoftMiB` may pass\nit together, by a message each, and this bounds them. At least `SoftMiB`, or its default\nwhen that is left out, which is checked once the options are merged.\n\nDefaults to a quarter above `SoftMiB`.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "ChannelOptions": {
       "description": "What a caller may set on one channel.",
       "type": "object",
@@ -65,8 +76,8 @@
           "$ref": "#/$defs/TlsOptions"
         },
         "TcpKeepalive": {
-          "description": "The socket's keepalive.\n\nDefaults to `{}`, which sets none.",
-          "$ref": "#/$defs/TcpKeepaliveOptions"
+          "description": "The socket's keepalive.\n\nDefaults to `\"None\"`: no probe is sent.",
+          "$ref": "#/$defs/TcpKeepalive"
         },
         "Proxy": {
           "description": "The HTTP proxy every dial tunnels through.\n\nDefaults to `{\"System\": {}}`: the proxy the system names, if any, with no credentials of\nits own.",
@@ -89,25 +100,25 @@
       "description": "How an `https://` endpoint is secured. Each file is read when the channel is created, so a\npath that names nothing usable is refused then, by its option's name.",
       "type": "object",
       "properties": {
-        "Server": {
-          "description": "How the server certificate is verified.\n\nDefaults to the system's roots.",
-          "$ref": "#/$defs/ServerVerification"
+        "ServerCertificates": {
+          "description": "Which certificates the server's certificate is verified against, under the endpoint's host:\nthat name is also the one sent as SNI.\n\nDefaults to `\"System\"`.",
+          "$ref": "#/$defs/ServerCertificates"
         },
-        "Client": {
-          "description": "The certificate the client presents, and its key.\n\nDefaults to none.",
+        "ClientCertificate": {
+          "description": "The certificate the client presents, and its key.\n\nDefaults to `\"None\"`.",
           "$ref": "#/$defs/ClientCertificate"
-        },
-        "OverrideTargetName": {
-          "description": "The host the server certificate is verified against, and sent as SNI, in place of the\nendpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is\nnot read.",
-          "type": "string",
-          "minLength": 1
         }
       },
       "additionalProperties": false
     },
-    "ServerVerification": {
-      "description": "How the server certificate is verified.",
+    "ServerCertificates": {
+      "description": "Which certificates the server's certificate is verified against.",
       "oneOf": [
+        {
+          "description": "The system's roots.",
+          "type": "string",
+          "const": "System"
+        },
         {
           "description": "Against the roots of a PEM file, named by its path, in place of the system's. Every\ncertificate the file holds is a root.",
           "type": "object",
@@ -136,17 +147,9 @@
           "additionalProperties": false
         },
         {
-          "description": "Not at all: any server certificate is accepted. The connection is still encrypted, to\nwhoever answers.",
-          "type": "object",
-          "properties": {
-            "Unverified": {
-              "const": true
-            }
-          },
-          "required": [
-            "Unverified"
-          ],
-          "additionalProperties": false
+          "description": "No verification: any server certificate is accepted. The connection is still encrypted,\nto whoever answers.",
+          "type": "string",
+          "const": "None"
         }
       ]
     },
@@ -239,6 +242,11 @@
       "description": "The certificate the client presents, and its key.",
       "oneOf": [
         {
+          "description": "No certificate is presented.",
+          "type": "string",
+          "const": "None"
+        },
+        {
           "description": "From PEM files.",
           "type": "object",
           "properties": {
@@ -320,49 +328,67 @@
         "Path"
       ]
     },
-    "TcpKeepaliveOptions": {
-      "description": "The socket's keepalive, off unless `IdleSeconds` is set.\n\nEach duration is a whole number of seconds, which is what the socket option holds.\nAn `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then\n`IntervalSeconds` and `Retries` are not read: they are what that source left.",
+    "TcpKeepalive": {
+      "description": "The socket's keepalive.",
+      "oneOf": [
+        {
+          "description": "No probe is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "Probes the peer once the connection has been idle, and drops it when they go unanswered.",
+          "type": "object",
+          "properties": {
+            "Probe": {
+              "$ref": "#/$defs/TcpProbe"
+            }
+          },
+          "required": [
+            "Probe"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TcpProbe": {
+      "description": "The probes of a socket's keepalive, each duration a whole number of seconds, which is what the\nsocket option holds.",
       "type": "object",
       "properties": {
         "IdleSeconds": {
-          "description": "How many whole seconds the connection may be idle before the first probe, from 1 to 32767,\nthe most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.\n\nDefaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,\nthe option leaves that source's value.",
+          "description": "How many whole seconds the connection may be idle before the first probe, from 1 to 32767,\nthe most Linux holds: the operating system counts whole seconds.",
           "type": "integer",
           "format": "int32",
-          "minimum": 0,
+          "minimum": 1,
           "maximum": 32767
         },
         "IntervalSeconds": {
-          "description": "How many whole seconds between two probes, from 1 to 32767. Defaults to the operating\nsystem's.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
+          "description": "How many whole seconds between two probes, from 1 to 32767. Defaults to the operating\nsystem's.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
           "maximum": 32767
         },
         "Retries": {
-          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.\n\nIncoherent without `IdleSeconds`, and not read when that is 0.",
+          "description": "How many probes go unanswered before the connection is dropped, at most 127, the most\nLinux holds. Defaults to the operating system's, and is not applied on Windows.",
           "type": "integer",
           "format": "int32",
           "minimum": 1,
           "maximum": 127
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "IdleSeconds"
+      ]
     },
     "ProxyOptions": {
       "description": "An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the\nserver.",
       "oneOf": [
         {
           "description": "No proxy: every dial goes to the endpoint itself.",
-          "type": "object",
-          "properties": {
-            "None": {
-              "const": true
-            }
-          },
-          "required": [
-            "None"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "None"
         },
         {
           "description": "The proxy the system names for the endpoint, if any.\n\nThe environment's proxy is `ALL_PROXY`, `HTTPS_PROXY` or `HTTP_PROXY`, in either case and\nby the endpoint's scheme, unless `NO_PROXY` names the endpoint's host; it is read when the\nchannel is created. An `https://` or `socks` one is refused when the channel is created,\nand any other value the environment cannot read as a proxy is ignored.\n\nOn Windows, when the environment names no proxy, the system's is the one the current\nuser's network settings name: a PAC script, detected or at the configured address, which\nWinHTTP fetches and runs for each dial off the calling thread, else the manual proxy and\nits bypass list. Those settings are read when the channel is created, and an `https://` or\n`socks` proxy they name is refused at each dial - except a script's `SOCKS` answer, which\nWinHTTP drops, leaving a direct dial. A script that cannot be found or run is not tried\nagain for two minutes.\n\nThe system's proxy is never used for a loopback endpoint.",
@@ -456,30 +482,17 @@
       "description": "The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much\nit lets the peer send ahead of what is read.",
       "type": "object",
       "properties": {
-        "KeepAliveIntervalSeconds": {
-          "description": "How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.\n\nDefaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "KeepAlive": {
+          "description": "Whether the session sends PINGs to check that the peer is there.\n\nDefaults to `\"None\"`: none is sent.",
+          "$ref": "#/$defs/Http2KeepAlive"
         },
-        "KeepAliveTimeoutSeconds": {
-          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 1e-9
-        },
-        "KeepAliveWhileIdle": {
-          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
-          "type": "boolean"
-        },
-        "IdleTimeoutSeconds": {
-          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nAt least a nanosecond, or 0 for none.\n\nDefaults to none: an idle connection stays open. Zero is the way to turn a timeout an\nearlier source set off.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "IdleTimeout": {
+          "description": "How long a connection stays open with no call on it before it is closed, the next call\ndialling a new one. Each connection has its own. A call holds its connection to the end of\nits response and of its request.\n\nDefaults to `\"None\"`: an idle connection stays open.",
+          "$ref": "#/$defs/Http2IdleTimeout"
         },
         "SimultaneousCallsPerConnection": {
-          "description": "How many calls one connection carries at once, never more than its server allows. A call\nthat finds every connection full opens another, as many as the calls in flight need, and\neach closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one\nanother on a connection but never share it, so that a GOAWAY a server sends because of one\ncall - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.\n\nDefaults to none: a connection carries as many calls as its server allows.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+          "description": "How many calls one connection carries at once. A call that finds every connection full\nopens another, as many as the calls in flight need, and each closes on its own idle\ntimeout when `IdleTimeout` is set.\n\nDefaults to `\"FromServer\"`.",
+          "$ref": "#/$defs/CallsPerConnection"
         },
         "Send": {
           "description": "What the session sends.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -492,6 +505,102 @@
       },
       "additionalProperties": false
     },
+    "Http2KeepAlive": {
+      "description": "Whether the session sends PINGs, which an unresponsive peer ends it for.",
+      "oneOf": [
+        {
+          "description": "No PING is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "A PING is sent at an interval, and the session and its calls end when one goes unanswered.",
+          "type": "object",
+          "properties": {
+            "Ping": {
+              "$ref": "#/$defs/Http2Ping"
+            }
+          },
+          "required": [
+            "Ping"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Http2Ping": {
+      "description": "The PINGs of a session.",
+      "type": "object",
+      "properties": {
+        "IntervalSeconds": {
+          "description": "How often a PING is sent to the peer, at least a nanosecond.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "TimeoutSeconds": {
+          "description": "How long a PING may go unanswered before the session and its calls are ended.\n\nDefaults to 20.",
+          "$ref": "#/$defs/Seconds",
+          "minimum": 1e-9
+        },
+        "WhileIdle": {
+          "description": "Whether a PING is also sent while no call is open.\n\nDefaults to false.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "IntervalSeconds"
+      ]
+    },
+    "Http2IdleTimeout": {
+      "description": "When a connection with no call on it is closed.",
+      "oneOf": [
+        {
+          "description": "Never: an idle connection stays open.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "After this many seconds, at least a nanosecond.",
+          "type": "object",
+          "properties": {
+            "After": {
+              "$ref": "#/$defs/Seconds",
+              "minimum": 1e-9
+            }
+          },
+          "required": [
+            "After"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CallsPerConnection": {
+      "description": "How many calls one connection carries at once.",
+      "oneOf": [
+        {
+          "description": "As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.",
+          "type": "string",
+          "const": "FromServer"
+        },
+        {
+          "description": "At most this many, and never more than the server allows. At 1, calls follow one another\non a connection but never share it, so that a GOAWAY a server sends because of one call -\nnginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.",
+          "type": "object",
+          "properties": {
+            "Limit": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Limit"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "Http2SendOptions": {
       "description": "What an HTTP/2 session sends.",
       "type": "object",
@@ -502,11 +611,12 @@
           "format": "int32",
           "minimum": 0
         },
-        "StreamBufferSize": {
-          "description": "How many bytes of one call's request may be queued in the session, waiting to be written,\nbefore its next part is handed over. A part is handed over whole once fewer bytes than this\nare queued, and the peer's window has room, so up to one part more than this is queued.\n\nDefaults to 1048576, 1 MiB.",
+        "StreamBufferKiB": {
+          "description": "How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be\nwritten, before its next part is handed over. A part is handed over whole once fewer bytes\nthan this are queued, and the peer's window has room, so up to one part more than this is\nqueued.\n\nDefaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's\nbuffer is counted in 32 bits.",
           "type": "integer",
           "format": "int32",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 4194303
         },
         "FramesPerWrite": {
           "description": "How many DATA frames of the peer's largest size one queued part of a request may span,\nwritten one after the other in one write: a large message then goes out in fewer, larger\nwrites. Above 1, a call reset while its part is being written can still send up to this\nmany frames less one before its reset, and a PING or a SETTINGS acknowledgement queued\nbehind DATA waits for this many times more of it. Above 1 needs an engine built against\nthe h2-batch patch (`packages/rust/patches/h2-batch`), and is refused otherwise. At most\n256.\n\nDefaults to 1.",
@@ -515,14 +625,37 @@
           "minimum": 1,
           "maximum": 256
         },
-        "MaxHeaderListSize": {
-          "description": "The most bytes the headers of one request may take, counted as RFC 9113 counts a header\nlist for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the\npseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED\nbefore anything is sent. It bounds what is sent, never what is received.\n\nDefaults to none: no request is refused for its headers.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+        "HeaderListBytes": {
+          "description": "How many bytes the headers of one request may take. It bounds what is sent, never what is\nreceived.\n\nDefaults to `\"Unbounded\"`.",
+          "$ref": "#/$defs/HeaderListBytes"
         }
       },
       "additionalProperties": false
+    },
+    "HeaderListBytes": {
+      "description": "How many bytes the headers of one request may take.",
+      "oneOf": [
+        {
+          "description": "No request is refused for its headers.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many bytes, counted as RFC 9113 counts a header list for\nSETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header\nfields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before\nanything is sent.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "Http2ReceiveOptions": {
       "description": "What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or\nwindows that grow with what the link carries.",
@@ -542,16 +675,8 @@
         },
         {
           "description": "Windows that grow with the link: both start at 65535, the size every connection starts\nwith, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.\nNeither shrinks.",
-          "type": "object",
-          "properties": {
-            "Adaptive": {
-              "const": true
-            }
-          },
-          "required": [
-            "Adaptive"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "Adaptive"
         }
       ]
     },
@@ -559,14 +684,14 @@
       "description": "HTTP/2 flow-control windows of fixed sizes.",
       "type": "object",
       "properties": {
-        "StreamWindowSize": {
+        "StreamWindowBytes": {
           "description": "How many bytes of one call the peer may send ahead of what is read.\n\nDefaults to 2097152, 2 MiB.",
           "type": "integer",
           "format": "int32",
           "minimum": 1
         },
-        "ConnectionWindowSize": {
-          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
+        "ConnectionWindowBytes": {
+          "description": "How many bytes the peer may send ahead of what is read, across every call of the channel.\nA call its host does not read holds up to `StreamWindowBytes` of it, so enough of them stop\nthe others receiving. At least 65535, the window every connection starts with.\n\nDefaults to 5242880, 5 MiB.",
           "type": "integer",
           "format": "int32",
           "minimum": 65535
@@ -583,10 +708,9 @@
           "type": "string",
           "minLength": 1
         },
-        "DefaultDeadlineSeconds": {
-          "description": "The deadline of a call that states none, counted from its start: the call ends\n`DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the\ncall started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not\nonly the wait for the response's head. A call's own deadline takes its place, and a call\nthat states none takes this one.\n\nDefaults to none, a call waiting as long as its answer takes; at least a nanosecond, the\nfinest duration the engine holds, or 0 for none, over a deadline an earlier source set.",
-          "$ref": "#/$defs/Seconds",
-          "minimum": 0.0
+        "Deadline": {
+          "description": "The deadline of a call that states none.\n\nDefaults to `\"None\"`, a call waiting as long as its answer takes.",
+          "$ref": "#/$defs/Deadline"
         },
         "OutboundTraffic": {
           "description": "What the channel does with the calls it sends: sending a failed one again, slowing down\nagainst a server that fails, and keeping messages for a call to be sent again.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
@@ -606,6 +730,30 @@
         }
       },
       "additionalProperties": false
+    },
+    "Deadline": {
+      "description": "The deadline of a call that states none, counted from its start.",
+      "oneOf": [
+        {
+          "description": "The call has none: it waits as long as its answer takes.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "The call ends `DEADLINE_EXCEEDED` once this many seconds have passed, at least a\nnanosecond, the finest duration the engine holds, and the server is told what was left of\nit when the call started as `grpc-timeout`. It bounds the whole call, a streaming one\nincluded, and not only the wait for the response's head. A call's own deadline takes its\nplace.",
+          "type": "object",
+          "properties": {
+            "Default": {
+              "$ref": "#/$defs/Seconds",
+              "minimum": 1e-9
+            }
+          },
+          "required": [
+            "Default"
+          ],
+          "additionalProperties": false
+        }
+      ]
     },
     "OutboundTrafficOptions": {
       "description": "What a channel does with the calls it sends: whether a failed call is sent again, whether the\nchannel slows down against a server that fails, and what it keeps of the messages for a call to\nbe sent again.\n\nA failure is named by where it ended an attempt, in the entries of a list: `Status.X` for a\ngRPC status the server sent in its trailers, X being a name from the gRPC specification such as\n`UNAVAILABLE`; `Http.N` for an HTTP status N, from 100 to 599, that a proxy or a gateway answered\nwith and no gRPC status; `Reset.R` for a stream the server reset before its response, R being\nan HTTP/2 error code from RFC 9113 such as `ENHANCE_YOUR_CALM`; `Pushback` for a failure whose\nserver asked for a wait in `grpc-retry-pushback-ms`, whatever its status; `Dial` for a connection\nthat could not be made; and `Connection` for one that ended under the call before the response.\nAn entry that names none of these is refused, and a list that is empty names nothing. What the\nengine ended itself, a cancel and a deadline, is never a failure of the server's.",
@@ -631,16 +779,8 @@
       "oneOf": [
         {
           "description": "No retry: a failed call ends with its status. A call that its peer never processed still\ngoes again, once for each way the peer did not see it, while what it sent is kept under\n`Replay`.",
-          "type": "object",
-          "properties": {
-            "None": {
-              "const": true
-            }
-          },
-          "required": [
-            "None"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "None"
         },
         {
           "description": "A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that\nstarts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,\nfor the failures `FailureList` names, while no response head has reached the reader, what\nthe call sent is still kept under `Replay`, and `Throttle` finds the server accepting what\nis sent. A policy that retries nothing is `None`, and neither a `MaxAttempts` of 1 nor an\nempty `FailureList` is one.",
@@ -698,16 +838,8 @@
       "oneOf": [
         {
           "description": "No judgment: every retry the retry policy chooses is sent, and first attempts start as they\nare made.",
-          "type": "object",
-          "properties": {
-            "None": {
-              "const": true
-            }
-          },
-          "required": [
-            "None"
-          ],
-          "additionalProperties": false
+          "type": "string",
+          "const": "None"
         },
         {
           "description": "An estimate of the server's health over a window of time, which sorts every attempt that\nends as overloaded if `OverloadList` names its failure, as transient if `TransientList`\ndoes, and as accepted if it is an answer of the server's that neither names. Retries stop\nwhile the server fails more than `Multiplier` times what it accepts, beyond\n`FailureAllowance`. While it is overloaded more than `ThrottleMultiplier` times what it is\nnot, beyond `FailureAllowance`, retries stop too, and first attempts start at a capped rate,\nand wait for their turns in the order they arrived: a call whose deadline passes while it waits ends\n`DEADLINE_EXCEEDED` having sent nothing. A transient failure, a server that is down, never\nslows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are\nnever counted.",
@@ -802,21 +934,112 @@
       "description": "What a call sends to the server.",
       "type": "object",
       "properties": {
-        "MaxMessageSize": {
-          "description": "The largest message this client will send, in bytes. A larger one ends its call\n`RESOURCE_EXHAUSTED`, and none of it is sent.\n\nDefaults to none, any message a call is given going out. Zero is refused: it admits only\nempty messages.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
+        "MessageSizeKiB": {
+          "description": "The largest message this client will send. A larger one ends its call\n`RESOURCE_EXHAUSTED`, and none of it is sent.\n\nDefaults to `\"Unbounded\"`, any message a call is given going out.",
+          "$ref": "#/$defs/SendMessageSizeKiB"
         },
         "Compression": {
-          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MaxMessageSize` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to none, the messages going out as they are, which `None` says too, over an\nencoding an earlier source set.",
-          "$ref": "#/$defs/MessageEncoding"
+          "description": "The encoding the messages of a call are compressed with, which the call states as\n`grpc-encoding`. A message that would not be smaller compressed is sent as it is, and\n`MessageSizeKiB` is checked on a message before it is compressed.\n\nThe server has to accept the encoding, and says which it accepts in the\n`grpc-accept-encoding` of its responses. A response that lists encodings without this one\nstops the channel compressing: the calls that start after it send their messages as they\nare, and the channel logs a warning once. A later response that lists it has the channel\ncompress again. A call that reached a server which does not accept the encoding ends\n`UNIMPLEMENTED` and is not sent again.\n\nDefaults to `\"None\"`, the messages going out as they are.",
+          "$ref": "#/$defs/SendCompression"
         }
       },
       "additionalProperties": false
     },
+    "SendMessageSizeKiB": {
+      "description": "The largest message a call sends.",
+      "oneOf": [
+        {
+          "description": "No message is refused for its size.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many KiB (1024 bytes), counted before the message is compressed.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SendCompression": {
+      "description": "How the messages a call sends are compressed.",
+      "oneOf": [
+        {
+          "description": "No compression, `identity` on the wire: the messages go out as they are and no\n`grpc-encoding` is sent.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "RFC 1952 gzip, `gzip` on the wire.",
+          "type": "string",
+          "const": "Gzip"
+        },
+        {
+          "description": "gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw\nRFC 1951 stream.",
+          "type": "string",
+          "const": "Deflate"
+        },
+        {
+          "description": "RFC 8878 Zstandard, `zstd` on the wire.",
+          "type": "string",
+          "const": "Zstd"
+        }
+      ]
+    },
+    "GrpcReceiveOptions": {
+      "description": "What a call accepts from the server.",
+      "type": "object",
+      "properties": {
+        "MessageSizeKiB": {
+          "description": "The largest message this client will accept.\n\nDefaults to 4096, 4 MiB, as `{\"Max\": 4096}`.",
+          "$ref": "#/$defs/ReceiveMessageSizeKiB"
+        },
+        "Compression": {
+          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MessageSizeKiB` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`. `identity`\nis always accepted.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessageEncoding"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReceiveMessageSizeKiB": {
+      "description": "The largest message a call accepts.",
+      "oneOf": [
+        {
+          "description": "No message is refused for its size.",
+          "type": "string",
+          "const": "Unbounded"
+        },
+        {
+          "description": "At most this many KiB (1024 bytes), counted once the message is decompressed.",
+          "type": "object",
+          "properties": {
+            "Max": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "Max"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "MessageEncoding": {
-      "description": "How the messages of a call are compressed.",
+      "description": "An encoding the messages of a call may be compressed in.",
       "oneOf": [
         {
           "description": "RFC 1952 gzip, `gzip` on the wire.",
@@ -832,33 +1055,8 @@
           "description": "RFC 8878 Zstandard, `zstd` on the wire.",
           "type": "string",
           "const": "Zstd"
-        },
-        {
-          "description": "No compression, `identity` on the wire: the messages go out as they are and no\n`grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the\ncompression off. It names no encoding to accept, and a list of them refuses it.",
-          "type": "string",
-          "const": "None"
         }
       ]
-    },
-    "GrpcReceiveOptions": {
-      "description": "What a call accepts from the server.",
-      "type": "object",
-      "properties": {
-        "MaxMessageSize": {
-          "description": "The largest message this client will accept, in bytes.\n\nDefaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a\nchannel that refuses nothing. Zero is refused: it is a channel that can receive no message\nat all.",
-          "type": "integer",
-          "format": "int32",
-          "minimum": 1
-        },
-        "Compression": {
-          "description": "The encodings besides `identity` that this client accepts for the messages of an answer,\nwhich it states as `grpc-accept-encoding` in the order given, `identity` last. A server\nmay then compress what it sends, in the first of them that it knows. A name given twice\ncounts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A\nmessage compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is\nrefused here: `identity` is always accepted.\n\nDefaults to none, only `identity` being accepted, which an empty list says too.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/MessageEncoding"
-          }
-        }
-      },
-      "additionalProperties": false
     },
     "HostOptions": {
       "description": "What crosses between the host and the engine on each call, one way and the other.",

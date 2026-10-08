@@ -62,10 +62,10 @@ public class UnaryTests : EchoServerFixture
     var variables = new[]
                     {
                       ("Endpoint", Endpoint),
-                      ("ChannelDefaults__Grpc__Receive__MaxMessageSize", "65536"),
+                      ("ChannelDefaults__Grpc__Receive__MessageSizeKiB__Max", "64"),
                       ("ChannelDefaults__Grpc__Host__Send__Window", "2"),
                       ("ChannelDefaults__Transport__ConnectTimeoutSeconds", "2.5"),
-                      ("ChannelDefaults__Transport__Proxy__None", "true"),
+                      ("ChannelDefaults__Transport__Proxy", "None"),
                       ("ChannelDefaults__Grpc__UserAgent", "unary-tests"),
                     };
 

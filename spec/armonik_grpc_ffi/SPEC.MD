@@ -8,7 +8,7 @@
    transport removes the divergences between `WinHttpHandler`, `SocketsHttpHandler`,
    `GrpcWebHandler` and their conditional fallbacks.
 3. Make the options that are inoperative today (`RequestTimeout`, `OverrideTargetName`)
-   effective.
+   effective, or say that they are not read: the native transport verifies the host of the endpoint.
 4. Preserve the client's public API: the same generated stubs, over another `CallInvoker`.
 
 ---

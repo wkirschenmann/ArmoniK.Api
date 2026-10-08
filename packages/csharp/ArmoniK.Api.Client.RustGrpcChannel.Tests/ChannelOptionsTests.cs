@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 using NUnit.Framework;
@@ -159,7 +160,10 @@ public class ChannelOptionsTests
                 {
                   OutboundTraffic = new OutboundTrafficOptions
                                     {
-                                      Retry = new RetryOptions.ExponentialBackoff(failures),
+                                      Retry = new RetryOptions.ExponentialBackoff
+                                              {
+                                                FailureList = failures,
+                                              },
                                     },
                 },
        };
@@ -198,7 +202,10 @@ public class ChannelOptionsTests
                 {
                   "Status.ABORTED",
                 };
-    var list = new RetryOptions.ExponentialBackoff(given);
+    var list = new RetryOptions.ExponentialBackoff
+               {
+                 FailureList = given,
+               };
     given.Add("Dial");
 
     Assert.Multiple(() =>
@@ -210,20 +217,29 @@ public class ChannelOptionsTests
                                              }),
                                   "the record holds its own copy");
                       Assert.That(list,
-                                  Is.EqualTo(new RetryOptions.ExponentialBackoff(new[]
-                                                                                 {
-                                                                                   "Status.ABORTED",
-                                                                                 })));
+                                  Is.EqualTo(new RetryOptions.ExponentialBackoff
+                                             {
+                                               FailureList = new[]
+                                                             {
+                                                               "Status.ABORTED",
+                                                             },
+                                             }));
                       Assert.That(list.GetHashCode(),
-                                  Is.EqualTo(new RetryOptions.ExponentialBackoff(new[]
-                                                                                 {
-                                                                                   "Status.ABORTED",
-                                                                                 }).GetHashCode()));
+                                  Is.EqualTo(new RetryOptions.ExponentialBackoff
+                                             {
+                                               FailureList = new[]
+                                                             {
+                                                               "Status.ABORTED",
+                                                             },
+                                             }.GetHashCode()));
                       Assert.That(list,
-                                  Is.Not.EqualTo(new RetryOptions.ExponentialBackoff(new[]
-                                                                                     {
-                                                                                       "Dial",
-                                                                                     })));
+                                  Is.Not.EqualTo(new RetryOptions.ExponentialBackoff
+                                                 {
+                                                   FailureList = new[]
+                                                                 {
+                                                                   "Dial",
+                                                                 },
+                                                 }));
                       Assert.That(list,
                                   Is.Not.EqualTo(new RetryOptions.ExponentialBackoff()),
                                   "a list that was not given is not an empty one");
@@ -249,15 +265,18 @@ public class ChannelOptionsTests
                                                                           },
                                                       },
                                              }),
-                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""None"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":""None""}}}"));
                          Assert.That(Encoded(new ChannelOptions
                                              {
                                                Grpc = new GrpcOptions
                                                       {
                                                         OutboundTraffic = new OutboundTrafficOptions
                                                                           {
-                                                                            Retry = new RetryOptions.ExponentialBackoff(MaxAttempts: 2,
-                                                                                                                        InitialBackoffSeconds: 0.5),
+                                                                            Retry = new RetryOptions.ExponentialBackoff
+                                                                                    {
+                                                                                      MaxAttempts           = 2,
+                                                                                      InitialBackoffSeconds = 0.5,
+                                                                                    },
                                                                           },
                                                       },
                                              }),
@@ -268,7 +287,10 @@ public class ChannelOptionsTests
                                                     {
                                                       OutboundTraffic = new OutboundTrafficOptions
                                                                         {
-                                                                          Retry = new RetryOptions.ExponentialBackoff(MaxAttempts: 1),
+                                                                          Retry = new RetryOptions.ExponentialBackoff
+                                                                                  {
+                                                                                    MaxAttempts = 1,
+                                                                                  },
                                                                         },
                                                     },
                                            }.Encode(),
@@ -291,23 +313,26 @@ public class ChannelOptionsTests
                                                                           },
                                                       },
                                              }),
-                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Throttle"":{""None"":true}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Throttle"":""None""}}}"));
                          Assert.That(Encoded(new ChannelOptions
                                              {
                                                Grpc = new GrpcOptions
                                                       {
                                                         OutboundTraffic = new OutboundTrafficOptions
                                                                           {
-                                                                            Throttle = new ThrottleOptions.Adaptive(new[]
-                                                                                                                    {
-                                                                                                                      "Dial",
-                                                                                                                    },
-                                                                                                                    new[]
-                                                                                                                    {
-                                                                                                                      "Pushback",
-                                                                                                                    },
-                                                                                                                    3.0,
-                                                                                                                    FailureAllowance: 0),
+                                                                            Throttle = new ThrottleOptions.Adaptive
+                                                                                       {
+                                                                                         TransientList = new[]
+                                                                                                         {
+                                                                                                           "Dial",
+                                                                                                         },
+                                                                                         OverloadList = new[]
+                                                                                                        {
+                                                                                                          "Pushback",
+                                                                                                        },
+                                                                                         Multiplier       = 3.0,
+                                                                                         FailureAllowance = 0,
+                                                                                       },
                                                                           },
                                                       },
                                              }),
@@ -318,7 +343,10 @@ public class ChannelOptionsTests
                                                     {
                                                       OutboundTraffic = new OutboundTrafficOptions
                                                                         {
-                                                                          Throttle = new ThrottleOptions.Adaptive(Multiplier: 0.5),
+                                                                          Throttle = new ThrottleOptions.Adaptive
+                                                                                     {
+                                                                                       Multiplier = 0.5,
+                                                                                     },
                                                                         },
                                                     },
                                            }.Encode(),
@@ -345,37 +373,71 @@ public class ChannelOptionsTests
                            }),
                    Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Replay"":{""MaxPerCallKiB"":2,""MaxPerChannelKiB"":8}}}}"));
 
-  /// <summary>A zero is how an option turns off what an earlier source set, and it is sent as the zero it is.</summary>
+  /// <summary>An option that is off is a variant, which turns off what an earlier source set and is sent as the name it is.</summary>
   [Test]
-  public void AZeroTurnsOffAndIsSent()
+  public void ANoneTurnsOffAndIsSent()
   {
     var options = new ChannelOptions
                   {
                     Transport = new TransportOptions
                                 {
-                                  TcpKeepalive = new TcpKeepaliveOptions
+                                  TcpKeepalive = new TcpKeepalive.None(),
+                                },
+                    Http2 = new Http2Options
+                            {
+                              KeepAlive                      = new Http2KeepAlive.None(),
+                              IdleTimeout                    = new Http2IdleTimeout.None(),
+                              SimultaneousCallsPerConnection = new CallsPerConnection.FromServer(),
+                            },
+                  };
+
+    Assert.That(() => options.Validate(),
+                Throws.Nothing);
+    Assert.That(Encoding.UTF8.GetString(options.Encode()),
+                Is.EqualTo(@"{""Transport"":{""TcpKeepalive"":""None""},""Http2"":{""KeepAlive"":""None"",""IdleTimeout"":""None"",""SimultaneousCallsPerConnection"":""FromServer""}}"));
+  }
+
+  /// <summary>A stated variant that carries something is an object of one key, its mandatory fields written.</summary>
+  [Test]
+  public void AKeepaliveIsAnObjectOfItsMandatoryAndItsOptionalFields()
+  {
+    var options = new ChannelOptions
+                  {
+                    Transport = new TransportOptions
+                                {
+                                  TcpKeepalive = new TcpKeepalive.Probe(30)
                                                  {
-                                                   IdleSeconds = 0,
+                                                   IntervalSeconds = 5,
                                                  },
                                 },
                     Http2 = new Http2Options
                             {
-                              KeepAliveIntervalSeconds = 0,
-                              IdleTimeoutSeconds       = 0,
+                              KeepAlive                      = new Http2KeepAlive.Ping(10),
+                              IdleTimeout                    = new Http2IdleTimeout.After(300),
+                              SimultaneousCallsPerConnection = new CallsPerConnection.Limit(1),
                             },
+                  };
+
+    Assert.That(Encoding.UTF8.GetString(options.Encode()),
+                Is.EqualTo(@"{""Transport"":{""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":5}}},""Http2"":{""KeepAlive"":{""Ping"":{""IntervalSeconds"":10}},""IdleTimeout"":{""After"":300},""SimultaneousCallsPerConnection"":{""Limit"":1}}}"));
+  }
+
+  /// <summary>A deadline of none turns off what an earlier source set, and is sent as it is.</summary>
+  [Test]
+  public void ADeadlineOfNoneTurnsOffAndIsSent()
+  {
+    var options = new ChannelOptions
+                  {
                     Grpc = new GrpcOptions
                            {
-                             DefaultDeadlineSeconds = 0,
+                             Deadline = new Deadline.None(),
                            },
                   };
 
     Assert.That(() => options.Validate(),
                 Throws.Nothing);
     Assert.That(Encoding.UTF8.GetString(options.Encode()),
-                Does.Contain(@"""IdleSeconds"":0")
-                    .And.Contain(@"""KeepAliveIntervalSeconds"":0")
-                    .And.Contain(@"""IdleTimeoutSeconds"":0")
-                    .And.Contain(@"""DefaultDeadlineSeconds"":0"));
+                Does.Contain(@"""Deadline"":""None"""));
   }
 
   /// <summary>A replay of less than nothing is refused before it is sent.</summary>
@@ -411,12 +473,12 @@ public class ChannelOptionsTests
                                   {
                                     Receive = new GrpcReceiveOptions
                                               {
-                                                MaxMessageSize = 0,
+                                                MessageSizeKiB = new ReceiveMessageSizeKiB.Max(0),
                                               },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("MaxMessageSize has to be at least 1"));
+                         .With.Message.Contains("Value has to be at least 1"));
 
   /// <summary>And the size the schema admits has no upper bound to run into.</summary>
   [Test]
@@ -427,11 +489,11 @@ public class ChannelOptionsTests
                                     {
                                       Receive = new GrpcReceiveOptions
                                                 {
-                                                  MaxMessageSize = int.MaxValue,
+                                                  MessageSizeKiB = new ReceiveMessageSizeKiB.Max(int.MaxValue),
                                                 },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""Receive"":{""MaxMessageSize"":2147483647}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""Receive"":{""MessageSizeKiB"":{""Max"":2147483647}}}}"));
 
   /// <summary>A copy shares nothing with what it copied, one group down included.</summary>
   /// <remarks>
@@ -481,24 +543,98 @@ public class ChannelOptionsTests
                            }),
                    Is.EqualTo(@"{""Grpc"":{""Host"":{""Send"":{""Window"":536870910},""Receive"":{""Window"":1}}}}"));
 
-  /// <summary>An alternative is an object whose one key names it, as the engine reads a Rust enum.</summary>
-  /// <remarks>A field left unset is absent, as an option is; one carrying nothing is `true`.</remarks>
+  /// <summary>An alternative is its name when it carries nothing and an object whose one key names it otherwise, as the engine reads a Rust enum.</summary>
+  /// <remarks>A field left unset is absent, as an option is.</remarks>
   [Test]
-  public void AnAlternativeIsAnObjectWhoseOneKeyNamesIt()
+  public void AnAlternativeIsItsNameOrAnObjectWhoseOneKeyNamesIt()
     => Assert.That(Encoded(new ChannelOptions
                            {
                              Transport = new TransportOptions
                                          {
                                            Tls = new TlsOptions
                                                  {
-                                                   Server = new ServerVerification.CaStore(new StoreSearch.Thumbprint("ab"),
-                                                                                           StoreLocation.LocalMachine),
-                                                   Client = new ClientCertificate.P12("me.p12"),
+                                                   ServerCertificates = new ServerCertificates.CaStore(new StoreSearch.Thumbprint("ab"))
+                                                                        {
+                                                                          Location = StoreLocation.LocalMachine,
+                                                                        },
+                                                   ClientCertificate = new ClientCertificate.P12("me.p12"),
                                                  },
                                            Proxy = new ProxyOptions.None(),
                                          },
                            }),
-                   Is.EqualTo(@"{""Transport"":{""Tls"":{""Server"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""Client"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":{""None"":true}}}"));
+                   Is.EqualTo(@"{""Transport"":{""Tls"":{""ServerCertificates"":{""CaStore"":{""Location"":""LocalMachine"",""Find"":{""Thumbprint"":""ab""}}},""ClientCertificate"":{""P12"":{""Path"":""me.p12""}}},""Proxy"":""None""}}"));
+
+  /// <summary>
+  ///   A library built against the netstandard2.0 target of the binding calls the accessors of the net8.0 one, and
+  ///   finds them by a signature that names the type marking an <c>init</c> accessor, so every target declares it.
+  /// </summary>
+  [Test]
+  public void AnInitAccessorIsMarkedWithTheTypeTheBindingDeclares()
+  {
+    var setter = typeof(TcpKeepalive.Probe).GetProperty(nameof(TcpKeepalive.Probe.IntervalSeconds))!.SetMethod!;
+    var modifiers = setter.ReturnParameter!.GetRequiredCustomModifiers();
+
+    Assert.That(modifiers,
+                Is.Not.Empty);
+    Assert.That(modifiers.Select(modifier => modifier.Assembly),
+                Is.All.EqualTo(typeof(ChannelOptions).Assembly));
+  }
+
+  /// <summary>A mandatory field is a parameter, an optional one a property set by name, and a variant with no mandatory field has no parameter.</summary>
+  [Test]
+  public void AnOptionalFieldIsSetByNameAndAMandatoryOneIsAParameter()
+  {
+    var probe = new TcpKeepalive.Probe(30)
+                {
+                  Retries = 3,
+                };
+
+    Assert.That(probe.IdleSeconds,
+                Is.EqualTo(30));
+    Assert.That(probe.Retries,
+                Is.EqualTo(3));
+    Assert.That(probe.IntervalSeconds,
+                Is.Null);
+    Assert.That(probe,
+                Is.EqualTo(new TcpKeepalive.Probe(30)
+                           {
+                             Retries = 3,
+                           }),
+                "two that say the same are equal, the optional fields included");
+    Assert.That(probe,
+                Is.Not.EqualTo(new TcpKeepalive.Probe(30)));
+    Assert.That(new ProxyOptions.System
+                {
+                  Username = "alice",
+                }.Username,
+                Is.EqualTo("alice"));
+  }
+
+  /// <summary>An alternative that carries nothing is a string, and its sibling that carries something is an object.</summary>
+  [Test]
+  public void AnAlternativeThatCarriesNothingIsAStringBesideOneThatCarriesSomething()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Http2 = new Http2Options
+                                                       {
+                                                         Receive = new Http2ReceiveOptions.Adaptive(),
+                                                       },
+                                             }),
+                                     Is.EqualTo(@"{""Http2"":{""Receive"":""Adaptive""}}"));
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Http2 = new Http2Options
+                                                       {
+                                                         Receive = new Http2ReceiveOptions.Fixed
+                                                                   {
+                                                                     StreamWindowBytes = 70000,
+                                                                   },
+                                                       },
+                                             }),
+                                     Is.EqualTo(@"{""Http2"":{""Receive"":{""Fixed"":{""StreamWindowBytes"":70000}}}}"));
+                       });
 
   /// <summary>A field's bounds are checked through the group holding its alternative.</summary>
   [Test]
@@ -509,7 +645,7 @@ public class ChannelOptionsTests
                                        {
                                          Tls = new TlsOptions
                                                {
-                                                 Server = new ServerVerification.CaPem(string.Empty),
+                                                 ServerCertificates = new ServerCertificates.CaPem(string.Empty),
                                                },
                                        },
                          }.Encode(),
@@ -519,8 +655,10 @@ public class ChannelOptionsTests
   /// <summary>An enum is a number, and a number its type does not name is refused.</summary>
   [Test]
   public void ALocationNoNameDeclaresIsRefused()
-    => Assert.That(() => new ServerVerification.CaStore(new StoreSearch.FriendlyName("root"),
-                                                        (StoreLocation)7).Validate(),
+    => Assert.That(() => new ServerCertificates.CaStore(new StoreSearch.FriendlyName("root"))
+                         {
+                           Location = (StoreLocation)7,
+                         }.Validate(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
                          .With.Message.Contains("Location has to be a name StoreLocation declares"));
 
@@ -537,11 +675,15 @@ public class ChannelOptionsTests
   public void ASecretIsPrintedElided()
   {
     // A Url's address is elided too: one written with credentials by mistake is still a secret.
-    var printed = new ProxyOptions.Url("http://carol:s3cret@proxy.test:3128",
-                                       "bob",
-                                       "hunter2") + " " + new ProxyOptions.UrlWithCredentials("http://alice:s3cret@proxy.test:3128") + " " +
-                  new ClientCertificate.P12("me.p12",
-                                            "hunter2");
+    var printed = new ProxyOptions.Url("http://carol:s3cret@proxy.test:3128")
+                  {
+                    Username = "bob",
+                    Password = "hunter2",
+                  } + " " + new ProxyOptions.UrlWithCredentials("http://alice:s3cret@proxy.test:3128") + " " +
+                  new ClientCertificate.P12("me.p12")
+                  {
+                    Password = "hunter2",
+                  };
 
     Assert.Multiple(() =>
                     {

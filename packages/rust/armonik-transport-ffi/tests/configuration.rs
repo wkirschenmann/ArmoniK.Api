@@ -281,8 +281,26 @@ fn an_empty_endpoint_is_the_runtimes() {
 #[test]
 fn the_runtime_refuses_what_it_could_not_be_created_with() {
     for (document, says, never) in [
-        (r#"{"MemoryCeiling":0}"#, "MemoryCeiling", None),
-        (r#"{"MemoryHardCeiling":0}"#, "MemoryHardCeiling", None),
+        (
+            r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
+            "MemoryCeiling.SoftMiB",
+            None,
+        ),
+        (
+            r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+            "MemoryCeiling.HardMiB",
+            None,
+        ),
+        (
+            r#"{"MemoryCeiling":{"SoftMiB":8,"HardMiB":4}}"#,
+            "MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent",
+            None,
+        ),
+        (
+            r#"{"MemoryCeiling":{"HardMiB":1024}}"#,
+            "MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent",
+            None,
+        ),
         (r#"{"Endpoint":""}"#, "Endpoint", None),
         (
             r#"{"Endpoint":"http://alice:s3cret@ not a uri"}"#,
@@ -313,4 +331,35 @@ fn the_runtime_refuses_what_it_could_not_be_created_with() {
             assert!(!refused.detail.contains(never), "{refused:?}");
         }
     }
+}
+
+/// A soft and a hard ceiling that are each valid and cannot hold together once the sources are
+/// merged are refused, naming both keys; a hard ceiling a later source raises completes the pair.
+#[test]
+fn a_hard_ceiling_below_the_soft_one_is_found_once_the_sources_are_merged() {
+    let soft = br#"{"MemoryCeiling":{"SoftMiB":8}}"#;
+    let hard = br#"{"MemoryCeiling":{"HardMiB":4}}"#;
+    let raised = br#"{"MemoryCeiling":{"HardMiB":16}}"#;
+
+    let sources = [
+        source(ak_source_kind::AK_SOURCE_DOCUMENT, soft),
+        source(ak_source_kind::AK_SOURCE_DOCUMENT, hard),
+    ];
+    let Err(refused) = Host::from_config(&config(&sources, b"", 0)) else {
+        panic!("a hard ceiling below the soft one is admitted");
+    };
+    assert_eq!(refused.kind, ak_error_kind::AK_ERROR_CONFIG);
+    assert!(
+        refused
+            .detail
+            .contains("MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent"),
+        "{refused:?}"
+    );
+
+    let sources = [
+        source(ak_source_kind::AK_SOURCE_DOCUMENT, soft),
+        source(ak_source_kind::AK_SOURCE_DOCUMENT, hard),
+        source(ak_source_kind::AK_SOURCE_DOCUMENT, raised),
+    ];
+    Host::from_config(&config(&sources, b"", 0)).expect("the later source completes the pair");
 }

@@ -11,10 +11,10 @@ use std::time::Duration;
 use hyper::client::conn::http2::{Connection, SendRequest};
 use hyper::rt::bounds::Http2ClientConnExec;
 use hyper::Uri;
-use hyper_rustls::{FixedServerNameResolver, HttpsConnector, HttpsConnectorBuilder};
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
@@ -481,17 +481,11 @@ pub struct TlsConfig {
     pub accept_any_server: bool,
     /// The chain and key this client authenticates with.
     pub identity: Option<ClientIdentity>,
-    /// The host the server certificate is verified against, and sent as SNI, in place of the
-    /// endpoint's: a DNS name or an IP address, with an optional port that is not read.
-    pub server_name: Option<String>,
 }
 
 impl TlsConfig {
     fn is_default(&self) -> bool {
-        self.roots.is_empty()
-            && !self.accept_any_server
-            && self.identity.is_none()
-            && self.server_name.is_none()
+        self.roots.is_empty() && !self.accept_any_server && self.identity.is_none()
     }
 }
 
@@ -501,7 +495,6 @@ impl std::fmt::Debug for TlsConfig {
             .field("roots", &self.roots.len())
             .field("accept_any_server", &self.accept_any_server)
             .field("identity", &self.identity)
-            .field("server_name", &self.server_name)
             .finish()
     }
 }
@@ -531,27 +524,6 @@ impl std::fmt::Debug for ClientIdentity {
     }
 }
 
-/// The name a server certificate is verified against, from what [`TlsConfig::server_name`] holds.
-pub(crate) fn verified_name(written: &str) -> Result<ServerName<'static>, TransportError> {
-    let refuse = |message: String| ConfigurationSnafu { message }.fail();
-
-    // Before it is parsed or quoted, so a password never reaches the refusal's text.
-    if written.contains('@') {
-        return refuse("the server name carries `user:password@`".to_owned());
-    }
-    let host = written
-        .parse::<http::uri::Authority>()
-        .map(|authority| authority.host().to_owned())
-        .unwrap_or_default();
-    match crate::tls::server_name(&host) {
-        Some(name) => Ok(name),
-        None => refuse(format!(
-            "`{written}` names no host a certificate can be verified against; it has to be a DNS \
-             name or an IP address, as in `server.example.com`, `10.0.0.1` or `[::1]`"
-        )),
-    }
-}
-
 pub type TransportConnection = hyper_rustls::MaybeHttpsStream<TokioIo<TcpStream>>;
 
 #[derive(Clone, Debug)]
@@ -565,7 +537,6 @@ impl TransportConnector {
     pub fn new(config: TransportConfig) -> Result<Self, TransportError> {
         config.dialable()?;
         let tls = config.tls;
-        let server_name = tls.server_name.as_deref().map(verified_name).transpose()?;
 
         let mut http = HttpConnector::new();
         http.set_nodelay(true);
@@ -608,10 +579,6 @@ impl TransportConnector {
         let builder = HttpsConnectorBuilder::new()
             .with_tls_config(client_config)
             .https_or_http();
-        let builder = match server_name {
-            Some(name) => builder.with_server_name_resolver(FixedServerNameResolver::new(name)),
-            None => builder,
-        };
 
         let proxied = ProxyConnector::new(http, &config.proxy, config.connect_timeout);
         // The environment is read once, so a proxy it names that cannot be used for this
@@ -891,47 +858,6 @@ mod tests {
         assert!(http2.admissible().is_err());
         http2.max_header_list_size = Some(1);
         assert!(http2.admissible().is_ok());
-    }
-
-    #[test]
-    fn a_server_name_is_a_host_and_its_port_is_not_read() {
-        let address = |text: &str| {
-            ServerName::from(rustls::pki_types::IpAddr::try_from(text).expect("an address"))
-        };
-        assert_eq!(
-            verified_name("[::1]").expect("an IPv6 literal"),
-            address("::1")
-        );
-        assert_eq!(
-            verified_name("[2001:db8::1]:5003").expect("with a port"),
-            address("2001:db8::1")
-        );
-        assert_eq!(
-            verified_name("10.0.0.1:5003").expect("an IPv4 address"),
-            address("10.0.0.1")
-        );
-        assert_eq!(
-            verified_name("server.example.com").expect("a DNS name"),
-            ServerName::try_from("server.example.com").expect("a name")
-        );
-    }
-
-    #[test]
-    fn a_server_name_that_names_nothing_verifiable_is_refused_by_what_it_said() {
-        for written in ["-nope-", "[example.com]", ""] {
-            let refused = verified_name(written).expect_err(written);
-            assert_eq!(
-                refused.kind(),
-                TransportErrorKind::Configuration,
-                "{written}"
-            );
-            assert!(
-                refused.to_string().contains(&format!("`{written}`")),
-                "{refused}"
-            );
-        }
-        let refused = verified_name("alice:s3cret@h").expect_err("credentials");
-        assert!(!refused.to_string().contains("s3cret"), "{refused}");
     }
 
     #[test]

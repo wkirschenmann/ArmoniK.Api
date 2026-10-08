@@ -123,14 +123,14 @@ public class RuntimeOptionsTests : RuntimeFixture
                                                                                                                {
                                                                                                                  Tls = new TlsOptions
                                                                                                                        {
-                                                                                                                         Server = new ServerVerification.CaPem("no/such/ca.pem"),
+                                                                                                                         ServerCertificates = new ServerCertificates.CaPem("no/such/ca.pem"),
                                                                                                                        },
                                                                                                                },
                                                                                                  },
                                                                              }))
                                  .ConfigureAwait(false),
                    Throws.InstanceOf<InvalidOperationException>()
-                         .With.Message.Contains("ChannelDefaults: Transport.Tls.Server.CaPem"));
+                         .With.Message.Contains("ChannelDefaults: Transport.Tls.ServerCertificates.CaPem"));
 
   /// <summary>The engine runs with what its configuration says, read back from its own accounting.</summary>
   [Test]
@@ -138,15 +138,16 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var configuration = new NativeConfiguration().LoadConfigFromCommandLine(new[]
                                                                             {
-                                                                              "--ArmoniK:Client:Grpc:MemoryCeiling=65536",
-                                                                              "--ArmoniK:Client:Grpc:MemoryHardCeiling=131072",
+                                                                              "--ArmoniK:Client:Grpc:MemoryCeiling:SoftMiB=1",
+                                                                              "--ArmoniK:Client:Grpc:MemoryCeiling:HardMiB=2",
                                                                             });
 
     var runtime = await RestartAsync(() => NativeRuntime.Create(configuration))
                     .ConfigureAwait(false);
 
     Assert.That(Ceiling(runtime.Handle),
-                Is.EqualTo(65536UL));
+                Is.EqualTo(1UL << 20),
+                "a MiB is a MiB of bytes");
   }
 
   /// <summary>A prefix of several parts is nested sections in a file, read from its depth.</summary>
@@ -157,14 +158,14 @@ public class RuntimeOptionsTests : RuntimeFixture
                             "armonik-nested-" + Guid.NewGuid()
                                                     .ToString("N") + ".json");
     File.WriteAllText(path,
-                      "{ \"Outer\": { \"Inner\": { \"MemoryCeiling\": 65536 } }, \"MemoryCeiling\": 1 }");
+                      "{ \"Outer\": { \"Inner\": { \"MemoryCeiling\": { \"SoftMiB\": 3 } } }, \"MemoryCeiling\": { \"SoftMiB\": 1 } }");
     try
     {
       var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration("Outer__Inner").LoadConfigFromFiles(path)))
                       .ConfigureAwait(false);
 
       Assert.That(Ceiling(runtime.Handle),
-                  Is.EqualTo(65536UL));
+                  Is.EqualTo(3UL << 20));
     }
     finally
     {
@@ -178,13 +179,13 @@ public class RuntimeOptionsTests : RuntimeFixture
   {
     var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration("Outer__Inner").LoadConfigFromCommandLine(new[]
                                                                                                                                   {
-                                                                                                                                    "--Outer:Inner:MemoryCeiling=32768",
-                                                                                                                                    "--Outer:MemoryCeiling=1",
+                                                                                                                                    "--Outer:Inner:MemoryCeiling:SoftMiB=2",
+                                                                                                                                    "--Outer:MemoryCeiling:SoftMiB=1",
                                                                                                                                   })))
                     .ConfigureAwait(false);
 
     Assert.That(Ceiling(runtime.Handle),
-                Is.EqualTo(32768UL));
+                Is.EqualTo(2UL << 20));
   }
 
   /// <summary>Zero is the ABI's default and no option's value: asking for the default is leaving the
@@ -193,21 +194,27 @@ public class RuntimeOptionsTests : RuntimeFixture
   public void AZeroIsRefusedBeforeTheEngineIsAsked()
     => Assert.That(() => NativeRuntime.Create(new RuntimeOptions
                                               {
-                                                MemoryCeiling = 0,
+                                                MemoryCeiling = new MemoryCeilingOptions
+                                                                {
+                                                                  SoftMiB = 0,
+                                                                },
                                               }),
                    Throws.InstanceOf<ArgumentOutOfRangeException>());
 
-  /// <summary>Refused by the engine, not by the binding: the order of the two is the engine's rule.
-  /// Which is also what shows the second threshold reaching the engine.</summary>
+  /// <summary>Refused by the engine, not by the binding: the order of the two is the engine's rule, checked once the
+  /// sources are merged. Which is also what shows the second threshold reaching the engine.</summary>
   [Test]
   public void ASecondThresholdBelowTheFirstIsRefused()
     => Assert.That(() => RestartAsync(() => NativeRuntime.Create(new RuntimeOptions
                                                                 {
-                                                                  MemoryCeiling     = 65536,
-                                                                  MemoryHardCeiling = 1024,
+                                                                  MemoryCeiling = new MemoryCeilingOptions
+                                                                                  {
+                                                                                    SoftMiB = 64,
+                                                                                    HardMiB = 1,
+                                                                                  },
                                                                 })),
                    Throws.InstanceOf<InvalidOperationException>()
-                         .With.Message.Contains("memory_hard_ceiling"));
+                         .With.Message.Contains("MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent"));
 
   private static unsafe ulong Ceiling(ulong runtime)
   {

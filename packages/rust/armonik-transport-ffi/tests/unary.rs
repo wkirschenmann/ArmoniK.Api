@@ -70,7 +70,7 @@ fn a_head_event_says_where_the_head_came_from() {
     // No retry: the subject is the head of the one attempt that fails to dial.
     let unreachable = host.channel_with(
         &format!("http://127.0.0.1:{port}"),
-        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"None":true}}}}"#,
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":"None"}}}"#,
     );
 
     for (what, channel, method, origin) in [
@@ -920,7 +920,7 @@ fn an_eager_dial_that_fails_leaves_the_first_call_to_report_it() {
     let host = Host::start();
     let channel = host.channel_with(
         "http://127.0.0.1:1",
-        r#"{"Transport":{"ConnectEagerly":true},"Grpc":{"OutboundTraffic":{"Retry":{"None":true}}}}"#,
+        r#"{"Transport":{"ConnectEagerly":true},"Grpc":{"OutboundTraffic":{"Retry":"None"}}}"#,
     );
 
     let call = start_call(channel, ECHO, &blob(&[]));

@@ -63,15 +63,22 @@ namespace ArmoniK.Api.Client.Submitter
       var clear = options.Endpoint is not null && options.Endpoint.StartsWith("http://",
                                                                               StringComparison.OrdinalIgnoreCase);
       var tls = new TlsOptions();
+
+      // Stated either way, even when it says that nothing is set: the system's roots and no
+      // client certificate are values, which turn off what the sources below set.
       if (!clear && (Stated(nameof(GrpcClient.AllowUnsafeConnection)) || Stated(nameof(GrpcClient.CaCert))))
       {
         if (options.AllowUnsafeConnection)
         {
-          tls.Server = new ServerVerification.Unverified();
+          tls.ServerCertificates = new ServerCertificates.None();
         }
         else if (!string.IsNullOrWhiteSpace(options.CaCert))
         {
-          tls.Server = new ServerVerification.CaPem(options.CaCert);
+          tls.ServerCertificates = new ServerCertificates.CaPem(options.CaCert);
+        }
+        else
+        {
+          tls.ServerCertificates = new ServerCertificates.System();
         }
       }
 
@@ -79,18 +86,17 @@ namespace ArmoniK.Api.Client.Submitter
       {
         if (!string.IsNullOrWhiteSpace(options.CertP12))
         {
-          tls.Client = new ClientCertificate.P12(options.CertP12);
+          tls.ClientCertificate = new ClientCertificate.P12(options.CertP12);
         }
         else if (!string.IsNullOrWhiteSpace(options.CertPem) && !string.IsNullOrWhiteSpace(options.KeyPem))
         {
-          tls.Client = new ClientCertificate.Pem(options.CertPem,
-                                                 options.KeyPem);
+          tls.ClientCertificate = new ClientCertificate.Pem(options.CertPem,
+                                                            options.KeyPem);
         }
-      }
-
-      if (!clear && Stated(nameof(GrpcClient.OverrideTargetName)) && !string.IsNullOrEmpty(options.OverrideTargetName))
-      {
-        tls.OverrideTargetName = options.OverrideTargetName;
+        else
+        {
+          tls.ClientCertificate = new ClientCertificate.None();
+        }
       }
 
       var transport = new TransportOptions
@@ -106,34 +112,31 @@ namespace ArmoniK.Api.Client.Submitter
         transport.Proxy = Proxy(options);
       }
 
-      // A span that is not positive, the infinite one included, is none, which the engine reads as
-      // zero: set, it turns off what the sources below set, as left out it would leave it. The
-      // keepalive counts whole seconds, rounded up so that a positive span is never zero.
-      var keepalive = new TcpKeepaliveOptions();
-      if (Stated(nameof(GrpcClient.KeepAliveTime)))
+      // A span that is not positive, the infinite one included, is no keepalive: set, it turns off
+      // what the sources below set, as left out it would leave it. A probe is its idle time and
+      // what goes with it, so it is stated whole, from the time and the interval of the options
+      // and not from one alone. The keepalive counts whole seconds, rounded up so that a positive
+      // span is never zero.
+      if (Stated(nameof(GrpcClient.KeepAliveTime)) || Stated(nameof(GrpcClient.KeepAliveTimeInterval)))
       {
-        keepalive.IdleSeconds = Positive(options.KeepAliveTime)
-                                  ? WholeSeconds(options.KeepAliveTime)
-                                  : 0;
-      }
-
-      // The interval is sent as it is set, whatever it is, so that the engine refuses one it cannot
-      // honour when the channel is created, naming the key. A keepalive that is off reads none of
-      // it, and an interval that is not positive beside it is what a caller turning it off writes.
-      if (Stated(nameof(GrpcClient.KeepAliveTimeInterval)) && (Positive(options.KeepAliveTimeInterval) || Positive(options.KeepAliveTime)))
-      {
-        keepalive.IntervalSeconds = WholeSeconds(options.KeepAliveTimeInterval);
-      }
-
-      if (keepalive.IdleSeconds is not null || keepalive.IntervalSeconds is not null)
-      {
-        transport.TcpKeepalive = keepalive;
+        // The interval is sent as it is set, whatever it is, so that the engine refuses one it
+        // cannot honour when the channel is created, naming the key.
+        transport.TcpKeepalive = Positive(options.KeepAliveTime)
+                                   ? new TcpKeepalive.Probe(WholeSeconds(options.KeepAliveTime))
+                                     {
+                                       IntervalSeconds = Stated(nameof(GrpcClient.KeepAliveTimeInterval))
+                                                           ? WholeSeconds(options.KeepAliveTimeInterval)
+                                                           : null,
+                                     }
+                                   : new TcpKeepalive.None();
       }
 
       var http2 = new Http2Options();
       if (Stated(nameof(GrpcClient.MaxIdleTime)))
       {
-        http2.IdleTimeoutSeconds = Seconds(options.MaxIdleTime);
+        http2.IdleTimeout = Positive(options.MaxIdleTime)
+                              ? new Http2IdleTimeout.After(options.MaxIdleTime.TotalSeconds)
+                              : new Http2IdleTimeout.None();
       }
 
       // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the statuses. The engine's
@@ -176,11 +179,14 @@ namespace ArmoniK.Api.Client.Submitter
       RetryOptions? retry = maxAttempts is 1
                               ? new RetryOptions.None()
                               : failures is not null || maxAttempts is not null || initialBackoffSeconds is not null || maxBackoffSeconds is not null || backoffMultiplier is not null
-                                ? new RetryOptions.ExponentialBackoff(failures,
-                                                                      maxAttempts,
-                                                                      initialBackoffSeconds,
-                                                                      maxBackoffSeconds,
-                                                                      backoffMultiplier)
+                                ? new RetryOptions.ExponentialBackoff
+                                  {
+                                    FailureList           = failures,
+                                    MaxAttempts           = maxAttempts,
+                                    InitialBackoffSeconds = initialBackoffSeconds,
+                                    MaxBackoffSeconds     = maxBackoffSeconds,
+                                    BackoffMultiplier     = backoffMultiplier,
+                                  }
                                 : null;
 
       var grpc = new GrpcOptions
@@ -192,7 +198,9 @@ namespace ArmoniK.Api.Client.Submitter
                  };
       if (Stated(nameof(GrpcClient.RequestTimeout)))
       {
-        grpc.DefaultDeadlineSeconds = Seconds(options.RequestTimeout);
+        grpc.Deadline = Positive(options.RequestTimeout)
+                          ? new Deadline.Default(options.RequestTimeout.TotalSeconds)
+                          : new Deadline.None();
       }
 
       return new NativeChannelOptions
@@ -219,13 +227,15 @@ namespace ArmoniK.Api.Client.Submitter
         case "System":
           return new ProxyOptions.System();
         default:
-          return new ProxyOptions.Url(options.Proxy,
-                                      string.IsNullOrEmpty(options.ProxyUsername)
-                                        ? null
-                                        : options.ProxyUsername,
-                                      string.IsNullOrEmpty(options.ProxyPassword)
-                                        ? null
-                                        : options.ProxyPassword);
+          return new ProxyOptions.Url(options.Proxy)
+                 {
+                   Username = string.IsNullOrEmpty(options.ProxyUsername)
+                                ? null
+                                : options.ProxyUsername,
+                   Password = string.IsNullOrEmpty(options.ProxyPassword)
+                                ? null
+                                : options.ProxyPassword,
+                 };
       }
     }
 
@@ -238,13 +248,7 @@ namespace ArmoniK.Api.Client.Submitter
       => (int)Math.Min(Math.Ceiling(span.TotalSeconds),
                        int.MaxValue);
 
-    // The seconds of a span, zero for one that is not positive: none.
-    private static double Seconds(TimeSpan span)
-      => Positive(span)
-           ? span.TotalSeconds
-           : 0;
-
     private static bool IsEmpty(TlsOptions tls)
-      => tls.Server is null && tls.Client is null && tls.OverrideTargetName is null;
+      => tls.ServerCertificates is null && tls.ClientCertificate is null;
   }
 }

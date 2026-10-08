@@ -1,4 +1,4 @@
-//! `Http2.Send.MaxHeaderListSize`: a call whose request headers weigh more than the limit ends
+//! `Http2.Send.HeaderListBytes`: a call whose request headers weigh more than the limit ends
 //! RESOURCE_EXHAUSTED on the channel, before a connection is taken and with nothing sent.
 
 mod common;

@@ -207,7 +207,7 @@ jobs:
           export GrpcClient__Endpoint=https://localhost:5001
           export ArmoniK__Client__Grpc__Endpoint=https://localhost:5001
           export GrpcClient__AllowUnsafeConnection=true
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__Unverified=true
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ServerCertificates=None
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: TLS secure
@@ -226,7 +226,7 @@ jobs:
           export ArmoniK__Client__Grpc__Endpoint=https://localhost:5001
           export GrpcClient__AllowUnsafeConnection=false
           export GrpcClient__CaCert=$CertFolder/server1-ca.pem
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__CaPem=$CertFolder/server1-ca.pem
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ServerCertificates__CaPem=$CertFolder/server1-ca.pem
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: TLS store
@@ -263,9 +263,9 @@ jobs:
           export GrpcClient__AllowUnsafeConnection=true
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__Unverified=true
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ServerCertificates=None
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Certificate=$CertFolder/client.pem
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: mTLS secure
@@ -289,9 +289,9 @@ jobs:
           export GrpcClient__CaCert=$CertFolder/server1-ca.pem
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Server__CaPem=$CertFolder/server1-ca.pem
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ServerCertificates__CaPem=$CertFolder/server1-ca.pem
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Certificate=$CertFolder/client.pem
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: mTLS store
@@ -313,8 +313,8 @@ jobs:
           export GrpcClient__AllowUnsafeConnection=false
           export GrpcClient__CertPem=$CertFolder/client.pem
           export GrpcClient__KeyPem=$CertFolder/client.key
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Certificate=$CertFolder/client.pem
-          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__Client__Pem__Key=$CertFolder/client.key
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Certificate=$CertFolder/client.pem
+          export ArmoniK__Client__Grpc__ChannelDefaults__Transport__Tls__ClientCertificate__Pem__Key=$CertFolder/client.key
           ../../scripts/mock_test.sh ${{ matrix.language.dir }} '${{ matrix.language.cmd }}'
 
       - name: Test Report

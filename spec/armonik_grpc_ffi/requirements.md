@@ -113,9 +113,9 @@ impose a timeout, so that my application is not blocked on a server that is not 
    a warning).
 
 **Status**: 1 to 5 are met. A call's deadline - `CallOptions.Deadline` through the binding,
-`timeout_ns` through the ABI - or else the channel's `Grpc.DefaultDeadlineSeconds` ends the call
+`timeout_ns` through the ABI - or else the channel's `Grpc.Deadline` ends the call
 `DEADLINE_EXCEEDED` once it passes and is sent as `grpc-timeout`; one already passed ends the call
-without reaching the server. 6 waits for the transport switch: `Grpc.DefaultDeadlineSeconds` is
+without reaching the server. 6 waits for the transport switch: `Grpc.Deadline` is
 `RequestTimeout`'s counterpart in the option vocabulary, and `GrpcChannelFactory`, which builds
 the grpc-dotnet channel, still warns that `RequestTimeout` is not applied.
 
@@ -194,7 +194,8 @@ infrastructure's security policy.
    (X509Store), identified by Thumbprint, SubjectName or FriendlyName. Resolution is performed
    on the Rust side.
 5. Unverified connection mode (insecure) is available via explicit opt-in.
-6. The `OverrideTargetName` option effectively modifies the name verified by the TLS handshake.
+6. The name verified by the TLS handshake, and sent as SNI, is the host of the endpoint. There is no option
+   to change it, `OverrideTargetName` of the existing client included: another name is another endpoint.
 7. A TLS error produces a diagnosable error message (without exposing secrets: private key paths,
    passwords).
 

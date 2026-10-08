@@ -13,8 +13,8 @@ use hyper::Uri;
 use crate::grpc::{AdaptiveConfig, GrpcChannelConfig, ReplayConfig, RetryConfig};
 use crate::http2::{Http2Config, ProxyConfig, TcpConfig, TlsConfig, TransportConfig};
 use crate::options::{
-    ChannelOptions, MessageEncoding, OptionRefusal, ProxyOptions, RetryOptions, Seconds,
-    ThrottleOptions, LARGEST_WINDOW,
+    ChannelOptions, Deadline, OptionRefusal, ProxyOptions, RetryOptions, Seconds, SendCompression,
+    TcpKeepalive, ThrottleOptions, LARGEST_WINDOW,
 };
 
 // What a configuration that names neither gets. One send, the smallest window. Four deliveries:
@@ -31,6 +31,8 @@ pub struct ChannelSettings {
     options: ChannelOptions,
     connect_timeout: Option<Duration>,
     default_deadline: Option<Duration>,
+    send_limit: Option<usize>,
+    receive_limit: Option<usize>,
     tls: TlsConfig,
     tcp: TcpConfig,
     http2: Http2Config,
@@ -42,8 +44,7 @@ pub struct ChannelSettings {
 }
 
 impl ChannelSettings {
-    /// Settles the options, refusing what the schema refuses, and saying over which key; `None` in
-    /// the list of encodings to accept is refused too.
+    /// Settles the options, refusing what the schema refuses, and saying over which key.
     ///
     /// Options that cannot hold together are refused as well, naming each: a channel's options are
     /// settled once they are merged, and then nothing can state another.
@@ -84,15 +85,20 @@ impl ChannelSettings {
         window("Grpc.Host.Receive.Window", grpc.host.receive.window)?;
         window("Grpc.Host.Send.Window", grpc.host.send.window)?;
 
-        // Zero is refused: it admits only empty messages, which is a channel with no use.
-        for (key, max) in [
-            ("Grpc.Send.MaxMessageSize", grpc.send.max_message_size),
-            ("Grpc.Receive.MaxMessageSize", grpc.receive.max_message_size),
-        ] {
-            if let Some(value) = max.filter(|max| *max < 1) {
-                return Err(SettingRefusal::NoMessage { key, value });
-            }
-        }
+        // A limit of 0 KiB is refused: it admits only empty messages, which is a channel with no
+        // use.
+        let send_limit = match &grpc.send.message_size_kib {
+            None => None,
+            Some(size) => size.limit().map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.Send.MessageSizeKiB"))
+            })?,
+        };
+        let receive_limit = match &grpc.receive.message_size_kib {
+            None => None,
+            Some(size) => Some(size.limit().map_err(|refused| {
+                SettingRefusal::Option(refused.under("Grpc.Receive.MessageSizeKiB"))
+            })?),
+        };
 
         if let Some(value) = grpc
             .host
@@ -131,12 +137,10 @@ impl ChannelSettings {
             "Transport.ConnectTimeoutSeconds",
             options.transport.connect_timeout_seconds,
         )?;
-        // Zero states that a call has none, over a deadline an earlier source set.
-        let default_deadline = duration(
-            "Grpc.DefaultDeadlineSeconds",
-            grpc.default_deadline_seconds
-                .filter(|seconds| !crate::options::is_off(*seconds)),
-        )?;
+        let default_deadline = match &grpc.deadline {
+            None | Some(Deadline::None) => None,
+            Some(Deadline::Default(seconds)) => duration("Grpc.Deadline.Default", Some(*seconds))?,
+        };
 
         let tls = options
             .transport
@@ -147,12 +151,12 @@ impl ChannelSettings {
         let mut converted = |found: Vec<OptionRefusal>, unit: &str| {
             incoherent.extend(found.into_iter().map(|refused| refused.under(unit)));
         };
-        let (tcp, found) = options
+        let tcp = options
             .transport
             .tcp_keepalive
-            .convert()
+            .as_ref()
+            .map_or_else(|| Ok(TcpConfig::default()), TcpKeepalive::to_config)
             .map_err(|refused| SettingRefusal::Option(refused.under("Transport.TcpKeepalive")))?;
-        converted(found, "Transport.TcpKeepalive");
         let http2 = options
             .http2
             .to_config()
@@ -188,16 +192,15 @@ impl ChannelSettings {
         let replay = traffic.replay.to_config().map_err(|refused| {
             SettingRefusal::Option(refused.under("Grpc.OutboundTraffic.Replay"))
         })?;
-        let accept_encodings = grpc
-            .receive
-            .accepted_encodings()
-            .map_err(|refused| SettingRefusal::Option(refused.under("Grpc.Receive")))?;
+        let accept_encodings = grpc.receive.accepted_encodings();
 
         Ok((
             Self {
                 options,
                 connect_timeout,
                 default_deadline,
+                send_limit,
+                receive_limit,
                 tls,
                 tcp,
                 http2,
@@ -252,11 +255,11 @@ impl ChannelSettings {
         config.max_sends_in_flight = max_sends_in_flight;
         let grpc = self.options.grpc;
         config.user_agent = grpc.user_agent;
-        config.max_send_message_size = grpc.send.max_message_size.map(|max| max as usize);
-        if let Some(max) = grpc.receive.max_message_size {
-            config.max_recv_message_size = max as usize;
+        config.max_send_message_size = self.send_limit;
+        if let Some(max) = self.receive_limit {
+            config.max_recv_message_size = max;
         }
-        config.send_encoding = grpc.send.compression.and_then(MessageEncoding::encoding);
+        config.send_encoding = grpc.send.compression.and_then(SendCompression::encoding);
         config.accept_encodings = self.accept_encodings;
         if let Some(bytes) = grpc.host.receive.coalescing_bytes {
             config.delivery_coalescing = bytes as usize;
@@ -275,8 +278,6 @@ impl ChannelSettings {
 pub enum SettingRefusal {
     /// A window outside what the schema admits.
     Window { key: &'static str, value: i32 },
-    /// A message size limit that admits only empty messages.
-    NoMessage { key: &'static str, value: i32 },
     /// A count of bytes below zero.
     Bytes { key: &'static str, value: i32 },
     /// An empty user agent.
@@ -295,10 +296,6 @@ impl fmt::Display for SettingRefusal {
             Self::Window { key, value } => write!(
                 f,
                 "{key} is {value}, and has to be between 1 and {LARGEST_WINDOW}"
-            ),
-            Self::NoMessage { key, value } => write!(
-                f,
-                "{key} is {value}, and has to be at least 1 - zero admits only empty messages"
             ),
             Self::Bytes { key, value } => write!(f, "{key} is {value}, and has to be at least 0"),
             Self::EmptyUserAgent => {

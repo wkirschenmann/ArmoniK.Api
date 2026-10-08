@@ -313,7 +313,7 @@ public class EngineLogTests
     var configuration = new NativeConfiguration("").LoadConfigFromCommandLine(new[]
                                                                                {
                                                                                  "--Aaa=1",
-                                                                                 "--MemoryCeiling=many",
+                                                                                 "--MemoryCeiling:SoftMiB=many",
                                                                                });
 
     Assert.That(() => NativeRuntime.Create(configuration,

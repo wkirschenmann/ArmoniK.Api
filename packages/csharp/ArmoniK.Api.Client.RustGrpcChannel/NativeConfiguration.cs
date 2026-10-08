@@ -90,7 +90,8 @@ public sealed class NativeConfiguration
   /// <returns>This configuration.</returns>
   /// <remarks>Read once, when the runtime is created. The rest of a name is the key's path, its parts
   /// joined by <c>__</c> and compared without case, and a value is text read by its key's type. A
-  /// list option is one variable holding a JSON array, <c>["Zstd","Gzip"]</c>.</remarks>
+  /// list option is one variable holding a JSON array, <c>["Zstd","Gzip"]</c>. An alternative that carries
+  /// nothing is the variable's value, <c>ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None</c>.</remarks>
   public NativeConfiguration LoadConfigFromEnvironment()
     => With(ak_source_kind.AK_SOURCE_ENVIRONMENT,
             Array.Empty<byte>());
@@ -102,7 +103,8 @@ public sealed class NativeConfiguration
   /// <remarks>
   ///   The keys under the prefix, the whole command line with none, reach the engine as text, read
   ///   as the environment's values are: by their key's type, a key no option declares ignored. A
-  ///   command line states no list, and the engine refuses a list option on one by its path.
+  ///   command line states no list, and the engine refuses a list option on one by its path. An
+  ///   alternative that carries nothing is the key's value, <c>--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy=None</c>.
   /// </remarks>
   public NativeConfiguration LoadConfigFromCommandLine(string[] args)
   {

@@ -75,30 +75,13 @@ fn channel(json: &str) -> Result<(), SettingRefusal> {
     ChannelSettings::settle(options(json)).map(drop)
 }
 
-const INCOHERENT: [(&str, &[&str]); 3] = [
-    (
-        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#,
-        &[
-            "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
-            "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
-        ],
-    ),
-    (
-        r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5}}}"#,
-        &[
-            "Transport.TcpKeepalive.IdleSeconds",
-            "Transport.TcpKeepalive.IntervalSeconds",
-        ],
-    ),
-    (
-        r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5,"Retries":3}}}"#,
-        &[
-            "Transport.TcpKeepalive.IdleSeconds",
-            "Transport.TcpKeepalive.IntervalSeconds",
-            "Transport.TcpKeepalive.Retries",
-        ],
-    ),
-];
+const INCOHERENT: [(&str, &[&str]); 1] = [(
+    r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#,
+    &[
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
+    ],
+)];
 
 #[test]
 fn a_channels_incoherent_options_are_refused_naming_every_key() {
@@ -131,7 +114,7 @@ fn coherent_options_are_neither_refused_nor_said() {
     for json in [
         "{}",
         r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":1,"MaxBackoffSeconds":1}}}}}"#,
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":5,"Retries":3}}}"#,
+        r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":5,"Retries":3}}}}"#,
     ] {
         channel(json).expect(json);
         assert_eq!(defaults(json), (Ok(()), Vec::new()), "{json}");
@@ -159,20 +142,13 @@ fn what_a_merge_completes_is_coherent() {
     assert!(ChannelSettings::settle(ChannelOptions::default().over(&incoherent)).is_err());
 }
 
-/// A zero turns a feature off, and the options of it that an earlier source left are unread
-/// rather than incoherent; a value that is wrong by itself is still wrong.
+/// A value that is wrong by itself is refused, at the runtime's level too: an incoherence is the
+/// one thing a channel's own options can mend.
 #[test]
-fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
-    for json in
-        [r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":5,"Retries":3}}}"#]
-    {
-        channel(json).expect(json);
-        assert_eq!(defaults(json), (Ok(()), Vec::new()), "{json}");
-    }
-
+fn a_value_that_is_wrong_by_itself_is_refused_at_both_levels() {
     for (json, key) in [
         (
-            r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0,"IntervalSeconds":0}}}"#,
+            r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":0}}}}"#,
             "IntervalSeconds",
         ),
         (
@@ -183,8 +159,6 @@ fn what_a_zero_turns_off_is_unread_and_not_incoherent() {
         let refused = channel(json).expect_err(json);
         assert!(matches!(refused, SettingRefusal::Option(_)), "{refused}");
         assert!(refused.to_string().contains(key), "{refused}");
-        // A value wrong by itself is refused at the runtime level too: an incoherence is the one
-        // thing a channel's own options can mend.
         assert!(defaults(json).0.is_err(), "{json}");
     }
 }

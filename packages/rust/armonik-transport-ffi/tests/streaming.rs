@@ -119,7 +119,7 @@ fn a_send_the_transport_abandoned_is_acquitted_like_one_it_wrote() {
     fixture.close();
 }
 
-/// A message past `Grpc.Send.MaxMessageSize` is accepted at the ABI and acquitted like any other,
+/// A message past `Grpc.Send.MessageSizeKiB` is accepted at the ABI and acquitted like any other,
 /// and the call ends RESOURCE_EXHAUSTED: the refusal is the transport's, and the terminal reports
 /// it.
 #[test]
@@ -130,14 +130,17 @@ fn a_message_past_the_send_limit_ends_the_call_resource_exhausted() {
     let host = Host::start();
     let channel = host.channel_with(
         &server.endpoint,
-        r#"{"Grpc":{"Send":{"MaxMessageSize":3}}}"#,
+        r#"{"Grpc":{"Send":{"MessageSizeKiB":{"Max":1}}}}"#,
     );
     let call = start_call(channel, COLLECT, &[]);
 
     write_one(&host, call, b"one", 1);
-    let (status, buffer) = lend(call, ABANDONED.len());
+    let past_the_limit = vec![1u8; 2048];
+    let (status, buffer) = lend(call, past_the_limit.len());
     assert_eq!(status, ak_status::AK_STATUS_OK);
-    unsafe { std::ptr::copy_nonoverlapping(ABANDONED.as_ptr(), buffer.ptr, ABANDONED.len()) };
+    unsafe {
+        std::ptr::copy_nonoverlapping(past_the_limit.as_ptr(), buffer.ptr, past_the_limit.len())
+    };
     assert_eq!(
         unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
         ak_status::AK_STATUS_OK,

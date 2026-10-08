@@ -18,9 +18,9 @@ pub(crate) enum ConfigRefusal {
     Loaded(LoadRefusal),
     /// A document whose bytes are not UTF-8, the only encoding the ABI takes JSON in.
     NotUtf8,
-    /// A memory ceiling of zero, which a configuration has no reason to write: it leaves the
-    /// option out for the default.
-    ZeroCeiling { key: &'static str },
+    /// A memory ceiling the options cannot hold: zero, which a configuration leaves out for the
+    /// default, or a hard one below the soft one.
+    Ceiling(OptionRefusal),
     /// An Endpoint that names nothing a channel could reach.
     Endpoint { why: &'static str },
     /// Options the engine cannot be configured with, by the key at fault.
@@ -39,7 +39,7 @@ impl fmt::Display for ConfigRefusal {
         match self {
             Self::Loaded(refused) => refused.fmt(f),
             Self::NotUtf8 => f.write_str("the configuration document is not UTF-8"),
-            Self::ZeroCeiling { key } => write!(f, "{key} is 0, and has to be at least 1"),
+            Self::Ceiling(refused) => refused.fmt(f),
             Self::Endpoint { why } => write!(f, "Endpoint {why}"),
             Self::Settled(refused) => refused.fmt(f),
             Self::Option(refused) => refused.fmt(f),
@@ -82,14 +82,10 @@ fn admit_defaults(options: &ChannelOptions) -> Result<(), ConfigRefusal> {
 /// would be refused for.
 pub(crate) fn runtime(configuration: &Configuration) -> Result<RuntimeOptions, ConfigRefusal> {
     let options: RuntimeOptions = configuration.load().map_err(ConfigRefusal::Loaded)?;
-    for (key, ceiling) in [
-        ("MemoryCeiling", options.memory_ceiling),
-        ("MemoryHardCeiling", options.memory_hard_ceiling),
-    ] {
-        if ceiling == Some(0) {
-            return Err(ConfigRefusal::ZeroCeiling { key });
-        }
-    }
+    options
+        .memory_ceiling
+        .check()
+        .map_err(ConfigRefusal::Ceiling)?;
     // Not quoted: a URI may carry credentials in its userinfo.
     match options.endpoint.as_deref() {
         Some("") => {
@@ -219,15 +215,15 @@ pub(crate) fn parse_effective(
 /// What a runtime was created with, logged once: every option, each as its own type renders it, so
 /// that a password and a proxy's credentials show redacted and a certificate shows as the path it
 /// names.
-pub(crate) fn log_runtime(options: &RuntimeOptions) {
+pub(crate) fn log_runtime(options: &RuntimeOptions, ceilings: (u64, u64)) {
     tracing::info!(
         endpoint = options
             .endpoint
             .as_deref()
             .and_then(|endpoint| endpoint.parse::<Uri>().ok())
             .map(|endpoint| armonik_transport::safe_endpoint(&endpoint)),
-        memory_ceiling = options.memory_ceiling,
-        memory_hard_ceiling = options.memory_hard_ceiling,
+        memory_ceiling = ceilings.0,
+        memory_hard_ceiling = ceilings.1,
         channel_defaults = ?options.channel_defaults,
         log_filter = options
             .logging
@@ -311,9 +307,9 @@ mod tests {
     }
 
     /// Every option of the runtime's schema but the endpoint and the logging filter is a field of
-    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads;
-    /// the endpoint is what a channel names itself there, and the filter is given through the
-    /// loader's options alone.
+    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads,
+    /// the memory ceiling being its two fields, in bytes; the endpoint is what a channel names
+    /// itself there, and the filter is given through the loader's options alone.
     #[test]
     fn every_runtime_option_but_the_endpoint_and_the_filter_is_a_field_of_the_config() {
         let schema: serde_json::Value =
@@ -350,13 +346,7 @@ mod tests {
         );
         assert_eq!(
             names,
-            [
-                "ChannelDefaults",
-                "Endpoint",
-                "Logging",
-                "MemoryCeiling",
-                "MemoryHardCeiling"
-            ]
+            ["ChannelDefaults", "Endpoint", "Logging", "MemoryCeiling"]
         );
     }
 
@@ -396,10 +386,12 @@ mod tests {
 
         let config = config_of(b"{}");
         assert_eq!(
-            stated("/$defs/GrpcReceiveOptions/properties/MaxMessageSize/description"),
+            stated("/$defs/GrpcReceiveOptions/properties/MessageSizeKiB/description") * 1024.0,
             config.max_recv_message_size as f64
         );
         assert_eq!(config.max_send_message_size, None);
+        assert_eq!(config.send_encoding, None);
+        assert_eq!(config.transport.http2.max_header_list_size, None);
         assert_eq!(
             stated("/$defs/HostReceiveOptions/properties/CoalescingBytes/description"),
             config.delivery_coalescing as f64
@@ -410,18 +402,18 @@ mod tests {
         );
         let http2 = config.transport.http2;
         assert_eq!(
-            stated("/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/description"),
+            stated("/$defs/Http2Ping/properties/TimeoutSeconds/description"),
             http2.keep_alive_timeout.as_secs_f64()
         );
         let ReceiveWindows::Fixed(windows) = http2.receive_windows else {
             panic!("fixed windows by default: {:?}", http2.receive_windows);
         };
         assert_eq!(
-            stated("/$defs/Http2FixedWindows/properties/StreamWindowSize/description"),
+            stated("/$defs/Http2FixedWindows/properties/StreamWindowBytes/description"),
             windows.stream as f64
         );
         assert_eq!(
-            stated("/$defs/Http2FixedWindows/properties/ConnectionWindowSize/description"),
+            stated("/$defs/Http2FixedWindows/properties/ConnectionWindowBytes/description"),
             windows.connection as f64
         );
         assert_eq!(
@@ -429,7 +421,7 @@ mod tests {
             http2.write_coalescing as f64
         );
         assert_eq!(
-            stated("/$defs/Http2SendOptions/properties/StreamBufferSize/description"),
+            stated("/$defs/Http2SendOptions/properties/StreamBufferKiB/description") * 1024.0,
             http2.send_buffer as f64
         );
         assert_eq!(
@@ -510,12 +502,16 @@ mod tests {
                 &["Grpc", "Host", "Send", "Window"][..],
             ),
             (
-                "/$defs/GrpcSendOptions/properties/MaxMessageSize",
-                &["Grpc", "Send", "MaxMessageSize"][..],
+                "/$defs/SendMessageSizeKiB/oneOf/1/properties/Max",
+                &["Grpc", "Send", "MessageSizeKiB", "Max"][..],
             ),
             (
-                "/$defs/GrpcReceiveOptions/properties/MaxMessageSize",
-                &["Grpc", "Receive", "MaxMessageSize"][..],
+                "/$defs/ReceiveMessageSizeKiB/oneOf/1/properties/Max",
+                &["Grpc", "Receive", "MessageSizeKiB", "Max"][..],
+            ),
+            (
+                "/$defs/HeaderListBytes/oneOf/1/properties/Max",
+                &["Http2", "Send", "HeaderListBytes", "Max"][..],
             ),
             (
                 "/$defs/HostReceiveOptions/properties/CoalescingBytes",
@@ -581,26 +577,28 @@ mod tests {
             Duration::from_nanos(1)
         );
 
-        // Zero is "none", so that a later source can turn off a deadline an earlier one set; the
-        // least a deadline can be is still a nanosecond.
+        // A deadline is at least a nanosecond, and `None` is the way to have none.
         assert_eq!(
             schema
-                .pointer("/$defs/GrpcOptions/properties/DefaultDeadlineSeconds/minimum")
+                .pointer("/$defs/Deadline/oneOf/1/properties/Default/minimum")
                 .and_then(serde_json::Value::as_f64),
-            Some(0.0)
+            Some(1e-9)
         );
         assert_eq!(
-            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":0.0}}"#).default_deadline,
+            config_of(br#"{"Grpc":{"Deadline":"None"}}"#).default_deadline,
             None
         );
         assert!(!admits(
-            r#"{"Grpc":{"DefaultDeadlineSeconds":5e-10}}"#.to_owned()
+            r#"{"Grpc":{"Deadline":{"Default":0.0}}}"#.to_owned()
         ));
         assert!(!admits(
-            r#"{"Grpc":{"DefaultDeadlineSeconds":18446744073709551616.0}}"#.to_owned()
+            r#"{"Grpc":{"Deadline":{"Default":5e-10}}}"#.to_owned()
+        ));
+        assert!(!admits(
+            r#"{"Grpc":{"Deadline":{"Default":18446744073709551616.0}}}"#.to_owned()
         ));
         assert_eq!(
-            config_of(br#"{"Grpc":{"DefaultDeadlineSeconds":1e-9}}"#).default_deadline,
+            config_of(br#"{"Grpc":{"Deadline":{"Default":1e-9}}}"#).default_deadline,
             Some(Duration::from_nanos(1))
         );
         assert_eq!(config_of(b"{}").default_deadline, None);
@@ -629,33 +627,37 @@ mod tests {
         // The new units' integers, read from where each sits in the document.
         for (pointer, document) in [
             (
-                "/$defs/TcpKeepaliveOptions/properties/Retries/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"Retries":N}}}"#,
+                "/$defs/TcpProbe/properties/Retries/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"Retries":N}}}}"#,
             ),
-            // Whole seconds, as the operating system counts them, and zero is none.
+            // Whole seconds, as the operating system counts them.
             (
-                "/$defs/TcpKeepaliveOptions/properties/IdleSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":N}}}"#,
-            ),
-            (
-                "/$defs/TcpKeepaliveOptions/properties/IntervalSeconds/minimum",
-                r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30,"IntervalSeconds":N}}}"#,
+                "/$defs/TcpProbe/properties/IdleSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":N}}}}"#,
             ),
             (
-                "/$defs/Http2FixedWindows/properties/StreamWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":N}}}}"#,
+                "/$defs/TcpProbe/properties/IntervalSeconds/minimum",
+                r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":N}}}}"#,
             ),
             (
-                "/$defs/Http2FixedWindows/properties/ConnectionWindowSize/minimum",
-                r#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":N}}}}"#,
+                "/$defs/CallsPerConnection/oneOf/1/properties/Limit/minimum",
+                r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":N}}}"#,
+            ),
+            (
+                "/$defs/Http2FixedWindows/properties/StreamWindowBytes/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"StreamWindowBytes":N}}}}"#,
+            ),
+            (
+                "/$defs/Http2FixedWindows/properties/ConnectionWindowBytes/minimum",
+                r#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowBytes":N}}}}"#,
             ),
             (
                 "/$defs/Http2SendOptions/properties/CoalescingBytes/minimum",
                 r#"{"Http2":{"Send":{"CoalescingBytes":N}}}"#,
             ),
             (
-                "/$defs/Http2SendOptions/properties/StreamBufferSize/minimum",
-                r#"{"Http2":{"Send":{"StreamBufferSize":N}}}"#,
+                "/$defs/Http2SendOptions/properties/StreamBufferKiB/minimum",
+                r#"{"Http2":{"Send":{"StreamBufferKiB":N}}}"#,
             ),
             (
                 "/$defs/ExponentialBackoffOptions/properties/MaxAttempts/minimum",
@@ -681,8 +683,16 @@ mod tests {
         }
         for (pointer, document) in [
             (
-                "/$defs/Http2Options/properties/KeepAliveTimeoutSeconds/minimum",
-                r#"{"Http2":{"KeepAliveTimeoutSeconds":N}}"#,
+                "/$defs/Http2Ping/properties/TimeoutSeconds/minimum",
+                r#"{"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":1,"TimeoutSeconds":N}}}}"#,
+            ),
+            (
+                "/$defs/Http2Ping/properties/IntervalSeconds/minimum",
+                r#"{"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":N}}}}"#,
+            ),
+            (
+                "/$defs/Http2IdleTimeout/oneOf/1/properties/After/minimum",
+                r#"{"Http2":{"IdleTimeout":{"After":N}}}"#,
             ),
             (
                 "/$defs/ExponentialBackoffOptions/properties/InitialBackoffSeconds/minimum",
@@ -717,31 +727,6 @@ mod tests {
             assert!(!admits(at(minimum / 2.0)), "{pointer}: below is admitted");
             assert!(admits(at(minimum)), "{pointer}: the minimum is refused");
         }
-
-        // These two state "none" as zero, which the schema's minimum is; what the engine admits
-        // above zero is its own bound, a nanosecond, stated in the option's description.
-        for (pointer, document, least) in [
-            (
-                "/$defs/Http2Options/properties/KeepAliveIntervalSeconds/minimum",
-                r#"{"Http2":{"KeepAliveIntervalSeconds":N}}"#,
-                1e-9,
-            ),
-            (
-                "/$defs/Http2Options/properties/IdleTimeoutSeconds/minimum",
-                r#"{"Http2":{"IdleTimeoutSeconds":N}}"#,
-                1e-9,
-            ),
-        ] {
-            assert_eq!(
-                schema.pointer(pointer).and_then(serde_json::Value::as_f64),
-                Some(0.0),
-                "{pointer}"
-            );
-            let at = |value: f64| document.replace('N', &format!("{value:e}"));
-            assert!(admits(at(0.0)), "{pointer}: zero is refused");
-            assert!(admits(at(least)), "{pointer}: the least is refused");
-            assert!(!admits(at(least / 2.0)), "{pointer}: below is admitted");
-        }
     }
 
     /// A certificate and its key, as PEM files in a directory of the test's own.
@@ -775,17 +760,14 @@ mod tests {
             r#"{{
                 "Transport": {{
                     "Tls": {{
-                        "Server": {{ "CaPem": "{certificate}" }},
-                        "Client": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }},
-                        "OverrideTargetName": "server.test"
+                        "ServerCertificates": {{ "CaPem": "{certificate}" }},
+                        "ClientCertificate": {{ "Pem": {{ "Certificate": "{certificate}", "Key": "{key}" }} }}
                     }},
-                    "TcpKeepalive": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }}
+                    "TcpKeepalive": {{ "Probe": {{ "IdleSeconds": 30, "IntervalSeconds": 5, "Retries": 3 }} }}
                 }},
                 "Http2": {{
-                    "KeepAliveIntervalSeconds": 10,
-                    "KeepAliveTimeoutSeconds": 2.5,
-                    "KeepAliveWhileIdle": true,
-                    "Receive": {{ "Fixed": {{ "StreamWindowSize": 1048576, "ConnectionWindowSize": 3145728 }} }}
+                    "KeepAlive": {{ "Ping": {{ "IntervalSeconds": 10, "TimeoutSeconds": 2.5, "WhileIdle": true }} }},
+                    "Receive": {{ "Fixed": {{ "StreamWindowBytes": 1048576, "ConnectionWindowBytes": 3145728 }} }}
                 }}
             }}"#
         );
@@ -803,7 +785,6 @@ mod tests {
             tls.identity.as_ref().map(|identity| identity.chain.len()),
             Some(1)
         );
-        assert_eq!(tls.server_name.as_deref(), Some("server.test"));
 
         let tcp = config.transport.tcp;
         assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
@@ -822,7 +803,7 @@ mod tests {
             })
         );
 
-        let unsafe_document = br#"{"Transport":{"Tls":{"Server":{"Unverified":true}}}}"#;
+        let unsafe_document = br#"{"Transport":{"Tls":{"ServerCertificates":"None"}}}"#;
         let config = parse(unsafe_document)
             .expect("admissible")
             .into_channel_config("https://127.0.0.1:5000".parse().expect("a uri"));
@@ -864,9 +845,8 @@ mod tests {
             (2048, 8192)
         );
 
-        let engine = config_of(
-            br#"{"Grpc":{"OutboundTraffic":{"Retry":{"None":true},"Throttle":{"None":true}}}}"#,
-        );
+        let engine =
+            config_of(br#"{"Grpc":{"OutboundTraffic":{"Retry":"None","Throttle":"None"}}}"#);
         assert!(engine.retry.is_none() && engine.adaptive.is_none());
         assert!(
             config_of(
@@ -907,14 +887,31 @@ mod tests {
         // Every other size is a channel that refuses some messages; zero refuses all but the
         // empty ones, which is a configuration with no use.
         for way in ["Send", "Receive"] {
-            let document =
-                |max: i32| format!(r#"{{"Grpc":{{"{way}":{{"MaxMessageSize":{max}}}}}}}"#);
+            let document = |max: i32| {
+                format!(r#"{{"Grpc":{{"{way}":{{"MessageSizeKiB":{{"Max":{max}}}}}}}}}"#)
+            };
             assert!(parse(document(0).as_bytes()).is_err(), "{way}");
             assert!(parse(document(1).as_bytes()).is_ok(), "{way}");
         }
         assert_eq!(
-            config_of(br#"{"Grpc":{"Send":{"MaxMessageSize":7}}}"#).max_send_message_size,
-            Some(7)
+            config_of(br#"{"Grpc":{"Send":{"MessageSizeKiB":{"Max":7}}}}"#).max_send_message_size,
+            Some(7 * 1024)
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"MessageSizeKiB":{"Max":7}}}}"#)
+                .max_recv_message_size,
+            7 * 1024
+        );
+        assert_eq!(config_of(b"{}").max_send_message_size, None);
+        assert_eq!(config_of(b"{}").max_recv_message_size, 4 * 1024 * 1024);
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Send":{"MessageSizeKiB":"Unbounded"}}}"#).max_send_message_size,
+            None
+        );
+        assert_eq!(
+            config_of(br#"{"Grpc":{"Receive":{"MessageSizeKiB":"Unbounded"}}}"#)
+                .max_recv_message_size,
+            usize::MAX
         );
     }
 
@@ -978,8 +975,8 @@ mod tests {
             &br#"{"Grpc":{"Receive":{"Compression":["Gzip","None"]}}}"#[..],
         ] {
             let refused = parse(document).err().expect("refused").to_string();
-            assert!(refused.starts_with("Grpc.Receive.Compression"), "{refused}");
-            assert!(refused.contains("identity is always accepted"), "{refused}");
+            assert!(refused.contains("Grpc.Receive.Compression"), "{refused}");
+            assert!(refused.contains("it names none of Gzip"), "{refused}");
         }
         assert_eq!(
             config_of(br#"{"Grpc":{"Receive":{"Compression":[]}}}"#).accept_encodings,
@@ -1084,12 +1081,12 @@ mod tests {
                 "Grpc.Host.Send.Window",
             ),
             (
-                &br#"{"Grpc":{"Send":{"MaxMessageSize":0}}}"#[..],
-                "Grpc.Send.MaxMessageSize",
+                &br#"{"Grpc":{"Send":{"MessageSizeKiB":{"Max":0}}}}"#[..],
+                "Grpc.Send.MessageSizeKiB.Max",
             ),
             (
-                &br#"{"Grpc":{"Receive":{"MaxMessageSize":0}}}"#[..],
-                "Grpc.Receive.MaxMessageSize",
+                &br#"{"Grpc":{"Receive":{"MessageSizeKiB":{"Max":0}}}}"#[..],
+                "Grpc.Receive.MessageSizeKiB.Max",
             ),
             (
                 &br#"{"Grpc":{"Host":{"Receive":{"CoalescingBytes":-1}}}}"#[..],
@@ -1109,28 +1106,28 @@ mod tests {
                 "Transport.ConnectTimeoutSeconds",
             ),
             (
-                &br#"{"Transport":{"Tls":{"Server":{"CaPem":"no/such/file.pem"}}}}"#[..],
-                "Transport.Tls.Server.CaPem",
+                &br#"{"Transport":{"Tls":{"ServerCertificates":{"CaPem":"no/such/file.pem"}}}}"#[..],
+                "Transport.Tls.ServerCertificates.CaPem",
             ),
             (
-                &br#"{"Transport":{"TcpKeepalive":{"Retries":3}}}"#[..],
-                "Transport.TcpKeepalive.Retries",
+                &br#"{"Transport":{"TcpKeepalive":{"Probe":{"Retries":3}}}}"#[..],
+                "Transport.TcpKeepalive.Probe",
             ),
             (
-                &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowSize":65534}}}}"#[..],
-                "Http2.Receive.Fixed.ConnectionWindowSize",
+                &br#"{"Http2":{"Receive":{"Fixed":{"ConnectionWindowBytes":65534}}}}"#[..],
+                "Http2.Receive.Fixed.ConnectionWindowBytes",
             ),
             (
-                &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
+                &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":123456}}}}}"#
                     [..],
-                "Transport.Tls.Client.P12.Password",
+                "Transport.Tls.ClientCertificate.P12.Password",
             ),
             (
                 &br#"{"Transport":{"Proxy":{"Url":{"Address":"https://proxy.test"}}}}"#[..],
                 "Transport.Proxy.Url.Address",
             ),
             (
-                &br#"{"Transport":{"Proxy":{"None":true,"System":{}}}}"#[..],
+                &br#"{"Transport":{"Proxy":{"None":null,"System":{}}}}"#[..],
                 "Transport.Proxy",
             ),
         ] {
@@ -1165,16 +1162,16 @@ mod tests {
     #[test]
     fn a_password_of_the_wrong_type_is_refused_without_being_quoted() {
         for document in [
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":123456}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":-123456.5}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":["s3cret"]}}}}}"#[..],
-            &br#"{"Transport":{"Tls":{"Client":{"P12":{"Path":"c.p12","Password":{"s3cret":1}}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":123456}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":-123456.5}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":["s3cret"]}}}}}"#[..],
+            &br#"{"Transport":{"Tls":{"ClientCertificate":{"P12":{"Path":"c.p12","Password":{"s3cret":1}}}}}}"#[..],
         ] {
             let Err(refused) = parse(document) else {
                 panic!("{} is admitted", String::from_utf8_lossy(document));
             };
             let said = refused.to_string();
-            assert!(said.contains("Transport.Tls.Client.P12.Password"), "{said}");
+            assert!(said.contains("Transport.Tls.ClientCertificate.P12.Password"), "{said}");
             assert!(!said.contains("123456"), "{said}");
             assert!(!said.contains("s3cret"), "{said}");
         }
@@ -1194,12 +1191,12 @@ mod tests {
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
-            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAliveWhileIdle":true,"Receive":{"Fixed":{"StreamWindowSize":70000}}}}"#,
+            br#"{"Grpc":{"Host":{"Receive":{"Window":2}}},"Http2":{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}},"Receive":{"Fixed":{"StreamWindowBytes":70000}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(
             defaults.as_ref(),
-            br#"{"Http2":{"Receive":{"Fixed":{"StreamWindowSize":80000}}}}"#,
+            br#"{"Http2":{"Receive":{"Fixed":{"StreamWindowBytes":80000}}}}"#,
         )
         .expect("a valid merge");
         assert_eq!(settings.delivery_credits(), 2);
@@ -1217,11 +1214,8 @@ mod tests {
         );
 
         // An alternative over the defaults' other one replaces it.
-        let settings = parse_over(
-            defaults.as_ref(),
-            br#"{"Http2":{"Receive":{"Adaptive":true}}}"#,
-        )
-        .expect("a valid merge");
+        let settings = parse_over(defaults.as_ref(), br#"{"Http2":{"Receive":"Adaptive"}}"#)
+            .expect("a valid merge");
         let http2 = settings
             .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
             .transport
@@ -1318,11 +1312,8 @@ mod tests {
             br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
         )
         .expect("valid defaults");
-        let settings = parse_over(
-            defaults.as_ref(),
-            br#"{"Transport":{"Proxy":{"None":true}}}"#,
-        )
-        .expect("a valid merge");
+        let settings = parse_over(defaults.as_ref(), br#"{"Transport":{"Proxy":"None"}}"#)
+            .expect("a valid merge");
         let proxy = settings
             .into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
             .transport

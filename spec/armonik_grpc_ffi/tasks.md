@@ -885,7 +885,7 @@ calls the conversion. Three items read differently from the plan:
   the C# type says what the document says.
 - **The generator needed no new shape**: every option of the three units is a scalar, an object
   or a path.
-- **`MaxIdleTime` is answered by `Http2.IdleTimeoutSeconds`**, T6.11's, which closes a session
+- **`MaxIdleTime` is answered by `Http2.IdleTimeout`**, T6.11's, which closes a session
   left idle and lets the next call dial.
 
 The TCP keepalive is off by default, where `GrpcClient` sets 30 seconds: the engine's defaults are
@@ -897,7 +897,7 @@ its own, and a binding that wants `GrpcClient`'s writes them.
 **Source**: the #7xx stack
 **Deliverable**: mTLS with a P12 bundle and its password, the password read as a `Secret`.
 
-**Status**: done. `Transport.Tls.Client.P12` names the bundle by its `Path`, and its `Password`,
+**Status**: done. `Transport.Tls.ClientCertificate.P12` names the bundle by its `Path`, and its `Password`,
 held in a `Password` over `secrecy`'s `SecretString`: no Debug print shows it, no refusal
 quotes it, the schema marks it `writeOnly`, and it is zeroed when dropped. The bundle is read by
 `TlsOptions::load` with `p12-keystore`, strictly, so a chain it cannot rebuild is refused rather
@@ -931,8 +931,8 @@ that loads them.
 
 **Deliverable**: mTLS from the store, on the Windows CI.
 
-**Status**: done. `Transport.Tls.Client.Store` names the client's certificate and
-`Transport.Tls.Server.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
+**Status**: done. `Transport.Tls.ClientCertificate.Store` names the client's certificate and
+`Transport.Tls.ServerCertificates.CaStore` the root, in one unit used twice: `Location` (`CurrentUser` or
 `LocalMachine`), `Name` (`My` and `Root` by default) and `Find`, one of `Thumbprint`, `SubjectName`
 - a text the subject contains, without case, as .NET's `FindBySubjectName` reads it - and
 `FriendlyName`. The identity leaves the store as a PKCS#12 export read by T4.2's loader, followed by
@@ -1110,7 +1110,7 @@ It also lifts `MustCarryNoDeadline`, the binding's `Unimplemented` refusal of a 
 no longer refused.
 
 **Status**: done. `CallStartOptions.deadline` is a `Deadline`, absolute or relative, and
-`GrpcChannelConfig.default_deadline`, set from the new `Grpc.DefaultDeadlineSeconds` option, is the
+`GrpcChannelConfig.default_deadline`, set from the new `Grpc.Deadline` option, is the
 deadline of a call that states none. The driver bounds the whole call with `timeout_at`, the dial
 included, and ending it drops the stream, which hyper resets with `CANCEL`; tonic writes what is
 left of the deadline as `grpc-timeout`, within its eight digits. A deadline already passed ends the
@@ -1326,7 +1326,7 @@ ABI promises.
 **Why**: the runtime's ceiling bounds only the buffers a host fills to send. A message the engine
 receives and lends to the host is counted for quiescence and not in bytes, so what a runtime holds
 on the receive side is bounded per call - (`Grpc.Host.Receive.Window` plus the few messages the engine reads
-ahead of them) times `Grpc.Receive.MaxMessageSize` - and not at all across calls. A client downloading
+ahead of them) times `Grpc.Receive.MessageSizeKiB` - and not at all across calls. A client downloading
 large chunks on many calls at once can exhaust the process's memory with every bound respected.
 
 **Commit**: two thresholds over the one count of bytes that sends and receives then share.
@@ -1374,7 +1374,7 @@ Settled (2026-10-02, `decisions.md`):
 - the event wakes every call refused since the last release, carries no payload and takes no
   delivery credit, as WRITE_DONE does not; its name is the model's to fix;
 - the two `RESOURCE_EXHAUSTED` are told apart by their status message only. The second threshold
-  is transient and runtime-wide, a message past `Grpc.Receive.MaxMessageSize` permanent, and a retry
+  is transient and runtime-wide, a message past `Grpc.Receive.MessageSizeKiB` permanent, and a retry
   policy reading the code does not see the difference - which matters only to one that names
   `RESOURCE_EXHAUSTED`, and T6.3's default does not;
 - a send refused for room is served before new reads: while one waits, the threshold where reads
@@ -1428,7 +1428,7 @@ what has to be counted; the option belongs to the `Http2` unit.
 **Deliverable**: a channel left idle past the option holds no connection, and its next call
 succeeds on a new one.
 
-**Status**: done. `Http2.IdleTimeoutSeconds`, none by default, is `MaxIdleTime`'s counterpart. A
+**Status**: done. `Http2.IdleTimeout`, `None` by default, is `MaxIdleTime`'s counterpart. A
 call takes a hold on the channel's session as its service is called, which its response body keeps
 to its end, and a dial holds it while it runs. The last hold let go starts the channel's one
 timer, which holds the channel weakly; once the session has been idle for the timeout, the channel
@@ -1597,7 +1597,7 @@ no test uses a paused clock or `loom`. Not built: the mapping of a service confi
 `stats()`; a test reads the estimate through `GrpcChannel::adaptive_state` with the test hooks.
 
 **`Http2MaxHeaderListSize`: done in the engine, decided 2026-10-07.** It is
-`Http2.Send.MaxHeaderListSize`, none by default, an `int` of at least 1. It bounds the headers
+`Http2.Send.HeaderListBytes`, `Unbounded` by default, or `Max(n)` with `n` at least 1. It bounds the headers
 the channel sends and not those it receives, which `Endpoint::http2_max_header_list_size`
 bounded on the tonic path. The aim is to keep a request out of nginx's header limits: measured
 with nginx 1.30.5, a request with a header past `large_client_header_buffers` is logged "client
@@ -1611,7 +1611,7 @@ sent too large header field", and nginx closes the connection, ending the call b
   announcing a little less refuses it.
 - A request past the limit is refused where the engine adds its headers, before a connection is
   taken or dialled, and the call ends RESOURCE_EXHAUSTED: the status the engine gives a message
-  past `Grpc.Send.MaxMessageSize`, and the one PROTOCOL-HTTP2 gives ENHANCE_YOUR_CALM. A
+  past `Grpc.Send.MessageSizeKiB`, and the one PROTOCOL-HTTP2 gives ENHANCE_YOUR_CALM. A
   server's own 431 would end it UNKNOWN. The default retry policy does not retry
   RESOURCE_EXHAUSTED. Measured behind nginx, the same call without the limit ended with an error
   and took the call beside it with it, which a test asserts.
@@ -1621,7 +1621,7 @@ sent too large header field", and nginx closes the connection, ending the call b
   provide to hyper-util and h2. A list of exactly the limit is sent, where an h2 server announcing
   the same value flags it as over size.
 - The `armonik` client reads it through the loader like any other option, as
-  `Http2.Send.MaxHeaderListSize`; unlike tonic's setting of that name, it bounds the request's
+  `Http2.Send.HeaderListBytes`; unlike tonic's setting of that name, it bounds the request's
   headers, not the response's.
 
 **Compression: done in the engine.** `Grpc.Send.Compression`, one of `Gzip`, `Deflate` (the zlib

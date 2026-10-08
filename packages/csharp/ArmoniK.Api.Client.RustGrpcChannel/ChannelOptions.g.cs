@@ -137,9 +137,7 @@ public sealed class TransportOptions
     Tls = other.Tls is null
             ? null
             : new TlsOptions(other.Tls);
-    TcpKeepalive = other.TcpKeepalive is null
-                     ? null
-                     : new TcpKeepaliveOptions(other.TcpKeepalive);
+    TcpKeepalive = other.TcpKeepalive;
     Proxy = other.Proxy;
     ConnectEagerly = other.ConnectEagerly;
   }
@@ -163,10 +161,10 @@ public sealed class TransportOptions
   public TlsOptions? Tls { get; set; }
 
   /// <summary>The socket's keepalive.</summary>
-  /// <remarks>Defaults to <c>{}</c>, which sets none.</remarks>
+  /// <remarks>Defaults to <c>"None"</c>: no probe is sent.</remarks>
   [JsonPropertyName("TcpKeepalive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public TcpKeepaliveOptions? TcpKeepalive { get; set; }
+  public TcpKeepalive? TcpKeepalive { get; set; }
 
   /// <summary>The HTTP proxy every dial tunnels through.</summary>
   /// <remarks>
@@ -225,54 +223,50 @@ public sealed class TlsOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    Server = other.Server;
-    Client = other.Client;
-    OverrideTargetName = other.OverrideTargetName;
+    ServerCertificates = other.ServerCertificates;
+    ClientCertificate = other.ClientCertificate;
   }
 
-  /// <summary>How the server certificate is verified.</summary>
-  /// <remarks>Defaults to the system's roots.</remarks>
-  [JsonPropertyName("Server")]
+  /// <summary>
+  ///   Which certificates the server's certificate is verified against, under the endpoint's host:
+  ///   that name is also the one sent as SNI.
+  /// </summary>
+  /// <remarks>Defaults to <c>"System"</c>.</remarks>
+  [JsonPropertyName("ServerCertificates")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ServerVerification? Server { get; set; }
+  public ServerCertificates? ServerCertificates { get; set; }
 
   /// <summary>The certificate the client presents, and its key.</summary>
-  /// <remarks>Defaults to none.</remarks>
-  [JsonPropertyName("Client")]
+  /// <remarks>Defaults to <c>"None"</c>.</remarks>
+  [JsonPropertyName("ClientCertificate")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public ClientCertificate? Client { get; set; }
-
-  /// <summary>
-  ///   The host the server certificate is verified against, and sent as SNI, in place of the
-  ///   endpoint's: a DNS name or an IP address, <c>[::1]</c> for IPv6, with an optional port that is
-  ///   not read.
-  /// </summary>
-  [JsonPropertyName("OverrideTargetName")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public string? OverrideTargetName { get; set; }
+  public ClientCertificate? ClientCertificate { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (OverrideTargetName is string overrideTargetName && overrideTargetName.Length < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(OverrideTargetName),
-                                            overrideTargetName,
-                                            "OverrideTargetName has to be at least 1 character long.");
-    }
-
-    Server?.Validate();
-    Client?.Validate();
+    ServerCertificates?.Validate();
+    ClientCertificate?.Validate();
   }
 }
 
-/// <summary>How the server certificate is verified.</summary>
-[JsonConverter(typeof(ServerVerificationJsonConverter))]
-public abstract record ServerVerification
+/// <summary>Which certificates the server's certificate is verified against.</summary>
+[JsonConverter(typeof(ServerCertificatesJsonConverter))]
+public abstract record ServerCertificates
 {
-  private ServerVerification()
+  private ServerCertificates()
   {
+  }
+
+  /// <summary>The system's roots.</summary>
+  public sealed record System : ServerCertificates
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
   }
 
   /// <summary>
@@ -283,7 +277,7 @@ public abstract record ServerVerification
   ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
   ///   certificate the file holds is a root.
   /// </param>
-  public sealed record CaPem(string Value) : ServerVerification
+  public sealed record CaPem(string Value) : ServerCertificates
   {
     /// <summary>
     ///   Against the roots of a PEM file, named by its path, in place of the system's. Every
@@ -309,17 +303,17 @@ public abstract record ServerVerification
   /// </summary>
   /// <remarks>Refused off Windows.</remarks>
   /// <param name="Find">How the certificate is found in the store.</param>
-  /// <param name="Location">
-  ///   Where the store is.
-  ///   Defaults to <c>CurrentUser</c>.
-  /// </param>
-  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
-  public sealed record CaStore(StoreSearch Find,
-                               StoreLocation? Location = null,
-                               string? Name = null) : ServerVerification
+  public sealed record CaStore(StoreSearch Find) : ServerCertificates
   {
     /// <summary>How the certificate is found in the store.</summary>
     public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
+
+    /// <summary>Where the store is.</summary>
+    /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+    public StoreLocation? Location { get; init; }
+
+    /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+    public string? Name { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -343,10 +337,10 @@ public abstract record ServerVerification
   }
 
   /// <summary>
-  ///   Not at all: any server certificate is accepted. The connection is still encrypted, to
-  ///   whoever answers.
+  ///   No verification: any server certificate is accepted. The connection is still encrypted,
+  ///   to whoever answers.
   /// </summary>
-  public sealed record Unverified : ServerVerification
+  public sealed record None : ServerCertificates
   {
     /// <inheritdoc />
     public override void Validate()
@@ -360,19 +354,19 @@ public abstract record ServerVerification
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ServerVerification" /> as the engine reads one: an object whose one key names the alternative.</summary>
-internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVerification>
+/// <summary>Writes a <see cref="ServerCertificates" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class ServerCertificatesJsonConverter : JsonConverter<ServerCertificates>
 {
   /// <inheritdoc />
   /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
-  public override ServerVerification? Read(ref Utf8JsonReader reader,
+  public override ServerCertificates? Read(ref Utf8JsonReader reader,
                                            Type typeToConvert,
                                            JsonSerializerOptions options)
-    => throw new NotSupportedException("ServerVerification is written to the engine, and never read back.");
+    => throw new NotSupportedException("ServerCertificates is written to the engine, and never read back.");
 
   /// <inheritdoc />
   public override void Write(Utf8JsonWriter writer,
-                             ServerVerification value,
+                             ServerCertificates value,
                              JsonSerializerOptions options)
     => WriteValue(writer,
                   value);
@@ -381,21 +375,28 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
   /// <param name="writer">Where it is written.</param>
   /// <param name="written">The alternative.</param>
   internal static void WriteValue(Utf8JsonWriter writer,
-                                  ServerVerification written)
+                                  ServerCertificates written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
-      case ServerVerification.CaPem caPem:
+      case ServerCertificates.System:
       {
-        writer.WriteString("CaPem",
-                           caPem.Value);
+        writer.WriteStringValue("System");
         break;
       }
 
-      case ServerVerification.CaStore caStore:
+      case ServerCertificates.CaPem caPem:
       {
+        writer.WriteStartObject();
+        writer.WriteString("CaPem",
+                           caPem.Value);
+        writer.WriteEndObject();
+        break;
+      }
+
+      case ServerCertificates.CaStore caStore:
+      {
+        writer.WriteStartObject();
         writer.WriteStartObject("CaStore");
 
         if (caStore.Location is StoreLocation location)
@@ -414,18 +415,16 @@ internal sealed class ServerVerificationJsonConverter : JsonConverter<ServerVeri
         StoreSearchJsonConverter.WriteValue(writer,
                                             caStore.Find);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
-      case ServerVerification.Unverified:
+      case ServerCertificates.None:
       {
-        writer.WriteBoolean("Unverified",
-                            true);
+        writer.WriteStringValue("None");
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -528,7 +527,7 @@ public abstract record StoreSearch
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="StoreSearch" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="StoreSearch" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class StoreSearchJsonConverter : JsonConverter<StoreSearch>
 {
   /// <inheritdoc />
@@ -551,33 +550,35 @@ internal sealed class StoreSearchJsonConverter : JsonConverter<StoreSearch>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   StoreSearch written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case StoreSearch.Thumbprint thumbprint:
       {
+        writer.WriteStartObject();
         writer.WriteString("Thumbprint",
                            thumbprint.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case StoreSearch.SubjectName subjectName:
       {
+        writer.WriteStartObject();
         writer.WriteString("SubjectName",
                            subjectName.Value);
+        writer.WriteEndObject();
         break;
       }
 
       case StoreSearch.FriendlyName friendlyName:
       {
+        writer.WriteStartObject();
         writer.WriteString("FriendlyName",
                            friendlyName.Value);
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -587,6 +588,16 @@ public abstract record ClientCertificate
 {
   private ClientCertificate()
   {
+  }
+
+  /// <summary>No certificate is presented.</summary>
+  public sealed record None : ClientCertificate
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
   }
 
   /// <summary>From PEM files.</summary>
@@ -622,16 +633,17 @@ public abstract record ClientCertificate
 
   /// <summary>From a PKCS#12 bundle.</summary>
   /// <param name="Path">Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</param>
-  /// <param name="Password">
-  ///   The password the bundle is protected by.
-  ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-  ///   the same <c>Path</c>.
-  /// </param>
-  public sealed record P12(string Path,
-                           string? Password = null) : ClientCertificate
+  public sealed record P12(string Path) : ClientCertificate
   {
     /// <summary>Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.</summary>
     public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
+
+    /// <summary>The password the bundle is protected by.</summary>
+    /// <remarks>
+    ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
+    ///   the same <c>Path</c>.
+    /// </remarks>
+    public string? Password { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -662,17 +674,17 @@ public abstract record ClientCertificate
   /// </summary>
   /// <remarks>Refused off Windows.</remarks>
   /// <param name="Find">How the certificate is found in the store.</param>
-  /// <param name="Location">
-  ///   Where the store is.
-  ///   Defaults to <c>CurrentUser</c>.
-  /// </param>
-  /// <param name="Name">The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</param>
-  public sealed record Store(StoreSearch Find,
-                             StoreLocation? Location = null,
-                             string? Name = null) : ClientCertificate
+  public sealed record Store(StoreSearch Find) : ClientCertificate
   {
     /// <summary>How the certificate is found in the store.</summary>
     public StoreSearch Find { get; init; } = Find ?? throw new ArgumentNullException(nameof(Find));
+
+    /// <summary>Where the store is.</summary>
+    /// <remarks>Defaults to <c>CurrentUser</c>.</remarks>
+    public StoreLocation? Location { get; init; }
+
+    /// <summary>The store's name, such as <c>My</c>, <c>Root</c> or <c>CA</c>. Defaults to the one its option states.</summary>
+    public string? Name { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -700,7 +712,7 @@ public abstract record ClientCertificate
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ClientCertificate" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ClientCertificate" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCertificate>
 {
   /// <inheritdoc />
@@ -723,23 +735,30 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ClientCertificate written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
+      case ClientCertificate.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
       case ClientCertificate.Pem pem:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Pem");
         writer.WriteString("Certificate",
                            pem.Certificate);
         writer.WriteString("Key",
                            pem.Key);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ClientCertificate.P12 p12:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("P12");
         writer.WriteString("Path",
                            p12.Path);
@@ -751,11 +770,13 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ClientCertificate.Store store:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Store");
 
         if (store.Location is StoreLocation location)
@@ -774,95 +795,135 @@ internal sealed class ClientCertificateJsonConverter : JsonConverter<ClientCerti
         StoreSearchJsonConverter.WriteValue(writer,
                                             store.Find);
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
-/// <summary>The socket's keepalive, off unless <c>IdleSeconds</c> is set.</summary>
-/// <remarks>
-///   Each duration is a whole number of seconds, which is what the socket option holds.
-///   An <c>IdleSeconds</c> of 0 states that there is none, over what an earlier source set, and then
-///   <c>IntervalSeconds</c> and <c>Retries</c> are not read: they are what that source left.
-/// </remarks>
-public sealed class TcpKeepaliveOptions
+/// <summary>The socket's keepalive.</summary>
+[JsonConverter(typeof(TcpKeepaliveJsonConverter))]
+public abstract record TcpKeepalive
 {
-  /// <summary>Options nobody has set.</summary>
-  public TcpKeepaliveOptions()
+  private TcpKeepalive()
   {
   }
 
-  /// <summary>A copy of <paramref name="other" />, sharing nothing with it.</summary>
-  /// <param name="other">The options to copy.</param>
-  /// <exception cref="ArgumentNullException"><paramref name="other" /> is null.</exception>
-  public TcpKeepaliveOptions(TcpKeepaliveOptions other)
+  /// <summary>No probe is sent.</summary>
+  public sealed record None : TcpKeepalive
   {
-    if (other is null)
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentNullException(nameof(other));
+      // The schema bounds nothing here.
     }
-
-    IdleSeconds = other.IdleSeconds;
-    IntervalSeconds = other.IntervalSeconds;
-    Retries = other.Retries;
   }
 
-  /// <summary>
+  /// <summary>Probes the peer once the connection has been idle, and drops it when they go unanswered.</summary>
+  /// <param name="IdleSeconds">
   ///   How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
-  ///   the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-  ///   the option leaves that source's value.
-  /// </remarks>
-  [JsonPropertyName("IdleSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? IdleSeconds { get; set; }
-
-  /// <summary>
-  ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
-  ///   system's.
-  /// </summary>
-  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
-  [JsonPropertyName("IntervalSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? IntervalSeconds { get; set; }
-
-  /// <summary>
-  ///   How many probes go unanswered before the connection is dropped, at most 127, the most
-  ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
-  /// </summary>
-  /// <remarks>Incoherent without <c>IdleSeconds</c>, and not read when that is 0.</remarks>
-  [JsonPropertyName("Retries")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? Retries { get; set; }
-
-  /// <summary>Refuses an option outside the range the engine accepts.</summary>
-  /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
-  public void Validate()
+  ///   the most Linux holds: the operating system counts whole seconds.
+  /// </param>
+  public sealed record Probe(int IdleSeconds) : TcpKeepalive
   {
-    if (IdleSeconds is int idleSeconds && (idleSeconds < 0 || idleSeconds > 32767))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
-                                            idleSeconds,
-                                            "IdleSeconds has to be at least 0 and at most 32767.");
-    }
+    /// <summary>
+    ///   How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
+    ///   system's.
+    /// </summary>
+    public int? IntervalSeconds { get; init; }
 
-    if (IntervalSeconds is int intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
-                                            intervalSeconds,
-                                            "IntervalSeconds has to be at least 1 and at most 32767.");
-    }
+    /// <summary>
+    ///   How many probes go unanswered before the connection is dropped, at most 127, the most
+    ///   Linux holds. Defaults to the operating system's, and is not applied on Windows.
+    /// </summary>
+    public int? Retries { get; init; }
 
-    if (Retries is int retries && (retries < 1 || retries > 127))
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(Retries),
-                                            retries,
-                                            "Retries has to be at least 1 and at most 127.");
+      if (IdleSeconds is int idleSeconds && (idleSeconds < 1 || idleSeconds > 32767))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IdleSeconds),
+                                              idleSeconds,
+                                              "IdleSeconds has to be at least 1 and at most 32767.");
+      }
+
+      if (IntervalSeconds is int intervalSeconds && (intervalSeconds < 1 || intervalSeconds > 32767))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
+                                              intervalSeconds,
+                                              "IntervalSeconds has to be at least 1 and at most 32767.");
+      }
+
+      if (Retries is int retries && (retries < 1 || retries > 127))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Retries),
+                                              retries,
+                                              "Retries has to be at least 1 and at most 127.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="TcpKeepalive" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class TcpKeepaliveJsonConverter : JsonConverter<TcpKeepalive>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override TcpKeepalive? Read(ref Utf8JsonReader reader,
+                                     Type typeToConvert,
+                                     JsonSerializerOptions options)
+    => throw new NotSupportedException("TcpKeepalive is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             TcpKeepalive value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  TcpKeepalive written)
+  {
+    switch (written)
+    {
+      case TcpKeepalive.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case TcpKeepalive.Probe probe:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Probe");
+        writer.WriteNumber("IdleSeconds",
+                           probe.IdleSeconds);
+
+        if (probe.IntervalSeconds is int intervalSeconds)
+        {
+          writer.WriteNumber("IntervalSeconds",
+                             intervalSeconds);
+        }
+
+        if (probe.Retries is int retries)
+        {
+          writer.WriteNumber("Retries",
+                             retries);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
@@ -903,23 +964,26 @@ public abstract record ProxyOptions
   ///   again for two minutes.
   ///   The system's proxy is never used for a loopback endpoint.
   /// </remarks>
-  /// <param name="Username">
-  ///   The username, which <c>Basic</c> forbids a <c>:</c> in.
-  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-  ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
-  ///   options state neither.
-  /// </param>
-  /// <param name="Password">
-  ///   The password that goes with <c>Username</c>.
-  ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-  ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-  ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
-  ///   options state neither.
-  /// </param>
-  public sealed record System(string? Username = null,
-                              string? Password = null) : ProxyOptions
+  public sealed record System : ProxyOptions
   {
+    /// <summary>The username, which <c>Basic</c> forbids a <c>:</c> in.</summary>
+    /// <remarks>
+    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
+    ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
+    ///   options state neither.
+    /// </remarks>
+    public string? Username { get; init; }
+
+    /// <summary>The password that goes with <c>Username</c>.</summary>
+    /// <remarks>
+    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
+    ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
+    ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
+    ///   options state neither.
+    /// </remarks>
+    public string? Password { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
@@ -943,25 +1007,27 @@ public abstract record ProxyOptions
   ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
   ///   no scheme is written.
   /// </param>
-  /// <param name="Username">
-  ///   The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.
-  ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
-  ///   same <c>Address</c> and these options state neither.
-  /// </param>
-  /// <param name="Password">
-  ///   The password that goes with <c>Username</c>.
-  ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
-  ///   same <c>Address</c> and these options state neither.
-  /// </param>
-  public sealed record Url(string Address,
-                           string? Username = null,
-                           string? Password = null) : ProxyOptions
+  public sealed record Url(string Address) : ProxyOptions
   {
     /// <summary>
     ///   The proxy's <c>http://</c> URL, with no path and no <c>user:password@</c>; <c>http://</c> is assumed when
     ///   no scheme is written.
     /// </summary>
     public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
+
+    /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
+    /// <remarks>
+    ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
+    ///   same <c>Address</c> and these options state neither.
+    /// </remarks>
+    public string? Username { get; init; }
+
+    /// <summary>The password that goes with <c>Username</c>.</summary>
+    /// <remarks>
+    ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
+    ///   same <c>Address</c> and these options state neither.
+    /// </remarks>
+    public string? Password { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -1028,7 +1094,7 @@ public abstract record ProxyOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ProxyOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ProxyOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
 {
   /// <inheritdoc />
@@ -1051,19 +1117,17 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ProxyOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case ProxyOptions.None:
       {
-        writer.WriteBoolean("None",
-                            true);
+        writer.WriteStringValue("None");
         break;
       }
 
       case ProxyOptions.System system:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("System");
 
         if (system.Username is string username)
@@ -1079,11 +1143,13 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ProxyOptions.Url url:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Url");
         writer.WriteString("Address",
                            url.Address);
@@ -1101,18 +1167,19 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
 
       case ProxyOptions.UrlWithCredentials urlWithCredentials:
       {
+        writer.WriteStartObject();
         writer.WriteString("UrlWithCredentials",
                            urlWithCredentials.Value);
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1137,10 +1204,8 @@ public sealed class Http2Options
       throw new ArgumentNullException(nameof(other));
     }
 
-    KeepAliveIntervalSeconds = other.KeepAliveIntervalSeconds;
-    KeepAliveTimeoutSeconds = other.KeepAliveTimeoutSeconds;
-    KeepAliveWhileIdle = other.KeepAliveWhileIdle;
-    IdleTimeoutSeconds = other.IdleTimeoutSeconds;
+    KeepAlive = other.KeepAlive;
+    IdleTimeout = other.IdleTimeout;
     SimultaneousCallsPerConnection = other.SimultaneousCallsPerConnection;
     Send = other.Send is null
              ? null
@@ -1148,49 +1213,31 @@ public sealed class Http2Options
     Receive = other.Receive;
   }
 
-  /// <summary>How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.</summary>
-  /// <remarks>Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.</remarks>
-  [JsonPropertyName("KeepAliveIntervalSeconds")]
+  /// <summary>Whether the session sends PINGs to check that the peer is there.</summary>
+  /// <remarks>Defaults to <c>"None"</c>: none is sent.</remarks>
+  [JsonPropertyName("KeepAlive")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveIntervalSeconds { get; set; }
-
-  /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
-  /// <remarks>Defaults to 20.</remarks>
-  [JsonPropertyName("KeepAliveTimeoutSeconds")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? KeepAliveTimeoutSeconds { get; set; }
-
-  /// <summary>Whether a PING is also sent while no call is open.</summary>
-  /// <remarks>Defaults to false.</remarks>
-  [JsonPropertyName("KeepAliveWhileIdle")]
-  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public bool? KeepAliveWhileIdle { get; set; }
+  public Http2KeepAlive? KeepAlive { get; set; }
 
   /// <summary>
   ///   How long a connection stays open with no call on it before it is closed, the next call
   ///   dialling a new one. Each connection has its own. A call holds its connection to the end of
   ///   its response and of its request.
   /// </summary>
-  /// <remarks>
-  ///   At least a nanosecond, or 0 for none.
-  ///   Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
-  ///   earlier source set off.
-  /// </remarks>
-  [JsonPropertyName("IdleTimeoutSeconds")]
+  /// <remarks>Defaults to <c>"None"</c>: an idle connection stays open.</remarks>
+  [JsonPropertyName("IdleTimeout")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? IdleTimeoutSeconds { get; set; }
+  public Http2IdleTimeout? IdleTimeout { get; set; }
 
   /// <summary>
-  ///   How many calls one connection carries at once, never more than its server allows. A call
-  ///   that finds every connection full opens another, as many as the calls in flight need, and
-  ///   each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
-  ///   another on a connection but never share it, so that a GOAWAY a server sends because of one
-  ///   call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  ///   How many calls one connection carries at once. A call that finds every connection full
+  ///   opens another, as many as the calls in flight need, and each closes on its own idle
+  ///   timeout when <c>IdleTimeout</c> is set.
   /// </summary>
-  /// <remarks>Defaults to none: a connection carries as many calls as its server allows.</remarks>
+  /// <remarks>Defaults to <c>"FromServer"</c>.</remarks>
   [JsonPropertyName("SimultaneousCallsPerConnection")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? SimultaneousCallsPerConnection { get; set; }
+  public CallsPerConnection? SimultaneousCallsPerConnection { get; set; }
 
   /// <summary>What the session sends.</summary>
   /// <remarks>Defaults to <c>{}</c>, which leaves each of its options at its own default.</remarks>
@@ -1208,36 +1255,295 @@ public sealed class Http2Options
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (KeepAliveIntervalSeconds is double keepAliveIntervalSeconds && (keepAliveIntervalSeconds < 0 || keepAliveIntervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveIntervalSeconds) || double.IsInfinity(keepAliveIntervalSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveIntervalSeconds),
-                                            keepAliveIntervalSeconds,
-                                            "KeepAliveIntervalSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (KeepAliveTimeoutSeconds is double keepAliveTimeoutSeconds && (keepAliveTimeoutSeconds < 1E-09 || keepAliveTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(keepAliveTimeoutSeconds) || double.IsInfinity(keepAliveTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(KeepAliveTimeoutSeconds),
-                                            keepAliveTimeoutSeconds,
-                                            "KeepAliveTimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (IdleTimeoutSeconds is double idleTimeoutSeconds && (idleTimeoutSeconds < 0 || idleTimeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(idleTimeoutSeconds) || double.IsInfinity(idleTimeoutSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(IdleTimeoutSeconds),
-                                            idleTimeoutSeconds,
-                                            "IdleTimeoutSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
-    if (SimultaneousCallsPerConnection is int simultaneousCallsPerConnection && simultaneousCallsPerConnection < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(SimultaneousCallsPerConnection),
-                                            simultaneousCallsPerConnection,
-                                            "SimultaneousCallsPerConnection has to be at least 1.");
-    }
-
+    KeepAlive?.Validate();
+    IdleTimeout?.Validate();
+    SimultaneousCallsPerConnection?.Validate();
     Send?.Validate();
     Receive?.Validate();
+  }
+}
+
+/// <summary>Whether the session sends PINGs, which an unresponsive peer ends it for.</summary>
+[JsonConverter(typeof(Http2KeepAliveJsonConverter))]
+public abstract record Http2KeepAlive
+{
+  private Http2KeepAlive()
+  {
+  }
+
+  /// <summary>No PING is sent.</summary>
+  public sealed record None : Http2KeepAlive
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>A PING is sent at an interval, and the session and its calls end when one goes unanswered.</summary>
+  /// <param name="IntervalSeconds">How often a PING is sent to the peer, at least a nanosecond.</param>
+  public sealed record Ping(double IntervalSeconds) : Http2KeepAlive
+  {
+    /// <summary>How long a PING may go unanswered before the session and its calls are ended.</summary>
+    /// <remarks>Defaults to 20.</remarks>
+    public double? TimeoutSeconds { get; init; }
+
+    /// <summary>Whether a PING is also sent while no call is open.</summary>
+    /// <remarks>Defaults to false.</remarks>
+    public bool? WhileIdle { get; init; }
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (IntervalSeconds is double intervalSeconds && (intervalSeconds < 1E-09 || intervalSeconds >= 1.8446744073709552E+19 || double.IsNaN(intervalSeconds) || double.IsInfinity(intervalSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(IntervalSeconds),
+                                              intervalSeconds,
+                                              "IntervalSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+
+      if (TimeoutSeconds is double timeoutSeconds && (timeoutSeconds < 1E-09 || timeoutSeconds >= 1.8446744073709552E+19 || double.IsNaN(timeoutSeconds) || double.IsInfinity(timeoutSeconds)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(TimeoutSeconds),
+                                              timeoutSeconds,
+                                              "TimeoutSeconds has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Http2KeepAlive" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class Http2KeepAliveJsonConverter : JsonConverter<Http2KeepAlive>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Http2KeepAlive? Read(ref Utf8JsonReader reader,
+                                       Type typeToConvert,
+                                       JsonSerializerOptions options)
+    => throw new NotSupportedException("Http2KeepAlive is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Http2KeepAlive value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Http2KeepAlive written)
+  {
+    switch (written)
+    {
+      case Http2KeepAlive.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Http2KeepAlive.Ping ping:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Ping");
+        writer.WriteNumber("IntervalSeconds",
+                           ping.IntervalSeconds);
+
+        if (ping.TimeoutSeconds is double timeoutSeconds)
+        {
+          writer.WriteNumber("TimeoutSeconds",
+                             timeoutSeconds);
+        }
+
+        if (ping.WhileIdle is bool whileIdle)
+        {
+          writer.WriteBoolean("WhileIdle",
+                              whileIdle);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>When a connection with no call on it is closed.</summary>
+[JsonConverter(typeof(Http2IdleTimeoutJsonConverter))]
+public abstract record Http2IdleTimeout
+{
+  private Http2IdleTimeout()
+  {
+  }
+
+  /// <summary>Never: an idle connection stays open.</summary>
+  public sealed record None : Http2IdleTimeout
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>After this many seconds, at least a nanosecond.</summary>
+  /// <param name="Value">After this many seconds, at least a nanosecond.</param>
+  public sealed record After(double Value) : Http2IdleTimeout
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is double value && (value < 1E-09 || value >= 1.8446744073709552E+19 || double.IsNaN(value) || double.IsInfinity(value)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Http2IdleTimeout" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class Http2IdleTimeoutJsonConverter : JsonConverter<Http2IdleTimeout>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Http2IdleTimeout? Read(ref Utf8JsonReader reader,
+                                         Type typeToConvert,
+                                         JsonSerializerOptions options)
+    => throw new NotSupportedException("Http2IdleTimeout is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Http2IdleTimeout value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Http2IdleTimeout written)
+  {
+    switch (written)
+    {
+      case Http2IdleTimeout.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Http2IdleTimeout.After after:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("After",
+                           after.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>How many calls one connection carries at once.</summary>
+[JsonConverter(typeof(CallsPerConnectionJsonConverter))]
+public abstract record CallsPerConnection
+{
+  private CallsPerConnection()
+  {
+  }
+
+  /// <summary>As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.</summary>
+  public sealed record FromServer : CallsPerConnection
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   At most this many, and never more than the server allows. At 1, calls follow one another
+  ///   on a connection but never share it, so that a GOAWAY a server sends because of one call -
+  ///   nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  /// </summary>
+  /// <param name="Value">
+  ///   At most this many, and never more than the server allows. At 1, calls follow one another
+  ///   on a connection but never share it, so that a GOAWAY a server sends because of one call -
+  ///   nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+  /// </param>
+  public sealed record Limit(int Value) : CallsPerConnection
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="CallsPerConnection" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class CallsPerConnectionJsonConverter : JsonConverter<CallsPerConnection>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override CallsPerConnection? Read(ref Utf8JsonReader reader,
+                                           Type typeToConvert,
+                                           JsonSerializerOptions options)
+    => throw new NotSupportedException("CallsPerConnection is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             CallsPerConnection value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  CallsPerConnection written)
+  {
+    switch (written)
+    {
+      case CallsPerConnection.FromServer:
+      {
+        writer.WriteStringValue("FromServer");
+        break;
+      }
+
+      case CallsPerConnection.Limit limit:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Limit",
+                           limit.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
   }
 }
 
@@ -1260,9 +1566,9 @@ public sealed class Http2SendOptions
     }
 
     CoalescingBytes = other.CoalescingBytes;
-    StreamBufferSize = other.StreamBufferSize;
+    StreamBufferKiB = other.StreamBufferKiB;
     FramesPerWrite = other.FramesPerWrite;
-    MaxHeaderListSize = other.MaxHeaderListSize;
+    HeaderListBytes = other.HeaderListBytes;
   }
 
   /// <summary>
@@ -1277,14 +1583,18 @@ public sealed class Http2SendOptions
   public int? CoalescingBytes { get; set; }
 
   /// <summary>
-  ///   How many bytes of one call's request may be queued in the session, waiting to be written,
-  ///   before its next part is handed over. A part is handed over whole once fewer bytes than this
-  ///   are queued, and the peer's window has room, so up to one part more than this is queued.
+  ///   How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
+  ///   written, before its next part is handed over. A part is handed over whole once fewer bytes
+  ///   than this are queued, and the peer's window has room, so up to one part more than this is
+  ///   queued.
   /// </summary>
-  /// <remarks>Defaults to 1048576, 1 MiB.</remarks>
-  [JsonPropertyName("StreamBufferSize")]
+  /// <remarks>
+  ///   Defaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's
+  ///   buffer is counted in 32 bits.
+  /// </remarks>
+  [JsonPropertyName("StreamBufferKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? StreamBufferSize { get; set; }
+  public int? StreamBufferKiB { get; set; }
 
   /// <summary>
   ///   How many DATA frames of the peer's largest size one queued part of a request may span,
@@ -1301,15 +1611,13 @@ public sealed class Http2SendOptions
   public int? FramesPerWrite { get; set; }
 
   /// <summary>
-  ///   The most bytes the headers of one request may take, counted as RFC 9113 counts a header
-  ///   list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
-  ///   pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
-  ///   before anything is sent. It bounds what is sent, never what is received.
+  ///   How many bytes the headers of one request may take. It bounds what is sent, never what is
+  ///   received.
   /// </summary>
-  /// <remarks>Defaults to none: no request is refused for its headers.</remarks>
-  [JsonPropertyName("MaxHeaderListSize")]
+  /// <remarks>Defaults to <c>"Unbounded"</c>.</remarks>
+  [JsonPropertyName("HeaderListBytes")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxHeaderListSize { get; set; }
+  public HeaderListBytes? HeaderListBytes { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
@@ -1322,11 +1630,11 @@ public sealed class Http2SendOptions
                                             "CoalescingBytes has to be at least 0.");
     }
 
-    if (StreamBufferSize is int streamBufferSize && streamBufferSize < 1)
+    if (StreamBufferKiB is int streamBufferKiB && (streamBufferKiB < 1 || streamBufferKiB > 4194303))
     {
-      throw new ArgumentOutOfRangeException(nameof(StreamBufferSize),
-                                            streamBufferSize,
-                                            "StreamBufferSize has to be at least 1.");
+      throw new ArgumentOutOfRangeException(nameof(StreamBufferKiB),
+                                            streamBufferKiB,
+                                            "StreamBufferKiB has to be at least 1 and at most 4194303.");
     }
 
     if (FramesPerWrite is int framesPerWrite && (framesPerWrite < 1 || framesPerWrite > 256))
@@ -1336,11 +1644,98 @@ public sealed class Http2SendOptions
                                             "FramesPerWrite has to be at least 1 and at most 256.");
     }
 
-    if (MaxHeaderListSize is int maxHeaderListSize && maxHeaderListSize < 1)
+    HeaderListBytes?.Validate();
+  }
+}
+
+/// <summary>How many bytes the headers of one request may take.</summary>
+[JsonConverter(typeof(HeaderListBytesJsonConverter))]
+public abstract record HeaderListBytes
+{
+  private HeaderListBytes()
+  {
+  }
+
+  /// <summary>No request is refused for its headers.</summary>
+  public sealed record Unbounded : HeaderListBytes
+  {
+    /// <inheritdoc />
+    public override void Validate()
     {
-      throw new ArgumentOutOfRangeException(nameof(MaxHeaderListSize),
-                                            maxHeaderListSize,
-                                            "MaxHeaderListSize has to be at least 1.");
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   At most this many bytes, counted as RFC 9113 counts a header list for
+  ///   SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+  ///   fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+  ///   anything is sent.
+  /// </summary>
+  /// <param name="Value">
+  ///   At most this many bytes, counted as RFC 9113 counts a header list for
+  ///   SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+  ///   fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+  ///   anything is sent.
+  /// </param>
+  public sealed record Max(int Value) : HeaderListBytes
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="HeaderListBytes" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class HeaderListBytesJsonConverter : JsonConverter<HeaderListBytes>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override HeaderListBytes? Read(ref Utf8JsonReader reader,
+                                        Type typeToConvert,
+                                        JsonSerializerOptions options)
+    => throw new NotSupportedException("HeaderListBytes is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             HeaderListBytes value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  HeaderListBytes written)
+  {
+    switch (written)
+    {
+      case HeaderListBytes.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case HeaderListBytes.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
@@ -1357,34 +1752,35 @@ public abstract record Http2ReceiveOptions
   }
 
   /// <summary>Windows of fixed sizes, announced as the session opens.</summary>
-  /// <param name="StreamWindowSize">
-  ///   How many bytes of one call the peer may send ahead of what is read.
-  ///   Defaults to 2097152, 2 MiB.
-  /// </param>
-  /// <param name="ConnectionWindowSize">
-  ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
-  ///   A call its host does not read holds up to <c>StreamWindowSize</c> of it, so enough of them stop
-  ///   the others receiving. At least 65535, the window every connection starts with.
-  ///   Defaults to 5242880, 5 MiB.
-  /// </param>
-  public sealed record Fixed(int? StreamWindowSize = null,
-                             int? ConnectionWindowSize = null) : Http2ReceiveOptions
+  public sealed record Fixed : Http2ReceiveOptions
   {
+    /// <summary>How many bytes of one call the peer may send ahead of what is read.</summary>
+    /// <remarks>Defaults to 2097152, 2 MiB.</remarks>
+    public int? StreamWindowBytes { get; init; }
+
+    /// <summary>
+    ///   How many bytes the peer may send ahead of what is read, across every call of the channel.
+    ///   A call its host does not read holds up to <c>StreamWindowBytes</c> of it, so enough of them stop
+    ///   the others receiving. At least 65535, the window every connection starts with.
+    /// </summary>
+    /// <remarks>Defaults to 5242880, 5 MiB.</remarks>
+    public int? ConnectionWindowBytes { get; init; }
+
     /// <inheritdoc />
     public override void Validate()
     {
-      if (StreamWindowSize is int streamWindowSize && streamWindowSize < 1)
+      if (StreamWindowBytes is int streamWindowBytes && streamWindowBytes < 1)
       {
-        throw new ArgumentOutOfRangeException(nameof(StreamWindowSize),
-                                              streamWindowSize,
-                                              "StreamWindowSize has to be at least 1.");
+        throw new ArgumentOutOfRangeException(nameof(StreamWindowBytes),
+                                              streamWindowBytes,
+                                              "StreamWindowBytes has to be at least 1.");
       }
 
-      if (ConnectionWindowSize is int connectionWindowSize && connectionWindowSize < 65535)
+      if (ConnectionWindowBytes is int connectionWindowBytes && connectionWindowBytes < 65535)
       {
-        throw new ArgumentOutOfRangeException(nameof(ConnectionWindowSize),
-                                              connectionWindowSize,
-                                              "ConnectionWindowSize has to be at least 65535.");
+        throw new ArgumentOutOfRangeException(nameof(ConnectionWindowBytes),
+                                              connectionWindowBytes,
+                                              "ConnectionWindowBytes has to be at least 65535.");
       }
     }
   }
@@ -1408,7 +1804,7 @@ public abstract record Http2ReceiveOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="Http2ReceiveOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="Http2ReceiveOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2ReceiveOptions>
 {
   /// <inheritdoc />
@@ -1431,39 +1827,36 @@ internal sealed class Http2ReceiveOptionsJsonConverter : JsonConverter<Http2Rece
   internal static void WriteValue(Utf8JsonWriter writer,
                                   Http2ReceiveOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case Http2ReceiveOptions.Fixed @fixed:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Fixed");
 
-        if (@fixed.StreamWindowSize is int streamWindowSize)
+        if (@fixed.StreamWindowBytes is int streamWindowBytes)
         {
-          writer.WriteNumber("StreamWindowSize",
-                             streamWindowSize);
+          writer.WriteNumber("StreamWindowBytes",
+                             streamWindowBytes);
         }
 
-        if (@fixed.ConnectionWindowSize is int connectionWindowSize)
+        if (@fixed.ConnectionWindowBytes is int connectionWindowBytes)
         {
-          writer.WriteNumber("ConnectionWindowSize",
-                             connectionWindowSize);
+          writer.WriteNumber("ConnectionWindowBytes",
+                             connectionWindowBytes);
         }
 
+        writer.WriteEndObject();
         writer.WriteEndObject();
         break;
       }
 
       case Http2ReceiveOptions.Adaptive:
       {
-        writer.WriteBoolean("Adaptive",
-                            true);
+        writer.WriteStringValue("Adaptive");
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1489,7 +1882,7 @@ public sealed class GrpcOptions
     }
 
     UserAgent = other.UserAgent;
-    DefaultDeadlineSeconds = other.DefaultDeadlineSeconds;
+    Deadline = other.Deadline;
     OutboundTraffic = other.OutboundTraffic is null
                         ? null
                         : new OutboundTrafficOptions(other.OutboundTraffic);
@@ -1510,20 +1903,11 @@ public sealed class GrpcOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public string? UserAgent { get; set; }
 
-  /// <summary>
-  ///   The deadline of a call that states none, counted from its start: the call ends
-  ///   <c>DEADLINE_EXCEEDED</c> once it passes, and the server is told what was left of it when the
-  ///   call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one included, and not
-  ///   only the wait for the response's head. A call's own deadline takes its place, and a call
-  ///   that states none takes this one.
-  /// </summary>
-  /// <remarks>
-  ///   Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-  ///   finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
-  /// </remarks>
-  [JsonPropertyName("DefaultDeadlineSeconds")]
+  /// <summary>The deadline of a call that states none.</summary>
+  /// <remarks>Defaults to <c>"None"</c>, a call waiting as long as its answer takes.</remarks>
+  [JsonPropertyName("Deadline")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public double? DefaultDeadlineSeconds { get; set; }
+  public Deadline? Deadline { get; set; }
 
   /// <summary>
   ///   What the channel does with the calls it sends: sending a failed one again, slowing down
@@ -1563,17 +1947,105 @@ public sealed class GrpcOptions
                                             "UserAgent has to be at least 1 character long.");
     }
 
-    if (DefaultDeadlineSeconds is double defaultDeadlineSeconds && (defaultDeadlineSeconds < 0 || defaultDeadlineSeconds >= 1.8446744073709552E+19 || double.IsNaN(defaultDeadlineSeconds) || double.IsInfinity(defaultDeadlineSeconds)))
-    {
-      throw new ArgumentOutOfRangeException(nameof(DefaultDeadlineSeconds),
-                                            defaultDeadlineSeconds,
-                                            "DefaultDeadlineSeconds has to be at least 0 and less than 1.8446744073709552E+19 and finite.");
-    }
-
+    Deadline?.Validate();
     OutboundTraffic?.Validate();
     Send?.Validate();
     Receive?.Validate();
     Host?.Validate();
+  }
+}
+
+/// <summary>The deadline of a call that states none, counted from its start.</summary>
+[JsonConverter(typeof(DeadlineJsonConverter))]
+public abstract record Deadline
+{
+  private Deadline()
+  {
+  }
+
+  /// <summary>The call has none: it waits as long as its answer takes.</summary>
+  public sealed record None : Deadline
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   The call ends <c>DEADLINE_EXCEEDED</c> once this many seconds have passed, at least a
+  ///   nanosecond, the finest duration the engine holds, and the server is told what was left of
+  ///   it when the call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one
+  ///   included, and not only the wait for the response's head. A call's own deadline takes its
+  ///   place.
+  /// </summary>
+  /// <param name="Value">
+  ///   The call ends <c>DEADLINE_EXCEEDED</c> once this many seconds have passed, at least a
+  ///   nanosecond, the finest duration the engine holds, and the server is told what was left of
+  ///   it when the call started as <c>grpc-timeout</c>. It bounds the whole call, a streaming one
+  ///   included, and not only the wait for the response's head. A call's own deadline takes its
+  ///   place.
+  /// </param>
+  public sealed record Default(double Value) : Deadline
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is double value && (value < 1E-09 || value >= 1.8446744073709552E+19 || double.IsNaN(value) || double.IsInfinity(value)))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1E-09 and less than 1.8446744073709552E+19 and finite.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="Deadline" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class DeadlineJsonConverter : JsonConverter<Deadline>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override Deadline? Read(ref Utf8JsonReader reader,
+                                 Type typeToConvert,
+                                 JsonSerializerOptions options)
+    => throw new NotSupportedException("Deadline is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             Deadline value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  Deadline written)
+  {
+    switch (written)
+    {
+      case Deadline.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case Deadline.Default @default:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Default",
+                           @default.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
   }
 }
 
@@ -1681,40 +2153,39 @@ public abstract record RetryOptions
   ///   is sent. A policy that retries nothing is <c>None</c>, and neither a <c>MaxAttempts</c> of 1 nor an
   ///   empty <c>FailureList</c> is one.
   /// </summary>
-  /// <param name="FailureList">
-  ///   The failures a call is tried again for, each an entry as the options above describe.
-  ///   Empty retries nothing.
-  ///   Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.
-  /// </param>
-  /// <param name="MaxAttempts">
-  ///   Attempts in all, the first included; at least 2, a policy that retries nothing being <c>None</c>.
-  ///   A call its peer never processed goes again besides, while every message it sent is kept.
-  ///   Defaults to 5.
-  /// </param>
-  /// <param name="InitialBackoffSeconds">
-  ///   The bound of the first backoff.
-  ///   Defaults to 5.
-  /// </param>
-  /// <param name="MaxBackoffSeconds">
-  ///   What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.
-  ///   Defaults to 120.
-  /// </param>
-  /// <param name="BackoffMultiplier">
-  ///   What each bound is multiplied by; 1 retries at a fixed bound.
-  ///   Defaults to 2.
-  /// </param>
-  public sealed record ExponentialBackoff(global::System.Collections.Generic.IReadOnlyList<string>? FailureList = null,
-                                          int? MaxAttempts = null,
-                                          double? InitialBackoffSeconds = null,
-                                          double? MaxBackoffSeconds = null,
-                                          double? BackoffMultiplier = null) : RetryOptions
+  public sealed record ExponentialBackoff : RetryOptions
   {
     /// <summary>
     ///   The failures a call is tried again for, each an entry as the options above describe.
     ///   Empty retries nothing.
     /// </summary>
     /// <remarks>Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.</remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? FailureList { get; init; } = FailureList is null ? null : new global::System.Collections.Generic.List<string>(FailureList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? FailureList
+    {
+      get => failureList_;
+      init => failureList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? failureList_;
+
+    /// <summary>
+    ///   Attempts in all, the first included; at least 2, a policy that retries nothing being <c>None</c>.
+    ///   A call its peer never processed goes again besides, while every message it sent is kept.
+    /// </summary>
+    /// <remarks>Defaults to 5.</remarks>
+    public int? MaxAttempts { get; init; }
+
+    /// <summary>The bound of the first backoff.</summary>
+    /// <remarks>Defaults to 5.</remarks>
+    public double? InitialBackoffSeconds { get; init; }
+
+    /// <summary>What the bound grows to and no further. Incoherent below <c>InitialBackoffSeconds</c>.</summary>
+    /// <remarks>Defaults to 120.</remarks>
+    public double? MaxBackoffSeconds { get; init; }
+
+    /// <summary>What each bound is multiplied by; 1 retries at a fixed bound.</summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? BackoffMultiplier { get; init; }
 
     /// <inheritdoc />
     public bool Equals(ExponentialBackoff? other)
@@ -1792,7 +2263,7 @@ public abstract record RetryOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="RetryOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="RetryOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class RetryOptionsJsonConverter : JsonConverter<RetryOptions>
 {
   /// <inheritdoc />
@@ -1815,19 +2286,17 @@ internal sealed class RetryOptionsJsonConverter : JsonConverter<RetryOptions>
   internal static void WriteValue(Utf8JsonWriter writer,
                                   RetryOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case RetryOptions.None:
       {
-        writer.WriteBoolean("None",
-                            true);
+        writer.WriteStringValue("None");
         break;
       }
 
       case RetryOptions.ExponentialBackoff exponentialBackoff:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("ExponentialBackoff");
 
         if (exponentialBackoff.FailureList is global::System.Collections.Generic.IReadOnlyList<string> failureList)
@@ -1865,11 +2334,10 @@ internal sealed class RetryOptionsJsonConverter : JsonConverter<RetryOptions>
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -1906,54 +2374,7 @@ public abstract record ThrottleOptions
   ///   slows first attempts. A deadline, a cancel, a GOAWAY and what the engine ended itself are
   ///   never counted.
   /// </summary>
-  /// <param name="TransientList">
-  ///   The failures that may be an outage, each an entry as the options above describe. They slow
-  ///   retries and never lower the rate of first attempts. A failure of the server's that neither
-  ///   list names counts as an acceptance; <c>Status.CANCELLED</c> and <c>Status.DEADLINE_EXCEEDED</c> are
-  ///   refused.
-  ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
-  ///   "Http.504", "Dial", "Connection"]</c>.
-  /// </param>
-  /// <param name="OverloadList">
-  ///   The failures that say the server is over capacity, each an entry as the options above
-  ///   describe. They slow retries and lower the rate of first attempts. A failure that both
-  ///   lists name is overload.
-  ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
-  ///   "Reset.REFUSED_STREAM"]</c>.
-  /// </param>
-  /// <param name="Multiplier">
-  ///   How many times what the server accepts the channel may send, as retries stop: they are open
-  ///   while the attempts that ended, less this many times the accepted ones, are at most
-  ///   <c>FailureAllowance</c>. At least 1 and at most 100.
-  ///   Defaults to 2.
-  /// </param>
-  /// <param name="ThrottleMultiplier">
-  ///   How many times what the server does not report as overloaded the channel may send, as the
-  ///   rate is capped: the cap is on while the attempts that ended, less this many times those not
-  ///   overloaded, are over <c>FailureAllowance</c>. At least 1 and at most 100.
-  ///   Defaults to 2.
-  /// </param>
-  /// <param name="FailureAllowance">
-  ///   The failures beyond the multiple of what the server accepts that are let go, so that a
-  ///   channel with little traffic does not lose its retries, or its rate, to one failure.
-  ///   Defaults to 10.
-  /// </param>
-  /// <param name="WindowSeconds">
-  ///   How far back the counts reach, from 0.012 to 600 seconds.
-  ///   Defaults to 30.
-  /// </param>
-  /// <param name="FloorPerSecond">
-  ///   The rate of first attempts, a second, that the cap never goes under, so that the channel goes
-  ///   on probing a server that is overloaded. Above 0 and at most 1000000.
-  ///   Defaults to 0.5.
-  /// </param>
-  public sealed record Adaptive(global::System.Collections.Generic.IReadOnlyList<string>? TransientList = null,
-                                global::System.Collections.Generic.IReadOnlyList<string>? OverloadList = null,
-                                double? Multiplier = null,
-                                double? ThrottleMultiplier = null,
-                                int? FailureAllowance = null,
-                                double? WindowSeconds = null,
-                                double? FloorPerSecond = null) : ThrottleOptions
+  public sealed record Adaptive : ThrottleOptions
   {
     /// <summary>
     ///   The failures that may be an outage, each an entry as the options above describe. They slow
@@ -1965,7 +2386,13 @@ public abstract record ThrottleOptions
     ///   Defaults to <c>["Status.UNAVAILABLE", "Http.408", "Http.500", "Http.502", "Http.503",
     ///   "Http.504", "Dial", "Connection"]</c>.
     /// </remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? TransientList { get; init; } = TransientList is null ? null : new global::System.Collections.Generic.List<string>(TransientList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? TransientList
+    {
+      get => transientList_;
+      init => transientList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? transientList_;
 
     /// <summary>
     ///   The failures that say the server is over capacity, each an entry as the options above
@@ -1976,7 +2403,47 @@ public abstract record ThrottleOptions
     ///   Defaults to <c>["Status.RESOURCE_EXHAUSTED", "Http.429", "Pushback", "Reset.ENHANCE_YOUR_CALM",
     ///   "Reset.REFUSED_STREAM"]</c>.
     /// </remarks>
-    public global::System.Collections.Generic.IReadOnlyList<string>? OverloadList { get; init; } = OverloadList is null ? null : new global::System.Collections.Generic.List<string>(OverloadList).AsReadOnly();
+    public global::System.Collections.Generic.IReadOnlyList<string>? OverloadList
+    {
+      get => overloadList_;
+      init => overloadList_ = value is null ? null : new global::System.Collections.Generic.List<string>(value).AsReadOnly();
+    }
+
+    private global::System.Collections.Generic.IReadOnlyList<string>? overloadList_;
+
+    /// <summary>
+    ///   How many times what the server accepts the channel may send, as retries stop: they are open
+    ///   while the attempts that ended, less this many times the accepted ones, are at most
+    ///   <c>FailureAllowance</c>. At least 1 and at most 100.
+    /// </summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? Multiplier { get; init; }
+
+    /// <summary>
+    ///   How many times what the server does not report as overloaded the channel may send, as the
+    ///   rate is capped: the cap is on while the attempts that ended, less this many times those not
+    ///   overloaded, are over <c>FailureAllowance</c>. At least 1 and at most 100.
+    /// </summary>
+    /// <remarks>Defaults to 2.</remarks>
+    public double? ThrottleMultiplier { get; init; }
+
+    /// <summary>
+    ///   The failures beyond the multiple of what the server accepts that are let go, so that a
+    ///   channel with little traffic does not lose its retries, or its rate, to one failure.
+    /// </summary>
+    /// <remarks>Defaults to 10.</remarks>
+    public int? FailureAllowance { get; init; }
+
+    /// <summary>How far back the counts reach, from 0.012 to 600 seconds.</summary>
+    /// <remarks>Defaults to 30.</remarks>
+    public double? WindowSeconds { get; init; }
+
+    /// <summary>
+    ///   The rate of first attempts, a second, that the cap never goes under, so that the channel goes
+    ///   on probing a server that is overloaded. Above 0 and at most 1000000.
+    /// </summary>
+    /// <remarks>Defaults to 0.5.</remarks>
+    public double? FloorPerSecond { get; init; }
 
     /// <inheritdoc />
     public bool Equals(Adaptive? other)
@@ -2071,7 +2538,7 @@ public abstract record ThrottleOptions
   public abstract void Validate();
 }
 
-/// <summary>Writes a <see cref="ThrottleOptions" /> as the engine reads one: an object whose one key names the alternative.</summary>
+/// <summary>Writes a <see cref="ThrottleOptions" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
 internal sealed class ThrottleOptionsJsonConverter : JsonConverter<ThrottleOptions>
 {
   /// <inheritdoc />
@@ -2094,19 +2561,17 @@ internal sealed class ThrottleOptionsJsonConverter : JsonConverter<ThrottleOptio
   internal static void WriteValue(Utf8JsonWriter writer,
                                   ThrottleOptions written)
   {
-    writer.WriteStartObject();
-
     switch (written)
     {
       case ThrottleOptions.None:
       {
-        writer.WriteBoolean("None",
-                            true);
+        writer.WriteStringValue("None");
         break;
       }
 
       case ThrottleOptions.Adaptive adaptive:
       {
+        writer.WriteStartObject();
         writer.WriteStartObject("Adaptive");
 
         if (adaptive.TransientList is global::System.Collections.Generic.IReadOnlyList<string> transientList)
@@ -2160,11 +2625,10 @@ internal sealed class ThrottleOptionsJsonConverter : JsonConverter<ThrottleOptio
         }
 
         writer.WriteEndObject();
+        writer.WriteEndObject();
         break;
       }
     }
-
-    writer.WriteEndObject();
   }
 }
 
@@ -2246,26 +2710,23 @@ public sealed class GrpcSendOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxMessageSize = other.MaxMessageSize;
+    MessageSizeKiB = other.MessageSizeKiB;
     Compression = other.Compression;
   }
 
   /// <summary>
-  ///   The largest message this client will send, in bytes. A larger one ends its call
+  ///   The largest message this client will send. A larger one ends its call
   ///   <c>RESOURCE_EXHAUSTED</c>, and none of it is sent.
   /// </summary>
-  /// <remarks>
-  ///   Defaults to none, any message a call is given going out. Zero is refused: it admits only
-  ///   empty messages.
-  /// </remarks>
-  [JsonPropertyName("MaxMessageSize")]
+  /// <remarks>Defaults to <c>"Unbounded"</c>, any message a call is given going out.</remarks>
+  [JsonPropertyName("MessageSizeKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxMessageSize { get; set; }
+  public SendMessageSizeKiB? MessageSizeKiB { get; set; }
 
   /// <summary>
   ///   The encoding the messages of a call are compressed with, which the call states as
   ///   <c>grpc-encoding</c>. A message that would not be smaller compressed is sent as it is, and
-  ///   <c>MaxMessageSize</c> is checked on a message before it is compressed.
+  ///   <c>MessageSizeKiB</c> is checked on a message before it is compressed.
   /// </summary>
   /// <remarks>
   ///   The server has to accept the encoding, and says which it accepts in the
@@ -2274,37 +2735,119 @@ public sealed class GrpcSendOptions
   ///   are, and the channel logs a warning once. A later response that lists it has the channel
   ///   compress again. A call that reached a server which does not accept the encoding ends
   ///   <c>UNIMPLEMENTED</c> and is not sent again.
-  ///   Defaults to none, the messages going out as they are, which <c>None</c> says too, over an
-  ///   encoding an earlier source set.
+  ///   Defaults to <c>"None"</c>, the messages going out as they are.
   /// </remarks>
   [JsonPropertyName("Compression")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public MessageEncoding? Compression { get; set; }
+  public SendCompression? Compression { get; set; }
 
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
-                                            maxMessageSize,
-                                            "MaxMessageSize has to be at least 1.");
-    }
-
-    if (Compression is MessageEncoding compression && !Enum.IsDefined(typeof(MessageEncoding), compression))
+    if (Compression is SendCompression compression && !Enum.IsDefined(typeof(SendCompression), compression))
     {
       throw new ArgumentOutOfRangeException(nameof(Compression),
                                             compression,
-                                            "Compression has to be a name MessageEncoding declares.");
+                                            "Compression has to be a name SendCompression declares.");
+    }
+
+    MessageSizeKiB?.Validate();
+  }
+}
+
+/// <summary>The largest message a call sends.</summary>
+[JsonConverter(typeof(SendMessageSizeKiBJsonConverter))]
+public abstract record SendMessageSizeKiB
+{
+  private SendMessageSizeKiB()
+  {
+  }
+
+  /// <summary>No message is refused for its size.</summary>
+  public sealed record Unbounded : SendMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>At most this many KiB (1024 bytes), counted before the message is compressed.</summary>
+  /// <param name="Value">At most this many KiB (1024 bytes), counted before the message is compressed.</param>
+  public sealed record Max(int Value) : SendMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="SendMessageSizeKiB" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class SendMessageSizeKiBJsonConverter : JsonConverter<SendMessageSizeKiB>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override SendMessageSizeKiB? Read(ref Utf8JsonReader reader,
+                                           Type typeToConvert,
+                                           JsonSerializerOptions options)
+    => throw new NotSupportedException("SendMessageSizeKiB is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             SendMessageSizeKiB value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  SendMessageSizeKiB written)
+  {
+    switch (written)
+    {
+      case SendMessageSizeKiB.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case SendMessageSizeKiB.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
     }
   }
 }
 
-/// <summary>How the messages of a call are compressed.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
-public enum MessageEncoding
+/// <summary>How the messages a call sends are compressed.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SendCompression>))]
+public enum SendCompression
 {
+  /// <summary>
+  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
+  ///   <c>grpc-encoding</c> is sent.
+  /// </summary>
+  None,
+
   /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
   Gzip,
 
@@ -2316,13 +2859,6 @@ public enum MessageEncoding
 
   /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
   Zstd,
-
-  /// <summary>
-  ///   No compression, <c>identity</c> on the wire: the messages go out as they are and no
-  ///   <c>grpc-encoding</c> is sent. Stated over an encoding an earlier source set, it turns the
-  ///   compression off. It names no encoding to accept, and a list of them refuses it.
-  /// </summary>
-  None,
 }
 
 /// <summary>What a call accepts from the server.</summary>
@@ -2343,29 +2879,25 @@ public sealed class GrpcReceiveOptions
       throw new ArgumentNullException(nameof(other));
     }
 
-    MaxMessageSize = other.MaxMessageSize;
+    MessageSizeKiB = other.MessageSizeKiB;
     Compression = other.Compression is null
                     ? null
                     : new global::System.Collections.Generic.List<MessageEncoding>(other.Compression);
   }
 
-  /// <summary>The largest message this client will accept, in bytes.</summary>
-  /// <remarks>
-  ///   Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-  ///   channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-  ///   at all.
-  /// </remarks>
-  [JsonPropertyName("MaxMessageSize")]
+  /// <summary>The largest message this client will accept.</summary>
+  /// <remarks>Defaults to 4096, 4 MiB, as <c>{"Max": 4096}</c>.</remarks>
+  [JsonPropertyName("MessageSizeKiB")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-  public int? MaxMessageSize { get; set; }
+  public ReceiveMessageSizeKiB? MessageSizeKiB { get; set; }
 
   /// <summary>
   ///   The encodings besides <c>identity</c> that this client accepts for the messages of an answer,
   ///   which it states as <c>grpc-accept-encoding</c> in the order given, <c>identity</c> last. A server
   ///   may then compress what it sends, in the first of them that it knows. A name given twice
-  ///   counts at its first place. <c>MaxMessageSize</c> bounds a message once it is decompressed. A
-  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>None</c> is
-  ///   refused here: <c>identity</c> is always accepted.
+  ///   counts at its first place. <c>MessageSizeKiB</c> bounds a message once it is decompressed. A
+  ///   message compressed in an encoding that is not listed ends its call <c>INTERNAL</c>. <c>identity</c>
+  ///   is always accepted.
   /// </summary>
   /// <remarks>Defaults to none, only <c>identity</c> being accepted, which an empty list says too.</remarks>
   [JsonPropertyName("Compression")]
@@ -2376,13 +2908,6 @@ public sealed class GrpcReceiveOptions
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
   {
-    if (MaxMessageSize is int maxMessageSize && maxMessageSize < 1)
-    {
-      throw new ArgumentOutOfRangeException(nameof(MaxMessageSize),
-                                            maxMessageSize,
-                                            "MaxMessageSize has to be at least 1.");
-    }
-
     if (Compression is { } compression)
     {
       var compressionUndeclared = compression.Where(item => !Enum.IsDefined(typeof(MessageEncoding), item))
@@ -2396,7 +2921,108 @@ public sealed class GrpcReceiveOptions
                                               "Compression has to be names MessageEncoding declares.");
       }
     }
+
+    MessageSizeKiB?.Validate();
   }
+}
+
+/// <summary>The largest message a call accepts.</summary>
+[JsonConverter(typeof(ReceiveMessageSizeKiBJsonConverter))]
+public abstract record ReceiveMessageSizeKiB
+{
+  private ReceiveMessageSizeKiB()
+  {
+  }
+
+  /// <summary>No message is refused for its size.</summary>
+  public sealed record Unbounded : ReceiveMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>At most this many KiB (1024 bytes), counted once the message is decompressed.</summary>
+  /// <param name="Value">At most this many KiB (1024 bytes), counted once the message is decompressed.</param>
+  public sealed record Max(int Value) : ReceiveMessageSizeKiB
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && value < 1)
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="ReceiveMessageSizeKiB" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class ReceiveMessageSizeKiBJsonConverter : JsonConverter<ReceiveMessageSizeKiB>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override ReceiveMessageSizeKiB? Read(ref Utf8JsonReader reader,
+                                              Type typeToConvert,
+                                              JsonSerializerOptions options)
+    => throw new NotSupportedException("ReceiveMessageSizeKiB is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             ReceiveMessageSizeKiB value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  ReceiveMessageSizeKiB written)
+  {
+    switch (written)
+    {
+      case ReceiveMessageSizeKiB.Unbounded:
+      {
+        writer.WriteStringValue("Unbounded");
+        break;
+      }
+
+      case ReceiveMessageSizeKiB.Max max:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Max",
+                           max.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>An encoding the messages of a call may be compressed in.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<MessageEncoding>))]
+public enum MessageEncoding
+{
+  /// <summary>RFC 1952 gzip, <c>gzip</c> on the wire.</summary>
+  Gzip,
+
+  /// <summary>
+  ///   gRPC's <c>deflate</c>: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+  ///   RFC 1951 stream.
+  /// </summary>
+  Deflate,
+
+  /// <summary>RFC 8878 Zstandard, <c>zstd</c> on the wire.</summary>
+  Zstd,
 }
 
 /// <summary>What crosses between the host and the engine on each call, one way and the other.</summary>

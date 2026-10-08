@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use hyper_rustls::ConfigBuilderExt;
-use rustls::pki_types::{CertificateDer, IpAddr, PrivateKeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 /// What a server certificate is verified against.
 pub(crate) enum Trust {
@@ -65,17 +65,5 @@ pub(crate) fn client_config(
             .with_client_auth_cert(chain, key)
             .map_err(Refused::Identity),
         None => Ok(builder.with_no_client_auth()),
-    }
-}
-
-/// The name a server certificate is verified against, from a host as an authority writes it.
-///
-/// `http` reports the host of an IPv6 authority with its brackets, as `[::1]`, while a
-/// [`ServerName`] is the address alone. Brackets delimit an IP literal and nothing else, so what
-/// stands between them has to parse as an address rather than fall back to being read as a name.
-pub(crate) fn server_name(host: &str) -> Option<ServerName<'static>> {
-    match host.strip_prefix('[').and_then(|ip| ip.strip_suffix(']')) {
-        Some(literal) => IpAddr::try_from(literal).ok().map(ServerName::from),
-        None => ServerName::try_from(host).ok().map(|name| name.to_owned()),
     }
 }

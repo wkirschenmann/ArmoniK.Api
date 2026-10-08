@@ -11,16 +11,12 @@ use support::host::{refused_over, Host};
 
 const NOWHERE: &str = "http://127.0.0.1:1";
 
-/// A keepalive probing every five seconds with no idle time to start from: each option is valid,
-/// and the two are not.
-const NO_IDLE: &str = r#"{"Transport":{"TcpKeepalive":{"IntervalSeconds":5}}}"#;
-
 /// An initial backoff of 500 seconds, above the 120 the backoff grows to by default.
 const BACKOFF_ABOVE_MAXIMUM: &str = r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#;
 
 #[test]
 fn a_runtime_is_created_with_incoherent_defaults_and_a_channel_that_keeps_them_is_refused() {
-    let host = Host::with_channel_defaults(NO_IDLE);
+    let host = Host::with_channel_defaults(BACKOFF_ABOVE_MAXIMUM);
 
     let refused = host
         .try_channel(NOWHERE, "{}")
@@ -28,8 +24,8 @@ fn a_runtime_is_created_with_incoherent_defaults_and_a_channel_that_keeps_them_i
     assert_eq!(refused.status, ak_status::AK_STATUS_INVALID_ARG);
     assert_eq!(refused.kind, ak_error_kind::AK_ERROR_CONFIG);
     for key in [
-        "Transport.TcpKeepalive.IdleSeconds",
-        "Transport.TcpKeepalive.IntervalSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
+        "Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds",
     ] {
         assert!(refused.detail.contains(key), "{}", refused.detail);
     }
@@ -45,16 +41,13 @@ fn a_runtime_is_created_with_incoherent_defaults_and_a_channel_that_keeps_them_i
 
 #[test]
 fn a_channel_that_completes_the_defaults_is_opened() {
-    let host = Host::with_channel_defaults(NO_IDLE);
+    let host = Host::with_channel_defaults(BACKOFF_ABOVE_MAXIMUM);
     host.channel_with(
         NOWHERE,
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":30}}}"#,
+        r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"MaxBackoffSeconds":600}}}}}"#,
     );
-    // Or turns the keepalive off.
-    host.channel_with(
-        NOWHERE,
-        r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":0}}}"#,
-    );
+    // Or turns the retry off.
+    host.channel_with(NOWHERE, r#"{"Grpc":{"OutboundTraffic":{"Retry":"None"}}}"#);
 }
 
 #[test]
@@ -85,7 +78,7 @@ fn what_the_defaults_lack_may_come_from_the_channel_and_not_the_other_way() {
 fn a_value_that_is_wrong_by_itself_is_refused_with_the_defaults_too() {
     // Not an incoherence: no channel's options can mend a value out of its bounds.
     assert_eq!(
-        refused_over(r#"{"Transport":{"TcpKeepalive":{"IdleSeconds":-1}}}"#),
+        refused_over(r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":-1}}}}"#),
         ak_status::AK_STATUS_INVALID_ARG
     );
 }

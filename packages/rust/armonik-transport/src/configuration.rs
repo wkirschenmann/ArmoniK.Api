@@ -923,6 +923,16 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
                     shared: self.shared,
                 })
             }
+            // No key or several: the reader of an alternative takes the keys as they come, which
+            // is how it reads past a key that names no variant.
+            Node::Map(entries) => visitor.visit_map(Entries {
+                entries: entries.into_iter(),
+                fields: Some(variants),
+                pending: None,
+                path: self.path,
+                text: self.text,
+                shared: self.shared,
+            }),
             Node::Both => Err(both()),
             node => Err(de::Error::invalid_type(node.unexpected(), &visitor)),
         }

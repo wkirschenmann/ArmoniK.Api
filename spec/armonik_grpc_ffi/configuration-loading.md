@@ -29,7 +29,8 @@ well as from JSON, so every host language gets the same result from the same sou
   them. An unknown key is ignored and logged with its path; a value is never quoted back.
 - Two documents merge by `ChannelOptions::over`: a struct field by field, an alternative (an
   enum: TLS verification, client identity, proxy, receive windows) whole when the two state
-  different ones.
+  different ones. A variant that carries nothing is written as its name, `"None"`, and a variant
+  that carries something as an object of one key, `{"Url": {"Address": "..."}}`.
 
 ## Decided (2026-10-06, the shape confirmed 2026-10-07)
 
@@ -71,11 +72,11 @@ well as from JSON, so every host language gets the same result from the same sou
   an `IConfiguration` with the command-line provider alone, used inside the binding and never
   exposed. What it parses reaches the engine as pairs of a key's path and a text value, read as
   the environment's are, since a command line, like the environment, has only text.
-- **A key left out and a key set to 0 differ** (2026-10-07): a source that leaves an option out
-  leaves what an earlier source set, or the default, and a source that wants none says so with 0,
-  which `Transport.TcpKeepalive.IdleSeconds`, `Http2.KeepAliveIntervalSeconds`,
-  `Http2.IdleTimeoutSeconds` and `Grpc.DefaultDeadlineSeconds` read as none
-  (decisions.md, "How an option is turned off", lists the options left as they are).
+- **A key left out and a key set to a variant differ** (2026-10-08): a source that leaves an option
+  out leaves what an earlier source set, or the default, and a source that wants none says so with
+  the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive`, `Http2.IdleTimeout`,
+  `Grpc.Deadline` and the units of `Grpc.OutboundTraffic` have, as `Http2.SimultaneousCallsPerConnection`
+  has `"FromServer"` (decisions.md, "How an option is turned off by a variant").
 - **An unknown key is ignored, and logged** (2026-10-07), in every source and on every host, a
   channel's own document included: the load goes on, and the log names the source and the key's
   path, so that a misspelled key does not give the defaults with nothing to say so. The engine logs
@@ -122,10 +123,10 @@ them, the channel options every channel takes by default among them, under `Chan
     "Client": {
       "Grpc": {
         "Endpoint": "https://armonik.example.com:5001",
-        "MemoryCeiling": 2147483648,
+        "MemoryCeiling": { "SoftMiB": 2048 },
         "ChannelDefaults": {
-          "Http2": { "SimultaneousCallsPerConnection": 4 },
-          "Transport": { "Tls": { "Client": { "P12": { "Path": "client.p12" } } } }
+          "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
+          "Transport": { "Tls": { "ClientCertificate": { "P12": { "Path": "client.p12" } } } }
         }
       }
     }
@@ -153,7 +154,7 @@ file or one environment configures every host alike; a document with no `Endpoin
 - **The environment**: the variables whose name starts with the prefix and `__`, read once, when
   the runtime is created. The rest of a name is the key's path, its parts joined by `__`, compared
   without case:
-  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
+  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
   variable of the process would be a key, and the log would name every one of them, so an
   environment source with no prefix is refused. A key that holds a list, such as
   `Grpc.Receive.Compression`, is read from its one variable, whose value is a JSON array:
@@ -165,11 +166,15 @@ file or one environment configures every host alike; a document with no `Endpoin
   read as the element's type, a name matched without case as the other variables' values are.
 - **Pairs**: a JSON object whose names are keys' paths, their parts joined by `__`, under no
   prefix, and whose values are text, read as the environment's values are, by the schema's type
-  for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection": "4"}`. It is what a
+  for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit": "4"}`. It is what a
   binding sends for a command line it has parsed. Pairs state no list, and neither does a
   command line: a key that holds a list is refused, by its path.
 - **A document**: JSON in the schema's vocabulary, with no prefix around it. It is what a binding
   sends for an object set in code.
+- **A variant that carries nothing**: in the environment and in pairs, the key's value is its name,
+  matched without case - `ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None`. A variant
+  that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...` -
+  and a value beside keys under it is refused, by its path.
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
@@ -200,7 +205,8 @@ The first refusal ends the load and names its source - the file's path, `the env
 A key under the prefix that the schema does not declare is not refused: it is logged, with its
 source and its path, and the load goes on. Within an alternative - how the server is verified, who
 the client is, which proxy - a key that names none of its variants is such a key, and the option
-keeps what an earlier source gave it.
+keeps what an earlier source gave it. A name that carries nothing and is none of its variants is
+refused, as is a variant that carries nothing given a value.
 
 A value is never quoted, a password being one. Through the C structure, what is malformed in it - a
 kind it does not name, a nonzero `reserved`, a flag it does not know, a value on an environment
@@ -297,7 +303,7 @@ var configuration = new NativeConfiguration()                // or NativeConfigu
                       .LoadConfigFromFiles("appsettings.json", "appsettings.Production.yaml")
                       .LoadConfigFromEnvironment()
                       .LoadConfigFromCommandLine(args)
-                      .LoadConfigFromObject(new RuntimeOptions { MemoryCeiling = 1L << 31 });
+                      .LoadConfigFromObject(new RuntimeOptions { MemoryCeiling = new MemoryCeilingOptions { SoftMiB = 2048 } });
 await using var runtime = NativeRuntime.Create(configuration);
 ```
 

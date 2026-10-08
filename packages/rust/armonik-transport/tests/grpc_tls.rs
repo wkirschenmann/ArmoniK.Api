@@ -11,7 +11,7 @@ use armonik_transport::grpc::{
 };
 use armonik_transport::http2::{ClientIdentity, TlsConfig, TransportConfig, TransportErrorKind};
 use armonik_transport::options::{
-    ClientCertificate, P12Certificate, Password, PemCertificate, ServerVerification, TlsOptions,
+    ClientCertificate, P12Certificate, Password, PemCertificate, ServerCertificates, TlsOptions,
 };
 use armonik_transport::reexports::rustls::pki_types::PrivateKeyDer;
 use bytes::Bytes;
@@ -78,29 +78,13 @@ async fn accepting_any_server_reaches_one_no_root_vouches_for() {
 }
 
 #[tokio::test]
-async fn a_certificate_for_another_name_is_verified_under_the_name_it_was_given() {
+async fn a_certificate_for_another_name_than_the_endpoints_is_refused() {
     let pki = Pki::new();
     let server = TlsServer::start(pki.server(&["alias.test"]), None).await;
 
     let refused = echo(&server.endpoint, trusting(&pki)).await;
     assert_eq!(refused.code, GrpcStatusCode::Unavailable, "{refused}");
     assert!(refused.message.contains("TLS handshake"), "{refused}");
-
-    let mut tls = trusting(&pki);
-    tls.server_name = Some("alias.test".to_owned());
-    let status = echo(&server.endpoint, tls).await;
-    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
-}
-
-#[tokio::test]
-async fn a_bracketed_ipv6_server_name_is_verified_as_the_address() {
-    let pki = Pki::new();
-    let server = TlsServer::start(pki.server(&["::1"]), None).await;
-
-    let mut tls = trusting(&pki);
-    tls.server_name = Some("[::1]".to_owned());
-    let status = echo(&server.endpoint, tls).await;
-    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
 }
 
 #[tokio::test]
@@ -195,14 +179,14 @@ async fn the_files_a_host_names_carry_the_whole_chain() {
     let scratch = Scratch::new("chain");
     let ca = scratch.file("ca.pem", root.root_pem().as_bytes());
     let mut pem = TlsOptions::default();
-    pem.server = Some(ServerVerification::CaPem(ca.clone()));
-    pem.client = Some(ClientCertificate::Pem(PemCertificate::new(
+    pem.server_certificates = Some(ServerCertificates::CaPem(ca.clone()));
+    pem.client_certificate = Some(ClientCertificate::Pem(PemCertificate::new(
         scratch.file("chain.pem", client.chain_pem.as_bytes()),
         scratch.file("key.pem", client.key_pem.as_bytes()),
     )));
     let mut p12 = TlsOptions::default();
-    p12.server = Some(ServerVerification::CaPem(ca));
-    p12.client = Some(ClientCertificate::P12(P12Certificate::new(
+    p12.server_certificates = Some(ServerCertificates::CaPem(ca));
+    p12.client_certificate = Some(ClientCertificate::P12(P12Certificate::new(
         scratch.file("client.p12", &client.pkcs12("s3cret")),
         Some(Password::new("s3cret")),
     )));
@@ -225,10 +209,10 @@ async fn a_pkcs12_bundle_and_its_password_authenticate_the_client() {
 
     let scratch = Scratch::new("p12");
     let mut options = TlsOptions::default();
-    options.server = Some(ServerVerification::CaPem(
+    options.server_certificates = Some(ServerCertificates::CaPem(
         scratch.file("ca.pem", pki.root_pem().as_bytes()),
     ));
-    options.client = Some(ClientCertificate::P12(P12Certificate::new(
+    options.client_certificate = Some(ClientCertificate::P12(P12Certificate::new(
         scratch.file("client.p12", &pki.client().pkcs12("s3cret")),
         Some(Password::new("s3cret")),
     )));

@@ -32,6 +32,9 @@ use crate::http2::{
 /// of the two; `a_window_the_schema_admits_is_one_a_semaphore_admits` is what keeps that true.
 pub const LARGEST_WINDOW: i32 = 536_870_910;
 
+/// The most KiB a stream's send buffer may hold: the session counts it in 32 bits.
+pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
+
 /// A duration, in seconds.
 ///
 /// Seconds rather than a `Duration`, whose schema is `{ secs, nanos }` - this crate's memory
@@ -93,9 +96,14 @@ pub struct TransportOptions {
 
     /// The socket's keepalive.
     ///
-    /// Defaults to `{}`, which sets none.
-    #[serde(default)]
-    pub tcp_keepalive: TcpKeepaliveOptions,
+    /// Defaults to `"None"`: no probe is sent.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "TcpKeepalive"))]
+    pub tcp_keepalive: Option<TcpKeepalive>,
 
     /// The HTTP proxy every dial tunnels through.
     ///
@@ -119,44 +127,6 @@ pub struct TransportOptions {
     pub connect_eagerly: Option<bool>,
 }
 
-/// `true`, the value of an alternative that carries nothing: a key names an alternative, and this
-/// is what it is set to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Chosen;
-
-impl serde::Serialize for Chosen {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bool(true)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Chosen {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        if bool::deserialize(deserializer)? {
-            Ok(Chosen)
-        } else {
-            Err(serde::de::Error::custom(
-                "an alternative is chosen with `true`; one not chosen is left out",
-            ))
-        }
-    }
-}
-
-#[cfg(feature = "schema")]
-impl schemars::JsonSchema for Chosen {
-    fn inline_schema() -> bool {
-        true
-    }
-
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "Chosen".into()
-    }
-
-    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({ "const": true })
-    }
-}
-
 /// An HTTP proxy, which a dial tunnels through with `CONNECT`, so TLS stays end to end with the
 /// server.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -164,7 +134,7 @@ impl schemars::JsonSchema for Chosen {
 #[non_exhaustive]
 pub enum ProxyOptions {
     /// No proxy: every dial goes to the endpoint itself.
-    None(Chosen),
+    None,
 
     /// The proxy the system names for the endpoint, if any.
     ///
@@ -336,7 +306,7 @@ impl ProxyOptions {
     /// password.
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         match self {
-            Self::None(Chosen) => Ok(ProxyConfig::default()),
+            Self::None => Ok(ProxyConfig::default()),
             Self::System(credentials) => authenticated(
                 ProxySource::System,
                 &credentials.username,
@@ -485,41 +455,38 @@ const NO_COLON: &str = "the username holds a `:`, which `Basic` authentication c
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct TlsOptions {
-    /// How the server certificate is verified.
+    /// Which certificates the server's certificate is verified against, under the endpoint's host:
+    /// that name is also the one sent as SNI.
     ///
-    /// Defaults to the system's roots.
+    /// Defaults to `"System"`.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
         skip_serializing_if = "Option::is_none"
     )]
-    #[cfg_attr(feature = "schema", schemars(with = "ServerVerification"))]
-    pub server: Option<ServerVerification>,
+    #[cfg_attr(feature = "schema", schemars(with = "ServerCertificates"))]
+    pub server_certificates: Option<ServerCertificates>,
 
     /// The certificate the client presents, and its key.
     ///
-    /// Defaults to none.
+    /// Defaults to `"None"`.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "ClientCertificate"))]
-    pub client: Option<ClientCertificate>,
-
-    /// The host the server certificate is verified against, and sent as SNI, in place of the
-    /// endpoint's: a DNS name or an IP address, `[::1]` for IPv6, with an optional port that is
-    /// not read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
-    pub override_target_name: Option<String>,
+    pub client_certificate: Option<ClientCertificate>,
 }
 
-/// How the server certificate is verified.
+/// Which certificates the server's certificate is verified against.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub enum ServerVerification {
+pub enum ServerCertificates {
+    /// The system's roots.
+    System,
+
     /// Against the roots of a PEM file, named by its path, in place of the system's. Every
     /// certificate the file holds is a root.
     CaPem(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
@@ -530,9 +497,9 @@ pub enum ServerVerification {
     /// Refused off Windows.
     CaStore(StoreCertificate),
 
-    /// Not at all: any server certificate is accepted. The connection is still encrypted, to
-    /// whoever answers.
-    Unverified(Chosen),
+    /// No verification: any server certificate is accepted. The connection is still encrypted,
+    /// to whoever answers.
+    None,
 }
 
 /// The certificate the client presents, and its key.
@@ -540,6 +507,9 @@ pub enum ServerVerification {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum ClientCertificate {
+    /// No certificate is presented.
+    None,
+
     /// From PEM files.
     Pem(PemCertificate),
 
@@ -889,33 +859,36 @@ impl std::fmt::Debug for Password {
     }
 }
 
-/// The socket's keepalive, off unless `IdleSeconds` is set.
-///
-/// Each duration is a whole number of seconds, which is what the socket option holds.
-/// An `IdleSeconds` of 0 states that there is none, over what an earlier source set, and then
-/// `IntervalSeconds` and `Retries` are not read: they are what that source left.
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+/// The socket's keepalive.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum TcpKeepalive {
+    /// No probe is sent.
+    None,
+
+    /// Probes the peer once the connection has been idle, and drops it when they go unanswered.
+    Probe(TcpProbe),
+}
+
+/// The probes of a socket's keepalive, each duration a whole number of seconds, which is what the
+/// socket option holds.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
-pub struct TcpKeepaliveOptions {
+pub struct TcpProbe {
     /// How many whole seconds the connection may be idle before the first probe, from 1 to 32767,
-    /// the most Linux holds, or 0 for no keepalive: the operating system counts whole seconds.
-    ///
-    /// Defaults to none. Zero is the way to turn a keepalive an earlier source set off: left out,
-    /// the option leaves that source's value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// the most Linux holds: the operating system counts whole seconds.
     #[cfg_attr(
         feature = "schema",
-        schemars(with = "i32", range(min = 0, max = 32767))
+        schemars(with = "i32", range(min = 1, max = 32767))
     )]
-    pub idle_seconds: Option<i32>,
+    pub idle_seconds: i32,
 
     /// How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
     /// system's.
-    ///
-    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(
         feature = "schema",
@@ -925,11 +898,20 @@ pub struct TcpKeepaliveOptions {
 
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
-    ///
-    /// Incoherent without `IdleSeconds`, and not read when that is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
     pub retries: Option<i32>,
+}
+
+impl TcpProbe {
+    /// A probe after `idle_seconds`, the interval and the count the operating system's.
+    pub fn new(idle_seconds: i32) -> Self {
+        Self {
+            idle_seconds,
+            interval_seconds: None,
+            retries: None,
+        }
+    }
 }
 
 /// The HTTP/2 session a channel's calls share: how it checks that the peer is there, and how much
@@ -940,58 +922,42 @@ pub struct TcpKeepaliveOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct Http2Options {
-    /// How often a PING is sent to the peer, at least a nanosecond, or 0 for none sent.
+    /// Whether the session sends PINGs to check that the peer is there.
     ///
-    /// Defaults to none sent. Zero is the way to turn PINGs an earlier source asked for off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`: none is sent.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub keep_alive_interval_seconds: Option<Seconds>,
-
-    /// How long a PING may go unanswered before the session and its calls are ended.
-    ///
-    /// Defaults to 20.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 1e-9))
-    )]
-    pub keep_alive_timeout_seconds: Option<Seconds>,
-
-    /// Whether a PING is also sent while no call is open.
-    ///
-    /// Defaults to false.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
-    pub keep_alive_while_idle: Option<bool>,
+    #[cfg_attr(feature = "schema", schemars(with = "Http2KeepAlive"))]
+    pub keep_alive: Option<Http2KeepAlive>,
 
     /// How long a connection stays open with no call on it before it is closed, the next call
     /// dialling a new one. Each connection has its own. A call holds its connection to the end of
     /// its response and of its request.
     ///
-    /// At least a nanosecond, or 0 for none.
-    ///
-    /// Defaults to none: an idle connection stays open. Zero is the way to turn a timeout an
-    /// earlier source set off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`: an idle connection stays open.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub idle_timeout_seconds: Option<Seconds>,
+    #[cfg_attr(feature = "schema", schemars(with = "Http2IdleTimeout"))]
+    pub idle_timeout: Option<Http2IdleTimeout>,
 
-    /// How many calls one connection carries at once, never more than its server allows. A call
-    /// that finds every connection full opens another, as many as the calls in flight need, and
-    /// each closes on its own idle timeout when IdleTimeoutSeconds is set. At 1, calls follow one
-    /// another on a connection but never share it, so that a GOAWAY a server sends because of one
-    /// call - nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    /// How many calls one connection carries at once. A call that finds every connection full
+    /// opens another, as many as the calls in flight need, and each closes on its own idle
+    /// timeout when `IdleTimeout` is set.
     ///
-    /// Defaults to none: a connection carries as many calls as its server allows.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub simultaneous_calls_per_connection: Option<i32>,
+    /// Defaults to `"FromServer"`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "CallsPerConnection"))]
+    pub simultaneous_calls_per_connection: Option<CallsPerConnection>,
 
     /// What the session sends.
     ///
@@ -1011,6 +977,93 @@ pub struct Http2Options {
     pub receive: Option<Http2ReceiveOptions>,
 }
 
+/// Whether the session sends PINGs, which an unresponsive peer ends it for.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Http2KeepAlive {
+    /// No PING is sent.
+    None,
+
+    /// A PING is sent at an interval, and the session and its calls end when one goes unanswered.
+    Ping(Http2Ping),
+}
+
+/// The PINGs of a session.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct Http2Ping {
+    /// How often a PING is sent to the peer, at least a nanosecond.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub interval_seconds: Seconds,
+
+    /// How long a PING may go unanswered before the session and its calls are ended.
+    ///
+    /// Defaults to 20.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "Seconds", extend("minimum" = 1e-9))
+    )]
+    pub timeout_seconds: Option<Seconds>,
+
+    /// Whether a PING is also sent while no call is open.
+    ///
+    /// Defaults to false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "bool"))]
+    pub while_idle: Option<bool>,
+}
+
+impl Http2Ping {
+    /// A PING at an interval, with the default timeout and none sent while idle.
+    pub fn new(interval_seconds: Seconds) -> Self {
+        Self {
+            interval_seconds,
+            timeout_seconds: None,
+            while_idle: None,
+        }
+    }
+}
+
+/// When a connection with no call on it is closed.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Http2IdleTimeout {
+    /// Never: an idle connection stays open.
+    None,
+
+    /// After this many seconds, at least a nanosecond.
+    After(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Seconds", extend("minimum" = 1e-9))
+        )]
+        Seconds,
+    ),
+}
+
+/// How many calls one connection carries at once.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum CallsPerConnection {
+    /// As many as the server allows: the value of its SETTINGS_MAX_CONCURRENT_STREAMS.
+    FromServer,
+
+    /// At most this many, and never more than the server allows. At 1, calls follow one another
+    /// on a connection but never share it, so that a GOAWAY a server sends because of one call -
+    /// nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
+    Limit(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+}
+
 /// What an HTTP/2 session sends.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -1028,14 +1081,23 @@ pub struct Http2SendOptions {
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
     pub coalescing_bytes: Option<i32>,
 
-    /// How many bytes of one call's request may be queued in the session, waiting to be written,
-    /// before its next part is handed over. A part is handed over whole once fewer bytes than this
-    /// are queued, and the peer's window has room, so up to one part more than this is queued.
+    /// How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
+    /// written, before its next part is handed over. A part is handed over whole once fewer bytes
+    /// than this are queued, and the peer's window has room, so up to one part more than this is
+    /// queued.
     ///
-    /// Defaults to 1048576, 1 MiB.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub stream_buffer_size: Option<i32>,
+    /// Defaults to 1024, 1 MiB. At most 4194303, which is 4 GiB less a KiB: the session's
+    /// buffer is counted in 32 bits.
+    #[serde(
+        default,
+        rename = "StreamBufferKiB",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "i32", range(min = 1, max = LARGEST_STREAM_BUFFER_KIB))
+    )]
+    pub stream_buffer_kib: Option<i32>,
 
     /// How many DATA frames of the peer's largest size one queued part of a request may span,
     /// written one after the other in one write: a large message then goes out in fewer, larger
@@ -1053,15 +1115,32 @@ pub struct Http2SendOptions {
     )]
     pub frames_per_write: Option<i32>,
 
-    /// The most bytes the headers of one request may take, counted as RFC 9113 counts a header
-    /// list for SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the
-    /// pseudo-header fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED
-    /// before anything is sent. It bounds what is sent, never what is received.
+    /// How many bytes the headers of one request may take. It bounds what is sent, never what is
+    /// received.
     ///
-    /// Defaults to none: no request is refused for its headers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_header_list_size: Option<i32>,
+    /// Defaults to `"Unbounded"`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "HeaderListBytes"))]
+    pub header_list_bytes: Option<HeaderListBytes>,
+}
+
+/// How many bytes the headers of one request may take.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum HeaderListBytes {
+    /// No request is refused for its headers.
+    Unbounded,
+
+    /// At most this many bytes, counted as RFC 9113 counts a header list for
+    /// SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
+    /// fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
+    /// anything is sent.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1076,7 +1155,7 @@ pub enum Http2ReceiveOptions {
     /// Windows that grow with the link: both start at 65535, the size every connection starts
     /// with, and grow with the bandwidth-delay product the session's PINGs measure, up to 16 MiB.
     /// Neither shrinks.
-    Adaptive(Chosen),
+    Adaptive,
 }
 
 /// HTTP/2 flow-control windows of fixed sizes.
@@ -1091,16 +1170,16 @@ pub struct Http2FixedWindows {
     /// Defaults to 2097152, 2 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub stream_window_size: Option<i32>,
+    pub stream_window_bytes: Option<i32>,
 
     /// How many bytes the peer may send ahead of what is read, across every call of the channel.
-    /// A call its host does not read holds up to `StreamWindowSize` of it, so enough of them stop
+    /// A call its host does not read holds up to `StreamWindowBytes` of it, so enough of them stop
     /// the others receiving. At least 65535, the window every connection starts with.
     ///
     /// Defaults to 5242880, 5 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
-    pub connection_window_size: Option<i32>,
+    pub connection_window_bytes: Option<i32>,
 }
 
 /// What a channel does with the calls it sends: whether a failed call is sent again, whether the
@@ -1161,7 +1240,7 @@ pub enum RetryOptions {
     /// No retry: a failed call ends with its status. A call that its peer never processed still
     /// goes again, once for each way the peer did not see it, while what it sent is kept under
     /// `Replay`.
-    None(Chosen),
+    None,
 
     /// A failed call is sent again, as gRFC A6 has it: after a backoff drawn below a bound that
     /// starts at `InitialBackoffSeconds` and grows by `BackoffMultiplier` to `MaxBackoffSeconds`,
@@ -1188,7 +1267,7 @@ impl RetryOptions {
     /// The policy, and the incoherences instead of a refusal for them.
     pub(crate) fn convert(&self) -> Converted<Option<RetryConfig>> {
         match self {
-            Self::None(_) => Ok((None, Vec::new())),
+            Self::None => Ok((None, Vec::new())),
             Self::ExponentialBackoff(options) => {
                 let (config, incoherent) = options
                     .convert()
@@ -1356,7 +1435,7 @@ impl ExponentialBackoffOptions {
 pub enum ThrottleOptions {
     /// No judgment: every retry the retry policy chooses is sent, and first attempts start as they
     /// are made.
-    None(Chosen),
+    None,
 
     /// An estimate of the server's health over a window of time, which sorts every attempt that
     /// ends as overloaded if `OverloadList` names its failure, as transient if `TransientList`
@@ -1381,7 +1460,7 @@ impl ThrottleOptions {
     /// The judgment these options name, none when they name `None`.
     pub fn to_config(&self) -> Result<Option<AdaptiveConfig>, OptionRefusal> {
         match self {
-            Self::None(_) => Ok(None),
+            Self::None => Ok(None),
             Self::Adaptive(options) => options
                 .to_config()
                 .map(Some)
@@ -1686,39 +1765,26 @@ fn coherently<C>(converted: Converted<C>) -> Result<C, OptionRefusal> {
 
 impl std::error::Error for OptionRefusal {}
 
-/// Whether a number of seconds states that there is none: zero.
-///
-/// An option left out leaves what an earlier source set, so the only way for a later source to
-/// turn a feature off is to say so.
-pub(crate) fn is_off(seconds: Seconds) -> bool {
-    seconds.0 == 0.0
-}
-
-/// A number of seconds as a duration, or none for zero, which states there is none; refused
-/// below `least`, above `most`, and past what a `Duration` holds as `duration` refuses.
-fn duration_or_off(
-    key: &str,
-    seconds: Option<Seconds>,
-    least: f64,
-    most: Option<f64>,
-) -> Result<Option<Duration>, OptionRefusal> {
-    if seconds.is_some_and(is_off) {
-        return Ok(None);
-    }
-    duration(key, seconds, least, most)
-}
-
 /// A number of seconds as a duration, refused below `least`, above `most`, and past what a
-/// `Duration` holds.
+/// `Duration` holds; none when no number is stated.
 fn duration(
     key: &str,
     seconds: Option<Seconds>,
     least: f64,
     most: Option<f64>,
 ) -> Result<Option<Duration>, OptionRefusal> {
-    let Some(seconds) = seconds else {
-        return Ok(None);
-    };
+    seconds
+        .map(|seconds| stated_duration(key, seconds, least, most))
+        .transpose()
+}
+
+/// A stated number of seconds as a duration, refused as `duration` refuses.
+fn stated_duration(
+    key: &str,
+    seconds: Seconds,
+    least: f64,
+    most: Option<f64>,
+) -> Result<Duration, OptionRefusal> {
     let refused = || {
         let most = most.map_or_else(
             || "less than 2^64".to_owned(),
@@ -1732,7 +1798,19 @@ fn duration(
     if seconds.0 < least || most.is_some_and(|most| seconds.0 > most) {
         return Err(refused());
     }
-    Duration::try_from(seconds).map(Some).map_err(|_| refused())
+    Duration::try_from(seconds).map_err(|_| refused())
+}
+
+/// A size in KiB as the bytes it is, refused below 1. A size past what an address holds is the
+/// largest one.
+fn kibibytes(key: &str, kib: i32) -> Result<usize, OptionRefusal> {
+    if kib < 1 {
+        return Err(OptionRefusal::new(
+            key,
+            format!("{kib} has to be at least 1"),
+        ));
+    }
+    Ok((kib as usize).saturating_mul(1024))
 }
 
 /// The bytes of a file a path option names.
@@ -1825,67 +1903,67 @@ fn open_pkcs12(bundle: &[u8], password: &str) -> Result<ClientIdentity, Unopened
 impl TlsOptions {
     /// What these options say, with every file they name read.
     pub fn load(&self) -> Result<TlsConfig, OptionRefusal> {
-        let (roots, accept_any_server) = match &self.server {
-            None => (Vec::new(), false),
-            Some(ServerVerification::CaPem(path)) => (certificates("Server.CaPem", path)?, false),
-            Some(ServerVerification::CaStore(store)) => (
+        let (roots, accept_any_server) = match &self.server_certificates {
+            None | Some(ServerCertificates::System) => (Vec::new(), false),
+            Some(ServerCertificates::CaPem(path)) => {
+                (certificates("ServerCertificates.CaPem", path)?, false)
+            }
+            Some(ServerCertificates::CaStore(store)) => (
                 vec![store
                     .root()
-                    .map_err(|refused| refused.under("Server.CaStore"))?],
+                    .map_err(|refused| refused.under("ServerCertificates.CaStore"))?],
                 false,
             ),
-            Some(ServerVerification::Unverified(Chosen)) => (Vec::new(), true),
+            Some(ServerCertificates::None) => (Vec::new(), true),
         };
 
-        let identity = match &self.client {
-            None => None,
-            Some(ClientCertificate::Pem(pem)) => {
-                Some(pem.load().map_err(|refused| refused.under("Client.Pem"))?)
-            }
+        let identity = match &self.client_certificate {
+            None | Some(ClientCertificate::None) => None,
+            Some(ClientCertificate::Pem(pem)) => Some(
+                pem.load()
+                    .map_err(|refused| refused.under("ClientCertificate.Pem"))?,
+            ),
             Some(ClientCertificate::P12(p12)) => Some(
                 pkcs12("Path", &p12.path, p12.password.as_ref())
-                    .map_err(|refused| refused.under("Client.P12"))?,
+                    .map_err(|refused| refused.under("ClientCertificate.P12"))?,
             ),
             Some(ClientCertificate::Store(store)) => Some(
                 store
                     .identity()
-                    .map_err(|refused| refused.under("Client.Store"))?,
+                    .map_err(|refused| refused.under("ClientCertificate.Store"))?,
             ),
         };
-
-        if let Some(name) = &self.override_target_name {
-            crate::http2::verified_name(name)
-                .map_err(|refused| OptionRefusal::new("OverrideTargetName", refused.to_string()))?;
-        }
 
         Ok(TlsConfig {
             roots,
             accept_any_server,
             identity,
-            server_name: self.override_target_name.clone(),
         })
     }
 }
 
-impl TcpKeepaliveOptions {
-    /// The socket's keepalive these options name, refused where they are incoherent.
+impl TcpKeepalive {
+    /// The socket's keepalive this names, none for `None`.
     pub fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
-        coherently(self.convert())
+        match self {
+            Self::None => Ok(TcpConfig::default()),
+            Self::Probe(probe) => probe.to_config().map_err(|refused| refused.under("Probe")),
+        }
     }
+}
 
-    /// The keepalive, and the incoherences instead of a refusal for them: the probes then stay
-    /// off. Every value stated is checked, whether or not it is read.
-    pub(crate) fn convert(&self) -> Converted<TcpConfig> {
-        let whole = |key: &str, asked: Option<i32>, least: i32, most: i32| match asked {
-            Some(seconds) if !(least..=most).contains(&seconds) => Err(OptionRefusal::new(
-                key,
-                format!("{seconds} has to be from {least} to {most}"),
-            )),
-            Some(seconds) => Ok(Some(u64::try_from(seconds).unwrap_or(0))),
-            None => Ok(None),
+impl TcpProbe {
+    fn to_config(&self) -> Result<TcpConfig, OptionRefusal> {
+        let whole = |key: &str, seconds: i32| {
+            if (1..=32767).contains(&seconds) {
+                Ok(Duration::from_secs(seconds as u64))
+            } else {
+                Err(OptionRefusal::new(
+                    key,
+                    format!("{seconds} has to be from 1 to 32767"),
+                ))
+            }
         };
-        let idle = whole("IdleSeconds", self.idle_seconds, 0, 32767)?;
-        let interval = whole("IntervalSeconds", self.interval_seconds, 1, 32767)?;
         let retries = match self.retries {
             None => None,
             Some(retries) if !(1..=127).contains(&retries) => {
@@ -1896,43 +1974,31 @@ impl TcpKeepaliveOptions {
             }
             Some(retries) => Some(retries as u32),
         };
-        let off = TcpConfig {
-            keepalive: None,
-            keepalive_interval: None,
-            keepalive_retries: None,
-        };
-        match idle {
-            // Zero is none, and the others are what an earlier source left: unread, and not an
-            // incoherence, since turning the keepalive off over a source that set them is what
-            // zero is for.
-            Some(0) => Ok((off, Vec::new())),
-            Some(seconds) => Ok((
-                TcpConfig {
-                    keepalive: Some(Duration::from_secs(seconds)),
-                    keepalive_interval: interval.map(Duration::from_secs),
-                    keepalive_retries: retries,
-                },
-                Vec::new(),
-            )),
-            None => {
-                let mut keys = vec!["IdleSeconds"];
-                if interval.is_some() {
-                    keys.push("IntervalSeconds");
-                }
-                if retries.is_some() {
-                    keys.push("Retries");
-                }
-                let incoherent = if keys.len() > 1 {
-                    vec![OptionRefusal::incoherent(
-                        &keys,
-                        "the probes start at the operating system's idle time without IdleSeconds",
-                    )]
-                } else {
-                    Vec::new()
-                };
-                Ok((off, incoherent))
-            }
-        }
+        Ok(TcpConfig {
+            keepalive: Some(whole("IdleSeconds", self.idle_seconds)?),
+            keepalive_interval: self
+                .interval_seconds
+                .map(|seconds| whole("IntervalSeconds", seconds))
+                .transpose()?,
+            keepalive_retries: retries,
+        })
+    }
+}
+
+impl Http2Ping {
+    /// The interval, the timeout and whether to ping while idle, each unstated one `defaults`'.
+    fn to_config(
+        &self,
+        defaults: &Http2Config,
+    ) -> Result<(Option<Duration>, Duration, bool), OptionRefusal> {
+        let interval = stated_duration("IntervalSeconds", self.interval_seconds, 1e-9, None)?;
+        let timeout = duration("TimeoutSeconds", self.timeout_seconds, 1e-9, None)?
+            .unwrap_or(defaults.keep_alive_timeout);
+        Ok((
+            Some(interval),
+            timeout,
+            self.while_idle.unwrap_or(defaults.keep_alive_while_idle),
+        ))
     }
 }
 
@@ -1947,59 +2013,57 @@ impl Http2Options {
             )),
             Some(size) => Ok(size as u32),
         };
+        let (keep_alive_interval, keep_alive_timeout, keep_alive_while_idle) =
+            match &self.keep_alive {
+                None | Some(Http2KeepAlive::None) => (
+                    None,
+                    defaults.keep_alive_timeout,
+                    defaults.keep_alive_while_idle,
+                ),
+                Some(Http2KeepAlive::Ping(ping)) => ping
+                    .to_config(&defaults)
+                    .map_err(|refused| refused.under("KeepAlive.Ping"))?,
+            };
         Ok(Http2Config {
-            keep_alive_interval: duration_or_off(
-                "KeepAliveIntervalSeconds",
-                self.keep_alive_interval_seconds,
-                1e-9,
-                None,
-            )?,
-            keep_alive_timeout: duration(
-                "KeepAliveTimeoutSeconds",
-                self.keep_alive_timeout_seconds,
-                1e-9,
-                None,
-            )?
-            .unwrap_or(defaults.keep_alive_timeout),
-            keep_alive_while_idle: self
-                .keep_alive_while_idle
-                .unwrap_or(defaults.keep_alive_while_idle),
+            keep_alive_interval,
+            keep_alive_timeout,
+            keep_alive_while_idle,
             receive_windows: match &self.receive {
                 None => defaults.receive_windows,
                 Some(Http2ReceiveOptions::Fixed(windows)) => {
                     let fixed = FixedWindows::default();
                     ReceiveWindows::Fixed(FixedWindows {
                         stream: window(
-                            "Receive.Fixed.StreamWindowSize",
-                            windows.stream_window_size,
+                            "Receive.Fixed.StreamWindowBytes",
+                            windows.stream_window_bytes,
                             1,
                             fixed.stream,
                         )?,
                         connection: window(
-                            "Receive.Fixed.ConnectionWindowSize",
-                            windows.connection_window_size,
+                            "Receive.Fixed.ConnectionWindowBytes",
+                            windows.connection_window_bytes,
                             65_535,
                             fixed.connection,
                         )?,
                     })
                 }
-                Some(Http2ReceiveOptions::Adaptive(Chosen)) => ReceiveWindows::Adaptive,
+                Some(Http2ReceiveOptions::Adaptive) => ReceiveWindows::Adaptive,
             },
-            idle_timeout: duration_or_off(
-                "IdleTimeoutSeconds",
-                self.idle_timeout_seconds,
-                1e-9,
-                None,
-            )?,
-            simultaneous_calls_per_connection: match self.simultaneous_calls_per_connection {
-                None => defaults.simultaneous_calls_per_connection,
-                Some(calls) if calls < 1 => {
+            idle_timeout: match &self.idle_timeout {
+                None | Some(Http2IdleTimeout::None) => None,
+                Some(Http2IdleTimeout::After(seconds)) => {
+                    Some(stated_duration("IdleTimeout.After", *seconds, 1e-9, None)?)
+                }
+            },
+            simultaneous_calls_per_connection: match &self.simultaneous_calls_per_connection {
+                None | Some(CallsPerConnection::FromServer) => None,
+                Some(CallsPerConnection::Limit(calls)) if *calls < 1 => {
                     return Err(OptionRefusal::new(
-                        "SimultaneousCallsPerConnection",
+                        "SimultaneousCallsPerConnection.Limit",
                         format!("{calls} has to be at least 1"),
                     ))
                 }
-                Some(calls) => Some(calls as usize),
+                Some(CallsPerConnection::Limit(calls)) => Some(*calls as usize),
             },
             write_coalescing: match self.send.coalescing_bytes {
                 None => defaults.write_coalescing,
@@ -2011,15 +2075,15 @@ impl Http2Options {
                 }
                 Some(bytes) => bytes as usize,
             },
-            send_buffer: match self.send.stream_buffer_size {
+            send_buffer: match self.send.stream_buffer_kib {
                 None => defaults.send_buffer,
-                Some(size) if size < 1 => {
+                Some(kib) if kib > LARGEST_STREAM_BUFFER_KIB => {
                     return Err(OptionRefusal::new(
-                        "Send.StreamBufferSize",
-                        format!("{size} has to be at least 1"),
+                        "Send.StreamBufferKiB",
+                        format!("{kib} has to be at most {LARGEST_STREAM_BUFFER_KIB}"),
                     ))
                 }
-                Some(size) => size as usize,
+                Some(kib) => kibibytes("Send.StreamBufferKiB", kib)?,
             },
             frames_per_write: match self.send.frames_per_write {
                 None => defaults.frames_per_write,
@@ -2039,15 +2103,15 @@ impl Http2Options {
                 }
                 Some(frames) => frames as usize,
             },
-            max_header_list_size: match self.send.max_header_list_size {
-                None => defaults.max_header_list_size,
-                Some(size) if size < 1 => {
+            max_header_list_size: match &self.send.header_list_bytes {
+                None | Some(HeaderListBytes::Unbounded) => None,
+                Some(HeaderListBytes::Max(size)) if *size < 1 => {
                     return Err(OptionRefusal::new(
-                        "Send.MaxHeaderListSize",
+                        "Send.HeaderListBytes.Max",
                         format!("{size} has to be at least 1"),
                     ))
                 }
-                Some(size) => Some(size as usize),
+                Some(HeaderListBytes::Max(size)) => Some(*size as usize),
             },
         })
     }
@@ -2095,20 +2159,16 @@ pub struct GrpcOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub user_agent: Option<String>,
 
-    /// The deadline of a call that states none, counted from its start: the call ends
-    /// `DEADLINE_EXCEEDED` once it passes, and the server is told what was left of it when the
-    /// call started as `grpc-timeout`. It bounds the whole call, a streaming one included, and not
-    /// only the wait for the response's head. A call's own deadline takes its place, and a call
-    /// that states none takes this one.
+    /// The deadline of a call that states none.
     ///
-    /// Defaults to none, a call waiting as long as its answer takes; at least a nanosecond, the
-    /// finest duration the engine holds, or 0 for none, over a deadline an earlier source set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(
-        feature = "schema",
-        schemars(with = "Seconds", extend("minimum" = 0.0))
+    /// Defaults to `"None"`, a call waiting as long as its answer takes.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
     )]
-    pub default_deadline_seconds: Option<Seconds>,
+    #[cfg_attr(feature = "schema", schemars(with = "Deadline"))]
+    pub deadline: Option<Deadline>,
 
     /// What the channel does with the calls it sends: sending a failed one again, slowing down
     /// against a server that fails, and keeping messages for a call to be sent again.
@@ -2136,7 +2196,29 @@ pub struct GrpcOptions {
     pub host: HostOptions,
 }
 
-/// How the messages of a call are compressed.
+/// The deadline of a call that states none, counted from its start.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum Deadline {
+    /// The call has none: it waits as long as its answer takes.
+    None,
+
+    /// The call ends `DEADLINE_EXCEEDED` once this many seconds have passed, at least a
+    /// nanosecond, the finest duration the engine holds, and the server is told what was left of
+    /// it when the call started as `grpc-timeout`. It bounds the whole call, a streaming one
+    /// included, and not only the wait for the response's head. A call's own deadline takes its
+    /// place.
+    Default(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Seconds", extend("minimum" = 1e-9))
+        )]
+        Seconds,
+    ),
+}
+
+/// An encoding the messages of a call may be compressed in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -2148,40 +2230,56 @@ pub enum MessageEncoding {
     Deflate,
     /// RFC 8878 Zstandard, `zstd` on the wire.
     Zstd,
-    /// No compression, `identity` on the wire: the messages go out as they are and no
-    /// `grpc-encoding` is sent. Stated over an encoding an earlier source set, it turns the
-    /// compression off. It names no encoding to accept, and a list of them refuses it.
-    None,
 }
 
 impl MessageEncoding {
+    /// The engine's encoding of the same name.
+    pub fn encoding(self) -> crate::grpc::Encoding {
+        match self {
+            Self::Gzip => crate::grpc::Encoding::Gzip,
+            Self::Deflate => crate::grpc::Encoding::Deflate,
+            Self::Zstd => crate::grpc::Encoding::Zstd,
+        }
+    }
+}
+
+/// How the messages a call sends are compressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum SendCompression {
+    /// No compression, `identity` on the wire: the messages go out as they are and no
+    /// `grpc-encoding` is sent.
+    None,
+    /// RFC 1952 gzip, `gzip` on the wire.
+    Gzip,
+    /// gRPC's `deflate`: the zlib structure of RFC 1950 around an RFC 1951 stream, and not a raw
+    /// RFC 1951 stream.
+    Deflate,
+    /// RFC 8878 Zstandard, `zstd` on the wire.
+    Zstd,
+}
+
+impl SendCompression {
     /// The engine's encoding of the same name, none for `None`.
     pub fn encoding(self) -> Option<crate::grpc::Encoding> {
         match self {
+            Self::None => None,
             Self::Gzip => Some(crate::grpc::Encoding::Gzip),
             Self::Deflate => Some(crate::grpc::Encoding::Deflate),
             Self::Zstd => Some(crate::grpc::Encoding::Zstd),
-            Self::None => None,
         }
     }
 }
 
 impl GrpcReceiveOptions {
-    /// The encodings this client accepts besides `identity`, in the order stated. `None` is
-    /// refused: `identity` is always accepted, and an empty list says that there is no other.
-    pub fn accepted_encodings(&self) -> Result<Vec<crate::grpc::Encoding>, OptionRefusal> {
+    /// The encodings this client accepts besides `identity`, in the order stated: `identity` is
+    /// always accepted, and an empty list says that there is no other.
+    pub fn accepted_encodings(&self) -> Vec<crate::grpc::Encoding> {
         self.compression
             .iter()
             .flatten()
-            .map(|encoding| {
-                encoding.encoding().ok_or_else(|| {
-                    OptionRefusal::new(
-                        "Compression",
-                        "None names no encoding to accept: identity is always accepted, and an \
-                         empty list accepts no other",
-                    )
-                })
-            })
+            .map(|encoding| encoding.encoding())
             .collect()
     }
 }
@@ -2193,18 +2291,22 @@ impl GrpcReceiveOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcSendOptions {
-    /// The largest message this client will send, in bytes. A larger one ends its call
+    /// The largest message this client will send. A larger one ends its call
     /// `RESOURCE_EXHAUSTED`, and none of it is sent.
     ///
-    /// Defaults to none, any message a call is given going out. Zero is refused: it admits only
-    /// empty messages.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_message_size: Option<i32>,
+    /// Defaults to `"Unbounded"`, any message a call is given going out.
+    #[serde(
+        default,
+        rename = "MessageSizeKiB",
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "SendMessageSizeKiB"))]
+    pub message_size_kib: Option<SendMessageSizeKiB>,
 
     /// The encoding the messages of a call are compressed with, which the call states as
     /// `grpc-encoding`. A message that would not be smaller compressed is sent as it is, and
-    /// `MaxMessageSize` is checked on a message before it is compressed.
+    /// `MessageSizeKiB` is checked on a message before it is compressed.
     ///
     /// The server has to accept the encoding, and says which it accepts in the
     /// `grpc-accept-encoding` of its responses. A response that lists encodings without this one
@@ -2213,11 +2315,54 @@ pub struct GrpcSendOptions {
     /// compress again. A call that reached a server which does not accept the encoding ends
     /// `UNIMPLEMENTED` and is not sent again.
     ///
-    /// Defaults to none, the messages going out as they are, which `None` says too, over an
-    /// encoding an earlier source set.
+    /// Defaults to `"None"`, the messages going out as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "MessageEncoding"))]
-    pub compression: Option<MessageEncoding>,
+    #[cfg_attr(feature = "schema", schemars(with = "SendCompression"))]
+    pub compression: Option<SendCompression>,
+}
+
+/// The largest message a call sends.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum SendMessageSizeKiB {
+    /// No message is refused for its size.
+    Unbounded,
+
+    /// At most this many KiB (1024 bytes), counted before the message is compressed.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+}
+
+/// The largest message a call accepts.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum ReceiveMessageSizeKiB {
+    /// No message is refused for its size.
+    Unbounded,
+
+    /// At most this many KiB (1024 bytes), counted once the message is decompressed.
+    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+}
+
+impl SendMessageSizeKiB {
+    /// The limit in bytes, none for no limit.
+    pub fn limit(&self) -> Result<Option<usize>, OptionRefusal> {
+        match self {
+            Self::Unbounded => Ok(None),
+            Self::Max(kib) => kibibytes("Max", *kib).map(Some),
+        }
+    }
+}
+
+impl ReceiveMessageSizeKiB {
+    /// The limit in bytes, the largest there is for no limit.
+    pub fn limit(&self) -> Result<usize, OptionRefusal> {
+        match self {
+            Self::Unbounded => Ok(usize::MAX),
+            Self::Max(kib) => kibibytes("Max", *kib),
+        }
+    }
 }
 
 /// What a call accepts from the server.
@@ -2227,21 +2372,24 @@ pub struct GrpcSendOptions {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct GrpcReceiveOptions {
-    /// The largest message this client will accept, in bytes.
+    /// The largest message this client will accept.
     ///
-    /// Defaults to 4194304, 4 MiB. No upper bound, because the largest a caller can name is a
-    /// channel that refuses nothing. Zero is refused: it is a channel that can receive no message
-    /// at all.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
-    pub max_message_size: Option<i32>,
+    /// Defaults to 4096, 4 MiB, as `{"Max": 4096}`.
+    #[serde(
+        default,
+        rename = "MessageSizeKiB",
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "ReceiveMessageSizeKiB"))]
+    pub message_size_kib: Option<ReceiveMessageSizeKiB>,
 
     /// The encodings besides `identity` that this client accepts for the messages of an answer,
     /// which it states as `grpc-accept-encoding` in the order given, `identity` last. A server
     /// may then compress what it sends, in the first of them that it knows. A name given twice
-    /// counts at its first place. `MaxMessageSize` bounds a message once it is decompressed. A
-    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `None` is
-    /// refused here: `identity` is always accepted.
+    /// counts at its first place. `MessageSizeKiB` bounds a message once it is decompressed. A
+    /// message compressed in an encoding that is not listed ends its call `INTERNAL`. `identity`
+    /// is always accepted.
     ///
     /// Defaults to none, only `identity` being accepted, which an empty list says too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2353,46 +2501,52 @@ over_values!(
     bool,
     Seconds,
     Password,
-    Chosen,
     StoreLocation,
     MessageEncoding,
+    SendCompression,
     Vec<MessageEncoding>,
     CredentialedUrl,
     Vec<String>,
 );
 
-/// `Over` for an enum whose every variant carries one value: the same variant merges what the two
-/// carry, and another is taken whole. Every variant is listed and matched without `_`, so a
-/// variant the enum gains and this does not list fails to compile - and so is the list of names
-/// [`alternative`] reads a key against.
+/// `Over` for an enum of alternatives: a variant that carries nothing is taken whole, the same
+/// variant that carries a value merges what the two carry, and another is taken whole. Every
+/// variant is listed and matched without `_`, so a variant the enum gains and this does not list
+/// fails to compile - and so is the list of names [`alternative`] reads a name against.
 macro_rules! over_variants {
-    ($type:ident { $($variant:ident),+ $(,)? }) => {
+    ($type:ident { $($unit:ident),* ; $($variant:ident),* $(,)? }) => {
         impl Over for $type {
             fn over(self, defaults: &Self) -> Self {
                 match self {
+                    $(Self::$unit => Self::$unit,)*
                     $(Self::$variant(own) => Self::$variant(match defaults {
                         Self::$variant(default) => own.over(default),
                         _ => own,
-                    }),)+
+                    }),)*
                 }
             }
         }
 
         impl alternative::Alternative for $type {
             const NAME: &'static str = stringify!($type);
-            const VARIANTS: &'static [&'static str] = &[$(stringify!($variant)),+];
+            const VARIANTS: &'static [&'static str] =
+                &[$(stringify!($unit),)* $(stringify!($variant)),*];
         }
     };
 }
 
-/// How an alternative is read: an object whose one key names a variant and holds what it carries.
+/// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
+/// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
 /// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
 /// read past instead, as a struct reads past a key it does not declare, so that the configuration
-/// loader logs it; the alternative is then none, and keeps what an earlier source gave it.
+/// loader logs it; the alternative is then none, and keeps what an earlier source gave it. A name
+/// that is no variant is refused: it is not a key, so nothing is read past.
 mod alternative {
+    use std::cell::Cell;
     use std::marker::PhantomData;
 
+    use serde::de::value::{EnumAccessDeserializer, StringDeserializer};
     use serde::de::{
         self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
         IntoDeserializer, MapAccess, VariantAccess, Visitor,
@@ -2416,7 +2570,7 @@ mod alternative {
         deserializer: D,
     ) -> Result<T, D::Error> {
         deserializer
-            .deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))?
+            .deserialize_enum(T::NAME, T::VARIANTS, Chosen(PhantomData))?
             .ok_or_else(|| {
                 de::Error::custom(format_args!(
                     "it names none of {}, and one is needed",
@@ -2443,22 +2597,38 @@ mod alternative {
         }
 
         fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Option<T>, D::Error> {
-            // As a struct whose fields are the variants, so that a reader matching keys to fields
-            // matches these too.
-            deserializer.deserialize_struct(T::NAME, T::VARIANTS, Chosen(PhantomData))
+            deserializer.deserialize_enum(T::NAME, T::VARIANTS, Chosen(PhantomData))
         }
     }
 
-    /// The variant an object's keys name, if one does; two are refused.
+    /// The variant a name or an object's keys give, if one does.
     struct Chosen<T>(PhantomData<T>);
 
     impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
         type Value = Option<T>;
 
         fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "an object naming one of {}", T::VARIANTS.join(", "))
+            write!(f, "one of {}", T::VARIANTS.join(", "))
         }
 
+        /// A name, or an object of one key: the enum's own reader takes the variant, once a name
+        /// that is no variant has been read past.
+        fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Option<T>, A::Error> {
+            let unknown = Cell::new(false);
+            let read = T::deserialize(EnumAccessDeserializer::new(Known::<T, A> {
+                data,
+                unknown: &unknown,
+                kind: PhantomData,
+            }));
+            match read {
+                Ok(read) => Ok(Some(read)),
+                Err(_) if unknown.get() => Ok(None),
+                Err(refused) => Err(refused),
+            }
+        }
+
+        /// An object of no key or of several, which a loader hands over as it reads it: the
+        /// variant its keys name, if one does; two are refused.
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
             let mut chosen = None;
             while let Some(key) = map.next_key::<String>()? {
@@ -2477,6 +2647,38 @@ mod alternative {
                 })?);
             }
             Ok(chosen)
+        }
+    }
+
+    /// An enum access that reads past a variant `T` does not have, saying so in `unknown`.
+    struct Known<'a, T, A> {
+        data: A,
+        unknown: &'a Cell<bool>,
+        kind: PhantomData<T>,
+    }
+
+    impl<'de, 'a, T: Alternative, A: EnumAccess<'de>> EnumAccess<'de> for Known<'a, T, A> {
+        type Error = A::Error;
+        type Variant = A::Variant;
+
+        fn variant_seed<V: DeserializeSeed<'de>>(
+            self,
+            seed: V,
+        ) -> Result<(V::Value, A::Variant), A::Error> {
+            let (name, variant): (String, A::Variant) = self.data.variant()?;
+            if T::VARIANTS.contains(&name.as_str()) {
+                let name = seed.deserialize(StringDeserializer::<A::Error>::new(name))?;
+                return Ok((name, variant));
+            }
+            // A key's value is read past, so that a loader logs the key; a name has none to read,
+            // and is refused.
+            match variant.newtype_variant::<IgnoredAny>() {
+                Ok(_) => {
+                    self.unknown.set(true);
+                    Err(de::Error::custom("a variant this engine does not know"))
+                }
+                Err(_) => Err(de::Error::unknown_variant(&name, T::VARIANTS)),
+            }
         }
     }
 
@@ -2565,19 +2767,26 @@ mod alternative {
     }
 }
 
-over_variants!(ServerVerification {
+over_variants!(ServerCertificates {
+    System,
+    None;
     CaPem,
     CaStore,
-    Unverified,
 });
-over_variants!(ClientCertificate { Pem, P12, Store });
+over_variants!(ClientCertificate {
+    None;
+    Pem,
+    P12,
+    Store,
+});
 over_variants!(ProxyOptions {
-    None,
+    None;
     System,
     Url,
     UrlWithCredentials,
 });
 over_variants!(StoreSearch {
+    ;
     Thumbprint,
     SubjectName,
     FriendlyName,
@@ -2610,20 +2819,32 @@ over_fields!(TransportOptions {
     proxy,
     connect_eagerly,
 });
+over_variants!(Deadline {
+    None;
+    Default,
+});
+over_variants!(SendMessageSizeKiB {
+    Unbounded;
+    Max,
+});
+over_variants!(ReceiveMessageSizeKiB {
+    Unbounded;
+    Max,
+});
 over_fields!(GrpcOptions {
     user_agent,
-    default_deadline_seconds,
+    deadline,
     outbound_traffic,
     send,
     receive,
     host,
 });
 over_fields!(GrpcSendOptions {
-    max_message_size,
+    message_size_kib,
     compression,
 });
 over_fields!(GrpcReceiveOptions {
-    max_message_size,
+    message_size_kib,
     compression,
 });
 over_fields!(HostOptions { send, receive });
@@ -2633,38 +2854,63 @@ over_fields!(HostReceiveOptions {
     coalescing_bytes,
 });
 over_fields!(TlsOptions {
-    server,
-    client,
-    override_target_name,
+    server_certificates,
+    client_certificate,
 });
-over_fields!(TcpKeepaliveOptions {
+over_variants!(TcpKeepalive {
+    None;
+    Probe,
+});
+over_fields!(TcpProbe {
     idle_seconds,
     interval_seconds,
     retries,
 });
+over_variants!(Http2KeepAlive {
+    None;
+    Ping,
+});
+over_fields!(Http2Ping {
+    interval_seconds,
+    timeout_seconds,
+    while_idle,
+});
+over_variants!(Http2IdleTimeout {
+    None;
+    After,
+});
+over_variants!(CallsPerConnection {
+    FromServer;
+    Limit,
+});
 over_fields!(Http2Options {
-    keep_alive_interval_seconds,
-    keep_alive_timeout_seconds,
-    keep_alive_while_idle,
-    idle_timeout_seconds,
+    keep_alive,
+    idle_timeout,
     simultaneous_calls_per_connection,
     send,
     receive,
 });
+over_variants!(HeaderListBytes {
+    Unbounded;
+    Max,
+});
 over_fields!(Http2SendOptions {
     coalescing_bytes,
-    stream_buffer_size,
+    stream_buffer_kib,
     frames_per_write,
-    max_header_list_size,
+    header_list_bytes,
 });
 over_fields!(Http2FixedWindows {
-    stream_window_size,
-    connection_window_size,
+    stream_window_bytes,
+    connection_window_bytes,
 });
-over_variants!(Http2ReceiveOptions { Fixed, Adaptive });
+over_variants!(Http2ReceiveOptions {
+    Adaptive;
+    Fixed,
+});
 over_variants!(RetryOptions {
-    None,
-    ExponentialBackoff
+    None;
+    ExponentialBackoff,
 });
 over_fields!(OutboundTrafficOptions {
     retry,
@@ -2678,7 +2924,10 @@ over_fields!(ExponentialBackoffOptions {
     max_backoff_seconds,
     backoff_multiplier,
 });
-over_variants!(ThrottleOptions { None, Adaptive });
+over_variants!(ThrottleOptions {
+    None;
+    Adaptive,
+});
 over_fields!(AdaptiveOptions {
     transient_list,
     overload_list,
@@ -2777,7 +3026,7 @@ impl ChannelOptions {
     }
 }
 
-/// What a caller may set on the runtime: the endpoint, the memory ceilings, the options every
+/// What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
 /// channel takes where its own state none, and what the engine logs.
 #[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -2793,25 +3042,11 @@ pub struct RuntimeOptions {
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
     pub endpoint: Option<String>,
 
-    /// The bytes the runtime holds before work waits, counting the buffers lent to send and the
-    /// messages received until the host gives them back: a call stops reading, and a send waits
-    /// for room.
+    /// The memory the runtime holds, in two thresholds.
     ///
-    /// Defaults to 4294967295, four gigabytes, or half the address space where that is smaller;
-    /// a larger value is that too.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    pub memory_ceiling: Option<u64>,
-
-    /// The bytes past which the runtime stops: a received message that would take the count past
-    /// them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below MemoryCeiling may
-    /// pass it together, by a message each, and this bounds them. At least MemoryCeiling, or
-    /// MemoryCeiling's default when that is left out.
-    ///
-    /// Defaults to a quarter above MemoryCeiling.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    pub memory_hard_ceiling: Option<u64>,
+    /// Defaults to `{}`, which leaves each of its options at its own default.
+    #[serde(default)]
+    pub memory_ceiling: MemoryCeilingOptions,
 
     /// Channel options every channel of the runtime takes where its own options state none: the
     /// two are merged option by option, a struct's options within it, and the channel's win; an
@@ -2828,6 +3063,70 @@ pub struct RuntimeOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[serde(default)]
     pub logging: LoggingOptions,
+}
+
+/// The memory the runtime holds: the bytes counting the buffers lent to send and the messages
+/// received until the host gives them back, and where work waits and where the runtime stops.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct MemoryCeilingOptions {
+    /// The MiB the runtime holds before work waits: a call stops reading, and a send waits for
+    /// room.
+    ///
+    /// Defaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger
+    /// value is that too.
+    #[serde(default, rename = "SoftMiB", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub soft_mib: Option<u64>,
+
+    /// The MiB past which the runtime stops: a received message that would take the count past
+    /// them ends its call with RESOURCE_EXHAUSTED. Calls admitted to read below `SoftMiB` may pass
+    /// it together, by a message each, and this bounds them. At least `SoftMiB`, or its default
+    /// when that is left out, which is checked once the options are merged.
+    ///
+    /// Defaults to a quarter above `SoftMiB`.
+    #[serde(default, rename = "HardMiB", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    pub hard_mib: Option<u64>,
+}
+
+impl MemoryCeilingOptions {
+    /// The default of `SoftMiB`, where the address space holds four gigabytes.
+    pub const DEFAULT_SOFT_MIB: u64 = if usize::BITS >= 64 { 4096 } else { 2048 };
+
+    /// Refuses what the options cannot hold, once they are merged: a ceiling of 0, and a hard
+    /// ceiling below the soft one. Nothing states another option after the runtime's, so the
+    /// incoherence is an error.
+    pub fn check(&self) -> Result<(), OptionRefusal> {
+        self.unqualified_check()
+            .map_err(|refused| refused.under("MemoryCeiling"))
+    }
+
+    fn unqualified_check(&self) -> Result<(), OptionRefusal> {
+        for (key, mib) in [("SoftMiB", self.soft_mib), ("HardMiB", self.hard_mib)] {
+            if mib == Some(0) {
+                return Err(OptionRefusal::new(key, "it is 0, and has to be at least 1"));
+            }
+        }
+        let soft = self.soft_mib.unwrap_or(Self::DEFAULT_SOFT_MIB);
+        match self.hard_mib {
+            Some(hard) if hard < soft => Err(OptionRefusal::incoherent(
+                &["SoftMiB", "HardMiB"],
+                format!("the hard ceiling is {hard} MiB, below the soft one, {soft} MiB"),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// The soft and the hard ceiling in bytes, 0 where the library's own is meant. A count past
+    /// what 64 bits hold is the largest one.
+    pub fn bytes(&self) -> (u64, u64) {
+        let bytes = |mib: Option<u64>| mib.map_or(0, |mib| mib.saturating_mul(1 << 20));
+        (bytes(self.soft_mib), bytes(self.hard_mib))
+    }
 }
 
 /// Which of the engine's log events a host receives.
@@ -2865,17 +3164,16 @@ impl std::fmt::Debug for RuntimeOptions {
         f.debug_struct("RuntimeOptions")
             .field("endpoint", &self.endpoint.as_deref().map(elided))
             .field("memory_ceiling", &self.memory_ceiling)
-            .field("memory_hard_ceiling", &self.memory_hard_ceiling)
             .field("channel_defaults", &self.channel_defaults)
             .field("logging", &self.logging)
             .finish()
     }
 }
 
+over_fields!(MemoryCeilingOptions { soft_mib, hard_mib });
 over_fields!(RuntimeOptions {
     endpoint,
     memory_ceiling,
-    memory_hard_ceiling,
     channel_defaults,
     logging,
 });
@@ -2973,16 +3271,15 @@ mod tests {
         let (certificate, key) = pem_pair();
         let two = format!("{certificate}{certificate}");
         let options = TlsOptions {
-            server: Some(ServerVerification::CaPem(write(
+            server_certificates: Some(ServerCertificates::CaPem(write(
                 &directory,
                 "ca.pem",
                 &certificate,
             ))),
-            client: Some(ClientCertificate::Pem(PemCertificate::new(
+            client_certificate: Some(ClientCertificate::Pem(PemCertificate::new(
                 write(&directory, "chain.pem", &two),
                 write(&directory, "key.pem", &key),
             ))),
-            override_target_name: Some("server.test".to_owned()),
         };
 
         let config = options.load().expect("readable files");
@@ -2993,11 +3290,10 @@ mod tests {
             2,
             "the whole chain, in the file's order"
         );
-        assert_eq!(config.server_name.as_deref(), Some("server.test"));
         assert!(!config.accept_any_server);
 
         let unverified = TlsOptions {
-            server: Some(ServerVerification::Unverified(Chosen)),
+            server_certificates: Some(ServerCertificates::None),
             ..TlsOptions::default()
         }
         .load()
@@ -3018,7 +3314,7 @@ mod tests {
         let empty = write(&directory, "empty.pem", "no PEM here");
         let certificate = write(&directory, "cert.pem", &certificate);
         let pem = |certificate: &str, key: &str| TlsOptions {
-            client: Some(ClientCertificate::Pem(PemCertificate::new(
+            client_certificate: Some(ClientCertificate::Pem(PemCertificate::new(
                 certificate,
                 key,
             ))),
@@ -3028,28 +3324,24 @@ mod tests {
         for (options, key) in [
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaPem(missing.clone())),
+                    server_certificates: Some(ServerCertificates::CaPem(missing.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaPem",
+                "ServerCertificates.CaPem",
             ),
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaPem(empty.clone())),
+                    server_certificates: Some(ServerCertificates::CaPem(empty.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaPem",
+                "ServerCertificates.CaPem",
             ),
-            (pem(&missing, &certificate), "Client.Pem.Certificate"),
-            (pem(&certificate, &certificate), "Client.Pem.Key"),
-            (pem(&certificate, &missing), "Client.Pem.Key"),
             (
-                TlsOptions {
-                    override_target_name: Some("-nope-".to_owned()),
-                    ..TlsOptions::default()
-                },
-                "OverrideTargetName",
+                pem(&missing, &certificate),
+                "ClientCertificate.Pem.Certificate",
             ),
+            (pem(&certificate, &certificate), "ClientCertificate.Pem.Key"),
+            (pem(&certificate, &missing), "ClientCertificate.Pem.Key"),
         ] {
             let refused = options.load().expect_err(key);
             assert_eq!(refused.key(), key, "{refused}");
@@ -3065,16 +3357,64 @@ mod tests {
         }
     }
 
+    /// A variant that carries nothing is its name, and one that carries something is an object of
+    /// one key: written so, and read so by serde itself and by the loader.
+    #[test]
+    fn a_variant_that_carries_nothing_is_a_string_and_the_others_an_object() {
+        let proxy = |proxy: ProxyOptions| TransportOptions {
+            proxy: Some(proxy),
+            ..TransportOptions::default()
+        };
+        let written = |proxy: &TransportOptions| serde_json::to_string(proxy).expect("a document");
+        assert_eq!(
+            written(&proxy(ProxyOptions::None)),
+            r#"{"Tls":{},"Proxy":"None"}"#
+        );
+        assert_eq!(
+            written(&proxy(ProxyOptions::UrlWithCredentials(CredentialedUrl(
+                "http://p".to_owned()
+            )))),
+            r#"{"Tls":{},"Proxy":{"UrlWithCredentials":"http://p"}}"#
+        );
+
+        let read = |document: &str| serde_json::from_str::<TransportOptions>(document);
+        assert_eq!(
+            read(r#"{"Proxy":"None"}"#).expect("a name").proxy,
+            Some(ProxyOptions::None)
+        );
+        assert_eq!(
+            read(r#"{"Proxy":{"None":null}}"#).expect("an object").proxy,
+            Some(ProxyOptions::None)
+        );
+        for refused in [
+            r#"{"Proxy":{"None":true}}"#,
+            r#"{"Proxy":"Url"}"#,
+            r#"{"Proxy":"Socks"}"#,
+            r#"{"Proxy":"none"}"#,
+        ] {
+            assert!(read(refused).is_err(), "{refused}");
+        }
+        assert_eq!(
+            read(r#"{"Proxy":{"Socks":{"Address":"x"}}}"#)
+                .expect("a key that names none is read past")
+                .proxy,
+            None
+        );
+    }
+
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
     /// is read, before any file is.
     #[test]
     fn a_document_naming_two_alternatives_is_refused() {
         for document in [
-            r#"{"Server":{"CaPem":"ca.pem","Unverified":true}}"#,
-            r#"{"Client":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
-            r#"{"Server":{"Unverified":false}}"#,
-            r#"{"Client":{"Pem":{"Certificate":"c.pem"}}}"#,
-            r#"{"Client":{"P12":{"Password":"s3cret"}}}"#,
+            r#"{"ServerCertificates":{"CaPem":"ca.pem","None":null}}"#,
+            r#"{"ClientCertificate":{"Pem":{"Certificate":"c.pem","Key":"k.pem"},"P12":{"Path":"c.p12"}}}"#,
+            r#"{"ServerCertificates":{"None":true}}"#,
+            r#"{"ServerCertificates":{"None":false}}"#,
+            r#"{"ServerCertificates":"CaPem"}"#,
+            r#"{"ServerCertificates":"Elsewhere"}"#,
+            r#"{"ClientCertificate":{"Pem":{"Certificate":"c.pem"}}}"#,
+            r#"{"ClientCertificate":{"P12":{"Password":"s3cret"}}}"#,
         ] {
             let read = serde_json::from_str::<TlsOptions>(document);
             assert!(read.is_err(), "{document}");
@@ -3084,12 +3424,12 @@ mod tests {
             );
         }
         let read: TlsOptions = serde_json::from_str(
-            r#"{"Server":{"Unverified":true},"Client":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
+            r#"{"ServerCertificates":"None","ClientCertificate":{"P12":{"Path":"c.p12","Password":"x"}}}"#,
         )
         .expect("one alternative each");
-        assert_eq!(read.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(read.server_certificates, Some(ServerCertificates::None));
         assert_eq!(
-            read.client,
+            read.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new(
                 "c.p12",
                 Some(Password::new("x"))
@@ -3127,7 +3467,7 @@ mod tests {
 
     fn p12(path: &str, password: Option<&str>) -> TlsOptions {
         TlsOptions {
-            client: Some(ClientCertificate::P12(P12Certificate::new(
+            client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                 path,
                 password.map(Password::new),
             ))),
@@ -3223,7 +3563,7 @@ mod tests {
             p12(&two, Some("s3cret-word")),
         ] {
             let refused = options.load().expect_err("refused");
-            assert_eq!(refused.key(), "Client.P12.Path", "{refused}");
+            assert_eq!(refused.key(), "ClientCertificate.P12.Path", "{refused}");
             let said = refused.to_string();
             for secret in ["s3cret", "hunter2", &protected, &empty, &garbage, &two] {
                 assert!(!said.contains(secret), "{said}");
@@ -3242,17 +3582,17 @@ mod tests {
         for (options, unit) in [
             (
                 TlsOptions {
-                    client: Some(ClientCertificate::Store(store.clone())),
+                    client_certificate: Some(ClientCertificate::Store(store.clone())),
                     ..TlsOptions::default()
                 },
-                "Client.Store",
+                "ClientCertificate.Store",
             ),
             (
                 TlsOptions {
-                    server: Some(ServerVerification::CaStore(store.clone())),
+                    server_certificates: Some(ServerCertificates::CaStore(store.clone())),
                     ..TlsOptions::default()
                 },
-                "Server.CaStore",
+                "ServerCertificates.CaStore",
             ),
         ] {
             let refused = options.load().expect_err(unit);
@@ -3309,7 +3649,7 @@ mod tests {
             ("alice", "s@cret")
         );
 
-        let config = ProxyOptions::None(Chosen).to_config().expect("no proxy");
+        let config = ProxyOptions::None.to_config().expect("no proxy");
         assert_eq!(config.source, ProxySource::Disabled);
 
         let (uri, _, _) = explicit(
@@ -3440,156 +3780,246 @@ mod tests {
 
     #[test]
     fn a_unit_refusal_is_named_from_where_the_unit_is_embedded() {
-        let refused = TcpKeepaliveOptions {
-            interval_seconds: Some(5),
-            ..TcpKeepaliveOptions::default()
-        }
+        let refused = TcpKeepalive::Probe(TcpProbe {
+            retries: Some(0),
+            ..TcpProbe::new(30)
+        })
         .to_config()
-        .expect_err("an interval with no keepalive")
+        .expect_err("no probe may go unanswered zero times")
         .under("Transport.TcpKeepalive");
-        assert_eq!(refused.key(), "Transport.TcpKeepalive.IdleSeconds");
-        assert_eq!(
-            refused.keys().collect::<Vec<_>>(),
-            [
-                "Transport.TcpKeepalive.IdleSeconds",
-                "Transport.TcpKeepalive.IntervalSeconds"
-            ]
-        );
-        assert!(refused.is_incoherence());
+        assert_eq!(refused.key(), "Transport.TcpKeepalive.Probe.Retries");
+        assert!(!refused.is_incoherence());
         assert!(!refused.to_string().contains("  "), "{refused}");
         assert!(refused
             .to_string()
-            .starts_with("Transport.TcpKeepalive.IdleSeconds and "));
+            .starts_with("Transport.TcpKeepalive.Probe.Retries is refused"));
     }
 
     #[test]
     fn the_keepalive_options_become_the_socket_configuration() {
-        let config = TcpKeepaliveOptions {
-            idle_seconds: Some(30),
+        let config = TcpKeepalive::Probe(TcpProbe {
+            idle_seconds: 30,
             interval_seconds: Some(5),
             retries: Some(3),
-        }
+        })
         .to_config()
         .expect("admissible");
         assert_eq!(config.keepalive, Some(Duration::from_secs(30)));
         assert_eq!(config.keepalive_interval, Some(Duration::from_secs(5)));
         assert_eq!(config.keepalive_retries, Some(3));
 
-        for refused in [
-            TcpKeepaliveOptions {
-                idle_seconds: Some(-1),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                retries: Some(3),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(30),
-                retries: Some(0),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(32768),
-                ..TcpKeepaliveOptions::default()
-            },
-            TcpKeepaliveOptions {
-                idle_seconds: Some(30),
-                retries: Some(128),
-                ..TcpKeepaliveOptions::default()
-            },
+        let only_idle = TcpKeepalive::Probe(TcpProbe::new(30))
+            .to_config()
+            .expect("admissible");
+        assert_eq!(only_idle.keepalive, Some(Duration::from_secs(30)));
+        assert_eq!(only_idle.keepalive_interval, None);
+        assert_eq!(only_idle.keepalive_retries, None);
+
+        assert_eq!(
+            TcpKeepalive::None.to_config().expect("none"),
+            TcpConfig::default()
+        );
+
+        for (refused, key) in [
+            (TcpProbe::new(0), "IdleSeconds"),
+            (TcpProbe::new(-1), "IdleSeconds"),
+            (TcpProbe::new(32768), "IdleSeconds"),
+            (
+                TcpProbe {
+                    interval_seconds: Some(0),
+                    ..TcpProbe::new(30)
+                },
+                "IntervalSeconds",
+            ),
+            (
+                TcpProbe {
+                    retries: Some(0),
+                    ..TcpProbe::new(30)
+                },
+                "Retries",
+            ),
+            (
+                TcpProbe {
+                    retries: Some(128),
+                    ..TcpProbe::new(30)
+                },
+                "Retries",
+            ),
         ] {
-            assert!(refused.to_config().is_err(), "{refused:?}");
+            let error = TcpKeepalive::Probe(refused.clone())
+                .to_config()
+                .expect_err("out of its bounds");
+            assert_eq!(error.key(), format!("Probe.{key}"), "{refused:?}");
         }
     }
 
-    /// Zero is how a later source turns off what an earlier one set: an option left out leaves
-    /// the earlier value, so "none" has to be a value.
+    /// `None` is how a later source turns off what an earlier one set: an option left out leaves
+    /// the earlier value, so "none" has to be a variant.
     #[test]
-    fn a_zero_turns_off_what_an_earlier_source_set_and_an_absent_option_leaves_it() {
+    fn a_none_turns_off_what_an_earlier_source_set_and_an_absent_option_leaves_it() {
         let earlier = ChannelOptions {
             transport: TransportOptions {
-                tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(30),
+                tcp_keepalive: Some(TcpKeepalive::Probe(TcpProbe {
+                    idle_seconds: 30,
                     interval_seconds: Some(5),
                     retries: Some(3),
-                },
+                })),
                 ..TransportOptions::default()
             },
             http2: Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(10.0)),
-                idle_timeout_seconds: Some(Seconds(300.0)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(10.0)))),
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(4)),
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
         };
-        let zeros = ChannelOptions {
+        let nones = ChannelOptions {
             transport: TransportOptions {
-                tcp_keepalive: TcpKeepaliveOptions {
-                    idle_seconds: Some(0),
-                    ..TcpKeepaliveOptions::default()
-                },
+                tcp_keepalive: Some(TcpKeepalive::None),
                 ..TransportOptions::default()
             },
             http2: Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(0.0)),
-                idle_timeout_seconds: Some(Seconds(0.0)),
+                keep_alive: Some(Http2KeepAlive::None),
+                idle_timeout: Some(Http2IdleTimeout::None),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::FromServer),
                 ..Http2Options::default()
             },
             ..ChannelOptions::default()
         };
 
+        let tcp_of = |options: &ChannelOptions| {
+            options
+                .transport
+                .tcp_keepalive
+                .as_ref()
+                .expect("stated")
+                .to_config()
+                .expect("admissible")
+        };
         let kept = ChannelOptions::default().over(&earlier);
-        let tcp = kept.transport.tcp_keepalive.to_config().expect("kept");
+        let tcp = tcp_of(&kept);
         assert_eq!(tcp.keepalive, Some(Duration::from_secs(30)));
         assert_eq!(tcp.keepalive_interval, Some(Duration::from_secs(5)));
         let http2 = kept.http2.to_config().expect("kept");
         assert_eq!(http2.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(http2.idle_timeout, Some(Duration::from_secs(300)));
+        assert_eq!(http2.simultaneous_calls_per_connection, Some(4));
 
-        let off = zeros.over(&earlier);
-        let tcp = off.transport.tcp_keepalive.to_config().expect("off");
+        let off = nones.over(&earlier);
+        let tcp = tcp_of(&off);
         assert_eq!(
             (tcp.keepalive, tcp.keepalive_interval, tcp.keepalive_retries),
             (None, None, None),
-            "what goes with a keepalive that is off is not read, and not refused"
+            "what an earlier source said of the probes is not read"
         );
         let http2 = off.http2.to_config().expect("off");
         assert_eq!(http2.keep_alive_interval, None);
         assert_eq!(http2.idle_timeout, None);
+        assert_eq!(http2.simultaneous_calls_per_connection, None);
     }
 
-    /// Zero is none for these options and nothing else: a value below what the option admits is
-    /// still refused.
+    /// A value that is stated is checked against what its option admits.
     #[test]
-    fn a_value_between_zero_and_the_least_an_option_admits_is_refused() {
-        assert!(TcpKeepaliveOptions {
-            idle_seconds: Some(-1),
-            ..TcpKeepaliveOptions::default()
-        }
-        .to_config()
-        .is_err());
+    fn a_value_below_what_an_option_admits_is_refused() {
         for options in [
             Http2Options {
-                keep_alive_interval_seconds: Some(Seconds(1e-10)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(1e-10)))),
                 ..Http2Options::default()
             },
             Http2Options {
-                idle_timeout_seconds: Some(Seconds(1e-10)),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(0.0)))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                    timeout_seconds: Some(Seconds(0.0)),
+                    ..Http2Ping::new(Seconds(1.0))
+                })),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(1e-10))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(0.0))),
+                ..Http2Options::default()
+            },
+            Http2Options {
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(0)),
                 ..Http2Options::default()
             },
         ] {
             assert!(options.to_config().is_err(), "{options:?}");
         }
-        assert!(
-            TcpKeepaliveOptions {
-                interval_seconds: Some(5),
-                ..TcpKeepaliveOptions::default()
-            }
-            .to_config()
-            .is_err(),
-            "an interval with no keepalive stated is still refused"
+    }
+
+    /// The keepalive and the idle timeout are alternatives, written and read as such, and a
+    /// probe cannot be stated without its idle time.
+    #[test]
+    fn the_keepalives_are_read_as_alternatives_with_their_mandatory_fields() {
+        let transport = |json: &str| serde_json::from_str::<TransportOptions>(json);
+        assert_eq!(
+            transport(r#"{"TcpKeepalive":"None"}"#)
+                .expect("none")
+                .tcp_keepalive,
+            Some(TcpKeepalive::None)
         );
+        assert_eq!(
+            transport(r#"{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"Retries":3}}}"#)
+                .expect("a probe")
+                .tcp_keepalive,
+            Some(TcpKeepalive::Probe(TcpProbe {
+                retries: Some(3),
+                ..TcpProbe::new(30)
+            }))
+        );
+        for refused in [
+            r#"{"TcpKeepalive":{"Probe":{"IntervalSeconds":5}}}"#,
+            r#"{"TcpKeepalive":{"Probe":{}}}"#,
+            r#"{"TcpKeepalive":"Probe"}"#,
+            r#"{"TcpKeepalive":{"None":true}}"#,
+        ] {
+            assert!(transport(refused).is_err(), "{refused}");
+        }
+
+        let http2 = |json: &str| serde_json::from_str::<Http2Options>(json);
+        assert_eq!(
+            http2(r#"{"KeepAlive":{"Ping":{"IntervalSeconds":10,"WhileIdle":true}}}"#)
+                .expect("a ping")
+                .keep_alive,
+            Some(Http2KeepAlive::Ping(Http2Ping {
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(10.0))
+            }))
+        );
+        assert_eq!(
+            http2(r#"{"IdleTimeout":{"After":300},"SimultaneousCallsPerConnection":{"Limit":1}}"#)
+                .expect("a timeout and a limit"),
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(1)),
+                ..Http2Options::default()
+            }
+        );
+        assert_eq!(
+            http2(r#"{"IdleTimeout":"None","SimultaneousCallsPerConnection":"FromServer"}"#)
+                .expect("the neutral states"),
+            Http2Options {
+                idle_timeout: Some(Http2IdleTimeout::None),
+                simultaneous_calls_per_connection: Some(CallsPerConnection::FromServer),
+                ..Http2Options::default()
+            }
+        );
+        for refused in [
+            r#"{"KeepAlive":{"Ping":{"TimeoutSeconds":2}}}"#,
+            r#"{"KeepAlive":"Ping"}"#,
+            r#"{"IdleTimeout":"After"}"#,
+            r#"{"SimultaneousCallsPerConnection":"Limit"}"#,
+        ] {
+            assert!(http2(refused).is_err(), "{refused}");
+        }
     }
 
     #[test]
@@ -3791,7 +4221,7 @@ mod tests {
             Some(2)
         );
         assert_eq!(
-            config(Some(RetryOptions::None(Chosen))).expect("none"),
+            config(Some(RetryOptions::None)).expect("none"),
             None,
             "None is no policy at all"
         );
@@ -3818,10 +4248,9 @@ mod tests {
         let traffic = |document: &str| read(document).map(|grpc| grpc.outbound_traffic);
 
         let none =
-            traffic(r#"{"OutboundTraffic":{"Retry":{"None":true},"Throttle":{"None":true}}}"#)
-                .expect("none");
-        assert_eq!(none.retry, Some(RetryOptions::None(Chosen)));
-        assert_eq!(none.throttle, Some(ThrottleOptions::None(Chosen)));
+            traffic(r#"{"OutboundTraffic":{"Retry":"None","Throttle":"None"}}"#).expect("none");
+        assert_eq!(none.retry, Some(RetryOptions::None));
+        assert_eq!(none.throttle, Some(ThrottleOptions::None));
         let stated = traffic(
             r#"{"OutboundTraffic":{
                 "Retry":{"ExponentialBackoff":{"MaxAttempts":3,"FailureList":["Dial"]}},
@@ -3854,9 +4283,9 @@ mod tests {
             OutboundTrafficOptions::default()
         );
         for document in [
-            r#"{"OutboundTraffic":{"Retry":{"None":true,"ExponentialBackoff":{}}}}"#,
+            r#"{"OutboundTraffic":{"Retry":{"None":null,"ExponentialBackoff":{}}}}"#,
             r#"{"OutboundTraffic":{"Retry":{"None":false}}}"#,
-            r#"{"OutboundTraffic":{"Throttle":{"None":true,"Adaptive":{}}}}"#,
+            r#"{"OutboundTraffic":{"Throttle":{"None":null,"Adaptive":{}}}}"#,
         ] {
             assert!(read(document).is_err(), "{document}");
         }
@@ -3881,12 +4310,12 @@ mod tests {
             })
         };
         assert_eq!(
-            over(RetryOptions::None(Chosen), attempts(Some(4))),
-            Some(RetryOptions::None(Chosen)),
+            over(RetryOptions::None, attempts(Some(4))),
+            Some(RetryOptions::None),
             "None over ExponentialBackoff replaces it whole"
         );
         assert_eq!(
-            over(attempts(Some(3)), RetryOptions::None(Chosen)),
+            over(attempts(Some(3)), RetryOptions::None),
             Some(attempts(Some(3))),
             "and ExponentialBackoff over None takes nothing of it"
         );
@@ -3950,10 +4379,7 @@ mod tests {
             config(None).expect("the default"),
             Some(AdaptiveConfig::default())
         );
-        assert_eq!(
-            config(Some(ThrottleOptions::None(Chosen))).expect("none"),
-            None
-        );
+        assert_eq!(config(Some(ThrottleOptions::None)).expect("none"), None);
 
         let stated = config(Some(ThrottleOptions::Adaptive(AdaptiveOptions {
             multiplier: Some(3.0),
@@ -4106,12 +4532,12 @@ mod tests {
             })
         };
         assert_eq!(
-            over(ThrottleOptions::None(Chosen), adaptive(Some(3.0), None)),
-            Some(ThrottleOptions::None(Chosen)),
+            over(ThrottleOptions::None, adaptive(Some(3.0), None)),
+            Some(ThrottleOptions::None),
             "None over Adaptive replaces it whole"
         );
         assert_eq!(
-            over(adaptive(Some(4.0), None), ThrottleOptions::None(Chosen)),
+            over(adaptive(Some(4.0), None), ThrottleOptions::None),
             Some(adaptive(Some(4.0), None))
         );
         assert_eq!(
@@ -4124,20 +4550,22 @@ mod tests {
     #[test]
     fn the_http2_options_become_the_session_configuration() {
         let config = Http2Options {
-            keep_alive_interval_seconds: Some(Seconds(10.0)),
-            keep_alive_timeout_seconds: Some(Seconds(2.5)),
-            keep_alive_while_idle: Some(true),
-            idle_timeout_seconds: Some(Seconds(300.0)),
-            simultaneous_calls_per_connection: Some(1),
+            keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                timeout_seconds: Some(Seconds(2.5)),
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(10.0))
+            })),
+            idle_timeout: Some(Http2IdleTimeout::After(Seconds(300.0))),
+            simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(1)),
             send: Http2SendOptions {
                 coalescing_bytes: Some(0),
-                stream_buffer_size: Some(4096),
+                stream_buffer_kib: Some(4),
                 frames_per_write: Some(1),
-                max_header_list_size: Some(8192),
+                header_list_bytes: Some(HeaderListBytes::Max(8192)),
             },
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(1024),
-                connection_window_size: Some(65_535),
+                stream_window_bytes: Some(1024),
+                connection_window_bytes: Some(65_535),
             })),
         }
         .to_config()
@@ -4145,7 +4573,7 @@ mod tests {
         assert_eq!(config.idle_timeout, Some(Duration::from_secs(300)));
         assert_eq!(config.simultaneous_calls_per_connection, Some(1));
         assert_eq!(config.write_coalescing, 0);
-        assert_eq!(config.send_buffer, 4096);
+        assert_eq!(config.send_buffer, 4096, "KiB are counted in bytes");
         assert_eq!(config.max_header_list_size, Some(8192));
         assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(10)));
         assert_eq!(config.keep_alive_timeout, Duration::from_millis(2500));
@@ -4165,14 +4593,14 @@ mod tests {
 
         let refused = Http2Options {
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                connection_window_size: Some(65_534),
+                connection_window_bytes: Some(65_534),
                 ..Http2FixedWindows::default()
             })),
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("below the window every connection starts with");
-        assert_eq!(refused.key(), "Receive.Fixed.ConnectionWindowSize");
+        assert_eq!(refused.key(), "Receive.Fixed.ConnectionWindowBytes");
 
         let refused = Http2Options {
             send: Http2SendOptions {
@@ -4187,33 +4615,65 @@ mod tests {
 
         let refused = Http2Options {
             send: Http2SendOptions {
-                stream_buffer_size: Some(0),
+                stream_buffer_kib: Some(0),
                 ..Http2SendOptions::default()
             },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a buffer that never takes a byte");
-        assert_eq!(refused.key(), "Send.StreamBufferSize");
+        assert_eq!(refused.key(), "Send.StreamBufferKiB");
 
         let refused = Http2Options {
-            simultaneous_calls_per_connection: Some(0),
+            send: Http2SendOptions {
+                stream_buffer_kib: Some(LARGEST_STREAM_BUFFER_KIB + 1),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect_err("a buffer the session cannot count");
+        assert_eq!(refused.key(), "Send.StreamBufferKiB");
+        let largest = Http2Options {
+            send: Http2SendOptions {
+                stream_buffer_kib: Some(LARGEST_STREAM_BUFFER_KIB),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect("the largest buffer");
+        assert_eq!(largest.send_buffer, u32::MAX as usize - 1023);
+
+        let refused = Http2Options {
+            simultaneous_calls_per_connection: Some(CallsPerConnection::Limit(0)),
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a connection that carries no call");
-        assert_eq!(refused.key(), "SimultaneousCallsPerConnection");
+        assert_eq!(refused.key(), "SimultaneousCallsPerConnection.Limit");
 
         let refused = Http2Options {
             send: Http2SendOptions {
-                max_header_list_size: Some(0),
+                header_list_bytes: Some(HeaderListBytes::Max(0)),
                 ..Http2SendOptions::default()
             },
             ..Http2Options::default()
         }
         .to_config()
         .expect_err("a header list no request fits");
-        assert_eq!(refused.key(), "Send.MaxHeaderListSize");
+        assert_eq!(refused.key(), "Send.HeaderListBytes.Max");
+
+        let unbounded = Http2Options {
+            send: Http2SendOptions {
+                header_list_bytes: Some(HeaderListBytes::Unbounded),
+                ..Http2SendOptions::default()
+            },
+            ..Http2Options::default()
+        }
+        .to_config()
+        .expect("no bound");
+        assert_eq!(unbounded.max_header_list_size, None);
 
         for (frames, why) in [(0, "between 1 and"), (257, "between 1 and")] {
             let refused = Http2Options {
@@ -4264,9 +4724,12 @@ mod tests {
                 ..credits(2)
             },
             http2: Http2Options {
-                keep_alive_while_idle: Some(true),
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping {
+                    while_idle: Some(true),
+                    ..Http2Ping::new(Seconds(10.0))
+                })),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                    stream_window_size: Some(70_000),
+                    stream_window_bytes: Some(70_000),
                     ..Http2FixedWindows::default()
                 })),
                 ..Http2Options::default()
@@ -4276,8 +4739,9 @@ mod tests {
         let merged = ChannelOptions {
             grpc: credits(3),
             http2: Http2Options {
+                keep_alive: Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
                 receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                    stream_window_size: Some(80_000),
+                    stream_window_bytes: Some(80_000),
                     ..Http2FixedWindows::default()
                 })),
                 ..Http2Options::default()
@@ -4288,13 +4752,165 @@ mod tests {
 
         assert_eq!(merged.grpc.user_agent.as_deref(), Some("default"));
         assert_eq!(merged.grpc.host.receive.window, Some(3));
-        assert_eq!(merged.http2.keep_alive_while_idle, Some(true));
+        assert_eq!(
+            merged.http2.keep_alive,
+            Some(Http2KeepAlive::Ping(Http2Ping {
+                while_idle: Some(true),
+                ..Http2Ping::new(Seconds(5.0))
+            })),
+            "a ping over a ping merges its fields"
+        );
         assert_eq!(
             merged.http2.receive,
             Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(80_000),
+                stream_window_bytes: Some(80_000),
                 ..Http2FixedWindows::default()
             }))
+        );
+    }
+
+    /// A size in KiB, a bound in bytes and a deadline are read under the names the schema spells,
+    /// the acronym's capital included, and a state is a variant: a key spelled otherwise would be
+    /// read past, and the value never taken.
+    #[test]
+    fn the_sizes_and_the_deadline_are_read_under_their_names_and_merged_as_variants() {
+        let options: ChannelOptions = crate::configuration::Configuration::with_prefix("")
+            .document(
+                r#"{"Grpc":{"Deadline":{"Default":2.5},
+                    "Send":{"MessageSizeKiB":{"Max":2},"Compression":"Zstd"},
+                    "Receive":{"MessageSizeKiB":"Unbounded"}},
+                   "Http2":{"Send":{"StreamBufferKiB":3,"HeaderListBytes":{"Max":8192}}}}"#,
+            )
+            .load()
+            .expect("a document");
+        assert_eq!(options.grpc.deadline, Some(Deadline::Default(Seconds(2.5))));
+        assert_eq!(
+            options.grpc.send.message_size_kib,
+            Some(SendMessageSizeKiB::Max(2))
+        );
+        assert_eq!(options.grpc.send.compression, Some(SendCompression::Zstd));
+        assert_eq!(
+            options.grpc.receive.message_size_kib,
+            Some(ReceiveMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(options.http2.send.stream_buffer_kib, Some(3));
+        assert_eq!(
+            options.http2.send.header_list_bytes,
+            Some(HeaderListBytes::Max(8192))
+        );
+
+        // A later source takes the other variant whole, or the default's where it states none.
+        let none = ChannelOptions {
+            grpc: GrpcOptions {
+                deadline: Some(Deadline::None),
+                send: GrpcSendOptions {
+                    message_size_kib: Some(SendMessageSizeKiB::Unbounded),
+                    compression: Some(SendCompression::None),
+                },
+                ..GrpcOptions::default()
+            },
+            ..ChannelOptions::default()
+        };
+        let over = none.over(&options);
+        assert_eq!(over.grpc.deadline, Some(Deadline::None));
+        assert_eq!(
+            over.grpc.send.message_size_kib,
+            Some(SendMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(over.grpc.send.compression, Some(SendCompression::None));
+        assert_eq!(
+            over.grpc.receive.message_size_kib,
+            Some(ReceiveMessageSizeKiB::Unbounded)
+        );
+        assert_eq!(over.http2.send.stream_buffer_kib, Some(3));
+
+        // A size past what an address holds is the largest one.
+        assert_eq!(
+            SendMessageSizeKiB::Max(i32::MAX).limit().expect("a limit"),
+            Some((i32::MAX as usize).saturating_mul(1024))
+        );
+        assert_eq!(
+            ReceiveMessageSizeKiB::Unbounded.limit().expect("a limit"),
+            usize::MAX
+        );
+        for refused in [
+            r#"{"Deadline":{"Default":"2"}}"#,
+            r#"{"Deadline":"Default"}"#,
+            r#"{"Deadline":{"None":true}}"#,
+            r#"{"Send":{"MessageSizeKiB":"Max"}}"#,
+            r#"{"Send":{"Compression":{"Gzip":true}}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<GrpcOptions>(refused).is_err(),
+                "{refused}"
+            );
+        }
+    }
+
+    /// The memory ceiling is a pair in MiB: read under the schema's spelling, merged field by
+    /// field, converted to bytes, and checked once merged, a hard ceiling below the soft one being
+    /// refused naming both keys.
+    #[test]
+    fn the_memory_ceiling_is_a_pair_of_mib_checked_once_merged() {
+        let read = |json: &str| {
+            crate::configuration::Configuration::with_prefix("")
+                .document(json)
+                .load::<RuntimeOptions>()
+                .expect("a document")
+        };
+        let soft = read(r#"{"MemoryCeiling":{"SoftMiB":8}}"#);
+        let hard = read(r#"{"MemoryCeiling":{"HardMiB":4}}"#);
+        assert_eq!(soft.memory_ceiling.soft_mib, Some(8));
+        assert_eq!(hard.memory_ceiling.hard_mib, Some(4));
+        assert_eq!(soft.memory_ceiling.bytes(), (8 << 20, 0));
+        assert_eq!(hard.memory_ceiling.bytes(), (0, 4 << 20));
+        assert_eq!(
+            MemoryCeilingOptions::default().bytes(),
+            (0, 0),
+            "the library's own"
+        );
+        soft.memory_ceiling.check().expect("a soft ceiling alone");
+        assert_eq!(
+            hard.memory_ceiling
+                .check()
+                .expect_err("under the default")
+                .keys()
+                .collect::<Vec<_>>(),
+            ["MemoryCeiling.SoftMiB", "MemoryCeiling.HardMiB"],
+            "a hard ceiling is held against the soft one's default"
+        );
+
+        let merged = crate::configuration::Document::over(hard.clone(), soft.clone());
+        assert_eq!(merged.memory_ceiling.soft_mib, Some(8));
+        assert_eq!(merged.memory_ceiling.hard_mib, Some(4));
+        let refused = merged.memory_ceiling.check().expect_err("hard below soft");
+        assert!(refused.is_incoherence(), "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .starts_with("MemoryCeiling.SoftMiB and MemoryCeiling.HardMiB are incoherent"),
+            "{refused}"
+        );
+
+        for zero in [
+            r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
+            r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+        ] {
+            let refused = read(zero).memory_ceiling.check().expect_err(zero);
+            assert!(refused.to_string().contains("at least 1"), "{refused}");
+        }
+        let number = crate::configuration::Configuration::with_prefix("")
+            .document(r#"{"MemoryCeiling":1048576}"#)
+            .load::<RuntimeOptions>();
+        assert!(
+            number.is_err(),
+            "a number where a pair is expected is refused"
+        );
+        let unknown = read(r#"{"MemoryHardCeiling":1048576}"#);
+        assert_eq!(
+            unknown,
+            RuntimeOptions::default(),
+            "a key the schema does not know is ignored"
         );
     }
 
@@ -4305,26 +4921,26 @@ mod tests {
         let read = |json: &str| serde_json::from_str::<ChannelOptions>(json);
 
         let sending = read(r#"{"Grpc":{"Send":{"Compression":"Gzip"}}}"#).expect("gzip is named");
-        assert_eq!(sending.grpc.send.compression, Some(MessageEncoding::Gzip));
+        assert_eq!(sending.grpc.send.compression, Some(SendCompression::Gzip));
         assert_eq!(sending.grpc.receive.compression, None);
 
         for (name, encoding, wire) in [
             (
                 "Gzip",
-                MessageEncoding::Gzip,
+                SendCompression::Gzip,
                 Some(crate::grpc::Encoding::Gzip),
             ),
             (
                 "Deflate",
-                MessageEncoding::Deflate,
+                SendCompression::Deflate,
                 Some(crate::grpc::Encoding::Deflate),
             ),
             (
                 "Zstd",
-                MessageEncoding::Zstd,
+                SendCompression::Zstd,
                 Some(crate::grpc::Encoding::Zstd),
             ),
-            ("None", MessageEncoding::None, None),
+            ("None", SendCompression::None, None),
         ] {
             let sends = read(&format!(
                 r#"{{"Grpc":{{"Send":{{"Compression":"{name}"}}}}}}"#
@@ -4340,6 +4956,7 @@ mod tests {
             r#"{"Grpc":{"Send":{"Compression":["Gzip"]}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":"Gzip"}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":["gzip"]}}}"#,
+            r#"{"Grpc":{"Receive":{"Compression":["None"]}}}"#,
             r#"{"Grpc":{"Receive":{"Compression":["Gzip","Brotli"]}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
@@ -4386,18 +5003,18 @@ mod tests {
     #[test]
     fn adaptive_windows_are_an_alternative_to_fixed_ones() {
         let adaptive = Http2Options {
-            receive: Some(Http2ReceiveOptions::Adaptive(Chosen)),
+            receive: Some(Http2ReceiveOptions::Adaptive),
             ..Http2Options::default()
         };
         let fixed = Http2Options {
             receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
-                stream_window_size: Some(70_000),
+                stream_window_bytes: Some(70_000),
                 ..Http2FixedWindows::default()
             })),
             ..Http2Options::default()
         };
         let unstated = Http2Options {
-            keep_alive_while_idle: Some(true),
+            idle_timeout: Some(Http2IdleTimeout::None),
             ..Http2Options::default()
         };
 
@@ -4414,6 +5031,37 @@ mod tests {
         );
     }
 
+    /// A later source returns to the system's roots and to no client certificate over a root and
+    /// a certificate an earlier one named: the neutral states are variants, which an absent key
+    /// could not say.
+    #[test]
+    fn the_system_roots_and_no_certificate_replace_what_an_earlier_source_set() {
+        let earlier: TlsOptions = serde_json::from_str(
+            r#"{"ServerCertificates":{"CaPem":"ca.pem"},"ClientCertificate":{"P12":{"Path":"me.p12"}}}"#,
+        )
+        .expect("an earlier source");
+        let later: TlsOptions =
+            serde_json::from_str(r#"{"ServerCertificates":"System","ClientCertificate":"None"}"#)
+                .expect("a later source");
+        assert_eq!(later.server_certificates, Some(ServerCertificates::System));
+        assert_eq!(later.client_certificate, Some(ClientCertificate::None));
+
+        let merged = later.over(&earlier);
+        assert_eq!(merged.server_certificates, Some(ServerCertificates::System));
+        assert_eq!(merged.client_certificate, Some(ClientCertificate::None));
+        let config = merged.load().expect("nothing to read");
+        assert!(config.roots.is_empty());
+        assert!(!config.accept_any_server);
+        assert!(config.identity.is_none());
+
+        // And what a source leaves out is what the earlier one set.
+        let kept = TlsOptions::default().over(&earlier);
+        assert_eq!(
+            kept.server_certificates,
+            Some(ServerCertificates::CaPem("ca.pem".to_owned()))
+        );
+    }
+
     /// An alternative stated over another is taken whole: nothing of the default's is combined
     /// into it. Beside it, every other option cumulates, the two backoff bounds included.
     #[test]
@@ -4423,9 +5071,10 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaPem("ca.pem".to_owned())),
-                    client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
-                    override_target_name: Some("server".to_owned()),
+                    server_certificates: Some(ServerCertificates::CaPem("ca.pem".to_owned())),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                        "me.p12", None,
+                    ))),
                 },
                 proxy: Some(ProxyOptions::Url(url)),
                 ..TransportOptions::default()
@@ -4447,10 +5096,10 @@ mod tests {
         let merged = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::Unverified(Chosen)),
+                    server_certificates: Some(ServerCertificates::None),
                     ..TlsOptions::default()
                 },
-                proxy: Some(ProxyOptions::None(Chosen)),
+                proxy: Some(ProxyOptions::None),
                 ..TransportOptions::default()
             },
             grpc: GrpcOptions {
@@ -4470,14 +5119,13 @@ mod tests {
         .over(&defaults);
 
         let tls = &merged.transport.tls;
-        assert_eq!(tls.server, Some(ServerVerification::Unverified(Chosen)));
+        assert_eq!(tls.server_certificates, Some(ServerCertificates::None));
         assert_eq!(
-            tls.client,
+            tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
             "the identity is another alternative, which the channel leaves to its default"
         );
-        assert_eq!(tls.override_target_name.as_deref(), Some("server"));
-        assert_eq!(merged.transport.proxy, Some(ProxyOptions::None(Chosen)));
+        assert_eq!(merged.transport.proxy, Some(ProxyOptions::None));
         let Some(RetryOptions::ExponentialBackoff(retry)) = &merged.grpc.outbound_traffic.retry
         else {
             panic!("{:?}", merged.grpc.outbound_traffic.retry);
@@ -4498,8 +5146,8 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaStore(store)),
-                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                    server_certificates: Some(ServerCertificates::CaStore(store)),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                         "default.p12",
                         Some(Password::new("bundle")),
                     ))),
@@ -4517,8 +5165,10 @@ mod tests {
         let merged = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    server: Some(ServerVerification::CaStore(own_store)),
-                    client: Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
+                    server_certificates: Some(ServerCertificates::CaStore(own_store)),
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                        "own.p12", None,
+                    ))),
                     ..TlsOptions::default()
                 },
                 proxy: Some(ProxyOptions::Url(own_url)),
@@ -4537,14 +5187,15 @@ mod tests {
             url.password, None,
             "the default's password is for another proxy"
         );
-        let Some(ServerVerification::CaStore(store)) = &merged.transport.tls.server else {
-            panic!("{:?}", merged.transport.tls.server);
+        let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
+        else {
+            panic!("{:?}", merged.transport.tls.server_certificates);
         };
         assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
         assert_eq!(store.name.as_deref(), Some("Pinned"));
         assert_eq!(store.location, Some(StoreLocation::LocalMachine));
         assert_eq!(
-            merged.transport.tls.client,
+            merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
             "the default's password is for another bundle"
         );
@@ -4560,7 +5211,7 @@ mod tests {
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
-                    client: Some(ClientCertificate::P12(P12Certificate::new(
+                    client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
                         "me.p12",
                         Some(Password::new("bundle")),
                     ))),
@@ -4577,7 +5228,9 @@ mod tests {
             ChannelOptions {
                 transport: TransportOptions {
                     tls: TlsOptions {
-                        client: Some(ClientCertificate::P12(P12Certificate::new("me.p12", None))),
+                        client_certificate: Some(ClientCertificate::P12(P12Certificate::new(
+                            "me.p12", None,
+                        ))),
                         ..TlsOptions::default()
                     },
                     proxy: Some(ProxyOptions::Url(own_url)),
@@ -4604,7 +5257,7 @@ mod tests {
             "another username takes none of the default's password"
         );
         assert_eq!(
-            merged.transport.tls.client,
+            merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new(
                 "me.p12",
                 Some(Password::new("bundle"))

@@ -170,7 +170,7 @@ fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
 fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     let _turn = turn();
     let host = create(
-        r#"{"MemoryCeiling":1048576,"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":4}}}"#,
+        r#"{"MemoryCeiling":{"SoftMiB":1},"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#,
     )
     .expect("a runtime");
 
@@ -186,7 +186,7 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
     assert!(
         record
             .field("channel_defaults")
-            .is_some_and(|defaults| defaults.contains("Some(4)")),
+            .is_some_and(|defaults| defaults.contains("Limit(4)")),
         "{record:#?}"
     );
     assert_eq!(
@@ -274,7 +274,7 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
     // An endpoint with credentials is refused, after its options are logged without them.
     let refused = host.try_channel(
         "http://user:hunter2@127.0.0.1:1",
-        r#"{"Http2":{"SimultaneousCallsPerConnection":7}}"#,
+        r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":7}}}"#,
     );
     assert!(refused.is_err());
     let records = logged();
@@ -286,7 +286,7 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
     assert_eq!(effective[0].field("endpoint"), Some("http://127.0.0.1:1"));
     assert!(effective[0]
         .field("options")
-        .is_some_and(|options| options.contains("Some(7)")));
+        .is_some_and(|options| options.contains("Limit(7)")));
     assert!(records
         .iter()
         .all(|record| !record.text().contains("hunter2")));
@@ -297,8 +297,9 @@ fn a_channel_that_states_options_logs_them_with_its_endpoint_and_one_that_states
 #[test]
 fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own() {
     let _turn = turn();
-    let host = create(r#"{"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":4}}}"#)
-        .expect("a runtime");
+    let host =
+        create(r#"{"ChannelDefaults":{"Http2":{"SimultaneousCallsPerConnection":{"Limit":4}}}}"#)
+            .expect("a runtime");
     LOGS.lock().unwrap_or_else(|held| held.into_inner()).clear();
 
     let inherited = host.channel_with("http://127.0.0.1:1", "{}");
@@ -313,7 +314,7 @@ fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own()
 
     let own = host.channel_with(
         "http://127.0.0.1:1",
-        r#"{"Http2":{"SimultaneousCallsPerConnection":5}}"#,
+        r#"{"Http2":{"SimultaneousCallsPerConnection":{"Limit":5}}}"#,
     );
     let records = logged();
     let effective: Vec<_> = records
@@ -323,7 +324,7 @@ fn a_channel_that_states_nothing_over_runtime_defaults_logs_nothing_of_its_own()
     assert_eq!(effective.len(), 1, "{records:#?}");
     assert!(effective[0]
         .field("options")
-        .is_some_and(|options| options.contains("Some(5)")));
+        .is_some_and(|options| options.contains("Limit(5)")));
     ak_channel_release(own);
     drop(host);
 }
@@ -427,7 +428,7 @@ fn an_ignored_directive_is_reported_whatever_the_filter_selects() {
 #[test]
 fn a_refused_creation_still_delivers_what_its_load_logged_and_nothing_after() {
     let _turn = turn();
-    let Err(refused) = create(r#"{"Unknown":1,"MemoryCeiling":"many"}"#) else {
+    let Err(refused) = create(r#"{"Unknown":1,"MemoryCeiling":{"SoftMiB":"many"}}"#) else {
         panic!("a ceiling that is not a number is admitted");
     };
     assert_eq!(refused.status, ak_status::AK_STATUS_INVALID_ARG);
@@ -731,19 +732,18 @@ const NOT_SECRET: &[&str] = &[
     "Grpc.UserAgent",
     "Transport.Proxy.System.Username",
     "Transport.Proxy.Url.Username",
-    "Transport.Tls.Client.P12.Path",
-    "Transport.Tls.Client.Pem.Certificate",
-    "Transport.Tls.Client.Pem.Key",
-    "Transport.Tls.Client.Store.Find.FriendlyName",
-    "Transport.Tls.Client.Store.Find.SubjectName",
-    "Transport.Tls.Client.Store.Find.Thumbprint",
-    "Transport.Tls.Client.Store.Name",
-    "Transport.Tls.OverrideTargetName",
-    "Transport.Tls.Server.CaPem",
-    "Transport.Tls.Server.CaStore.Find.FriendlyName",
-    "Transport.Tls.Server.CaStore.Find.SubjectName",
-    "Transport.Tls.Server.CaStore.Find.Thumbprint",
-    "Transport.Tls.Server.CaStore.Name",
+    "Transport.Tls.ClientCertificate.P12.Path",
+    "Transport.Tls.ClientCertificate.Pem.Certificate",
+    "Transport.Tls.ClientCertificate.Pem.Key",
+    "Transport.Tls.ClientCertificate.Store.Find.FriendlyName",
+    "Transport.Tls.ClientCertificate.Store.Find.SubjectName",
+    "Transport.Tls.ClientCertificate.Store.Find.Thumbprint",
+    "Transport.Tls.ClientCertificate.Store.Name",
+    "Transport.Tls.ServerCertificates.CaPem",
+    "Transport.Tls.ServerCertificates.CaStore.Find.FriendlyName",
+    "Transport.Tls.ServerCertificates.CaStore.Find.SubjectName",
+    "Transport.Tls.ServerCertificates.CaStore.Find.Thumbprint",
+    "Transport.Tls.ServerCertificates.CaStore.Name",
 ];
 
 /// The canary of the leaf `index`: a URL shaped like the worst case, a password after a user name.

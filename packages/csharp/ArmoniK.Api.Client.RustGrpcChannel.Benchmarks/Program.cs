@@ -242,7 +242,7 @@ public static class Program
                                                   {
                                                     Tls = new TlsOptions
                                                           {
-                                                            Server = new ServerVerification.CaPem(server.Authority),
+                                                            ServerCertificates = new ServerCertificates.CaPem(server.Authority),
                                                           },
                                                   },
                                       Http2 = transport == "native-batch"
