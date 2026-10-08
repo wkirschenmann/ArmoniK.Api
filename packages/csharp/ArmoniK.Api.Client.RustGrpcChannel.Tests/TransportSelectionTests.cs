@@ -212,7 +212,7 @@ public class TransportSelectionTests
                                           },
                                           new GrpcClient()),
                                   Does.Contain(@"""Retry"":{""None"":true}")
-                                      .And.Not.Contain("Adaptive")
+                                      .And.Not.Contain("ExponentialBackoff")
                                       .And.Not.Contain("InitialBackoffSeconds"),
                                   "a channel that states one attempt");
                       Assert.That(Encoded(new GrpcClient
@@ -227,7 +227,7 @@ public class TransportSelectionTests
                                             MaxAttempts = 2,
                                           },
                                           new GrpcClient()),
-                                  Does.Contain(@"""Adaptive"":{""MaxAttempts"":2}"),
+                                  Does.Contain(@"""ExponentialBackoff"":{""MaxAttempts"":2}"),
                                   "two attempts are a retry");
                     });
   }
@@ -525,7 +525,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""IdleSeconds"":30")
                                       .And.Contain(@"""MaxAttempts"":5")
-                                      .And.Contain(@"""Codes"":{""GrpcClient"":true}")
+                                      .And.Contain(@"""FailureList"":[""Status.UNAVAILABLE"",""Status.ABORTED"",""Status.UNKNOWN"",""Dial"",""Connection""]")
                                       .And.Contain(@"""IdleTimeoutSeconds"":300"),
                                   "with no floor, the defaults of GrpcClient are translated");
                     });

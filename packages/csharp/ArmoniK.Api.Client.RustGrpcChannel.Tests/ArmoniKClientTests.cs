@@ -92,7 +92,10 @@ public class ArmoniKClientTests : RuntimeFixture
                                               {
                                                 Grpc = new GrpcOptions
                                                        {
-                                                         Retry = new RetryOptions.None(),
+                                                         OutboundTraffic = new OutboundTrafficOptions
+                                                                           {
+                                                                             Retry = new RetryOptions.None(),
+                                                                           },
                                                        },
                                               });
 

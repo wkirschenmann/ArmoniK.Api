@@ -152,170 +152,217 @@ public class ChannelOptionsTests
                    Throws.TypeOf<ArgumentOutOfRangeException>()
                          .With.Message.Contains("ConnectTimeoutSeconds"));
 
-  private static ChannelOptions Retrying(RetryCodes codes)
+  private static ChannelOptions Retrying(params string[] failures)
     => new()
        {
          Grpc = new GrpcOptions
                 {
-                  Retry = new RetryOptions.Adaptive(Codes: codes),
+                  OutboundTraffic = new OutboundTrafficOptions
+                                    {
+                                      Retry = new RetryOptions.ExponentialBackoff(failures),
+                                    },
                 },
        };
 
-  /// <summary>The retryable statuses are an alternative: a preset names its set, and a list names each status.</summary>
+  /// <summary>The failures a call is retried for are a list of entries, written as they are given.</summary>
   [Test]
-  public void TheRetryCodesAreWrittenAsTheAlternativeThatIsChosen()
+  public void TheRetryFailureListIsWrittenAsTheEntriesItWasGiven()
     => Assert.Multiple(() =>
                        {
-                         Assert.That(Encoded(Retrying(new RetryCodes.GoogleRpc())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""GoogleRpc"":true}}}}}"));
-                         Assert.That(Encoded(Retrying(new RetryCodes.GrpcClient())),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""GrpcClient"":true}}}}}"));
-                         Assert.That(Encoded(Retrying(new RetryCodes.List(new[]
+                         Assert.That(Encoded(Retrying("Status.UNAVAILABLE",
+                                                      "Dial",
+                                                      "Reset.REFUSED_STREAM")),
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""ExponentialBackoff"":{""FailureList"":[""Status.UNAVAILABLE"",""Dial"",""Reset.REFUSED_STREAM""]}}}}}"));
+                         Assert.That(Encoded(Retrying()),
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""ExponentialBackoff"":{""FailureList"":[]}}}}}"),
+                                     "an empty list names nothing, and is written as that");
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Grpc = new GrpcOptions
+                                                      {
+                                                        OutboundTraffic = new OutboundTrafficOptions
                                                                           {
-                                                                            RetryableStatus.UNAVAILABLE,
-                                                                            RetryableStatus.DEADLINE_EXCEEDED,
-                                                                          }))),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""Codes"":{""List"":[""UNAVAILABLE"",""DEADLINE_EXCEEDED""]}}}}}"));
+                                                                            Retry = new RetryOptions.ExponentialBackoff(),
+                                                                          },
+                                                      },
+                                             }),
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""ExponentialBackoff"":{}}}}}"),
+                                     "a list that is not given is left out, to be the engine's default");
                        });
 
-  /// <summary>A list of statuses is a value: equal to one that names the same, and a copy of what it was given.</summary>
+  /// <summary>A list of entries is a value: equal to one that names the same, and a copy of what it was given.</summary>
   [Test]
-  public void AListOfRetryableStatusesIsAValueAndKeepsWhatItWasGiven()
+  public void AListOfFailuresIsAValueAndKeepsWhatItWasGiven()
   {
-    var given = new List<RetryableStatus>
+    var given = new List<string>
                 {
-                  RetryableStatus.ABORTED,
+                  "Status.ABORTED",
                 };
-    var list = new RetryCodes.List(given);
-    given.Add(RetryableStatus.UNKNOWN);
+    var list = new RetryOptions.ExponentialBackoff(given);
+    given.Add("Dial");
 
     Assert.Multiple(() =>
                     {
-                      Assert.That(list.Value,
+                      Assert.That(list.FailureList,
                                   Is.EqualTo(new[]
                                              {
-                                               RetryableStatus.ABORTED,
+                                               "Status.ABORTED",
                                              }),
                                   "the record holds its own copy");
                       Assert.That(list,
-                                  Is.EqualTo(new RetryCodes.List(new[]
-                                                                 {
-                                                                   RetryableStatus.ABORTED,
-                                                                 })));
+                                  Is.EqualTo(new RetryOptions.ExponentialBackoff(new[]
+                                                                                 {
+                                                                                   "Status.ABORTED",
+                                                                                 })));
                       Assert.That(list.GetHashCode(),
-                                  Is.EqualTo(new RetryCodes.List(new[]
-                                                                 {
-                                                                   RetryableStatus.ABORTED,
-                                                                 }).GetHashCode()));
+                                  Is.EqualTo(new RetryOptions.ExponentialBackoff(new[]
+                                                                                 {
+                                                                                   "Status.ABORTED",
+                                                                                 }).GetHashCode()));
                       Assert.That(list,
-                                  Is.Not.EqualTo(new RetryCodes.List(new[]
-                                                                     {
-                                                                       RetryableStatus.UNKNOWN,
-                                                                     })));
+                                  Is.Not.EqualTo(new RetryOptions.ExponentialBackoff(new[]
+                                                                                     {
+                                                                                       "Dial",
+                                                                                     })));
+                      Assert.That(list,
+                                  Is.Not.EqualTo(new RetryOptions.ExponentialBackoff()),
+                                  "a list that was not given is not an empty one");
+                      Assert.That(new RetryOptions.ExponentialBackoff(),
+                                  Is.EqualTo(new RetryOptions.ExponentialBackoff()));
                       Assert.That(list.ToString(),
-                                  Does.Contain("[ABORTED]"));
-                      Assert.That(() => new RetryCodes.List(null!),
-                                  Throws.TypeOf<ArgumentNullException>());
+                                  Does.Contain("[Status.ABORTED]"));
                     });
   }
 
-  /// <summary>No retry is its own alternative, and a retry of one attempt or of no status is refused before it is sent.</summary>
+  /// <summary>No retry is its own alternative, and one that retries nothing but is not it is refused before it is sent.</summary>
   [Test]
-  public void NoRetryIsNoneAndAnAdaptiveRetryThatRetriesNothingIsRefused()
+  public void NoRetryIsNoneAndAnExponentialBackoffOfOneAttemptIsRefused()
     => Assert.Multiple(() =>
                        {
                          Assert.That(Encoded(new ChannelOptions
                                              {
                                                Grpc = new GrpcOptions
                                                       {
-                                                        Retry = new RetryOptions.None(),
+                                                        OutboundTraffic = new OutboundTrafficOptions
+                                                                          {
+                                                                            Retry = new RetryOptions.None(),
+                                                                          },
                                                       },
                                              }),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""None"":true}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""None"":true}}}}"));
                          Assert.That(Encoded(new ChannelOptions
                                              {
                                                Grpc = new GrpcOptions
                                                       {
-                                                        Retry = new RetryOptions.Adaptive(MaxAttempts: 2,
-                                                                                          InitialBackoffSeconds: 0.5),
+                                                        OutboundTraffic = new OutboundTrafficOptions
+                                                                          {
+                                                                            Retry = new RetryOptions.ExponentialBackoff(MaxAttempts: 2,
+                                                                                                                        InitialBackoffSeconds: 0.5),
+                                                                          },
                                                       },
                                              }),
-                                     Is.EqualTo(@"{""Grpc"":{""Retry"":{""Adaptive"":{""MaxAttempts"":2,""InitialBackoffSeconds"":0.5}}}}"));
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Retry"":{""ExponentialBackoff"":{""MaxAttempts"":2,""InitialBackoffSeconds"":0.5}}}}}"));
                          Assert.That(() => new ChannelOptions
                                            {
                                              Grpc = new GrpcOptions
                                                     {
-                                                      Retry = new RetryOptions.Adaptive(MaxAttempts: 1),
+                                                      OutboundTraffic = new OutboundTrafficOptions
+                                                                        {
+                                                                          Retry = new RetryOptions.ExponentialBackoff(MaxAttempts: 1),
+                                                                        },
                                                     },
                                            }.Encode(),
                                      Throws.TypeOf<ArgumentOutOfRangeException>()
                                            .With.Message.Contains("MaxAttempts has to be at least 2"));
                        });
 
-  /// <summary>A list that names no status is refused before it is sent.</summary>
+  /// <summary>The throttle is an alternative: none, or an adaptive estimate over two lists of failures.</summary>
   [Test]
-  public void AnEmptyRetryListIsRefusedBeforeItIsSent()
-    => Assert.That(() => Retrying(new RetryCodes.List(Array.Empty<RetryableStatus>())).Encode(),
-                   Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("at least 1 item"));
-
-  /// <summary>A number that is no status is refused before it is sent.</summary>
-  [Test]
-  public void ARetryListOfAnUndefinedStatusIsRefusedBeforeItIsSent()
-    => Assert.That(() => Retrying(new RetryCodes.List(new[]
+  public void TheThrottleIsNoneOrAdaptiveOverTwoLists()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Grpc = new GrpcOptions
                                                       {
-                                                        (RetryableStatus)99,
-                                                      })).Encode(),
-                   Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains("RetryableStatus"));
+                                                        OutboundTraffic = new OutboundTrafficOptions
+                                                                          {
+                                                                            Throttle = new ThrottleOptions.None(),
+                                                                          },
+                                                      },
+                                             }),
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Throttle"":{""None"":true}}}}"));
+                         Assert.That(Encoded(new ChannelOptions
+                                             {
+                                               Grpc = new GrpcOptions
+                                                      {
+                                                        OutboundTraffic = new OutboundTrafficOptions
+                                                                          {
+                                                                            Throttle = new ThrottleOptions.Adaptive(new[]
+                                                                                                                    {
+                                                                                                                      "Dial",
+                                                                                                                    },
+                                                                                                                    new[]
+                                                                                                                    {
+                                                                                                                      "Pushback",
+                                                                                                                    },
+                                                                                                                    3.0,
+                                                                                                                    FailureAllowance: 0),
+                                                                          },
+                                                      },
+                                             }),
+                                     Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Throttle"":{""Adaptive"":{""TransientList"":[""Dial""],""OverloadList"":[""Pushback""],""Multiplier"":3,""FailureAllowance"":0}}}}}"));
+                         Assert.That(() => new ChannelOptions
+                                           {
+                                             Grpc = new GrpcOptions
+                                                    {
+                                                      OutboundTraffic = new OutboundTrafficOptions
+                                                                        {
+                                                                          Throttle = new ThrottleOptions.Adaptive(Multiplier: 0.5),
+                                                                        },
+                                                    },
+                                           }.Encode(),
+                                     Throws.TypeOf<ArgumentOutOfRangeException>()
+                                           .With.Message.Contains("Multiplier has to be at least 1"));
+                       });
 
-  /// <summary>A rate limit is two options of one group, written under the channel's calls.</summary>
+  /// <summary>What a channel keeps for a replay is two options of one group, in KiB.</summary>
   [Test]
-  public void ARateLimitIsAGroupOfTwoOptions()
+  public void TheReplayIsAGroupOfTwoOptionsInKiB()
     => Assert.That(Encoded(new ChannelOptions
                            {
                              Grpc = new GrpcOptions
                                     {
-                                      Rate = new RateOptions
-                                             {
-                                               Limit = new RateLimitOptions
-                                                       {
-                                                         Calls      = 100,
-                                                         PerSeconds = 0.25,
-                                                       },
-                                             },
+                                      OutboundTraffic = new OutboundTrafficOptions
+                                                        {
+                                                          Replay = new ReplayOptions
+                                                                   {
+                                                                     MaxPerCallKiB    = 2,
+                                                                     MaxPerChannelKiB = 8,
+                                                                   },
+                                                        },
                                     },
                            }),
-                   Is.EqualTo(@"{""Grpc"":{""Rate"":{""Limit"":{""Calls"":100,""PerSeconds"":0.25}}}}"));
+                   Is.EqualTo(@"{""Grpc"":{""OutboundTraffic"":{""Replay"":{""MaxPerCallKiB"":2,""MaxPerChannelKiB"":8}}}}"));
 
-  /// <summary>A rate limit that starts no request is refused before it is sent.</summary>
-  [TestCase(0,
-            1.0,
-            "Calls has to be at least 1",
-            TestName = "{m}(no calls)")]
-  [TestCase(1,
-            0.0,
-            "PerSeconds has to be at least 1E-09",
-            TestName = "{m}(a window that is over as it opens)")]
-  public void ARateLimitThatStartsNoRequestIsRefusedBeforeItIsSent(int    calls,
-                                                                   double perSeconds,
-                                                                   string reason)
+  /// <summary>A replay of less than nothing is refused before it is sent.</summary>
+  [Test]
+  public void AReplayBelowZeroIsRefusedBeforeItIsSent()
     => Assert.That(() => new ChannelOptions
                          {
                            Grpc = new GrpcOptions
                                   {
-                                    Rate = new RateOptions
-                                           {
-                                             Limit = new RateLimitOptions
-                                                     {
-                                                       Calls      = calls,
-                                                       PerSeconds = perSeconds,
-                                                     },
-                                           },
+                                    OutboundTraffic = new OutboundTrafficOptions
+                                                      {
+                                                        Replay = new ReplayOptions
+                                                                 {
+                                                                   MaxPerCallKiB = -1,
+                                                                 },
+                                                      },
                                   },
                          }.Encode(),
                    Throws.TypeOf<ArgumentOutOfRangeException>()
-                         .With.Message.Contains(reason));
+                         .With.Message.Contains("MaxPerCallKiB"));
 
   /// <summary>The size the schema refuses, refused here with the reason.</summary>
   /// <remarks>
