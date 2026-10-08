@@ -417,7 +417,7 @@ public enum Place
       ""description"": ""Which statuses a call is retried for."",
       ""oneOf"": [
         { ""description"": ""Any."", ""type"": ""object"", ""properties"": { ""Any"": { ""const"": true } }, ""additionalProperties"": false, ""required"": [""Any""] },
-        { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } } }, ""additionalProperties"": false, ""required"": [""List""] }
+        { ""description"": ""These."", ""type"": ""object"", ""properties"": { ""List"": { ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" }, ""minItems"": 1 } }, ""additionalProperties"": false, ""required"": [""List""] }
       ]
     },
     ""Status"": {
@@ -445,6 +445,8 @@ public enum Place
                       .And.Contain("writer.WriteStartArray(\"List\");")
                       .And.Contain("writer.WriteStringValue(item.ToString());")
                       .And.Contain("value.Where(item => !Enum.IsDefined(typeof(Status), item))")
+                      .And.Contain("if (value.Count < 1)")
+                      .And.Contain("Value has to name at least 1 item.")
                       .And.Contain("using System.Linq;")
                       .And.Contain("builder.Append(\"[\" + string.Join(\", \", Value) + \"]\");")
                       .And.Contain("  NOT_FOUND,")
@@ -460,7 +462,7 @@ public enum Place
               TestName = "{m}(no items)")]
     public void AnArrayThatIsNotAListOfNamesIsRefused(string list,
                                                       string reason)
-      => Assert.That(async () => await Render(Listed.Replace(@"{ ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" } }",
+      => Assert.That(async () => await Render(Listed.Replace(@"{ ""type"": ""array"", ""items"": { ""$ref"": ""#/$defs/Status"" }, ""minItems"": 1 }",
                                                              list))
                                    .ConfigureAwait(false),
                      Throws.TypeOf<NotSupportedException>()
@@ -837,7 +839,6 @@ public enum Place
                            .With.Message.Contains("Names"));
 
     /// <summary>What bounds a list is not read, so it is reported rather than dropped.</summary>
-    [TestCase("minItems", TestName = "AListBound_MinItems")]
     [TestCase("maxItems", TestName = "AListBound_MaxItems")]
     [TestCase("uniqueItems", TestName = "AListBound_UniqueItems")]
     public void WhatBoundsAListIsReported(string keyword)
@@ -846,6 +847,15 @@ public enum Place
                                 {
                                   keyword,
                                 }));
+
+    /// <summary>The count of a list is checked on the names an alternative holds, and a list property has no check for it.</summary>
+    [Test]
+    public void AListPropertyThatStatesItsCountIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Accepts"": {{ {Documented}""type"": ""array"", ""minItems"": 1, ""items"": {{ ""$ref"": ""#/$defs/Encoding"" }} }}",
+                                                   Encodings))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("minItems"));
 
     /// <summary>What an item states is walked, so an unhandled keyword inside it is named.</summary>
     [Test]

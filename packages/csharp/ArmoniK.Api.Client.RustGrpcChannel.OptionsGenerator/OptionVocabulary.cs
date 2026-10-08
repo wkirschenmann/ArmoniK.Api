@@ -476,6 +476,13 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         throw new NotSupportedException($"`{name}` is a list of something other than the names of an enumeration, which this generator has no property for.");
       }
 
+      // The count of a list this generator checks is that of the names a record holds.
+      if (BoundsOf(property.ReducedPropertyType,
+                   target) is { Count: > 0 } bounds)
+      {
+        throw new NotSupportedException($"`{name}` is a list and states {string.Join(", ", bounds.Select(bound => $"`{bound.Keyword}`"))}, which this generator checks only on the names an alternative holds.");
+      }
+
       var typeName = NameOf(item,
                             false);
       nested.Add((item, typeName));
@@ -492,6 +499,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
     // What an alternative that is a list holds: the names of an enumeration, as `Value`.
     private static Option ReadNames(TypeDeclaration payload,
+                                    TypeDeclaration node,
                                     string description,
                                     string what,
                                     List<(TypeDeclaration Declaration, string Name)> nested)
@@ -521,6 +529,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                Type        = typeName,
                Kind        = OptionKind.EnumerationList,
                Required    = true,
+               Bounds = BoundsOf(node,
+                                 payload),
              };
     }
 
@@ -675,6 +685,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                  Fields = new[]
                           {
                             ReadNames(payload,
+                                      node,
                                       description,
                                       $"{choice}.{name}",
                                       nested),
@@ -879,6 +890,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       "exclusiveMaximum",
       "minLength",
       "maxLength",
+      "minItems",
     };
 
     // Only the keywords the schema actually states: a bound nobody wrote is not a check.
@@ -931,7 +943,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                    JsonElement here,
                                    JsonElement there)
     {
-      var lower = keyword is "minimum" or "exclusiveMinimum" or "minLength";
+      var lower = keyword is "minimum" or "exclusiveMinimum" or "minLength" or "minItems";
 
       var greater = here.TryGetInt64(out var whole) && there.TryGetInt64(out var otherWhole)
                       ? whole > otherWhole
@@ -1138,6 +1150,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                            "format",
                                                            "maxLength",
                                                            "maximum",
+                                                           "minItems",
                                                            "minLength",
                                                            "minimum",
                                                            "readOnly",

@@ -961,22 +961,39 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
           var chain = new string(' ',
                                  "var ".Length + undeclared.Length + " = ".Length + value.Length);
 
-          Lines(source,
-                $$"""
-                  if ({{option.Name}} is { } {{value}})
-                  {
-                    var {{undeclared}} = {{value}}.Where({{item}} => !Enum.IsDefined(typeof({{option.Type}}), {{item}}))
-                    {{chain}}.ToList();
+          var block = new List<string>
+                      {
+                        $"if ({option.Name} is {{ }} {value})",
+                        "{",
+                      };
 
-                    if ({{undeclared}}.Count > 0)
-                    {
-                      throw new ArgumentOutOfRangeException(nameof({{option.Name}}),
-                      {{under}}string.Join(", ",
-                      {{under}}            {{undeclared}}),
-                      {{under}}"{{option.Name}} has to be names {{option.Type}} declares.");
-                    }
-                  }
-                  """);
+          // The count of the names a list holds, which is the one bound a list here states.
+          if (option.Bounds.FirstOrDefault(bound => bound.Keyword == "minItems") is { Keyword: not null } count)
+          {
+            block.Add($"  if ({value}.Count < {count.Literal})");
+            block.Add("  {");
+            block.Add($"    throw new ArgumentOutOfRangeException(nameof({option.Name}),");
+            block.Add($"    {under}{value}.Count,");
+            block.Add($"    {under}\"{option.Name} has to name at least {count.Literal} {(count.Literal == "1" ? "item" : "items")}.\");");
+            block.Add("  }");
+            block.Add(string.Empty);
+          }
+
+          block.Add($"  var {undeclared} = {value}.Where({item} => !Enum.IsDefined(typeof({option.Type}), {item}))");
+          block.Add($"  {chain}.ToList();");
+          block.Add(string.Empty);
+          block.Add($"  if ({undeclared}.Count > 0)");
+          block.Add("  {");
+          block.Add($"    throw new ArgumentOutOfRangeException(nameof({option.Name}),");
+          block.Add($"    {under}string.Join(\", \",");
+          block.Add($"    {under}            {undeclared}),");
+          block.Add($"    {under}\"{option.Name} has to be names {option.Type} declares.\");");
+          block.Add("  }");
+          block.Add("}");
+
+          Lines(source,
+                string.Join("\n",
+                            block));
           continue;
         }
 
