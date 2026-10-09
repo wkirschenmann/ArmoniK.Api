@@ -162,12 +162,22 @@ impl Ledger {
     /// A panic leaves nothing charged and nothing counted: `add_bytes` charges nothing when it
     /// panics, and the count goes back with the panic.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
+        if self.counted(|| self.add_bytes(len)) {
+            Ok(())
+        } else {
+            Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        }
+    }
+
+    /// Counts a charge, then makes it with `charge`, which says whether it was made. A charge
+    /// refused, or one that panics before it moves the bytes, gives its count back.
+    fn counted(&self, charge: impl FnOnce() -> bool) -> bool {
         self.hold();
-        match catch_unwind(AssertUnwindSafe(|| self.add_bytes(len))) {
-            Ok(true) => Ok(()),
+        match catch_unwind(AssertUnwindSafe(charge)) {
+            Ok(true) => true,
             Ok(false) => {
                 self.release();
-                Err(ak_status::AK_STATUS_BUDGET_BUSY)
+                false
             }
             Err(panic) => {
                 self.release();
@@ -228,19 +238,26 @@ impl Ledger {
         true
     }
 
-    // Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
-    // count and then reads the spares', a spare is kept and then the trim reads the charges, so
-    // the second of the two sees both and gives the spares up.
-    //
-    // A panic reaches the caller only before the count moves, which leaves nothing charged: what
-    // follows the step is contained.
     fn add_bytes(&self, len: usize) -> bool {
+        self.add_bytes_up_to(len, self.limit())
+    }
+
+    /// Charges `len` unless that would pass `limit`: the first threshold for a lend, the second
+    /// for a received message.
+    ///
+    /// Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
+    /// count and then reads the spares', a spare is kept and then the trim reads the charges, so
+    /// the second of the two sees both and gives the spares up.
+    ///
+    /// A panic reaches the caller only before the count moves, which leaves nothing charged: what
+    /// follows the step is contained.
+    fn add_bytes_up_to(&self, len: usize, limit: u64) -> bool {
         at!(at_charge_step, ChargeStep::Begun);
         let mut seen = self.bytes.load(Ordering::SeqCst);
         loop {
             let Some(wanted) = seen
                 .checked_add(len as u64)
-                .filter(|wanted| *wanted <= self.limit())
+                .filter(|wanted| *wanted <= limit)
             else {
                 return false;
             };
@@ -335,32 +352,15 @@ impl Ledger {
 
     /// Charges a decoded message, unless it would take the count past the second threshold.
     /// Counted like a lend, so a shutdown waits for it.
+    ///
+    /// A panic reaches the caller only before the charge moves, with nothing charged and nothing
+    /// counted: what follows the move is contained, and the message is held.
     pub(crate) fn hold_received(self: &Arc<Self>, len: usize) -> Option<Received> {
-        self.hold();
-
-        let mut seen = self.bytes.load(Ordering::SeqCst);
-        loop {
-            let Some(wanted) = seen
-                .checked_add(len as u64)
-                .filter(|wanted| *wanted <= self.hard_limit())
-            else {
-                self.release();
-                return None;
-            };
-            match self
-                .bytes
-                .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
-            {
-                Ok(_) => {
-                    self.trim_spares();
-                    return Some(Received {
-                        ledger: Arc::clone(self),
-                        len,
-                    });
-                }
-                Err(current) => seen = current,
-            }
-        }
+        self.counted(|| self.add_bytes_up_to(len, self.hard_limit()))
+            .then(|| Received {
+                ledger: Arc::clone(self),
+                len,
+            })
     }
 
     /// A send refused for room waits on `len`, which holds reads back until it is served.
