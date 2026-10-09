@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
@@ -157,13 +158,21 @@ impl Ledger {
     /// `empty` is what decides whether the shutdown owes RESOURCES_RELEASED and whether it waits
     /// for the host to give anything back. Answered wrongly there, the runtime reports QUIESCENT
     /// with a buffer still lent, which is the one thing that state is promised not to mean.
+    ///
+    /// A panic leaves nothing charged and nothing counted: `add_bytes` charges nothing when it
+    /// panics, and the count goes back with the panic.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
         self.hold();
-        if self.add_bytes(len) {
-            Ok(())
-        } else {
-            self.release();
-            Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        match catch_unwind(AssertUnwindSafe(|| self.add_bytes(len))) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.release();
+                Err(ak_status::AK_STATUS_BUDGET_BUSY)
+            }
+            Err(panic) => {
+                self.release();
+                resume_unwind(panic)
+            }
         }
     }
 

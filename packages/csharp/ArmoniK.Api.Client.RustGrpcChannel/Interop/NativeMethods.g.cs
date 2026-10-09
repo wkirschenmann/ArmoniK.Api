@@ -303,7 +303,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
         ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
         ///  message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
-        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
+        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
+        ///  library contains, which can only come before the host holds the buffer: the lend is refused as
+        ///  any other, with nothing charged, no slot of the window spent and the call's one buffer free, so
+        ///  the host may ask again. A call that is over, or whose
         ///  cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
         ///  declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
         ///  SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.

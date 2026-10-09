@@ -358,14 +358,17 @@ lend's, made by a host that holds nothing, and one that holds a buffer while it 
 others wait for. A host that waits gives the buffer back and lends the new length.
 `ak_call_debt_of` counts one buffer lent before, during and after an exchange.
 
-A panic the library contains in `ak_call_send_message` or `ak_resize_call_buffer` is answered by
-what the operation had done when it happened, and the buffer is as that answer says:
+A panic the library contains in `ak_get_call_buffer`, `ak_call_send_message` or
+`ak_resize_call_buffer` is answered by what the operation had done when it happened, and the
+buffer is as that answer says:
 
-- Before the buffer is used up - for a commit, before its arena is taken to be the message; for a
-  resize, before the exchange is made, which includes the ceiling's charge, moved in one step or
-  not at all - the answer is `AK_STATUS_INTERNAL`, a refusal like an
-  allocator failure. The buffer stays lent, charged and the host's, and `*out` as it was, so the
-  host may retry or give the buffer back.
+- Before the buffer is used up - for a lend, before the host holds it; for a commit, before its
+  arena is taken to be the message; for a resize, before the exchange is made, which includes the
+  ceiling's charge, moved in one step or not at all - the answer is `AK_STATUS_INTERNAL`, a
+  refusal like an allocator failure. A buffer the host held stays lent, charged and the host's,
+  and `*out` as it was, so the host may retry or give the buffer back. A lend that was refused
+  holds nothing: nothing is charged, no slot of the window is spent, the call's one buffer is
+  free and `*out` is untouched, so the host may ask again.
 - Once the operation is made - the message queued, or on a one-request call given; the exchange
   made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
 - Between the two, where the buffer is gone and the operation was not made - a commit whose arena
@@ -378,7 +381,10 @@ it reads the bytes after the end of the buffer treats the buffer as an overrun, 
 being freed, with the runtime shutting down.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
-refused as the others are - nothing charged, no slot spent - while the runtime carries on.
+refused as the others are - nothing charged, no slot spent - while the runtime carries on. A
+refused lend, whether for an allocator failure or a panic, pays what it took part by part,
+whatever a panic in one part does to the others, so a runtime whose lend was refused still reaches
+`QUIESCENT` with nothing owed and no byte charged.
 
 A lend refused with `AK_STATUS_BUDGET_BUSY` leaves the call waiting on that length until a lend
 of it succeeds or the call ends, and every release that gives bytes back meanwhile owes the call
