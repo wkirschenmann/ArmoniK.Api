@@ -1,5 +1,14 @@
 #![allow(non_camel_case_types)]
 
+// A point a test hooks to make the code panic there: nothing without the test hooks. Defined before
+// the modules, which is what makes it visible in them.
+macro_rules! at {
+    ($hook:ident, $($step:tt)+) => {
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::$hook(crate::hooks::$($step)+);
+    };
+}
+
 mod abi;
 mod blob;
 mod call;
@@ -594,21 +603,27 @@ pub unsafe extern "C" fn ak_call_send_message(
             return done(found.commit_empty());
         }
         let mut lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
+        at!(at_send_step, SendStep::Taken);
         // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
         if lent.seal(written).is_err() {
-            Arc::clone(lent.call()).overrun(lent);
+            Arc::clone(lent.call()).overrun(lent.into_box());
             return Err(OVERRUN);
         }
+        at!(at_send_step, SendStep::Sealed);
         let Some(found) = tables::calls().get(call) else {
-            return done(call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE));
+            return done(lent.keep(ak_status::AK_STATUS_HANDLE_STALE));
         };
         // The buffer names its own call, so a handle that names another one is the host's
         // mistake and not this library's to resolve.
         if !Arc::ptr_eq(lent.call(), &found) {
-            call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
+            lent.keep(ak_status::AK_STATUS_INVALID_ARG);
             return Err(ANOTHER_CALLS_BUFFER);
         }
-        done(found.commit(lent))
+        at!(at_send_step, SendStep::Resolved);
+        match found.commit(lent) {
+            ak_status::AK_STATUS_CORRUPTED => Err(LOST_TO_A_PANIC),
+            status => done(status),
+        }
     });
     unsafe { refusal::answer(out_error, answered) }
 }
@@ -623,6 +638,12 @@ const OVERRUN: Refusal = Refusal::fixed(
     ak_error_kind::AK_ERROR_USAGE,
     "the buffer was written past its end, or committed longer than it was lent: memory may be \
      corrupted, and the runtime is shutting down",
+);
+const LOST_TO_A_PANIC: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_CORRUPTED,
+    ak_error_kind::AK_ERROR_NONE,
+    "this library panicked after it took the buffer for the message: the buffer is gone, and the \
+     runtime is shutting down",
 );
 const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
@@ -647,11 +668,7 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return;
         };
-        if lent.intact() {
-            Arc::clone(lent.call()).give_back(lent);
-        } else {
-            Arc::clone(lent.call()).overrun(lent);
-        }
+        Arc::clone(lent.call()).return_buffer(lent);
     });
 }
 

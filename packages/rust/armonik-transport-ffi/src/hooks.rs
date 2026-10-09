@@ -11,7 +11,39 @@ pub type Hook = Arc<dyn Fn() + Send + Sync>;
 /// What a step hook runs, told the step an entry point has reached.
 pub type StepHook<S = ResizeStep> = Arc<dyn Fn(S) + Send + Sync>;
 
-/// The parts of the debt of a buffer an overrun takes back, paid in this order.
+/// The points of an `ak_call_send_message` after it has taken the buffer from the host, in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendStep {
+    /// The buffer is taken and nothing is checked.
+    Taken,
+    /// The bytes the host says it wrote are within what was lent, and the sentinel is intact.
+    Sealed,
+    /// The call the handle names is the buffer's own.
+    Resolved,
+    /// The call admits the message and, on a stream, has room in its queue, and the buffer is
+    /// still the host's. An empty message on a stream takes no buffer and does not reach this.
+    Admitted,
+    /// On a call that sends one request: the sending is ended, nothing is given yet, and the
+    /// buffer is still the host's.
+    Ending,
+    /// The buffer's arena is taken to be the message: nothing of the host's buffer is left, and
+    /// nothing is queued.
+    Framing,
+    /// The message is queued, and what is left is its accounting and telling whoever waits.
+    Queued,
+    /// On a call that sends one request: the request is given, and only the task is left to spawn.
+    Spawning,
+}
+
+/// The points of an `ak_return_call_buffer` after it has taken the buffer from the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReturnStep {
+    /// The buffer is taken and its sentinel not yet read.
+    Taken,
+}
+
+/// The parts of the debt of a buffer that is over for the host, paid in this order, whether it is
+/// given back, taken back as an overrun, lost to a panic, or sent as a one-request call's message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepayStep {
     /// Nothing is paid.
@@ -43,6 +75,8 @@ pub enum ResizeStep {
 
 static BEFORE_COPY_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static RESIZE_STEP: Mutex<Option<StepHook>> = Mutex::new(None);
+static SEND_STEP: Mutex<Option<StepHook<SendStep>>> = Mutex::new(None);
+static RETURN_STEP: Mutex<Option<StepHook<ReturnStep>>> = Mutex::new(None);
 static REPAY_STEP: Mutex<Option<StepHook<RepayStep>>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
@@ -130,8 +164,19 @@ pub fn channel_thread_ending(hook: Option<Hook>) {
         .unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
-/// Runs `hook` at each step of the payment of every overrun, which a test makes panic to see that
-/// the debt is paid whatever a step does. `None` removes it.
+/// Runs `hook` at each step of every send of a buffer, which a test makes panic to see what a
+/// panic leaves. `None` removes it.
+pub fn at_each_send_step(hook: Option<StepHook<SendStep>>) {
+    *SEND_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` at each step of every return of a buffer. `None` removes it.
+pub fn at_each_return_step(hook: Option<StepHook<ReturnStep>>) {
+    *RETURN_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` at each step of the payment of every buffer that is over for the host, which a test
+/// makes panic to see that the debt is paid whatever a step does. `None` removes it.
 pub fn at_each_repay_step(hook: Option<StepHook<RepayStep>>) {
     *REPAY_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
@@ -150,6 +195,14 @@ pub(crate) fn run_before_copy_charge() {
 
 pub(crate) fn at_resize_step(step: ResizeStep) {
     reach(&RESIZE_STEP, step);
+}
+
+pub(crate) fn at_send_step(step: SendStep) {
+    reach(&SEND_STEP, step);
+}
+
+pub(crate) fn at_return_step(step: ReturnStep) {
+    reach(&RETURN_STEP, step);
 }
 
 pub(crate) fn at_repay_step(step: RepayStep) {

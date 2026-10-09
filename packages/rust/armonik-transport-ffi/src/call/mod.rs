@@ -1,6 +1,5 @@
 use std::ffi::c_void;
-use std::mem::ManuallyDrop;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -12,14 +11,6 @@ use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
 use crate::ledger::{Ledger, Waiter};
 
-/// A point a test hooks to make the code panic there. Nothing without the test hooks.
-macro_rules! at {
-    ($hook:ident, $($step:tt)+) => {
-        #[cfg(feature = "test-hooks")]
-        crate::hooks::$hook(crate::hooks::$($step)+);
-    };
-}
-
 mod actor;
 mod lent;
 mod start;
@@ -27,7 +18,7 @@ mod turn;
 
 pub(crate) use lent::HEADROOM;
 use lent::{arena, slack, LENT_TAG};
-pub(crate) use lent::{keep, take_lent, take_payload, Lent};
+pub(crate) use lent::{take_lent, take_payload, Lent, Taken};
 pub(crate) use start::{start_on, Shape};
 use turn::ReadTurn;
 
@@ -356,39 +347,36 @@ impl CallState {
     /// old buffer's and stay so, which is why none of the handshakes `lend` makes with the
     /// terminal is made again.
     ///
-    /// A panic leaves the buffer as a refusal does. The box stays the host's until the exchange is
-    /// done, so an unwind leaks it back to the host instead of freeing it: it is the same
+    /// A panic leaves the buffer as a refusal does. The buffer stays the host's until the exchange
+    /// is done, so an unwind leaks it back to the host instead of freeing it: it is the same
     /// allocation at the same address, and `exchange` changes nothing of it until its last step.
     pub(crate) fn resize(
         self: &Arc<Self>,
-        lent: Box<Lent>,
+        mut lent: Taken,
         new_len: usize,
         carried: usize,
     ) -> Result<ak_buffer, ak_status> {
-        let mut lent = ManuallyDrop::new(lent);
-        #[cfg(feature = "test-hooks")]
-        crate::hooks::at_resize_step(crate::hooks::ResizeStep::Taken);
+        at!(at_resize_step, ResizeStep::Taken);
         // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
         if carried > lent.len || !lent.intact() {
             // The box is gone whatever happens next, so the answer is CORRUPTED whatever a panic
             // in taking it back does: INTERNAL would invite a retry on an owner that no longer
             // exists.
-            self.overrun(ManuallyDrop::into_inner(lent));
+            self.overrun(lent.into_box());
             return Err(ak_status::AK_STATUS_CORRUPTED);
         }
         let outcome = self.admits_buffer(new_len).and_then(|()| {
-            #[cfg(feature = "test-hooks")]
-            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Admitted);
+            at!(at_resize_step, ResizeStep::Admitted);
             self.exchange(&mut lent, new_len, carried)
         });
         if let Err(status) = outcome {
-            return Err(keep(ManuallyDrop::into_inner(lent), status));
+            return Err(lent.keep(status));
         }
         let ptr = lent.lent_ptr();
         Ok(ak_buffer {
             ptr,
             len: new_len,
-            owner: Box::into_raw(ManuallyDrop::into_inner(lent)) as *mut c_void,
+            owner: lent.into_owner(),
         })
     }
 
@@ -404,14 +392,11 @@ impl CallState {
         }
         let spares = &self.channel.spares;
         let mut data = arena(HEADROOM, new_len, Some(spares))?;
+        at!(at_resize_step, ResizeStep::Allocated);
         #[cfg(feature = "test-hooks")]
-        {
-            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Allocated);
-            crate::hooks::run_before_charge();
-        }
+        crate::hooks::run_before_charge();
         lent.carry_over(&mut data, new_len, carried);
-        #[cfg(feature = "test-hooks")]
-        crate::hooks::at_resize_step(crate::hooks::ResizeStep::Copied);
+        at!(at_resize_step, ResizeStep::Copied);
         let mut charged = new_len + slack(&data, HEADROOM, new_len);
         if !self.ledger.recharge(lent.charged, charged) {
             // The slack of a spare may have no room beside the request: an arena of its own is
@@ -422,8 +407,7 @@ impl CallState {
             drop(spares.returning(data));
             data = arena(HEADROOM, new_len, None)?;
             lent.carry_over(&mut data, new_len, carried);
-            #[cfg(feature = "test-hooks")]
-            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Copied);
+            at!(at_resize_step, ResizeStep::Copied);
             charged = new_len;
             if !self.ledger.recharge(lent.charged, charged) {
                 return Err(ak_status::AK_STATUS_BUDGET_BUSY);
@@ -440,17 +424,6 @@ impl CallState {
         Ok(())
     }
 
-    fn took_back(&self, len: usize) {
-        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
-        self.ledger.release_bytes(len);
-        self.moved_on();
-    }
-
-    fn handed_over(&self) {
-        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
-        self.moved_on();
-    }
-
     fn payload_returned(&self, returns_credit: bool) {
         if returns_credit {
             self.credits.add_permits(1);
@@ -460,34 +433,54 @@ impl CallState {
         self.moved_on();
     }
 
-    pub(crate) fn commit(self: &Arc<Self>, lent: Box<Lent>) -> ak_status {
+    /// Commits a lent buffer as the next message. A refusal leaves the buffer lent and the host's,
+    /// and so does a panic until the arena is taken to be the message: that is the point of no
+    /// return, after which the host's buffer is gone and a panic answers CORRUPTED. Once the
+    /// message is queued nothing undoes it, and a panic in what is left answers OK.
+    pub(crate) fn commit(self: &Arc<Self>, lent: Taken) -> ak_status {
         let commands = match &self.requests {
             Requests::One(request) => return self.commit_one(request, Some(lent)),
             Requests::Stream(commands) => commands,
         };
         let Some(_queueing) = Queueing::enter(&self.sending) else {
-            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
+            return lent.keep(ak_status::AK_STATUS_INVALID_STATE);
         };
         #[cfg(feature = "test-hooks")]
         crate::hooks::run_before_queueing();
 
         if !self.accepts_work() {
-            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
+            return lent.keep(ak_status::AK_STATUS_INVALID_STATE);
         }
 
         let Ok(slot) = commands.try_reserve() else {
-            return keep(lent, ak_status::AK_STATUS_INVALID_STATE);
+            return lent.keep(ak_status::AK_STATUS_INVALID_STATE);
         };
-        self.handed_over();
-        slot.send(Command::Send {
-            charged: lent.charged,
-            message: self
-                .channel
-                .spares
-                .framed(lent.data)
-                .expect("lent with its prefix ahead"),
+        at!(at_send_step, SendStep::Admitted);
+        let charged = lent.charged;
+        let Ok(message) = catch_unwind(AssertUnwindSafe(|| self.frame(lent))) else {
+            self.forfeit(charged);
+            return ak_status::AK_STATUS_CORRUPTED;
+        };
+        // Counted before the message is queued: its WRITE_DONE may let the host ask for a buffer
+        // from inside the callback, which the one buffer a call holds would refuse.
+        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
+        slot.send(Command::Send { message, charged });
+        contained(|| {
+            at!(at_send_step, SendStep::Queued);
         });
+        contained(|| self.moved_on());
         ak_status::AK_STATUS_OK
+    }
+
+    /// The message a lent buffer's arena becomes, framed in place. The host's buffer is consumed:
+    /// a panic leaves nothing of it.
+    fn frame(&self, lent: Taken) -> FramedMessage {
+        let lent = lent.into_box();
+        at!(at_send_step, SendStep::Framing);
+        self.channel
+            .spares
+            .framed(lent.data)
+            .expect("lent with its prefix ahead")
     }
 
     /// Queues an empty message, which no buffer carries.
@@ -526,47 +519,86 @@ impl CallState {
     /// a WRITE_DONE settles a stream's send, and with no acquittal: the host gave up its only
     /// buffer, and its slot and its bytes go back now. The task is spawned here unless something
     /// needed it earlier, in which case it takes the request from the slot.
-    fn commit_one(self: &Arc<Self>, request: &OneRequest, lent: Option<Box<Lent>>) -> ak_status {
-        let refused = |lent: Option<Box<Lent>>| match lent {
-            Some(lent) => keep(lent, ak_status::AK_STATUS_INVALID_STATE),
+    ///
+    /// The point of no return is as the stream's commit has it: the buffer is the host's until the
+    /// arena is taken to be the message, and the request, once given, is made whatever a panic in
+    /// its accounting does.
+    fn commit_one(self: &Arc<Self>, request: &OneRequest, lent: Option<Taken>) -> ak_status {
+        let refused = |lent: Option<Taken>| match lent {
+            Some(lent) => lent.keep(ak_status::AK_STATUS_INVALID_STATE),
             None => ak_status::AK_STATUS_INVALID_STATE,
         };
-        if !self.accepts_work()
-            || self
-                .sending
-                .compare_exchange(0, SENDING_ENDED, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
+        if !self.accepts_work() {
+            return refused(lent);
+        }
+        at!(at_send_step, SendStep::Admitted);
+        if self
+            .sending
+            .compare_exchange(0, SENDING_ENDED, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
         {
             return refused(lent);
         }
 
         let charged = lent.as_ref().map(|lent| lent.charged);
         let mut lent = lent;
-        let given = request.give(|| match lent.take() {
-            Some(lent) => self
-                .channel
-                .spares
-                .framed(lent.data)
-                .expect("lent with its prefix ahead"),
-            None => FramedMessage::empty(),
-        });
+        let given = catch_unwind(AssertUnwindSafe(|| {
+            at!(at_send_step, SendStep::Ending);
+            request.give(|| match lent.take() {
+                Some(lent) => self.frame(lent),
+                None => FramedMessage::empty(),
+            })
+        }));
+        let given = match given {
+            Ok(given) => given,
+            Err(panic) => {
+                // The arena was taken and the request is not given: the buffer is gone.
+                if let (Some(charged), None) = (charged, &lent) {
+                    self.forfeit(charged);
+                    return ak_status::AK_STATUS_CORRUPTED;
+                }
+                // Nothing was taken or given: the sending the claim above ended is open again.
+                self.sending.store(0, Ordering::Release);
+                resume_unwind(panic);
+            }
+        };
         if !given {
             return refused(lent);
         }
 
+        // The request is given: each part of what is left is made whatever another does.
+        contained(|| {
+            at!(at_send_step, SendStep::Queued);
+        });
         if let Some(charged) = charged {
-            self.handed_over();
-            self.window.add_permits(1);
-            self.ledger.release_bytes(charged);
+            self.repay(charged);
         }
-        self.spawn_task();
+        // A task that is not spawned is a call that never ends: the shutdown is what is left.
+        if catch_unwind(AssertUnwindSafe(|| {
+            at!(at_send_step, SendStep::Spawning);
+            self.spawn_task();
+        }))
+        .is_err()
+        {
+            self.shut_down();
+        }
         ak_status::AK_STATUS_OK
     }
 
-    #[allow(clippy::boxed_local)]
-    pub(crate) fn give_back(&self, lent: Box<Lent>) {
-        self.took_back(lent.charged);
-        self.window.add_permits(1);
+    /// Takes back a buffer the host gives back, which a panic cannot refuse: the host has nothing
+    /// to retry, so its debt is paid whatever a panic meets. A panic while the bytes after the
+    /// buffer are read leaves it unknown whether the memory is sound, which an overrun answers.
+    pub(crate) fn return_buffer(&self, lent: Taken) {
+        let intact = catch_unwind(AssertUnwindSafe(|| {
+            at!(at_return_step, ReturnStep::Taken);
+            lent.intact()
+        }));
+        let lent = lent.into_box();
+        if let Ok(true) = intact {
+            self.repay(lent.charged);
+        } else {
+            self.overrun(lent);
+        }
     }
 
     /// Takes back a buffer the host overran, without freeing it, and shuts the runtime down: the
@@ -576,8 +608,18 @@ impl CallState {
     /// CORRUPTED whatever happens here.
     pub(crate) fn overrun(&self, lent: Box<Lent>) {
         let (_, charged) = lent.abandon();
-        // The debt is paid, so the shutdown can complete.
+        self.forfeit(charged);
+    }
+
+    /// Ends a lend the host has no part in any more and cannot give back, and shuts the runtime
+    /// down, since what took it is not to be trusted. The debt is paid, so the shutdown can
+    /// complete.
+    fn forfeit(&self, charged: usize) {
         self.repay(charged);
+        self.shut_down();
+    }
+
+    fn shut_down(&self) {
         contained(|| {
             if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
                 crate::lifecycle::begin_shutdown(&runtime);
