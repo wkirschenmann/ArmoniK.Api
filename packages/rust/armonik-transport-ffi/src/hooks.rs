@@ -42,8 +42,39 @@ pub enum ReturnStep {
     Taken,
 }
 
+/// The points of an `ak_get_call_buffer` after it has claimed the call's one buffer, in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LendStep {
+    /// The call's one buffer is claimed and nothing is checked.
+    Claimed,
+    /// The call admits a buffer of this length and no slot of the window is taken.
+    Admitted,
+    /// The slot of the window is taken and nothing is charged.
+    Windowed,
+    /// The bytes asked for are charged and counted, and nothing backs them.
+    Charged,
+    /// The arena is in hand, a spare of the channel's or a new one. Reached again when the slack
+    /// of a spare had no room beside the request and an arena of its own is made.
+    Allocated,
+    /// The charge covers the arena, slack included, and only the buffer is left to build.
+    Backed,
+    /// The buffer is built and the host does not hold it yet.
+    Built,
+}
+
+/// The points of a charge the ledger makes or changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChargeStep {
+    /// Nothing is charged yet.
+    Begun,
+    /// The charge is moved, and what is left is giving up the spares it needs the room of, or
+    /// telling whoever waits for room.
+    Moved,
+}
+
 /// The parts of the debt of a buffer that is over for the host, paid in this order, whether it is
-/// given back, taken back as an overrun, lost to a panic, or sent as a one-request call's message.
+/// given back, taken back as an overrun, lost to a panic, refused as a lend, or sent as a
+/// one-request call's message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepayStep {
     /// Nothing is paid.
@@ -75,6 +106,8 @@ pub enum ResizeStep {
 
 static BEFORE_COPY_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static RESIZE_STEP: Mutex<Option<StepHook>> = Mutex::new(None);
+static LEND_STEP: Mutex<Option<StepHook<LendStep>>> = Mutex::new(None);
+static CHARGE_STEP: Mutex<Option<StepHook<ChargeStep>>> = Mutex::new(None);
 static SEND_STEP: Mutex<Option<StepHook<SendStep>>> = Mutex::new(None);
 static RETURN_STEP: Mutex<Option<StepHook<ReturnStep>>> = Mutex::new(None);
 static REPAY_STEP: Mutex<Option<StepHook<RepayStep>>> = Mutex::new(None);
@@ -148,6 +181,18 @@ pub fn at_each_resize_step(hook: Option<StepHook>) {
     *RESIZE_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
+/// Runs `hook` at each step of every lend of a buffer, which a test makes panic to see what a
+/// panic leaves. `None` removes it.
+pub fn at_each_lend_step(hook: Option<StepHook<LendStep>>) {
+    *LEND_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` at each step of every charge of bytes the ledger makes,
+/// which a test makes panic to see that a charge is either made or not. `None` removes it.
+pub fn at_each_charge_step(hook: Option<StepHook<ChargeStep>>) {
+    *CHARGE_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
 /// Runs `hook` in every send that has counted itself in, just before it looks at the call and
 /// queues its command. `None` removes it.
 pub fn before_queueing(hook: Option<Hook>) {
@@ -195,6 +240,14 @@ pub(crate) fn run_before_copy_charge() {
 
 pub(crate) fn at_resize_step(step: ResizeStep) {
     reach(&RESIZE_STEP, step);
+}
+
+pub(crate) fn at_lend_step(step: LendStep) {
+    reach(&LEND_STEP, step);
+}
+
+pub(crate) fn at_charge_step(step: ChargeStep) {
+    reach(&CHARGE_STEP, step);
 }
 
 pub(crate) fn at_send_step(step: SendStep) {

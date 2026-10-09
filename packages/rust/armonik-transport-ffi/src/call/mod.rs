@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, watch, Semaphore};
 
 use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
 use crate::channel::AkChannel;
+use crate::guard_void;
 use crate::host::{Host, HostPtr};
 use crate::ledger::{Ledger, Waiter};
 
@@ -124,9 +125,45 @@ pub(crate) struct CallState {
     channel: Arc<AkChannel>,
 }
 
-/// Runs a step whose panic is not to stop the steps after it.
-fn contained(step: impl FnOnce()) {
-    let _ = catch_unwind(AssertUnwindSafe(step));
+/// What a lend owes the call and the ledger, beside its claim of the call's one buffer.
+#[derive(Clone, Copy)]
+struct Owed {
+    /// The bytes it charged and counted in the ledger, once it has.
+    bytes: Option<usize>,
+    /// The slot of the send window it spent.
+    slot: bool,
+}
+
+impl Owed {
+    /// A claim of the call's one buffer, and nothing else yet.
+    fn claim() -> Self {
+        Self {
+            bytes: None,
+            slot: false,
+        }
+    }
+
+    /// A lend that has everything, charged `charged` bytes.
+    fn lent(charged: usize) -> Self {
+        Self {
+            bytes: Some(charged),
+            slot: true,
+        }
+    }
+}
+
+/// A lend that the host does not hold the buffer of yet, which pays what it owes when it is
+/// dropped: a refusal drops it, and so does an unwind. `CallState::lend` forgets it once the
+/// buffer is the host's.
+struct Lending<'a> {
+    call: &'a CallState,
+    owed: Owed,
+}
+
+impl Drop for Lending<'_> {
+    fn drop(&mut self) {
+        self.call.repay(self.owed);
+    }
 }
 
 /// The bit of `CallState::sending` that says the sending has ended; the bits below count sends.
@@ -206,6 +243,10 @@ impl CallState {
     /// One buffer at a time per call, whatever the send window admits, is the same claim: the
     /// header's SLOT_BUSY wake-up is the call's next WRITE_DONE, and it only says anything
     /// because a host eligible to ask holds nothing.
+    ///
+    /// What the lend takes is owed back until the host has the buffer, and a refusal and a panic
+    /// both pay it: the claim, the slot of the window and the bytes. A panic leaves a refused
+    /// lend, which the entry point answers AK_STATUS_INTERNAL, as it does an allocator failure.
     pub(crate) fn lend(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
         if self
             .debt
@@ -215,6 +256,11 @@ impl CallState {
         {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
+        let mut lending = Lending {
+            call: self,
+            owed: Owed::claim(),
+        };
+        at!(at_lend_step, LendStep::Claimed);
 
         // Claimed, then read, against a reader that publishes the terminal and then reads the
         // claim. Both in the sequentially consistent order, so the two cannot pass each other:
@@ -222,12 +268,11 @@ impl CallState {
         let lent = if self.debt.terminal.load(Ordering::SeqCst) {
             Err(ak_status::AK_STATUS_INVALID_STATE)
         } else {
-            self.fill(len)
+            self.fill(len, &mut lending)
         };
 
-        if lent.is_err() {
-            self.debt.buffers.store(0, Ordering::SeqCst);
-            self.moved_on();
+        if lent.is_ok() {
+            std::mem::forget(lending);
         }
         lent
     }
@@ -250,11 +295,17 @@ impl CallState {
         self.ledger.could_ever_fit(len)
     }
 
-    fn fill(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
+    fn fill(self: &Arc<Self>, len: usize, lending: &mut Lending) -> Result<ak_buffer, ak_status> {
         self.admits_buffer(len)?;
-        let Ok(slot) = self.window.try_acquire() else {
-            return Err(ak_status::AK_STATUS_SLOT_BUSY);
-        };
+        at!(at_lend_step, LendStep::Admitted);
+        // Spent at once and owed back by `lending`. Once the host has sent the message, its
+        // WRITE_DONE gives the slot back.
+        match self.window.try_acquire() {
+            Ok(slot) => slot.forget(),
+            Err(_) => return Err(ak_status::AK_STATUS_SLOT_BUSY),
+        }
+        lending.owed.slot = true;
+        at!(at_lend_step, LendStep::Windowed);
         #[cfg(feature = "test-hooks")]
         crate::hooks::run_before_charge();
         if self.ledger.hold_bytes(len).is_err() {
@@ -274,27 +325,22 @@ impl CallState {
         }
         // Served: reads are no longer held back for it. Only a lend of this call records a wait,
         // and one lend runs at a time, so a wait this reads as absent is absent.
+        lending.owed.bytes = Some(len);
         if self.waiter.is_waiting() {
             self.ledger.stop_waiting(&self.waiter);
         }
+        at!(at_lend_step, LendStep::Charged);
 
         // Read again once counted: a shutdown that ran after the checks above found nothing
         // owed. The other half is `Debt::quiet` then `Ledger::empty`.
         if self.debt.terminal.load(Ordering::SeqCst) {
-            self.ledger.release_bytes(len);
             return Err(ak_status::AK_STATUS_INVALID_STATE);
         }
 
-        // The arena before the permit is spent: a refusal that left the ledger charged and the
-        // permit forgotten would be a send window that never opens again. The headroom is kept
-        // ahead of what the host writes, and the commit frames the message in it.
-        let mut data = match arena(HEADROOM, len, Some(&self.channel.spares)) {
-            Ok(data) => data,
-            Err(status) => {
-                self.ledger.release_bytes(len);
-                return Err(status);
-            }
-        };
+        // The headroom is kept ahead of what the host writes, and the commit frames the message
+        // in it.
+        let mut data = arena(HEADROOM, len, Some(&self.channel.spares))?;
+        at!(at_lend_step, LendStep::Allocated);
         // A lend is charged what backs it: a spare's slack beside the request, or, when the
         // ceiling has no room for that, an arena of its own.
         let mut charged = len;
@@ -302,23 +348,16 @@ impl CallState {
         if extra > 0 {
             if self.ledger.hold_more(extra) {
                 charged += extra;
+                lending.owed.bytes = Some(charged);
             } else {
                 // Freed before the new one is allocated, so the two are never held at once. Only
                 // a charge made between the trim and this one leaves no room for the slack.
                 drop(std::mem::take(&mut data));
-                data = match arena(HEADROOM, len, None) {
-                    Ok(data) => data,
-                    Err(status) => {
-                        self.ledger.release_bytes(len);
-                        return Err(status);
-                    }
-                };
+                data = arena(HEADROOM, len, None)?;
+                at!(at_lend_step, LendStep::Allocated);
             }
         }
-
-        // Forgotten, not dropped: the permit is spent for as long as the host holds the buffer, and
-        // it is the WRITE_DONE that gives it back once the message has left.
-        slot.forget();
+        at!(at_lend_step, LendStep::Backed);
 
         let mut lent = Box::new(Lent {
             tag: LENT_TAG,
@@ -328,6 +367,7 @@ impl CallState {
             len,
             charged,
         });
+        at!(at_lend_step, LendStep::Built);
         let ptr = lent.lent_ptr();
         Ok(ak_buffer {
             ptr,
@@ -384,8 +424,9 @@ impl CallState {
     /// changes: an arena first, a spare of the channel's if one fits, the bytes carried into it,
     /// and then the charge, which is the last step that can refuse. The lend itself is not
     /// touched before the charge is made, and the step after it is plain assignments, so no
-    /// refusal and no panic finds it half done. The charge itself is atomic counters and locks
-    /// that tolerate poison, and a panic in it is not covered.
+    /// refusal and no panic finds it half done. A panic in the charge is a refusal too:
+    /// `Ledger::recharge` moves the charge in one step and contains what follows it, so the charge
+    /// is either made, and the exchange with it, or not made, and the old charge stands.
     fn exchange(&self, lent: &mut Lent, new_len: usize, carried: usize) -> Result<(), ak_status> {
         if !self.ledger.has_room_to_recharge(lent.charged, new_len) {
             return Err(ak_status::AK_STATUS_BUDGET_BUSY);
@@ -417,7 +458,7 @@ impl CallState {
         // The exchange is made, and no panic in parking the old arena can unmake it: the host is
         // told it succeeded. Parked once the charge is off, which makes room for it beside the
         // others.
-        contained(|| {
+        guard_void(|| {
             at!(at_resize_step, ResizeStep::Exchanged);
             drop(spares.returning(left));
         });
@@ -465,10 +506,10 @@ impl CallState {
         // from inside the callback, which the one buffer a call holds would refuse.
         self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
         slot.send(Command::Send { message, charged });
-        contained(|| {
+        guard_void(|| {
             at!(at_send_step, SendStep::Queued);
         });
-        contained(|| self.moved_on());
+        guard_void(|| self.moved_on());
         ak_status::AK_STATUS_OK
     }
 
@@ -567,11 +608,11 @@ impl CallState {
         }
 
         // The request is given: each part of what is left is made whatever another does.
-        contained(|| {
+        guard_void(|| {
             at!(at_send_step, SendStep::Queued);
         });
         if let Some(charged) = charged {
-            self.repay(charged);
+            self.repay(Owed::lent(charged));
         }
         // A task that is not spawned is a call that never ends: the shutdown is what is left.
         if catch_unwind(AssertUnwindSafe(|| {
@@ -595,7 +636,7 @@ impl CallState {
         }));
         let lent = lent.into_box();
         if let Ok(true) = intact {
-            self.repay(lent.charged);
+            self.repay(Owed::lent(lent.charged));
         } else {
             self.overrun(lent);
         }
@@ -615,40 +656,44 @@ impl CallState {
     /// down, since what took it is not to be trusted. The debt is paid, so the shutdown can
     /// complete.
     fn forfeit(&self, charged: usize) {
-        self.repay(charged);
+        self.repay(Owed::lent(charged));
         self.shut_down();
     }
 
     fn shut_down(&self) {
-        contained(|| {
+        guard_void(|| {
             if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
                 crate::lifecycle::begin_shutdown(&runtime);
             }
         });
     }
 
-    /// Pays what a lend of `charged` bytes owes the call and the ledger: its one buffer, its bytes
-    /// and its count, its slot of the window, and the wake-ups a payment owes.
+    /// Pays what a lend owes the call and the ledger: its one buffer, the bytes and the count it
+    /// charged, its slot of the window, and the wake-ups a payment owes.
     ///
     /// Each part is made whatever another does, the counts before the wake-ups they owe: a part
     /// left unpaid is a runtime that never quiesces.
-    fn repay(&self, charged: usize) {
-        contained(|| {
+    fn repay(&self, owed: Owed) {
+        guard_void(|| {
             at!(at_repay_step, RepayStep::Begun);
         });
-        contained(|| {
+        guard_void(|| {
             self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
             at!(at_repay_step, RepayStep::Counted);
         });
-        contained(|| {
-            self.ledger.release_bytes(charged);
+        guard_void(|| {
+            if let Some(charged) = owed.bytes {
+                self.ledger.release_bytes(charged);
+            }
             at!(at_repay_step, RepayStep::Released);
         });
-        contained(|| {
-            self.window.add_permits(1);
+        guard_void(|| {
+            if owed.slot {
+                self.window.add_permits(1);
+            }
             at!(at_repay_step, RepayStep::Permitted);
         });
-        contained(|| self.moved_on());
+        guard_void(|| self.moved_on());
     }
 
     pub(crate) fn end_send(&self) -> ak_status {

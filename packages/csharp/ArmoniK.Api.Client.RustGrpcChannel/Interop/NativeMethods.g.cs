@@ -303,7 +303,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
         ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
         ///  message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
-        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
+        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
+        ///  library contains, which can only come before the host holds the buffer: the lend is refused as
+        ///  any other, with nothing charged, no slot of the window spent and the call's one buffer free, so
+        ///  the host may ask again. A call that is over, or whose
         ///  cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
         ///  declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
         ///  SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
@@ -395,10 +398,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
         ///  it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
         ///  `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
-        ///  allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made: it is
-        ///  a refusal like the others, with the old buffer lent and charged, so the host may retry or give
-        ///  it back. A panic after it, while the old memory is set aside, does not undo it: the answer is
-        ///  AK_STATUS_OK. A panic while taking back an overrun is AK_STATUS_CORRUPTED.
+        ///  allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made, the
+        ///  ceiling's charge included, which is made whole or not at all: it is a refusal like the others,
+        ///  with the old buffer lent and charged, so the host may retry or give it back. A panic after it,
+        ///  while the old memory is set aside, does not undo it: the answer is AK_STATUS_OK. A panic while
+        ///  taking back an overrun is AK_STATUS_CORRUPTED.
         ///
         ///  A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
         ///  after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back

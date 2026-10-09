@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
@@ -157,13 +158,21 @@ impl Ledger {
     /// `empty` is what decides whether the shutdown owes RESOURCES_RELEASED and whether it waits
     /// for the host to give anything back. Answered wrongly there, the runtime reports QUIESCENT
     /// with a buffer still lent, which is the one thing that state is promised not to mean.
+    ///
+    /// A panic leaves nothing charged and nothing counted: `add_bytes` charges nothing when it
+    /// panics, and the count goes back with the panic.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
         self.hold();
-        if self.add_bytes(len) {
-            Ok(())
-        } else {
-            self.release();
-            Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        match catch_unwind(AssertUnwindSafe(|| self.add_bytes(len))) {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.release();
+                Err(ak_status::AK_STATUS_BUDGET_BUSY)
+            }
+            Err(panic) => {
+                self.release();
+                resume_unwind(panic)
+            }
         }
     }
 
@@ -201,13 +210,20 @@ impl Ledger {
     /// Charges a lend already counted `new` bytes where it was charged `old`, in one step: the
     /// count moves by the difference alone, so it is never both and never neither, and a growth
     /// is admitted against the first threshold as a lend of that difference is.
+    ///
+    /// A panic reaches the caller only before the charge moves, which leaves it `old`: what
+    /// follows the step is contained.
     pub(crate) fn recharge(&self, old: usize, new: usize) -> bool {
         if new > old {
             return self.add_bytes(new - old);
         }
         if new < old {
+            at!(at_charge_step, ChargeStep::Begun);
             self.bytes.fetch_sub((old - new) as u64, Ordering::AcqRel);
-            self.room_made();
+            crate::guard_void(|| {
+                at!(at_charge_step, ChargeStep::Moved);
+                self.room_made();
+            });
         }
         true
     }
@@ -215,7 +231,11 @@ impl Ledger {
     // Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
     // count and then reads the spares', a spare is kept and then the trim reads the charges, so
     // the second of the two sees both and gives the spares up.
+    //
+    // A panic reaches the caller only before the count moves, which leaves nothing charged: what
+    // follows the step is contained.
     fn add_bytes(&self, len: usize) -> bool {
+        at!(at_charge_step, ChargeStep::Begun);
         let mut seen = self.bytes.load(Ordering::SeqCst);
         loop {
             let Some(wanted) = seen
@@ -229,7 +249,10 @@ impl Ledger {
                 .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
             {
                 Ok(_) => {
-                    self.trim_spares();
+                    crate::guard_void(|| {
+                        at!(at_charge_step, ChargeStep::Moved);
+                        self.trim_spares();
+                    });
                     return true;
                 }
                 Err(current) => seen = current,

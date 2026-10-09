@@ -49,6 +49,10 @@ name = "resize_panic"
 required-features = ["test-hooks"]
 
 [[test]]
+name = "lend_panic"
+required-features = ["test-hooks"]
+
+[[test]]
 name = "send_return_panic"
 required-features = ["test-hooks"]
 
