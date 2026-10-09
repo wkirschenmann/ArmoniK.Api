@@ -521,11 +521,13 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 /// shuts down. A write that leaves them as they were goes unseen.
 ///
 /// One unfilled buffer at a time, whatever Grpc.Host.Send.Window says: asking for a second while
-/// still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
+/// still holding one, or while an earlier lend of the call has not returned, is
+/// AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
 /// counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
 /// the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
 /// is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
-/// runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+/// runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE. A host retries
+/// only after the refused lend has returned: until then a retry can meet AK_STATUS_INVALID_STATE.
 /// AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
 /// message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
 /// the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
