@@ -350,17 +350,31 @@ A refusal leaves `buffer` lent, charged and the host's, and `*out` as it was:
 when `new_len` is past the ceiling, `AK_STATUS_INVALID_STATE` on a call that is over or cancelled,
 or one-request and committed, `AK_STATUS_INVALID_ARG` for a `new_len` of zero, a `keep` past it, a
 null `out` or a buffer that is not lent, and `AK_STATUS_INTERNAL` for an allocator failure or for a
-panic the library contains before the exchange is made, and such a panic leaves the buffer lent
-and charged and `*out` as it was, so a host may retry and then give the buffer back. A panic after
-the exchange is made is answered `AK_STATUS_OK`, and one while an overrun is taken back is
-`AK_STATUS_CORRUPTED`, the runtime shutting down. A
-`keep` past what was lent, or a write past the end of the buffer that changed the bytes the
-library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`, the buffer taken back
-unfreed, nothing carried over, the runtime shutting down. `AK_STATUS_BUDGET_BUSY` here records no
-wait and owes no `AK_EVENT_BUDGET_WAKE`: a wait is the lend's, made by a host that holds nothing,
-and one that holds a buffer while it waits is room the others wait for. A host that waits gives
-the buffer back and lends the new length. `ak_call_debt_of` counts one buffer lent before, during
-and after an exchange.
+contained panic (below). A `keep` past what was lent, or a write past the end of the buffer that
+changed the bytes the library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`,
+the buffer taken back unfreed, nothing carried over, the runtime shutting down.
+`AK_STATUS_BUDGET_BUSY` here records no wait and owes no `AK_EVENT_BUDGET_WAKE`: a wait is the
+lend's, made by a host that holds nothing, and one that holds a buffer while it waits is room the
+others wait for. A host that waits gives the buffer back and lends the new length.
+`ak_call_debt_of` counts one buffer lent before, during and after an exchange.
+
+A panic the library contains in `ak_call_send_message` or `ak_resize_call_buffer` is answered by
+what the operation had done when it happened, and the buffer is as that answer says:
+
+- Before the buffer is used up - for a commit, before its arena is taken to be the message; for a
+  resize, before the exchange is made - the answer is `AK_STATUS_INTERNAL`, a refusal like an
+  allocator failure. The buffer stays lent, charged and the host's, and `*out` as it was, so the
+  host may retry or give the buffer back.
+- Once the operation is made - the message queued, or on a one-request call given; the exchange
+  made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
+- Between the two, where the buffer is gone and the operation was not made - a commit whose arena
+  was taken to be the message and is not queued, or an overrun being taken back - the answer is
+  `AK_STATUS_CORRUPTED`: the buffer is taken back and the runtime shuts down.
+
+A buffer that is gone has its debt paid, which is what lets that shutdown complete.
+`ak_return_call_buffer` has no answer: its debt is paid whatever a panic meets, and a panic while
+it reads the bytes after the end of the buffer treats the buffer as an overrun, taken back without
+being freed, with the runtime shutting down.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
 refused as the others are - nothing charged, no slot spent - while the runtime carries on.

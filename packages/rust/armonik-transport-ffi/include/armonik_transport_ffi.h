@@ -1075,6 +1075,12 @@ ak_status ak_get_call_buffer(ak_handle call,
  * requested, after ak_call_end_send, and after a one-request call's commit. The buffer then stays
  * the host's, to give back with ak_return_call_buffer.
  *
+ * A panic the library contains is answered by what the commit had done. Before the buffer is taken
+ * to be the message it is AK_STATUS_INTERNAL, a refusal like the others: the buffer stays lent and
+ * the host's, to commit again or give back. Once the message is queued it is AK_STATUS_OK. Between
+ * the two the buffer is gone and the answer is AK_STATUS_CORRUPTED: it is taken back and the
+ * runtime shuts down.
+ *
  * # Safety
  *
  * `buffer` must be one this call lent and the host has not given back, and the host must have
@@ -1094,6 +1100,8 @@ ak_status ak_call_send_message(ak_handle call,
  * leaves the buffer with the host, except for AK_STATUS_CORRUPTED, which takes it back. A buffer
  * given back with the bytes after its end changed is an overrun, as at the commit: it is taken
  * back without being freed and the runtime shuts down, with no status to say so but the shutdown.
+ * So is a buffer whose bytes after its end could not be read for a contained panic. Any other
+ * panic leaves the return made: the buffer is given back and its debt paid.
  *
  * # Safety
  *
