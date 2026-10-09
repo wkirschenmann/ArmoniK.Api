@@ -57,12 +57,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     ///   Whether the engine reads the vocabulary as a JSON document, which the root then encodes.
     ///   One it takes as fields is rendered without the encoding and its serializer context.
     /// </param>
+    /// <param name="reused">The types another schema renders, which <paramref name="types" /> may hold.</param>
     /// <returns>The file's whole text, ending with one newline.</returns>
     /// <exception cref="NotSupportedException">A name or a bound has no C# this can emit.</exception>
     public static string Render(IReadOnlyList<OptionType> types,
                                 string namespaceName,
                                 string schemaName,
-                                bool   document = true)
+                                bool   document = true,
+                                IReadOnlyList<OptionType>? reused = null)
     {
       var root = types[0]
         .Name;
@@ -79,6 +81,15 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       var named = new HashSet<string>(types.Select(type => type.Name),
                                       StringComparer.Ordinal);
+
+      // Reused ones too: a choice written here may hold a record that is rendered there.
+      var records = types.Concat(reused ?? Array.Empty<OptionType>())
+                         .OfType<OptionRecord>()
+                         .GroupBy(record => record.Name,
+                                  StringComparer.Ordinal)
+                         .ToDictionary(same => same.Key,
+                                       same => same.First(),
+                                       StringComparer.Ordinal);
 
       foreach (var type in types)
       {
@@ -104,6 +115,25 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                         group.Name,
                         $"an option of `{group.Name}`",
                         "an option of the group of the same name, and C# admits no member named after its own class");
+            break;
+
+          case OptionRecord record:
+            RefuseTwins(record.Options.Select(option => option.Name),
+                        $"options of `{record.Name}`");
+            RefuseNames(record.Options,
+                        record.Name,
+                        $"an option of `{record.Name}`",
+                        "an option of the record of the same name, and C# admits no member named after its own type");
+
+            // The writing of a record declares a local per option, beside the ones it declares itself.
+            foreach (var name in record.Options.Select(option => option.Name))
+            {
+              if (Plumbing.Contains(Local(name)))
+              {
+                throw new NotSupportedException($"`{name}` is in `{record.Name}`, and its local would be one the rendered writing declares already.");
+              }
+            }
+
             break;
 
           case OptionChoice choice:
@@ -134,6 +164,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                           alternative.Name,
                           $"a field of `{choice.Name}.{alternative.Name}`",
                           "a field of the alternative of the same name, and C# admits no member named after its own record");
+
+              // The writing of a record nests in the scope of its alternative's local and of its own
+              // option's, and a local may not take the name of one that encloses it.
+              foreach (var held in alternative.Fields.Where(field => field.Kind == OptionKind.Record))
+              {
+                foreach (var inner in records[held.Type].Options.Select(option => option.Name))
+                {
+                  if (Local(inner) == Local(held.Name) || Local(inner) == Local(alternative.Name))
+                  {
+                    throw new NotSupportedException($"`{inner}` is in `{held.Type}`, which `{choice.Name}.{alternative.Name}` holds as `{held.Name}`, and its local would be one the rendered writing declares already.");
+                  }
+                }
+              }
 
               // The writing of an alternative declares locals of its own beside one per field and
               // one for the alternative, and two locals of one name do not compile.
@@ -231,9 +274,18 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                     types[0]));
             break;
 
+          case OptionRecord record:
+            AppendRecord(source,
+                         record.Name,
+                         record.Description,
+                         record.Options,
+                         null);
+            break;
+
           case OptionChoice choice:
             AppendChoice(source,
-                         choice);
+                         choice,
+                         records);
             break;
 
           case OptionEnumeration enumeration:
@@ -371,7 +423,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     // because an alternative is a value: two that say the same are equal, and none changes once
     // made, so a copy of the group holding one shares it safely.
     private static void AppendChoice(IndentedTextWriter source,
-                                     OptionChoice choice)
+                                     OptionChoice choice,
+                                     IReadOnlyDictionary<string, OptionRecord> records)
     {
       Document(source,
                choice.Description);
@@ -409,7 +462,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       Blank(source);
       AppendConverter(source,
-                      choice);
+                      choice,
+                      records);
     }
 
     // The shape of a record says what its alternative needs: a mandatory field is a parameter of
@@ -419,14 +473,29 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     private static void AppendAlternative(IndentedTextWriter source,
                                           OptionChoice choice,
                                           Alternative alternative)
+      => AppendRecord(source,
+                      alternative.Name,
+                      alternative.Description,
+                      alternative.Fields,
+                      choice.Name);
+
+    // Derives from its choice when `baseName` is set; otherwise a value of its own.
+    private static void AppendRecord(IndentedTextWriter source,
+                                     string name,
+                                     string description,
+                                     IReadOnlyList<Option> fields,
+                                     string? baseName)
     {
       Document(source,
-               alternative.Description);
+               description);
 
-      var parameters = alternative.Fields.Where(field => field.Required)
-                                  .ToList();
-      var optional = alternative.Fields.Where(field => !field.Required)
-                                .ToList();
+      var parameters = fields.Where(field => field.Required)
+                             .ToList();
+      var optional = fields.Where(field => !field.Required)
+                           .ToList();
+      var derived = baseName is null
+                      ? string.Empty
+                      : $" : {baseName}";
 
       foreach (var field in parameters)
       {
@@ -437,11 +506,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                 $"name=\"{field.Name}\"");
       }
 
-      var head = $"public sealed record {alternative.Name}";
+      var head = $"public sealed record {name}";
 
       if (parameters.Count == 0)
       {
-        source.WriteLine($"{head} : {choice.Name}");
+        source.WriteLine($"{head}{derived}");
       }
       else
       {
@@ -456,7 +525,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
           source.WriteLine((n == 0
                               ? head + "("
                               : under) + parameter + (n == parameters.Count - 1
-                                                        ? $") : {choice.Name}"
+                                                        ? $"){derived}"
                                                         : ","));
         }
       }
@@ -466,7 +535,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       // A required reference refused as it is passed: the type says it is never null, and every
       // reader of the record trusts the type.
-      foreach (var field in parameters.Where(field => field.Required && (field.Kind is OptionKind.Choice or OptionKind.EnumerationList || field.Type == "string")))
+      foreach (var field in parameters.Where(field => field.Required && (field.Kind is OptionKind.Choice or OptionKind.Record or OptionKind.EnumerationList || field.Type == "string")))
       {
         Document(source,
                  field.Description);
@@ -506,23 +575,31 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         Blank(source);
       }
 
-      if (alternative.Fields.Any(field => field.Kind == OptionKind.EnumerationList))
+      if (fields.Any(field => field.Kind == OptionKind.EnumerationList))
       {
         AppendListEquality(source,
-                           alternative);
+                           name,
+                           fields);
       }
 
       AppendValidate(source,
-                     alternative.Fields,
-                     """
-                     /// <inheritdoc />
-                     public override void Validate()
-                     """);
+                     fields,
+                     baseName is null
+                       ? """
+                         /// <summary>Refuses a field outside the range the engine accepts.</summary>
+                         /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+                         public void Validate()
+                         """
+                       : """
+                         /// <inheritdoc />
+                         public override void Validate()
+                         """);
 
-      if (alternative.Fields.Any(field => field.Secret || field.Kind == OptionKind.EnumerationList))
+      if (fields.Any(field => field.Secret || field.Kind == OptionKind.EnumerationList))
       {
         AppendPrintMembers(source,
-                           alternative);
+                           fields,
+                           baseName is not null);
       }
 
       source.Indent--;
@@ -533,21 +610,24 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     // as whether it is set, as the engine's Debug print of a password does. `global::` because a
     // choice may have an alternative named `System`.
     private static void AppendPrintMembers(IndentedTextWriter source,
-                                           Alternative alternative)
+                                           IReadOnlyList<Option> fields,
+                                           bool derived)
     {
+      // A sealed record that derives from none declares it private; one that derives from a record
+      // overrides it.
       Lines(source,
-            """
+            $$"""
 
-            /// <summary>The fields, a secret one elided.</summary>
-            protected override bool PrintMembers(global::System.Text.StringBuilder builder)
-            {
-            """);
+              /// <summary>The fields, a secret one elided.</summary>
+              {{(derived ? "protected override" : "private")}} bool PrintMembers(global::System.Text.StringBuilder builder)
+              {
+              """);
 
       source.Indent++;
 
-      for (var n = 0; n < alternative.Fields.Count; n++)
+      for (var n = 0; n < fields.Count; n++)
       {
-        var field = alternative.Fields[n];
+        var field = fields[n];
         var printed = field.Secret
                         ? $"{field.Name} is null ? \"null\" : \"***\""
                         : field.Kind == OptionKind.EnumerationList
@@ -573,10 +653,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     // A record compares its fields, and a list compares by reference: two alternatives that name the
     // same statuses are equal all the same, as every other alternative is.
     private static void AppendListEquality(IndentedTextWriter source,
-                                           Alternative alternative)
+                                           string name,
+                                           IReadOnlyList<Option> fields)
     {
       var equal = string.Join(" && ",
-                              alternative.Fields.Select(field => field.Kind == OptionKind.EnumerationList
+                              fields.Select(field => field.Kind == OptionKind.EnumerationList
                                                                    ? field.Required
                                                                        ? $"global::System.Linq.Enumerable.SequenceEqual({field.Name}, other.{field.Name})"
                                                                        : $"({field.Name} is null ? other.{field.Name} is null : other.{field.Name} is not null && global::System.Linq.Enumerable.SequenceEqual({field.Name}, other.{field.Name}))"
@@ -585,7 +666,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
       Lines(source,
             $$"""
               /// <inheritdoc />
-              public bool Equals({{alternative.Name}}? other)
+              public bool Equals({{name}}? other)
                 => other is not null && {{equal}};
 
               /// <inheritdoc />
@@ -596,7 +677,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       source.Indent++;
 
-      foreach (var field in alternative.Fields)
+      foreach (var field in fields)
       {
         if (field.Kind == OptionKind.EnumerationList)
         {
@@ -635,7 +716,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     // of one key naming it, which no serializer policy writes from a record: written here, by the
     // schema's names. Only written, because options go one way, to the engine.
     private static void AppendConverter(IndentedTextWriter source,
-                                        OptionChoice choice)
+                                        OptionChoice choice,
+                                        IReadOnlyDictionary<string, OptionRecord> records)
     {
       var converter = Converter(choice.Name);
 
@@ -701,51 +783,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
             AppendWrite(source,
                         alternative.Name,
                         alternative.Fields[0],
-                        $"{local}.Value");
+                        $"{local}.Value",
+                        records);
             break;
 
           case AlternativeShape.Fields:
             source.WriteLine($"writer.WriteStartObject(\"{alternative.Name}\");");
-
-            // A block stands apart from the statements around it.
-            var apart = false;
-
-            foreach (var field in alternative.Fields)
-            {
-              if (field.Required)
-              {
-                if (apart)
-                {
-                  Blank(source);
-                  apart = false;
-                }
-
-                AppendWrite(source,
-                            field.Name,
-                            field,
-                            $"{local}.{field.Name}");
-                continue;
-              }
-
-              var value = Local(field.Name);
-              Blank(source);
-              source.WriteLine($"if ({local}.{field.Name} is {(field.Kind == OptionKind.EnumerationList ? ParameterType(field) : field.Type)} {value})");
-              source.WriteLine("{");
-              source.Indent++;
-              AppendWrite(source,
-                          field.Name,
-                          field,
-                          value);
-              source.Indent--;
-              source.WriteLine("}");
-              apart = true;
-            }
-
-            if (apart)
-            {
-              Blank(source);
-            }
-
+            AppendFields(source,
+                         alternative.Fields,
+                         local,
+                         records);
             source.WriteLine("writer.WriteEndObject();");
             break;
         }
@@ -770,17 +817,76 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
               """);
     }
 
-    // One value under its name, as the type writes it: a choice by its own converter, and an
-    // enumeration by its name, which is the one the schema spells.
+    // The fields of what <paramref name="owner" /> names, a mandatory one always and an optional one
+    // when it is set.
+    private static void AppendFields(IndentedTextWriter source,
+                                     IReadOnlyList<Option> fields,
+                                     string owner,
+                                     IReadOnlyDictionary<string, OptionRecord> records)
+    {
+      // A block stands apart from the statements around it.
+      var apart = false;
+
+      foreach (var field in fields)
+      {
+        if (field.Required)
+        {
+          if (apart)
+          {
+            Blank(source);
+            apart = false;
+          }
+
+          AppendWrite(source,
+                      field.Name,
+                      field,
+                      $"{owner}.{field.Name}",
+                      records);
+          continue;
+        }
+
+        var value = Local(field.Name);
+        Blank(source);
+        source.WriteLine($"if ({owner}.{field.Name} is {(field.Kind == OptionKind.EnumerationList ? ParameterType(field) : field.Type)} {value})");
+        source.WriteLine("{");
+        source.Indent++;
+        AppendWrite(source,
+                    field.Name,
+                    field,
+                    value,
+                    records);
+        source.Indent--;
+        source.WriteLine("}");
+        apart = true;
+      }
+
+      if (apart)
+      {
+        Blank(source);
+      }
+    }
+
+    // One value under its name, as the type writes it: a choice by its own converter, a record as an
+    // object of its fields, and an enumeration by its name, which is the one the schema spells.
     private static void AppendWrite(IndentedTextWriter source,
                                     string name,
                                     Option option,
-                                    string value)
+                                    string value,
+                                    IReadOnlyDictionary<string, OptionRecord> records)
     {
       var key = $"\"{name}\"";
 
       switch (option.Kind)
       {
+        case OptionKind.Record:
+          source.WriteLine($"writer.WriteStartObject({key});");
+          AppendFields(source,
+                       records[option.Type].Options,
+                       value,
+                       records);
+          source.WriteLine("writer.WriteEndObject();");
+          return;
+
         case OptionKind.Choice:
           source.WriteLine($"writer.WritePropertyName({key});");
           Call(source,
@@ -961,7 +1067,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                            option.Kind == OptionKind.Enumeration ||
                                            (option.Kind == OptionKind.Value && (option.Bounds.Count > 0 || option.Type == "double")))
                           .ToList();
-      var nested = options.Where(option => option.Kind is OptionKind.Group or OptionKind.Choice)
+      var nested = options.Where(option => option.Kind is OptionKind.Group or OptionKind.Choice or OptionKind.Record)
                           .ToList();
 
       Lines(source,

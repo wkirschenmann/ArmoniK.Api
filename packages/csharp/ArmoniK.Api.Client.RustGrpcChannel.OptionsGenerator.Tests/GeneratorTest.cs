@@ -610,6 +610,142 @@ public enum Place
                       });
     }
 
+    private const string PairType = @"""Pair"": { ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Name"": { ""description"": ""Who."", ""type"": ""string"", ""minLength"": 1 }, ""Secret"": { ""description"": ""Its secret."", ""type"": ""string"", ""writeOnly"": true } }, ""required"": [""Name"", ""Secret""], ""additionalProperties"": false }";
+
+    /// <summary><paramref name="schema" /> with the type <paramref name="type" /> declared beside the others.</summary>
+    private static string With(string schema,
+                               string type)
+      => schema.Replace(@"""Place"": {",
+                        type + @", ""Place"": {");
+
+    private const string Login = @"{ ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Login"": { ""type"": ""object"", ""properties"": { ""Credentials"": { ""description"": ""Who and how."", ""$ref"": ""#/$defs/Pair"" } }, ""additionalProperties"": false } }, ""additionalProperties"": false, ""required"": [""Login""] }";
+
+    /// <summary>A type with a mandatory option, held by an alternative, is one positional record, stated whole.</summary>
+    /// <remarks>A group would be a class a caller can change, and the alternative holding it is a value.</remarks>
+    [Test]
+    public async Task ATypeWithAMandatoryOptionIsARecordAnAlternativeHolds()
+    {
+      var rendered = await Render(With(ChoiceWith(Login),
+                                         PairType))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("public sealed record Pair(string Name,")
+                                        .And.Contain("string Secret)"),
+                                    "its mandatory options are the parameters of the record");
+                        Assert.That(rendered,
+                                    Does.Contain("public Pair? Credentials { get; init; }"),
+                                    "which an alternative may leave out, and states whole when it does not");
+                        Assert.That(rendered,
+                                    Does.Contain("Credentials?.Validate();"));
+                        Assert.That(rendered,
+                                    Does.Contain("private bool PrintMembers(global::System.Text.StringBuilder builder)"),
+                                    "a record of no base declares its printing private");
+                        Assert.That(rendered,
+                                    Does.Contain(@"builder.Append(Secret is null ? ""null"" : ""***"");"));
+                        Assert.That(rendered,
+                                    Does.Contain(@"writer.WriteStartObject(""Credentials"");"));
+                        Assert.That(rendered,
+                                    Does.Contain(@"writer.WriteString(""Name"",")
+                                        .And.Contain(@"writer.WriteString(""Secret"","));
+                      });
+    }
+
+    /// <summary>A class is written by the serializer's context, so a group holds no record.</summary>
+    [Test]
+    public void AGroupHoldingARecordIsRefused()
+      => Assert.That(async () => await Render(Wrap($@"""Pair"": {{ {Documented}""$ref"": ""#/$defs/Pair"" }}",
+                                                   @",
+  ""$defs"": { " + PairType + @" }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("only an alternative holds one"));
+
+    /// <summary>A record is a value, so what it holds is a value too.</summary>
+    [Test]
+    public void ARecordHoldingMoreThanValuesIsRefused()
+      => Assert.That(async () => await Render(With(ChoiceWith(Login),
+                                                     @"""Pair"": { ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Where"": { ""description"": ""Where."", ""$ref"": ""#/$defs/Place"" } }, ""required"": [""Where""], ""additionalProperties"": false }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("holds values only"));
+
+    private const string Held = @"{ ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Login"": { ""type"": ""object"", ""properties"": { ""Credentials"": { ""description"": ""Who and how."", ""$ref"": ""#/$defs/Pair"" } }, ""additionalProperties"": false, ""required"": [""Credentials""] } }, ""additionalProperties"": false, ""required"": [""Login""] }";
+
+    /// <summary>A record an alternative cannot do without is refused null, validated, and written with no condition.</summary>
+    [Test]
+    public async Task ARequiredRecordIsRefusedNullValidatedAndWritten()
+    {
+      var rendered = await Render(With(ChoiceWith(Held),
+                                       PairType))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("public sealed record Login(Pair Credentials)"));
+                        Assert.That(rendered,
+                                    Does.Contain("Credentials ?? throw new ArgumentNullException(nameof(Credentials))"));
+                        Assert.That(rendered,
+                                    Does.Contain("Credentials.Validate();"));
+                        Assert.That(rendered,
+                                    Does.Contain(@"writer.WriteString(""Name"",")
+                                        .And.Not.Contain("if (login.Credentials"),
+                                    "a mandatory option is written whether or not it was set");
+                      });
+    }
+
+    /// <summary>An optional option of a record is written when it is set.</summary>
+    [Test]
+    public async Task AnOptionalOptionOfARecordIsWrittenWhenSet()
+    {
+      var rendered = await Render(With(ChoiceWith(Login),
+                                       @"""Pair"": { ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Name"": { ""description"": ""Who."", ""type"": ""string"" }, ""Realm"": { ""description"": ""Where."", ""type"": ""string"" } }, ""required"": [""Name""], ""additionalProperties"": false }"))
+                       .ConfigureAwait(false);
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(rendered,
+                                    Does.Contain("public sealed record Pair(string Name)"));
+                        Assert.That(rendered,
+                                    Does.Contain("public string? Realm { get; init; }"));
+                        Assert.That(rendered,
+                                    Does.Contain("if (credentials.Realm is string realm)"));
+                      });
+    }
+
+    /// <summary>The writing of a record nests in its alternative's scope, so an option may not shadow a local of it.</summary>
+    [Test]
+    public void AnOptionOfARecordNamedLikeAnEnclosingLocalIsRefused()
+      => Assert.That(async () => await Render(With(ChoiceWith(Login),
+                                                   @"""Pair"": { ""description"": ""A login."", ""type"": ""object"", ""properties"": { ""Name"": { ""description"": ""Who."", ""type"": ""string"" }, ""Credentials"": { ""description"": ""Again."", ""type"": ""string"" } }, ""required"": [""Name""], ""additionalProperties"": false }"))
+                       .ConfigureAwait(false),
+                     Throws.TypeOf<NotSupportedException>()
+                           .With.Message.Contains("its local would be one the rendered writing declares already"));
+
+    /// <summary>A record the reused schema renders is not rendered again, and a choice here may hold it.</summary>
+    [Test]
+    public async Task ARecordTheReusedSchemaRendersIsHeldNotRenderedAgain()
+    {
+      var all = await OptionVocabulary.ReadAsync(With(ChoiceWith(Login),
+                                                      PairType))
+                                      .ConfigureAwait(false);
+
+      var rendered = CSharpSource.Render(all.Where(type => type.Name != "Pair")
+                                            .ToList(),
+                                         "Test",
+                                         "test.schema.json",
+                                         true,
+                                         all.Where(type => type.Name == "Pair")
+                                            .ToList());
+
+      Assert.That(rendered,
+                  Does.Contain(@"writer.WriteStartObject(""Credentials"");")
+                      .And.Not.Contain("public sealed record Pair"));
+    }
+
     /// <summary>An alternative whose fields are none is made with none.</summary>
     [Test]
     public async Task AnAlternativeWithNoFieldsIsMadeWithNone()
