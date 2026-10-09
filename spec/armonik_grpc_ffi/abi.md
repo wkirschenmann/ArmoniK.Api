@@ -481,9 +481,9 @@ The detailed form of the memory usage, an observability tool rather than one a r
 
 ```c
 // The detailed form is for observability, not for progress: it says why the ceiling
-// is held, so an operator can tell a stuck host from a slow network. The five
-// categories are the buffer lifecycle and the received messages' own, and each says
-// who has to move next:
+// is held, so an operator can tell a stuck host from a slow network. The six
+// categories are the buffer lifecycle, the received messages' own and the engine's,
+// and each says who has to move next:
 //
 //   bytes_host_lent      the host holds these and has neither committed nor
 //                        returned them. No runtime step will move them; the host's
@@ -504,19 +504,22 @@ The detailed form of the memory usage, an observability tool rather than one a r
 //                        messages decoded and not yet delivered, at most one per
 //                        call, each waiting for a delivery credit. The host frees
 //                        them by consuming what it already holds.
-//
-// The compressed copies of sent messages that the engine holds are counted in
-// bytes_used and in none of these categories: the identity below holds for a
-// runtime that holds none, and the detailed form is not built.
+//   bytes_engine_held    the compressed copies of sent messages that the engine
+//                        keeps for itself, each from when it is made until the
+//                        message that holds it is dropped. The host owes nothing
+//                        here and can do nothing: the engine gives these bytes
+//                        back as its messages go, and a send refused for room is
+//                        woken when it does.
 //
 // The first two fields of ak_memory_usage_detailed are the base struct's, in the
 // same order, so a host upgrades by changing the call and the type and re-reading
 // nothing.
 //
-// Normative: the snapshot is coherent - all seven numbers are read from one instant
+// Normative: the snapshot is coherent - all eight numbers are read from one instant
 // of the runtime's accounting - and
 //     bytes_host_lent + bytes_send_in_flight + bytes_runtime_held
-//         + bytes_host_received + bytes_runtime_received == bytes_used
+//         + bytes_host_received + bytes_runtime_received
+//         + bytes_engine_held == bytes_used
 //     bytes_used <= memory_hard_ceiling, as ak_runtime_config set it
 // hold exactly on every returned snapshot, not merely eventually. A host may
 // therefore compare fields across categories without a second call. bytes_used may
@@ -525,7 +528,8 @@ The detailed form of the memory usage, an observability tool rather than one a r
 //
 // Normative here means an ABI obligation, checked by the ABI tests. The identities
 // are proved at level 1 (MemoryAccountingExact, CategoriesPartitionTotal,
-// ReceivedCategoriesPartitionTotal, MemoryWithinHardCeiling); what stays a test
+// ReceivedCategoriesPartitionTotal, MemoryWithinHardCeiling, with the sixth category
+// the bytes the engine holds, engine_held); what stays a test
 // obligation is the snapshot itself - that one read returns one coherent instant.
 // See "What is actually verified" in formal-model.md.
 typedef struct {
@@ -536,6 +540,7 @@ typedef struct {
     uint64_t bytes_runtime_held;
     uint64_t bytes_host_received;
     uint64_t bytes_runtime_received;
+    uint64_t bytes_engine_held;
 } ak_memory_usage_detailed;
 
 ak_status ak_runtime_memory_usage_detailed(ak_runtime_handle runtime,

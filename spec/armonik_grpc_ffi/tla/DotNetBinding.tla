@@ -9,7 +9,7 @@
 (*     and 1 is inherited through it; L0!Spec follows by transitivity      *)
 (*     from level 1's RefinesSpec, never re-proved here.                   *)
 (*  2. The six host fairness conjuncts of L1!Fairness become theorems.     *)
-(*     The other fourteen - the runtime's and the FFI dispatch's - are     *)
+(*     The other fifteen - the runtime's and the FFI dispatch's - are      *)
 (*     taken verbatim into Fairness below.                                 *)
 (*  3. The managed-side contract: the caller-owned runtime and its         *)
 (*     generations, the single reader, the single writer completing at     *)
@@ -884,6 +884,10 @@ RuntimeSteps ==
     \/ \E cId \in CallIds : L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
     \/ \E cId \in CallIds, msg \in Messages :
            ~IsSealing(cId) /\ L1!EndCallPastHardCeiling(cId, msg)
+    \* The copies the engine holds for the messages it sends: the binding
+    \* neither makes nor drops them.
+    \/ \E cId \in CallIds, n \in L1!Sizes : L1!EngineTakesBytes(cId, n)
+    \/ \E n \in L1!Sizes : L1!EngineGivesBackBytes(n)
 
 BindingDowncalls ==
     \E cId \in CallIds :
@@ -960,7 +964,7 @@ Next ==
 (* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)
 (* A conjunct names a step of this module and promises it eventually       *)
 (* fires, so what each tier owes is legible from what it names: the        *)
-(* runtime's fourteen families, the binding's own machinery, and four      *)
+(* runtime's fifteen families, the binding's own machinery, and four       *)
 (* hypotheses about application code.  Nothing is assumed in level 1's     *)
 (* tuple - level 1's fairness is a conclusion here, derived from these     *)
 (* conjuncts and from nothing else, which is what makes this level a       *)
@@ -999,6 +1003,7 @@ PassEmitBudgetWake(cId) == L1!EmitBudgetWake(cId) /\ ManagedStutter
 PassReleaseCallHandle(cId) == L1!ReleaseCallHandle(cId) /\ ManagedStutter
 PassFreeReturnedBuffer(cId, b) ==
     L1!FreeReturnedBuffer(cId, b) /\ ManagedStutter
+PassEngineGivesBackAllBytes == L1!EngineGivesBackAllBytes /\ ManagedStutter
 PassRuntimeRelease(rtId) == L1!RuntimeRelease(rtId) /\ ManagedStutter
 PassEmitShutdownComplete(rtId) ==
     L1!EmitShutdownComplete(rtId) /\ ManagedStutter
@@ -1076,6 +1081,9 @@ RuntimeOwedFairness ==
     /\ \A rtId \in RuntimeIds : WF_vars(PassEmitResourcesReleased(rtId))
     \* a closing channel closes, so its calls end and its handle can go
     /\ \A chId \in ChannelIds : WF_vars(PassChannelFinishClosing(chId))
+    \* the copies the engine holds are dropped with their messages, so the
+    \* byte budget is not held for ever by what only the engine keeps
+    /\ WF_vars(PassEngineGivesBackAllBytes)
 
 \* What the binding owes: steps whose only wait is on the binding's own
 \* code, on the thread pool, or on a downcall that cannot block.  No

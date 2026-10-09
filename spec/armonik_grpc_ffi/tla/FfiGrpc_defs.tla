@@ -85,6 +85,8 @@ NextSafeCallFfi ==
     \/ \E cId \in CallIds : HostConsumesEvent(cId)
     \/ \E cId \in CallIds : AdmitRead(cId)
     \/ \E cId \in CallIds : EmitBudgetWake(cId)
+    \/ \E cId \in CallIds, n \in Sizes : EngineTakesBytes(cId, n)
+    \/ \E n \in Sizes : EngineGivesBackBytes(n)
 
 NextSafeFfiOnly ==
     \/ NextSafeShutdownFfi
@@ -390,11 +392,12 @@ DestroyedRuntimeIsClean ==
     \A rtId \in RuntimeIds :
         IsRuntimeDestroyed(rtId) => IsRuntimeQuiescent(rtId)
 
-\* The counter says what the buffers out charge and what the messages held
-\* received.  This is the one accounting claim with content, and it can fail:
-\* a lend that forgets its increment, a free that forgets its decrement or
-\* subtracts the wrong charge, a second credit for one buffer, a consumption
-\* or a cancellation that gives back the wrong bytes - each breaks it.
+\* The counter says what the buffers out charge, what the messages held
+\* received and what the engine keeps for itself.  This is the one accounting
+\* claim with content, and it can fail: a lend that forgets its increment, a
+\* free that forgets its decrement or subtracts the wrong charge, a second
+\* credit for one buffer, a consumption or a cancellation that gives back the
+\* wrong bytes, a copy charged and not counted - each breaks it.
 \* Defined as the sum it would be a tautology, which is why memory_used is a
 \* variable the actions move rather than an expression evaluated on demand:
 \* that is also how the implementation keeps it, and it is the number the ABI
@@ -403,7 +406,7 @@ DestroyedRuntimeIsClean ==
 \* failing changes neither the counter nor any charge, so a host still gets its
 \* memory back afterwards and the observers still answer.
 MemoryAccountingExact ==
-    memory_used = BytesOutstanding + BytesReceived
+    memory_used = BytesOutstanding + BytesReceived + BytesHeldByEngine
 
 \* What the received side's accounting reads of a call's counts: it delivers no
 \* more than it received, and an active call has delivered its metadata and
@@ -444,9 +447,9 @@ ReceiveAccountingInv ==
     /\ EventsCoverDeliveries
 
 \* And the counter never passes the second threshold.  Carried by the guards
-\* of the three steps that add - a lend and the growth of an exchange below
-\* the first, a received message below the second - every other step only
-\* subtracting.
+\* of the four steps that add - a lend, the growth of an exchange and the
+\* engine's take below the first, a received message below the second - every
+\* other step only subtracting.
 MemoryWithinHardCeiling ==
     memory_used <= HardCeiling
 

@@ -29,8 +29,8 @@ rm -rf "out/$base"
 # fires.  Its verdict is therefore the other way round.
 case "$base" in
   *witness*)
-    if grep -q "Error: Invariant .* is violated" "$log"; then
-      grep -E "Error: Invariant|The depth" "$log" | tail -2
+    if grep -qE "Error: (Invariant|Action property) .* is violated" "$log"; then
+      grep -E "Error: (Invariant|Action property)|The depth" "$log" | tail -2
       echo "TLC witness ok: $cfg reached its target"
       exit 0
     fi

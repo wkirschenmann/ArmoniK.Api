@@ -451,8 +451,8 @@ apply, and the host ends it by giving back what it holds or by cancelling.
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
 `len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
 lent and not yet freed, plus the length of every message received and not yet given back, plus
-the compressed copies the engine holds, which the model leaves out: they are the engine's, not
-what the host owes. Each lend
+the compressed copies the engine holds, which the model counts as one number, `engine_held`
+(formal-model.md): they are the engine's, not what the host owes. Each lend
 gets an arena of `len` and a few bytes more, eight ahead of it, the gRPC prefix in the last five,
 and the sentinel after it, and is charged `len`, the request. A lend of 64 KiB or more takes a
 spare of its channel's when one fits, at most an eighth larger, and is charged its slack too, what
@@ -492,7 +492,9 @@ compressed flag clear, on a call whose `grpc-encoding` says otherwise, which the
 message allows per message. The copy being built is outside the ceiling, as the encoder's own
 state is. Compression is an optimisation, so it never waits for room and never ends a call. The buffer's own
 charge is given back when its message is committed or acquitted, which may be before the copy is
-made, so the two are in addition only while both are held. What hyper buffers below the decoder
+made, so the two are in addition only while both are held. The model has these bytes: the engine takes
+them when the first threshold has room and gives them back, and a lend is refused for them as for any
+other. What hyper buffers below the decoder
 within the flow-control window is outside the ceiling, and is not bounded runtime-wide.
 
 **What an exchange of a buffer charges** is the difference. `ak_resize_call_buffer` is a lend of

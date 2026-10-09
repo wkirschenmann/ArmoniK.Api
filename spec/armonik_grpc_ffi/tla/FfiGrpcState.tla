@@ -124,8 +124,8 @@ VARIABLES
 \* hands it to another, and read by the commit and the free; memory_used is
 \* the runtime-wide counter, kept the way the implementation keeps it - an
 \* independent quantity moved by the lend, the exchange, the
-\* free, a received message, its consumption and a cancelled call's end, not a
-\* sum evaluated on demand.
+\* free, a received message, its consumption, a cancelled call's end and the
+\* engine's taking or giving back bytes, not a sum evaluated on demand.
 \* Independent is the point.  MemoryAccountingExact ties the counter to the
 \* charges of the buffers out and the messages held, and it can fail: a path
 \* that forgets an increment, forgets a decrement, credits twice, or publishes
@@ -140,13 +140,22 @@ VARIABLES
 \* second decides whether it is kept, so the count is what the ABI publishes
 \* whichever side moved it.
 \* Global rather than per runtime: RuntimeCreate requires every other runtime
-\* destroyed, so at most one is ever outstanding, and the
-\* counter reaching zero at destroy is proved rather than assumed - quiescence
-\* leaves no buffer out, and the accounting reads the counter off that.
+\* destroyed and the engine to hold nothing, so the bytes of at most one
+\* runtime are ever counted.
     last_lend_status,            \* per call: the last lend's answer
     buffer_charge,               \* per call, per buffer: the bytes allocated
     buffer_length,               \* per call, per buffer: the bytes exposed
-    memory_used,                 \* runtime-wide: bytes lent or received, held
+    memory_used,                 \* runtime-wide: bytes lent, received or kept, held
+
+\* The bytes the engine holds for itself: the compressed copies of the
+\* messages it sends, each charged against the ceiling from when it is made
+\* until the message that holds it is dropped.  One abstract number, a part of
+\* memory_used: the model has no copy to name, and what the budget sees is the
+\* sum.  The engine takes some when the ceiling has room and gives some back,
+\* in steps of its own that no call waits for; a copy that finds no room is
+\* not made, so taking never blocks.  The host owes nothing for these bytes,
+\* so no quiescence condition reads them.
+    engine_held,                 \* runtime-wide: bytes the engine keeps for itself
 
 \* A read is two steps, as the engine's is: a call is admitted to read its next
 \* message, and the decision is taken there; the message is charged when it

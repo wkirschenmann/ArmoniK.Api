@@ -301,7 +301,7 @@ LEMMA EmitBudgetWakeBridge ==
           => ENABLED <<PassEmitBudgetWake(cId)>>_vars
     BY ExpandENABLED, SMT
     DEF PassEmitBudgetWake, ManagedStutter, ManagedTypeOK,
-       L1!EmitBudgetWake, L1!IsBudgetWakeOwed, L1!IsCancelRequested,
+       L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsBudgetWakeOwed, L1!IsCancelRequested,
        L1!IsStatusPending, L1!L0!IsActiveCall, L1!L0!ActiveCallStates, vars, l1_vars, managed_vars,
        L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
        L1!L0!ChannelVars, L1!L0!CallVars
@@ -387,6 +387,39 @@ THEOREM FreeReturnedBufferLifted ==
              WF_vars(PassFreeReturnedBuffer(cId, b))
       PROVE  WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
     BY <1>1, FreeReturnedBufferProjects, FreeReturnedBufferBridge, PTL
+<1>2. QED BY <1>1, PTL
+
+LEMMA EngineGivesBackAllBytesProjects ==
+    [](<<PassEngineGivesBackAllBytes>>_vars => <<L1!EngineGivesBackAllBytes>>_l1_vars)
+<1>1. <<PassEngineGivesBackAllBytes>>_vars => <<L1!EngineGivesBackAllBytes>>_l1_vars
+    BY SMT DEF PassEngineGivesBackAllBytes, ManagedStutter, vars, l1_vars,
+       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+<1>2. QED BY <1>1, PTL
+
+LEMMA EngineGivesBackAllBytesBridge ==
+    [](ManagedTypeOK /\ ENABLED <<L1!EngineGivesBackAllBytes>>_l1_vars
+                  => ENABLED <<PassEngineGivesBackAllBytes>>_vars)
+<1>1. ManagedTypeOK /\ ENABLED <<L1!EngineGivesBackAllBytes>>_l1_vars
+          => ENABLED <<PassEngineGivesBackAllBytes>>_vars
+    BY ExpandENABLED, SMT
+    DEF PassEngineGivesBackAllBytes, ManagedStutter, ManagedTypeOK,
+       L1!EngineGivesBackAllBytes, L1!EngineGivesBackBytes,
+       L1!BytesHeldByEngine, L1!IsEngineHoldingAtLeast,
+       L1!OweBudgetWakeToWaitingCalls, L1!IsBudgetWakeOwed,
+       L1!IsLendWaiting, vars, l1_vars, managed_vars,
+       L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars, L1!L0!RuntimeVars,
+       L1!L0!ChannelVars, L1!L0!CallVars
+<1>2. QED BY <1>1, PTL
+
+THEOREM EngineGivesBackAllBytesLifted ==
+    /\ []ManagedTypeOK
+    /\ [][Next]_vars
+    /\ WF_vars(PassEngineGivesBackAllBytes)
+    => WF_l1_vars(L1!EngineGivesBackAllBytes)
+<1>1. ASSUME []ManagedTypeOK, [][Next]_vars,
+             WF_vars(PassEngineGivesBackAllBytes)
+      PROVE  WF_l1_vars(L1!EngineGivesBackAllBytes)
+    BY <1>1, EngineGivesBackAllBytesProjects, EngineGivesBackAllBytesBridge, PTL
 <1>2. QED BY <1>1, PTL
 
 LEMMA RuntimeReleaseProjects ==
@@ -1061,14 +1094,26 @@ LEMMA PassthroughFreezesEvents ==
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>11. CASE \E c2 \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(c2, b)
-    BY <1>0, <1>11, SMT DEF RuntimeSteps,  L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake,
+    BY <1>0, <1>11, SMT DEF RuntimeSteps,  L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
        L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus,
        L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
        L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>111. CASE \E c2 \in CallIds : L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2)
-    BY <1>0, <1>111, SMT DEF RuntimeSteps,  L1!AdmitRead, L1!EmitBudgetWake,
+    BY <1>0, <1>111, SMT DEF RuntimeSteps,  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
+       L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+<1>111t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+    BY <1>0, <1>111t, SMT DEF RuntimeSteps,  L1!EngineTakesBytes,
+       L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+<1>111g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>0, <1>111g, SMT DEF RuntimeSteps,  L1!EngineGivesBackBytes,
        L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
        L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -1081,7 +1126,7 @@ LEMMA PassthroughFreezesEvents ==
        L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>q. QED
     BY <1>0,  <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10,
-       <1>11, <1>111, <1>112, Zenon
+       <1>11, <1>111, <1>111t, <1>111g, <1>112, Zenon
     DEF RuntimeSteps, BindingDowncalls
 
 
@@ -1187,14 +1232,26 @@ LEMMA PassthroughGrowsOrFreezesEvents ==
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        RingHead, L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>11. CASE \E c2 \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(c2, b)
-    BY <1>0, <1>11, SMT DEF RuntimeSteps,  L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake,
+    BY <1>0, <1>11, SMT DEF RuntimeSteps,  L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
        L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus,
        L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
        L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        RingHead, L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>111. CASE \E c2 \in CallIds : L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2)
-    BY <1>0, <1>111, SMT DEF RuntimeSteps,  L1!AdmitRead, L1!EmitBudgetWake,
+    BY <1>0, <1>111, SMT DEF RuntimeSteps,  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
+       L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       RingHead, L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+<1>111t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+    BY <1>0, <1>111t, SMT DEF RuntimeSteps,  L1!EngineTakesBytes,
+       L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+       L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+       RingHead, L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
+<1>111g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>0, <1>111g, SMT DEF RuntimeSteps,  L1!EngineGivesBackBytes,
        L1!IsReturnedBuffer, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
        L1!L0!ChannelsOf, L1!L0!CallsOf, L1!vars, L1!l0_vars, L1!ffi_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
@@ -1207,7 +1264,7 @@ LEMMA PassthroughGrowsOrFreezesEvents ==
        RingHead, L1!L0!HasStatus, L1!L0!StatusKinds, L1!TypeOK, L1!L0!TypeOK
 <1>q. QED
     BY <1>0,  <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10,
-       <1>11, <1>111, <1>112, Zenon
+       <1>11, <1>111, <1>111t, <1>111g, <1>112, Zenon
     DEF RuntimeSteps, BindingDowncalls
 
 LEMMA PrologueIsNeverEntered ==
@@ -1478,7 +1535,7 @@ LEMMA TailMovesOnlyByCarrier ==
        L1!DeliverCancelled, L1!DeliverInitialMetadata, L1!DeliverMessage,
        L1!DeliverStatus, L1!DeliveryCallbackReturns,
        L1!EmitResourcesReleased, L1!EmitShutdownComplete,
-       L1!EmitWriteDone, L1!EndSend, L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake,
+       L1!EmitWriteDone, L1!EndSend, L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
        L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus,
        L1!HostConsumesEvent, L1!HostHoldsNoBuffer, L1!HostOwnsNoPayload,
        L1!HostReturnsBuffer, L1!LendSendBuffer, L1!NetworkReceive,
@@ -2187,7 +2244,7 @@ LEMMA FinishedOnlyByTerminal ==
        L1!DeliverInitialMetadata, L1!DeliverMessage, L1!DeliverStatus,
        L1!DeliveryCallbackReturns, L1!EmitResourcesReleased,
        L1!EmitShutdownComplete, L1!EmitWriteDone, L1!EndSend,
-       L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake,
+       L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
        L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus, L1!HostConsumesEvent, L1!HostHoldsNoBuffer,
        L1!HostOwnsNoPayload, L1!HostReturnsBuffer, L1!LendSendBuffer,
        L1!NetworkReceive, L1!NetworkSend, L1!ReceiveStatus,
@@ -3691,7 +3748,7 @@ LEMMA LiveChannelPreserved ==
        L1!DeliverInitialMetadata, L1!DeliverMessage, L1!DeliverStatus,
        L1!DeliveryCallbackReturns, L1!EmitResourcesReleased,
        L1!EmitShutdownComplete, L1!EmitWriteDone, L1!EndSend,
-       L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake,
+       L1!FreeReturnedBuffer, L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
        L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus, L1!HostConsumesEvent, L1!HostHoldsNoBuffer,
        L1!HostOwnsNoPayload, L1!HostReturnsBuffer, L1!LendSendBuffer,
        L1!NetworkReceive, L1!NetworkSend, L1!ReceiveStatus,
@@ -4911,7 +4968,7 @@ LEMMA RequestHoldsUntilTheParseEnds ==
            ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
            ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>5. CASE RequestReadCancellation(c2)
-          BY <2>0, <2>5, SMT DEF  RequestReadCancellation, ReadInFlight,
+          BY <2>0, <2>5, SMTT(60) DEF  RequestReadCancellation, ReadInFlight,
            PayloadOwed, L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained,
            RingHead, RingTail, ConsumingTerminal, ReadCancellationSettled,
            ManagedIndInv, ManagedTypeOK, ManagedMachineInv, ReaderInv,
@@ -4922,7 +4979,7 @@ LEMMA RequestHoldsUntilTheParseEnds ==
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>6. CASE CancelWaitingRead(c2)
-          BY <2>0, <2>6, SMT DEF  CancelWaitingRead,
+          BY <2>0, <2>6, SMTT(60) DEF  CancelWaitingRead,
            L1!RequestCallCancellation, L1!L0!IsUnusedCall, PayloadOwed,
            L1!HostOwnsSomePayload, L1!OwedPayloads, RingDrained, RingHead,
            RingTail, ConsumingTerminal, ReadCancellationSettled,
@@ -12117,10 +12174,19 @@ LEMMA PassesDeliverStatus ==
       \* Its own budget rather than the run's: the goal is the ring's
       \* occupancy carried across an Append, which is long rather than
       \* hard, and the default limit is where it sits.
+      <2>e. "COMPLETED" \in L1!L0!EventKinds
+          BY DEF L1!L0!EventKinds, L1!L0!StatusKinds
+      <2>i. (/\ ParsingReadOwnsItsSlot
+             /\ reader_state' = reader_state
+             /\ payloads_consumed_by_host' = payloads_consumed_by_host
+             /\ payloads_consumed_by_host \in [CallIds -> Nat]
+             /\ events_delivered \in [CallIds -> Seq(L1!L0!EventKinds)]
+             /\ events_delivered' = [events_delivered EXCEPT
+                    ![cId] = Append(events_delivered[cId], "COMPLETED")])
+                => ParsingReadOwnsItsSlot'
+          BY <2>e, ParsingSlotGrowsWithTheRing, ZenonT(120)
       <2>q. QED
-          BY <2>1, <2>2, <2>3, <2>n, <2>t, ParsingSlotGrowsWithTheRing,
-             SMTT(180)
-          DEF L1!L0!EventKinds
+          BY <2>1, <2>2, <2>3, <2>n, <2>t, <2>i, Zenon
     <1>6. WriterInv'
         OBVIOUS
     <1>7. TokenPublishedBeforeStart'
@@ -12917,7 +12983,270 @@ LEMMA PassesEmitBudgetWake ==
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
            ManagedStutter, managed_vars,
-           L1!EmitBudgetWake
+           L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        OBVIOUS
+    <1>2. AtMostOneReaderOutstanding'
+        OBVIOUS
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        OBVIOUS
+    <1>4. ReadCancelPendingOnlyInFlight'
+        OBVIOUS
+    <1>5. ParsingReadOwnsItsSlot'
+        BY ParsingReadOwnsItsSlotIsFramed
+    <1>6. WriterInv'
+        OBVIOUS
+    <1>7. TokenPublishedBeforeStart'
+        BY TokenPublishedBeforeStartIsFramed
+    <1>8. RootSurvivesCallbacks'
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
+    <1>10. DisposeAwaitsDestroy'
+        OBVIOUS
+    <1>11. RuntimeManagerCoherent'
+        OBVIOUS
+    <1>12. LiveChannelUsesCurrentRuntime'
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        OBVIOUS
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
+        OBVIOUS
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY ChannelAgreementIsFramed
+    <1>17. ChannelStateMatchesNative'
+        BY ChannelAgreementIsFramed
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
+    <1>19. DisposeLeavesNoManagedWaiter'
+        OBVIOUS
+    <1>20. SettledCallOwesNothing'
+        BY SettledCallOwesNothingIsFramed
+    <1>21. AbsentRuntimeOwesNothing'
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+
+
+LEMMA PassesEngineTakesBytes ==
+    ASSUME NEW cId \in CallIds, NEW n \in L1!Sizes, L1!EngineTakesBytes(cId, n),
+           ManagedStutter, ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           L1!EngineTakesBytes
+    <1>t. ManagedTypeOK'
+        BY DEF ReaderStates,
+           WriterStates, ConsumerPhases, CallDisposeStates,
+           ChannelDisposeStates, RuntimeDisposeStates, HeadersCompletions,
+           StatusCompletions, L1!Sizes
+    <1>1. ConsumerPhaseMatchesDispose'
+        OBVIOUS
+    <1>2. AtMostOneReaderOutstanding'
+        OBVIOUS
+    <1>3. DrainNeverOverlapsApplicationConsumer'
+        OBVIOUS
+    <1>4. ReadCancelPendingOnlyInFlight'
+        OBVIOUS
+    <1>5. ParsingReadOwnsItsSlot'
+        BY ParsingReadOwnsItsSlotIsFramed
+    <1>6. WriterInv'
+        OBVIOUS
+    <1>7. TokenPublishedBeforeStart'
+        BY TokenPublishedBeforeStartIsFramed
+    <1>8. RootSurvivesCallbacks'
+        BY RootSurvivesCallbacksIsFramed DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>9. RuntimeRootSurvivesCallbacks'
+        BY RuntimeRootSurvivesCallbacksIsFramed DEF AdmissibleRuntimeStates,
+           RuntimeDisposeStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           L1!IsStoppingRuntime
+    <1>10. DisposeAwaitsDestroy'
+        OBVIOUS
+    <1>11. RuntimeManagerCoherent'
+        OBVIOUS
+    <1>12. LiveChannelUsesCurrentRuntime'
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK
+    <1>13. ManagedShutdownHasNoHostDebt'
+        BY SMT DEF L1!NoHostDebt,
+           AdmissibleRuntimeStates, TeardownLeavesCallsSettled,
+           RuntimeDisposeStates, L1!IsStoppingRuntime, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+           L1!UnusedCallsAreFfiClean, L1!L0!ChannelsOf
+    <1>14. LiveChannelKeepsRuntimeAlive'
+        OBVIOUS
+    <1>15. NoRuntimeShutdownWhileChannelsLive'
+        OBVIOUS
+    <1>16. RejectedChannelHasNoNativeHalf'
+        BY ChannelAgreementIsFramed
+    <1>17. ChannelStateMatchesNative'
+        BY ChannelAgreementIsFramed
+    <1>18. RuntimeStateMatchesNative'
+        BY SMT DEF AdmissibleRuntimeStates,
+           TeardownLeavesCallsSettled, RuntimeDisposeStates, L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, L1!L0!SingleRuntime,
+           L1!IsStoppingRuntime, L1!IsReleasedRuntime
+    <1>19. DisposeLeavesNoManagedWaiter'
+        OBVIOUS
+    <1>20. SettledCallOwesNothing'
+        BY SettledCallOwesNothingIsFramed
+    <1>21. AbsentRuntimeOwesNothing'
+        BY SMT DEF L1!IndInv,
+           L1!TypeOK, L1!L0!TypeOK, TeardownLeavesCallsSettled
+    <1>g1. NotInitRuntimeIsUndestroyed'
+        BY SMT DEF NotInitRuntimeIsUndestroyed,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g2. TeardownLeavesCallsSettled'
+        BY SMT DEF TeardownLeavesCallsSettled,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g3. CancelledParseHasNoPendingRequest'
+        BY SMT DEF CancelledParseHasNoPendingRequest,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g4. PrologueReaderOnlyWaits'
+        BY SMT DEF PrologueReaderOnlyWaits,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g5. PastPrologueHeadersAnswered'
+        BY SMT DEF PastPrologueHeadersAnswered,
+           PrologueReaderOnlyWaits, ConsumerPhases, ReaderStates,
+           HeadersCompletions, L1!IndInv, L1!TypeOK, L1!L0!TypeOK,
+           LiveCallHasLiveChannel, L1!IsRuntimeQuiescent,
+           L1!IsRuntimeDrained, L1!NoHostDebt, L1!IsReleasedRuntime,
+           L1!IsClosedChannel, L1!IsShutdownEventEmitted,
+           L1!SecondEventOwed
+    <1>g6. StatusMeansTerminal'
+        BY SMT DEF StatusMeansTerminal,
+           L1!L0!HasStatus, L1!L0!IsTerminalCall, L1!L0!StatusKinds,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
+           L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
+           L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
+           L1!IsShutdownEventEmitted, L1!SecondEventOwed
+    <1>g7. LiveCallHasLiveChannel'
+        BY SMT DEF LiveCallHasLiveChannel,
+           L1!IndInv, L1!TypeOK, L1!L0!TypeOK
+    <1>q. QED
+        BY <1>t, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>g1, <1>g2, <1>g3, <1>g4, <1>g5, <1>g6, <1>g7
+
+
+LEMMA PassesEngineGivesBackBytes ==
+    ASSUME NEW n \in L1!Sizes, L1!EngineGivesBackBytes(n), ManagedStutter, ManagedIndInv
+    PROVE  (ManagedTypeOK /\ ManagedMachineInv /\ ManagedGlue)'
+    <1> USE DEF ManagedIndInv, ManagedTypeOK, ManagedMachineInv,
+           ReaderInv, LifecycleInv, ManagedGlue,
+           ConsumerPhaseMatchesDispose, AtMostOneReaderOutstanding,
+           DrainNeverOverlapsApplicationConsumer, ReadCancelPendingOnlyInFlight,
+           ParsingReadOwnsItsSlot, WriterInv, WaitingWriterHoldsNoBuffer,
+           SerializingWriterHoldsTheBuffer, WaitMatchesRefusal,
+           ManagedWriterNeverObservesSlotBusy, RetryLenMatchesWait,
+           TokenPublishedBeforeStart, RootSurvivesCallbacks,
+           RuntimeRootSurvivesCallbacks, DisposeAwaitsDestroy,
+           RuntimeManagerCoherent, LiveChannelUsesCurrentRuntime,
+           ManagedShutdownHasNoHostDebt, LiveChannelKeepsRuntimeAlive,
+           NoRuntimeShutdownWhileChannelsLive, RejectedChannelHasNoNativeHalf,
+           ChannelStateMatchesNative, RuntimeStateMatchesNative,
+           DisposeLeavesNoManagedWaiter, SettledCallOwesNothing,
+           AbsentRuntimeOwesNothing, ReadInFlight, RingOccupancy, RingHead,
+           RingTail, RingDrained, ChannelSettled, EveryChannelSettled,
+           ConsumingTerminal, NoRetryLen, L1!HostOwnsNoPayload,
+           L1!HostHoldsNoBuffer, L1!OwedPayloads, L1!IsLentBuffer,
+           L1!IsReturnedBuffer, L1!L0!IsUnusedCall,
+           L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+           l1_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars,
+           ManagedStutter, managed_vars,
+           L1!EngineGivesBackBytes
     <1>t. ManagedTypeOK'
         BY DEF ReaderStates,
            WriterStates, ConsumerPhases, CallDisposeStates,
@@ -19762,11 +20091,18 @@ LEMMA ManagedLayerPreserved ==
   <2>71. CASE \E cId \in CallIds : L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
       BY <1>0, <1>1, <2>0, <2>71, PassesAdmitRead, PassesEmitBudgetWake, Zenon
          DEF RuntimeSteps
+  <2>71t. CASE \E cId \in CallIds, n \in L1!Sizes : L1!EngineTakesBytes(cId, n)
+      BY <1>0, <1>1, <2>0, <2>71t, PassesEngineTakesBytes, Zenon
+         DEF RuntimeSteps
+  <2>71g. CASE \E n \in L1!Sizes : L1!EngineGivesBackBytes(n)
+      BY <1>0, <1>1, <2>0, <2>71g, PassesEngineGivesBackBytes, Zenon
+         DEF RuntimeSteps
   <2>72. CASE \E cId \in CallIds, msg \in Messages : L1!EndCallPastHardCeiling(cId, msg)
       BY <1>0, <1>1, <2>0, <2>72, PassesEndCallPastHardCeiling, Zenon
          DEF RuntimeSteps
   <2>8. QED
-      BY <2>0, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>71, <2>72,
+      BY <2>0, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>71, <2>71t,
+         <2>71g, <2>72,
          Zenon DEF RuntimeSteps
 <1>2. CASE FreeRuntimeRoot
     BY <1>0, <1>2,  KeepsFreeRuntimeRoot, Zenon
@@ -20213,7 +20549,29 @@ LEMMA PassthroughLatchesCancellation ==
                  PROVE  cancel_requested'[cId]
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  cancel_requested'[cId]
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  cancel_requested'[cId]
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes,
          L1!vars, L1!ffi_vars, L1!l0_vars,
          L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
          ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -20244,7 +20602,7 @@ LEMMA PassthroughLatchesCancellation ==
     <3>2. QED BY <3>1, SMT
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 LEMMA PassthroughStartsNoCall ==
@@ -20437,7 +20795,31 @@ LEMMA PassthroughStartsNoCall ==
                  PROVE  ~L1!L0!IsActiveCall(cId)' /\ ~L1!L0!IsUnusedCall(cId)'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  ~L1!L0!IsActiveCall(cId)' /\ ~L1!L0!IsUnusedCall(cId)'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  ~L1!L0!IsActiveCall(cId)' /\ ~L1!L0!IsUnusedCall(cId)'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes,
          L1!vars, L1!ffi_vars, L1!l0_vars,
          L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
          L1!L0!IsActiveCall, L1!L0!ActiveCallStates, L1!L0!IsUnusedCall,
@@ -20471,7 +20853,7 @@ LEMMA PassthroughStartsNoCall ==
          ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 
@@ -21831,7 +22213,31 @@ LEMMA PassthroughLeavesTheCallUsed ==
                  PROVE  ~L1!L0!IsUnusedCall(cId)'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  ~L1!L0!IsUnusedCall(cId)'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes,
+         L1!vars, L1!ffi_vars, L1!l0_vars,
+         L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  ~L1!L0!IsUnusedCall(cId)'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes,
          L1!vars, L1!ffi_vars, L1!l0_vars,
          L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
          L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
@@ -21865,7 +22271,7 @@ LEMMA PassthroughLeavesTheCallUsed ==
          ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 LEMMA CallNeverBecomesUnused ==
@@ -23495,7 +23901,35 @@ LEMMA PassthroughKeepsTheNamedBuffer ==
                  PROVE  L1!IsLentBuffer(c, b)'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
+         L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
+         L1!HostHoldsNoBuffer, L1!HostHoldsSomeBuffer, L1!BufferStates,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  L1!IsLentBuffer(c, b)'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, L1!IsLentBuffer,
          L1!IsReturnedBuffer, L1!IsFreedBuffer, L1!IsFreshBuffer,
@@ -23535,7 +23969,7 @@ LEMMA PassthroughKeepsTheNamedBuffer ==
          ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 LEMMA TheNamedBufferStaysLent ==
@@ -24834,7 +25268,33 @@ LEMMA PassthroughKeepsTheAcquittalComing ==
                  PROVE  AwaitingWriteDoneHasOneComing'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
+         L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  AwaitingWriteDoneHasOneComing'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, AwaitingWriteDoneHasOneComing,
          L1!IsAwaitingWriteDone, L1!IsWriteDoneCallbackRunning,
@@ -24871,7 +25331,7 @@ LEMMA PassthroughKeepsTheAcquittalComing ==
          ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 
@@ -26504,7 +26964,7 @@ LEMMA DeliveryFlagStepsAtLevelOne ==
 <1>39. CASE \E c2 \in CallIds : L1!EmitBudgetWake(c2)
   <2>1. PICK c2 \in CallIds : L1!EmitBudgetWake(c2)
     BY <1>39
-  <2>2. QED BY <2>1, SMT DEF  L1!EmitBudgetWake,
+  <2>2. QED BY <2>1, SMT DEF  L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes,
          L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
          L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
@@ -26523,8 +26983,26 @@ LEMMA DeliveryFlagStepsAtLevelOne ==
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars
+<1>41. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>1. PICK c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+    BY <1>41
+  <2>2. QED BY <2>1, SMT DEF  L1!EngineTakesBytes,
+         L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
+<1>42. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>1. PICK n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>42
+  <2>2. QED BY <2>1, SMT DEF  L1!EngineGivesBackBytes,
+         L1!IsDeliveryCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40 DEF
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40, <1>41, <1>42 DEF
        L1!Next
 
 LEMMA WriteDoneCountersStepAtLevelOne ==
@@ -26899,7 +27377,7 @@ LEMMA WriteDoneCountersStepAtLevelOne ==
 <1>39. CASE \E c2 \in CallIds : L1!EmitBudgetWake(c2)
   <2>1. PICK c2 \in CallIds : L1!EmitBudgetWake(c2)
     BY <1>39
-  <2>2. QED BY <2>1, SMT DEF  L1!EmitBudgetWake, L1!IsAwaitingWriteDone,
+  <2>2. QED BY <2>1, SMT DEF  L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsAwaitingWriteDone,
          L1!IsWriteDoneCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
          L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
@@ -26918,8 +27396,26 @@ LEMMA WriteDoneCountersStepAtLevelOne ==
          L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars
+<1>41. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>1. PICK c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+    BY <1>41
+  <2>2. QED BY <2>1, SMT DEF  L1!EngineTakesBytes, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
+<1>42. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>1. PICK n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>42
+  <2>2. QED BY <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, L1!TypeOK, L1!L0!TypeOK,
+         L1!L0!HasStatus, L1!L0!StatusKinds, L1!L0!IsActiveCall,
+         L1!L0!ActiveCallStates, L1!L0!CallsOf, l1_vars, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
-    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40 DEF
+    BY <1>0, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, <1>19, <1>20, <1>21, <1>22, <1>23, <1>24, <1>25, <1>26, <1>27, <1>28, <1>29, <1>30, <1>31, <1>32, <1>33, <1>34, <1>35, <1>36, <1>37, <1>38, <1>39, <1>40, <1>41, <1>42 DEF
        L1!Next
 
 
@@ -27280,7 +27776,7 @@ LEMMA PassthroughKeepsOneSend ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>2. CASE L1!EmitBudgetWake(c2)
-      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, OneSendInFlight,
          L1!HasNoSendInFlight, L1!IsWriteDoneCallbackRunning,
@@ -27291,6 +27787,38 @@ LEMMA PassthroughKeepsOneSend ==
          ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
          ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>3. QED BY <2>0,  <2>1, <2>2
+<1>7t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  OneSendInFlight'
+      BY <1>7t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, OneSendInFlight, L1!HasNoSendInFlight,
+         L1!IsWriteDoneCallbackRunning, L1!IsAwaitingWriteDone,
+         OneRequestCall, IsSealing, ManagedIndInv, ManagedTypeOK,
+         WriterStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+         L1!UnusedCallsAreFfiClean, L1!WriteDonesNeverExceedSends,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. QED BY <2>0,  <2>1
+<1>7g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  OneSendInFlight'
+      BY <1>7g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, OneSendInFlight, L1!HasNoSendInFlight,
+         L1!IsWriteDoneCallbackRunning, L1!IsAwaitingWriteDone,
+         OneRequestCall, IsSealing, ManagedIndInv, ManagedTypeOK,
+         WriterStates, L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+         L1!UnusedCallsAreFfiClean, L1!WriteDonesNeverExceedSends,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. QED BY <2>0,  <2>1
 <1>8. CASE \E c2 \in CallIds, m2 \in Messages : (~IsSealing(c2) /\ L1!EndCallPastHardCeiling(c2, m2))
   <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW m2 \in Messages,
                            (~IsSealing(c2) /\ L1!EndCallPastHardCeiling(c2, m2))
@@ -27327,7 +27855,7 @@ LEMMA PassthroughKeepsOneSend ==
          ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9 DEF
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>7t, <1>7g, <1>8, <1>9 DEF
        Passthrough, RuntimeSteps, BindingDowncalls
 
 LEMMA OneSendStaysOne ==
@@ -28217,7 +28745,7 @@ LEMMA PassthroughKeepsTheSeal ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>7. CASE L1!DeliverCancelled(c2)
-      BY <1>0, <2>0, <2>7, SMT DEF  L1!DeliverCancelled,
+      BY <1>0, <2>0, <2>7, SMTT(60) DEF  L1!DeliverCancelled,
          L1!HandPayloadToHost, L1!L0!CallCancel, L1!vars, L1!ffi_vars,
          L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
          L1!L0!CallVars, SealingHoldsTheEndOfSending, IsSealing,
@@ -28309,7 +28837,7 @@ LEMMA PassthroughKeepsTheSeal ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>2. CASE L1!EmitBudgetWake(c2)
-      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>2, SMT DEF  L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, SealingHoldsTheEndOfSending,
          IsSealing, OneRequestCall, L1!L0!IsActiveCall,
@@ -28323,6 +28851,44 @@ LEMMA PassthroughKeepsTheSeal ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>3. QED BY <2>0,  <2>1, <2>2
+<1>7t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  SealingHoldsTheEndOfSending'
+      BY <1>7t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, SealingHoldsTheEndOfSending, IsSealing,
+         OneRequestCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+         L1!IsHandleReleased, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+         OneSendInFlight, ManagedIndInv, ManagedTypeOK, WriterStates,
+         L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+         L1!ReleasedCallIsClean, L1!HostHoldsNoBuffer,
+         L1!HostHoldsSomeBuffer, L1!WriteDonesNeverExceedSends,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. QED BY <2>0,  <2>1
+<1>7g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  SealingHoldsTheEndOfSending'
+      BY <1>7g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars, L1!ffi_vars,
+         L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+         L1!L0!CallVars, SealingHoldsTheEndOfSending, IsSealing,
+         OneRequestCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
+         L1!IsHandleReleased, L1!IsAwaitingWriteDone,
+         L1!IsWriteDoneCallbackRunning, L1!HasNoSendInFlight,
+         OneSendInFlight, ManagedIndInv, ManagedTypeOK, WriterStates,
+         L1!IndInv, L1!TypeOK, L1!L0!TypeOK, L1!FfiCallInv,
+         L1!ReleasedCallIsClean, L1!HostHoldsNoBuffer,
+         L1!HostHoldsSomeBuffer, L1!WriteDonesNeverExceedSends,
+         L1!L0!IsUnusedCall, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>3. QED BY <2>0,  <2>1
 <1>8. CASE \E c2 \in CallIds, m2 \in Messages : (~IsSealing(c2) /\ L1!EndCallPastHardCeiling(c2, m2))
   <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW m2 \in Messages,
                            (~IsSealing(c2) /\ L1!EndCallPastHardCeiling(c2, m2))
@@ -28364,7 +28930,7 @@ LEMMA PassthroughKeepsTheSeal ==
          ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9 DEF
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>7t, <1>7g, <1>8, <1>9 DEF
        Passthrough, RuntimeSteps, BindingDowncalls
 
 LEMMA SealingStaysHeld ==
@@ -28967,7 +29533,7 @@ LEMMA SealingStaysHeld ==
            ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
            ReaderVars, WriterVars
   <2>21. CASE AskHeaders(c2)
-          BY <2>0, <2>21, SMT DEF  AskHeaders, L1!vars, L1!ffi_vars,
+          BY <2>0, <2>21, SMTT(60) DEF  AskHeaders, L1!vars, L1!ffi_vars,
            L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
            L1!L0!CallVars, SealingHoldsTheEndOfSending, IsSealing,
            OneRequestCall, L1!L0!IsActiveCall, L1!L0!ActiveCallStates,
@@ -29935,7 +30501,31 @@ LEMMA PassthroughKeepsTheTrampoline ==
                  PROVE  (L1!IsWriteDoneCallbackRunning(cId))'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+         l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  (L1!IsWriteDoneCallbackRunning(cId))'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsWriteDoneCallbackRunning,
+         ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+         l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  (L1!IsWriteDoneCallbackRunning(cId))'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, L1!IsWriteDoneCallbackRunning,
          ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
@@ -29969,7 +30559,7 @@ LEMMA PassthroughKeepsTheTrampoline ==
          ManagedCallVars, ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 \* And no downcall does either, save the trampoline's own
@@ -30566,7 +31156,7 @@ THEOREM PendingWriteEventuallySettledHolds ==
 <1>2. /\ WF_vars(PassEmitWriteDone(cId))
       /\ WF_vars(WriteDoneCompletes(cId))
       /\ WF_vars(SealRequest(cId))
-    BY <1>0, Isa DEF Spec, Fairness, RuntimeOwedFairness,
+    BY <1>0, IsaT(600) DEF Spec, Fairness, RuntimeOwedFairness,
        BindingOwedFairness
 <1>3. WF_vars(SerializationSettles(cId))
     BY <1>0, Isa DEF Spec, Fairness, ApplicationOwedFairness
@@ -34362,7 +34952,7 @@ LEMMA WakeFairnessFromSpec ==
     ASSUME NEW cId \in CallIds
     PROVE  Spec => []WakeFairness(cId)
 <1>1. Spec => WakeFairness(cId)
-    BY Isa DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness,
+    BY IsaT(600) DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness,
        WakeFairness
 <1>2. QED BY <1>1, WakeFairnessBoxed, PTL
 
@@ -35973,95 +36563,95 @@ LEMMA FairnessRefines ==
                  PROVE  WF_l1_vars(L1!NetworkSend(cId))
       OBVIOUS
   <2>1. WF_vars(PassNetworkSend(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, NetworkSendLifted
 <1>2. \A cId \in CallIds : WF_l1_vars(L1!ReceiveStatus(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!ReceiveStatus(cId))
       OBVIOUS
   <2>1. WF_vars(PassReceiveStatus(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>1b. WF_vars(SealRequest(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. QED BY <1>0, <2>1, <2>1b, ReceiveStatusLifted
 <1>3. \A cId \in CallIds : WF_l1_vars(L1!DeliverInitialMetadata(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!DeliverInitialMetadata(cId))
       OBVIOUS
   <2>1. WF_vars(PassDeliverInitialMetadata(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, DeliverInitialMetadataLifted
 <1>4. \A cId \in CallIds : WF_l1_vars(L1!DeliverMessage(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!DeliverMessage(cId))
       OBVIOUS
   <2>1. WF_vars(PassDeliverMessage(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, DeliverMessageLifted
 <1>5. \A cId \in CallIds : WF_l1_vars(L1!DeliverStatus(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!DeliverStatus(cId))
       OBVIOUS
   <2>1. WF_vars(PassDeliverStatus(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, DeliverStatusLifted
 <1>6. \A cId \in CallIds : WF_l1_vars(L1!DeliverCancelled(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!DeliverCancelled(cId))
       OBVIOUS
   <2>1. WF_vars(PassDeliverCancelled(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, DeliverCancelledLifted
 <1>7. \A cId \in CallIds : WF_l1_vars(L1!EmitWriteDone(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!EmitWriteDone(cId))
       OBVIOUS
   <2>1. WF_vars(PassEmitWriteDone(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>1b. WF_vars(SealRequest(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. QED BY <1>0, <2>1, <2>1b, EmitWriteDoneLifted
 <1>7a. \A cId \in CallIds : WF_l1_vars(L1!EmitBudgetWake(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!EmitBudgetWake(cId))
       OBVIOUS
   <2>1. WF_vars(PassEmitBudgetWake(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, EmitBudgetWakeLifted
 <1>8. \A cId \in CallIds : WF_l1_vars(L1!ReleaseCallHandle(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!ReleaseCallHandle(cId))
       OBVIOUS
   <2>1. WF_vars(PassReleaseCallHandle(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, ReleaseCallHandleLifted
 <1>9. \A rtId \in RuntimeIds : WF_l1_vars(L1!RuntimeRelease(rtId))
   <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
                  PROVE  WF_l1_vars(L1!RuntimeRelease(rtId))
       OBVIOUS
   <2>1. WF_vars(PassRuntimeRelease(rtId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, RuntimeReleaseLifted
 <1>10. \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitShutdownComplete(rtId))
   <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
                  PROVE  WF_l1_vars(L1!EmitShutdownComplete(rtId))
       OBVIOUS
   <2>1. WF_vars(PassEmitShutdownComplete(rtId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, EmitShutdownCompleteLifted
 <1>11. \A rtId \in RuntimeIds : WF_l1_vars(L1!EmitResourcesReleased(rtId))
   <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
                  PROVE  WF_l1_vars(L1!EmitResourcesReleased(rtId))
       OBVIOUS
   <2>1. WF_vars(PassEmitResourcesReleased(rtId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, EmitResourcesReleasedLifted
 <1>12. \A chId \in ChannelIds : WF_l1_vars(L1!ChannelFinishClosing(chId))
   <2>0. SUFFICES ASSUME NEW chId \in ChannelIds
                  PROVE  WF_l1_vars(L1!ChannelFinishClosing(chId))
       OBVIOUS
   <2>1. WF_vars(PassChannelFinishClosing(chId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, ChannelFinishClosingLifted
 <1>12a. \A cId \in CallIds, b \in BufferIds :
             WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
@@ -36069,38 +36659,43 @@ LEMMA FairnessRefines ==
                  PROVE  WF_l1_vars(L1!FreeReturnedBuffer(cId, b))
       OBVIOUS
   <2>1. WF_vars(PassFreeReturnedBuffer(cId, b))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <1>t, <2>1, FreeReturnedBufferLifted
+
+<1>12b. WF_l1_vars(L1!EngineGivesBackAllBytes)
+  <2>1. WF_vars(PassEngineGivesBackAllBytes)
+    BY <1>r, IsaT(600) DEF RuntimeOwedFairness
+  <2>2. QED BY <1>0, <1>t, <2>1, EngineGivesBackAllBytesLifted
 
 <1>13. \A cId \in CallIds : WF_l1_vars(L1!DeliveryCallbackReturns(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!DeliveryCallbackReturns(cId))
       OBVIOUS
   <2>1. WF_vars(DeliveryReturns(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. QED BY <1>0, <1>0, <2>1, DeliveryCallbackReturnsLifted
 <1>14. \A cId \in CallIds : WF_l1_vars(L1!WriteDoneReturns(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!WriteDoneReturns(cId))
       OBVIOUS
   <2>1. WF_vars(WriteDoneCompletes(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>1b. WF_vars(PassWriteDoneReturns(cId))
-    BY <1>r, <2>0, Isa DEF RuntimeOwedFairness
+    BY <1>r, <2>0, IsaT(600) DEF RuntimeOwedFairness
   <2>2. QED BY <1>0, <2>1, <2>1b, WriteDoneReturnsLifted
 <1>15. \A rtId \in RuntimeIds : WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
   <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
                  PROVE  WF_l1_vars(L1!ShutdownCallbackReturns(rtId))
       OBVIOUS
   <2>1. WF_vars(ShutdownReturns(rtId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. QED BY <1>0, <1>0, <2>1, ShutdownCallbackReturnsLifted
 <1>16. \A rtId \in RuntimeIds : WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
   <2>0. SUFFICES ASSUME NEW rtId \in RuntimeIds
                  PROVE  WF_l1_vars(L1!ResourcesReleasedCallbackReturns(rtId))
       OBVIOUS
   <2>1. WF_vars(ResourcesReleasedReturns(rtId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. QED BY <1>0, <1>0, <2>1, ResourcesReleasedCallbackReturnsLifted
 <1>17. \A cId \in CallIds, b \in BufferIds :
            WF_l1_vars(L1!HostReturnsBuffer(cId, b))
@@ -36108,32 +36703,32 @@ LEMMA FairnessRefines ==
                  PROVE  WF_l1_vars(L1!HostReturnsBuffer(cId, b))
       OBVIOUS
   <2>1. WF_vars(SerializationSettles(cId))
-    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+    BY <1>a, <2>0, IsaT(600) DEF ApplicationOwedFairness
   <2>2. QED BY <1>0, <2>1, HostReturnsBufferLifted
 <1>18. \A cId \in CallIds : WF_l1_vars(L1!HostConsumesEvent(cId))
   <2>0. SUFFICES ASSUME NEW cId \in CallIds
                  PROVE  WF_l1_vars(L1!HostConsumesEvent(cId))
       OBVIOUS
   <2>1. WF_vars(DrainRelease(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>2. WF_vars(ReaderTakesHead(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>3. WF_vars(FinishCancelledParse(cId))
-    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+    BY <1>a, <2>0, IsaT(600) DEF ApplicationOwedFairness
   <2>4. WF_vars(CancelParsingRead(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>5. WF_vars(ReaderParses(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>6. WF_vars(CancelWaiter(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>7. WF_vars(HandoffToDrain(cId))
-    BY <1>b, <2>0, Isa DEF BindingOwedFairness
+    BY <1>b, <2>0, IsaT(600) DEF BindingOwedFairness
   <2>8. WF_vars(FinishConsumePayload(cId))
-    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+    BY <1>a, <2>0, IsaT(600) DEF ApplicationOwedFairness
   <2>9. WF_vars(BeginMoveNext(cId))
-    BY <1>a, <2>0, Isa DEF ApplicationOwedFairness
+    BY <1>a, <2>0, IsaT(600) DEF ApplicationOwedFairness
   <2>10a. WakeFairness(cId)
-    BY <1>r, <1>b, <2>0, Isa
+    BY <1>r, <1>b, <2>0, IsaT(600)
     DEF RuntimeOwedFairness, BindingOwedFairness, WakeFairness
   <2>10. []WakeFairness(cId)
     BY <2>10a, WakeFairnessBoxed, PTL
@@ -36141,7 +36736,7 @@ LEMMA FairnessRefines ==
     BY <1>0, <1>w, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9, <2>10,
        HostConsumesEventLifted
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>7a, <1>8, <1>9, <1>10, <1>11, <1>12, <1>12a, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18 DEF L1!Fairness, l1_vars
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>7a, <1>8, <1>9, <1>10, <1>11, <1>12, <1>12a, <1>12b, <1>13, <1>14, <1>15, <1>16, <1>17, <1>18, IsaT(600) DEF L1!Fairness, l1_vars
 
 THEOREM RefinesSpec == Spec => L1!Spec
 <1>0. SUFFICES ASSUME Spec PROVE L1!Spec
@@ -37870,7 +38465,29 @@ LEMMA PassthroughKeepsTheRing ==
                  PROVE  payloads_consumed_by_host' = payloads_consumed_by_host
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  payloads_consumed_by_host' = payloads_consumed_by_host
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
+         ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
+         ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  payloads_consumed_by_host' = payloads_consumed_by_host
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, L1!TypeOK, L1!L0!TypeOK,
          ManagedStutter, vars, l1_vars, managed_vars, ManagedRuntimeVars,
@@ -37901,7 +38518,7 @@ LEMMA PassthroughKeepsTheRing ==
          ManagedChannelVars, ManagedCallVars, ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 LEMMA InFlightTokenPreserved ==
@@ -39053,7 +39670,31 @@ LEMMA PassthroughKeepsTheFailure ==
                  PROVE  (~L1!L0!NotFailed)'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!NotFailed, L1!TypeOK,
+         L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  (~L1!L0!NotFailed)'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!NotFailed, L1!TypeOK,
+         L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
+         ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+         ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  (~L1!L0!NotFailed)'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, L1!L0!NotFailed, L1!TypeOK,
          L1!L0!TypeOK, ManagedStutter, vars, l1_vars, managed_vars,
@@ -39087,7 +39728,7 @@ LEMMA PassthroughKeepsTheFailure ==
          ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 \* Init leaves every reader idle with an empty ring: both glue facts are
@@ -41855,14 +42496,14 @@ THEOREM CallDisposeCompletesHolds ==
       /\ WF_vars(FinishDisposeCall(cId))
       /\ WF_vars(CancelWriterWait(cId))
       /\ WF_vars(WriteDoneCompletes(cId))
-    BY <1>0, WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
+    BY <1>0, WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
 <1>6. /\ WF_vars(FinishConsumePayload(cId))
       /\ WF_vars(FinishCancelledParse(cId))
       /\ WF_vars(BeginMoveNext(cId))
       /\ WF_vars(SerializationSettles(cId))
     BY <1>0, Isa DEF Spec, Fairness, ApplicationOwedFairness
 <1>7. WF_vars(PassEmitWriteDone(cId))
-    BY <1>0, Isa DEF Spec, Fairness, RuntimeOwedFairness
+    BY <1>0, IsaT(600) DEF Spec, Fairness, RuntimeOwedFairness
 \* Level 0's terminal promise, stripped to this call: the pair is named,
 \* which is what lets the quantifier go.
 <1>8. L1!L0!TerminalPending(cId) ~> L1!L0!TerminalAnswered(cId)
@@ -43989,7 +44630,7 @@ LEMMA WaitingPrologueOwedHolds ==
        ManagedCallVars, ReaderVars, WriterVars
 <1>10. CASE \E cId \in CallIds, len \in L1!RequestLengths :
              WriteRefusedTooLarge(cId, len)
-    BY <1>10, SMT DEF  WriteRefusedTooLarge, BindingMayDowncall,
+    BY <1>10, SMTT(60) DEF  WriteRefusedTooLarge, BindingMayDowncall,
        L1!RefuseLendTooLarge, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedIndInv, ManagedTypeOK, PayloadOwed, L1!HostOwnsSomePayload,
@@ -43998,7 +44639,7 @@ LEMMA WaitingPrologueOwedHolds ==
        ManagedCallVars, ReaderVars, WriterVars
 <1>11. CASE \E cId \in CallIds, b \in BufferIds, charge \in L1!Sizes :
              RetryLendSucceeds(cId, b, charge)
-    BY <1>11, SMT DEF  RetryLendSucceeds, BindingMayDowncall,
+    BY <1>11, SMTT(60) DEF  RetryLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        ManagedIndInv, ManagedTypeOK, PayloadOwed, L1!HostOwnsSomePayload,
@@ -44748,7 +45389,7 @@ THEOREM WaitingReaderEventuallyResolvedHolds ==
       /\ WF_vars(ReaderTakesHead(cId))
       /\ []WakeFairness(cId)
       /\ WF_vars(CancelWaiter(cId))
-    BY <1>0, WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness,
+    BY <1>0, WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness,
        RuntimeOwedFairness
 <1>6. L1!L0!TerminalPending(cId) ~> L1!L0!TerminalAnswered(cId)
   <2>1. L1!L0!LivenessProperties
@@ -44794,7 +45435,7 @@ THEOREM ReadInFlightEventuallyResolvedHolds ==
       /\ WF_vars(ReaderTakesHead(cId))
       /\ WF_vars(CancelWaiter(cId))
       /\ WF_vars(CancelParsingRead(cId))
-    BY <1>0, WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness,
+    BY <1>0, WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness,
        RuntimeOwedFairness
 <1>6. /\ WF_vars(FinishConsumePayload(cId))
       /\ WF_vars(FinishCancelledParse(cId))
@@ -45652,7 +46293,7 @@ THEOREM StatusEventuallyResolvedHolds ==
       /\ WF_vars(CancelWaiter(cId))
       /\ WF_vars(CancelParsingRead(cId))
       /\ WF_vars(HandoffToDrain(cId))
-    BY <1>0, WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
+    BY <1>0, WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
 <1>5. /\ WF_vars(FinishConsumePayload(cId))
       /\ WF_vars(FinishCancelledParse(cId))
       /\ WF_vars(BeginMoveNext(cId))
@@ -45861,7 +46502,7 @@ LEMMA WaitLeavesOnlyIdleOnDeadCall ==
            l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
            ManagedCallVars, ReaderVars, WriterVars
   <2>2. CASE CreateChannel(ch2)
-          BY <2>0, <2>2, SMT DEF  CreateChannel, L1!ChannelCreate,
+          BY <2>0, <2>2, SMTT(60) DEF  CreateChannel, L1!ChannelCreate,
            L1!L0!ChannelCreate, L1!vars, L1!ffi_vars, L1!l0_vars, L1!L0!vars,
            L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
            L1!RuntimeFail, L1!L0!RuntimeFail, ManagedIndInv, ManagedTypeOK,
@@ -47503,14 +48144,14 @@ THEOREM PublishedCallEventuallySettledHolds ==
       /\ WF_vars(SettleCall(cId))
       /\ WF_vars(CancelWriterWait(cId))
       /\ WF_vars(WriteDoneCompletes(cId))
-    BY <1>0, WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
+    BY <1>0, WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
 <1>7. /\ WF_vars(FinishConsumePayload(cId))
       /\ WF_vars(FinishCancelledParse(cId))
       /\ WF_vars(BeginMoveNext(cId))
       /\ WF_vars(SerializationSettles(cId))
     BY <1>0, Isa DEF Spec, Fairness, ApplicationOwedFairness
 <1>8. WF_vars(PassEmitWriteDone(cId))
-    BY <1>0, Isa DEF Spec, Fairness, RuntimeOwedFairness
+    BY <1>0, IsaT(600) DEF Spec, Fairness, RuntimeOwedFairness
 <1>9. L1!L0!TerminalPending(cId) ~> L1!L0!TerminalAnswered(cId)
   <2>1. L1!L0!LivenessProperties
     BY <1>0, RefinesSpec, L1!InheritedLivenessTheorem, L1Assumptions, Zenon
@@ -47763,7 +48404,37 @@ LEMMA PassthroughArmsTheCallback ==
                             => (L1!IsDeliveryCallbackRunning(cId))'
       BY <1>61
   <2>1. CASE (L1!AdmitRead(c2) \/ L1!EmitBudgetWake(c2))
-      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!vars,
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsDeliveryCallbackRunning,
+         ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+         l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61t. CASE \E c2 \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c2, n2)
+  <2>0. SUFFICES ASSUME NEW c2 \in CallIds, NEW n2 \in L1!Sizes, L1!EngineTakesBytes(c2, n2)
+                 PROVE  /\ L1!IsDeliveryCallbackRunning(cId)
+                            => (L1!IsDeliveryCallbackRunning(cId))'
+                        /\ (events_delivered[cId])' # events_delivered[cId]
+                            => (L1!IsDeliveryCallbackRunning(cId))'
+      BY <1>61t
+  <2>1. CASE L1!EngineTakesBytes(c2, n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineTakesBytes, L1!vars,
+         L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
+         L1!L0!ChannelVars, L1!L0!CallVars, L1!IsDeliveryCallbackRunning,
+         ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
+         l1_vars, managed_vars, ManagedRuntimeVars, ManagedChannelVars,
+         ManagedCallVars, ReaderVars, WriterVars
+  <2>2. QED BY <2>0,  <2>1
+<1>61g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>0. SUFFICES ASSUME NEW n2 \in L1!Sizes, L1!EngineGivesBackBytes(n2)
+                 PROVE  /\ L1!IsDeliveryCallbackRunning(cId)
+                            => (L1!IsDeliveryCallbackRunning(cId))'
+                        /\ (events_delivered[cId])' # events_delivered[cId]
+                            => (L1!IsDeliveryCallbackRunning(cId))'
+      BY <1>61g
+  <2>1. CASE L1!EngineGivesBackBytes(n2)
+      BY <1>0, <2>0, <2>1, SMT DEF  L1!EngineGivesBackBytes, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, L1!IsDeliveryCallbackRunning,
          ManagedTypeOK, L1!TypeOK, L1!L0!TypeOK, ManagedStutter, vars,
@@ -47803,7 +48474,7 @@ LEMMA PassthroughArmsTheCallback ==
          ManagedCallVars, ReaderVars, WriterVars
   <2>2. QED BY <2>0,  <2>1
 <1>q. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>62, <1>7 DEF  Passthrough,
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>61, <1>61t, <1>61g, <1>62, <1>7 DEF  Passthrough,
        RuntimeSteps, BindingDowncalls
 
 LEMMA ServedRootPreserved ==
@@ -49639,14 +50310,14 @@ LEMMA SettlementFromSpec ==
       /\ WF_vars(SettleCall(cId))
       /\ WF_vars(CancelWriterWait(cId))
       /\ WF_vars(WriteDoneCompletes(cId))
-    BY WakeFairnessFromSpec, Isa DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
+    BY WakeFairnessFromSpec, IsaT(600) DEF Spec, Fairness, BindingOwedFairness, RuntimeOwedFairness
 <1>7. /\ WF_vars(FinishConsumePayload(cId))
       /\ WF_vars(FinishCancelledParse(cId))
       /\ WF_vars(BeginMoveNext(cId))
       /\ WF_vars(SerializationSettles(cId))
     BY Isa DEF Spec, Fairness, ApplicationOwedFairness
 <1>8. WF_vars(PassEmitWriteDone(cId))
-    BY Isa DEF Spec, Fairness, RuntimeOwedFairness
+    BY IsaT(600) DEF Spec, Fairness, RuntimeOwedFairness
 <1>9. L1!L0!TerminalPending(cId) ~> L1!L0!TerminalAnswered(cId)
   <2>1. L1!L0!LivenessProperties
     BY RefinesSpec, L1!InheritedLivenessTheorem, L1Assumptions, Zenon
@@ -51967,7 +52638,7 @@ LEMMA PassthroughKeepsQuiescence ==
                    => L1!IsResourcesReleasedEmitted(rtId)))'
         \/ (~L1!L0!NotFailed)'
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
        L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
        L1!IsResourcesReleasedEmitted, L1!L0!NotFailed,
@@ -51977,7 +52648,7 @@ LEMMA PassthroughKeepsQuiescence ==
   <2>2. \/ (L1!NoHostDebt(rtId))'
         \/ (~L1!L0!NotFailed)'
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!NoHostDebt, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
        L1!OwedPayloads, L1!L0!ChannelsOf, L1!L0!NotFailed,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
@@ -51986,7 +52657,77 @@ LEMMA PassthroughKeepsQuiescence ==
   <2>3. \/ (L1!RuntimeHoldsNoReturnedBytes(rtId))'
         \/ (~L1!L0!NotFailed)'
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!RuntimeHoldsNoReturnedBytes, L1!IsReturnedBuffer,
+       L1!L0!ChannelsOf, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>q. QED
+    BY <2>1, <2>2, <2>3, Zenon
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+  <2>1. \/ /\ (L1!IsReleasedRuntime(rtId))'
+           /\ (~L1!IsShutdownCallbackRunning(rtId))'
+           /\ (~L1!IsResourcesReleasedCallbackRunning(rtId))'
+           /\ ((L1!SecondEventOwed(rtId)
+                   => L1!IsResourcesReleasedEmitted(rtId)))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>2. \/ (L1!NoHostDebt(rtId))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!NoHostDebt, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, L1!L0!ChannelsOf, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>3. \/ (L1!RuntimeHoldsNoReturnedBytes(rtId))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!RuntimeHoldsNoReturnedBytes, L1!IsReturnedBuffer,
+       L1!L0!ChannelsOf, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>q. QED
+    BY <2>1, <2>2, <2>3, Zenon
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+  <2>1. \/ /\ (L1!IsReleasedRuntime(rtId))'
+           /\ (~L1!IsShutdownCallbackRunning(rtId))'
+           /\ (~L1!IsResourcesReleasedCallbackRunning(rtId))'
+           /\ ((L1!SecondEventOwed(rtId)
+                   => L1!IsResourcesReleasedEmitted(rtId)))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsReleasedRuntime, L1!IsShutdownCallbackRunning,
+       L1!IsResourcesReleasedCallbackRunning, L1!SecondEventOwed,
+       L1!IsResourcesReleasedEmitted, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>2. \/ (L1!NoHostDebt(rtId))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!NoHostDebt, L1!HostOwnsNoPayload, L1!HostHoldsNoBuffer,
+       L1!OwedPayloads, L1!L0!ChannelsOf, L1!L0!NotFailed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+  <2>3. \/ (L1!RuntimeHoldsNoReturnedBytes(rtId))'
+        \/ (~L1!L0!NotFailed)'
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!RuntimeHoldsNoReturnedBytes, L1!IsReturnedBuffer,
        L1!L0!ChannelsOf, L1!L0!NotFailed,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
@@ -52030,7 +52771,7 @@ LEMMA PassthroughKeepsQuiescence ==
   <2>q. QED
     BY <2>1, <2>2, <2>3, Zenon
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 LEMMA ReleasedHoldsWhileDestroying ==
@@ -56354,7 +57095,21 @@ LEMMA PassthroughRestsTheDelivery ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsDeliveryCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsDeliveryCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsDeliveryCallbackRunning,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
@@ -56367,7 +57122,7 @@ LEMMA PassthroughRestsTheDelivery ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 \* Nor a WRITE_DONE: a send in flight needs an undrained runtime.
@@ -56580,7 +57335,21 @@ LEMMA PassthroughRestsTheWriteDone ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsWriteDoneCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsWriteDoneCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsWriteDoneCallbackRunning,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
@@ -56593,7 +57362,7 @@ LEMMA PassthroughRestsTheWriteDone ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 \* Nor the shutdown event: STOPPING lives only inside the destroying state.
@@ -56778,7 +57547,21 @@ LEMMA PassthroughRestsTheShutdown ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsShutdownCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsShutdownCallbackRunning,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsShutdownCallbackRunning,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
@@ -56791,7 +57574,7 @@ LEMMA PassthroughRestsTheShutdown ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 \* The resources event never re-arms behind its own emitted latch.
@@ -56996,7 +57779,23 @@ LEMMA PassthroughSettlesTheResources ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted, L1!SecondEventOwed,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsResourcesReleasedCallbackRunning,
        L1!IsResourcesReleasedEmitted, L1!SecondEventOwed,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
@@ -57011,7 +57810,7 @@ LEMMA PassthroughSettlesTheResources ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 \* The one passthrough that arms the resources callback emits the tag in the same step.
@@ -57208,7 +58007,23 @@ LEMMA PassthroughArmingEmits ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedCallbackRunning,
+       L1!IsResourcesReleasedEmitted,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsResourcesReleasedCallbackRunning,
        L1!IsResourcesReleasedEmitted,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
@@ -57223,7 +58038,7 @@ LEMMA PassthroughArmingEmits ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 \* And the emitted tag itself is a latch under every passthrough.
@@ -57401,7 +58216,21 @@ LEMMA PassthroughKeepsTheEmit ==
        L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
     BY <1>171, SMT
-    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!IsFreedBuffer,
+    DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedEmitted,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT
+    DEF L1!EngineTakesBytes, L1!IsFreedBuffer,
+       L1!IsResourcesReleasedEmitted,
+       L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
+       L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
+       L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT
+    DEF L1!EngineGivesBackBytes, L1!IsFreedBuffer,
        L1!IsResourcesReleasedEmitted,
        L1!TypeOK, L1!L0!TypeOK, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
@@ -57414,7 +58243,7 @@ LEMMA PassthroughKeepsTheEmit ==
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
        L1!L0!CallVars
 <1>q. QED
-    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+    BY <1>a, <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 LEMMA DeliveryFlagRestsWhileDestroyed ==
@@ -60176,14 +61005,20 @@ LEMMA RuntimeStepsFreezeTheLatch ==
     BY <1>17, SMT DEF L1!FreeReturnedBuffer, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>171. CASE \E c \in CallIds : L1!AdmitRead(c) \/ L1!EmitBudgetWake(c)
-    BY <1>171, SMT DEF L1!AdmitRead, L1!EmitBudgetWake, L1!l0_vars, L1!L0!vars,
+    BY <1>171, SMT DEF L1!AdmitRead, L1!EmitBudgetWake, L1!EngineTakesBytes, L1!EngineGivesBackBytes, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>171t. CASE \E c \in CallIds, n2 \in L1!Sizes : L1!EngineTakesBytes(c, n2)
+    BY <1>171t, SMT DEF L1!EngineTakesBytes, L1!l0_vars, L1!L0!vars,
+       L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
+<1>171g. CASE \E n2 \in L1!Sizes : L1!EngineGivesBackBytes(n2)
+    BY <1>171g, SMT DEF L1!EngineGivesBackBytes, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>172. CASE \E c \in CallIds, b \in Messages : L1!EndCallPastHardCeiling(c, b)
     BY <1>172, SMT DEF L1!EndCallPastHardCeiling, L1!L0!ReceiveStatus, L1!l0_vars, L1!L0!vars,
        L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars
 <1>q. QED
     BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10,
-       <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>172, Zenon
+       <1>11, <1>12, <1>13, <1>14, <1>15, <1>16, <1>17, <1>171, <1>171t, <1>171g, <1>172, Zenon
     DEF RuntimeSteps
 
 LEMMA ReleasedHoldsUntilTheResolve ==
@@ -60920,7 +61755,7 @@ THEOREM AllFlagsRest ==
     <3>1. WF_vars(WriteDoneCompletes(cId))
         BY <1>0, <3>0, Isa DEF Spec, Fairness, BindingOwedFairness
     <3>1b. WF_vars(PassWriteDoneReturns(cId))
-        BY <1>0, <3>0, Isa DEF Spec, Fairness, RuntimeOwedFairness
+        BY <1>0, <3>0, IsaT(600) DEF Spec, Fairness, RuntimeOwedFairness
     <3>2. []([](runtime_dispose_state = "destroyed")
                  => <>[](\/ ~L1!IsWriteDoneCallbackRunning(cId)
                          \/ ~L1!L0!NotFailed))

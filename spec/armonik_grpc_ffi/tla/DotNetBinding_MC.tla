@@ -52,7 +52,7 @@ MC_ffi_vars == <<buffers_held_by_host, write_dones_emitted,
                  buffer_state, buffer_send, second_event_owed,
                  last_lend_status, resources_released_emitted,
                  resources_released_callback_running,
-                 buffer_charge, buffer_length, memory_used,
+                 buffer_charge, buffer_length, memory_used, engine_held,
                  read_admitted, lend_waiting, budget_wake_owed>>
 
 MC_l1_vars == <<MC_l0_vars, MC_ffi_vars>>

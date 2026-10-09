@@ -361,6 +361,10 @@ THEOREM RefusedSendEventuallyHasRoomHolds ==
 THEOREM ResourcesReleasedEventuallyHolds ==
     Spec => ResourcesReleasedEventually
 
+\* What the engine keeps for itself is given back, on its own fairness.
+THEOREM EngineBytesEventuallyGivenBackHolds ==
+    Spec => EngineBytesEventuallyGivenBack
+
 THEOREM LivenessTheorem == Spec => LivenessProperties
 
 =============================================================================

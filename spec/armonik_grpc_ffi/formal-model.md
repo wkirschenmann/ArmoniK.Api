@@ -155,7 +155,7 @@ The state is the level-0 state (shared through `AbstractGrpcState`, never redecl
 two FFI constants — `MaxSendsInFlight` and `DeliveryCredits`, the pipelining depths of
 the ABI contract, each assumed a positive natural, plus the buffer identity space — the two
 thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, and
-`HardCeiling` at or above it, where the engine stops - and twenty-two FFI variables:
+`HardCeiling` at or above it, where the engine stops - and twenty-three FFI variables:
 
 - `buffers_held_by_host`: per call, the number of buffers `ak_get_call_buffer` has lent
   and that have not come back. Committing one moves it out of this count and into
@@ -236,9 +236,15 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
 - `memory_used`: the runtime-wide counter, moved the way an implementation moves it rather
   than evaluated as a sum on demand: up by the lend and by a received message as it arrives
   decoded, by the difference on an exchange of a lent buffer, down by the free, by the consumption of a message payload, and by a cancelled
-  call's end, which gives back what it received and never delivered. Typed `Int`;
+  call's end, which gives back what it received and never delivered; up and down by what the
+  engine takes for itself and gives back. Typed `Int`;
   `MemoryAccountingExact` is what makes it non-negative and what makes the thresholds mean
   anything
+- `engine_held`: the runtime-wide bytes the engine holds for itself, the compressed copies of
+  the messages it sends. A part of `memory_used`, and one abstract number: the model names
+  neither a copy nor its message, and what the ceiling sees is the sum. Typed `0..Ceiling`: the
+  engine takes against the first threshold. Nothing the host owes is in it, so no quiescence
+  condition reads it
 - `last_lend_status`: per call, what its last `ak_get_call_buffer` returned - `OK` or one
   of the three refusals. Nothing else reads it, which is the point: it is the observable
   frontier of the downcall, the state a level-2 binding refines its retry decisions
@@ -290,6 +296,28 @@ overrun the ABI answers with `AK_STATUS_CORRUPTED` is not modelled, as at the co
 action carries no fairness - exchanging is never owed - and the buffer it lends is
 under the fairness `HostReturnsBuffer` already has, per buffer. Each exchange spends a fresh
 identity, so `BufferIds` bounds the exchanges of a behaviour as it bounds its lends.
+
+**The engine's own bytes.** When a call sends a message on a channel that compresses, the
+engine builds a compressed copy and charges it against the ceiling as a lend is charged, for as
+long as the message that holds the copy lives; `CopyBudget` in `ledger.rs` is that charge. The
+model has two steps for it and no copy. `EngineTakesBytes(cId, n)` is `hold_copy`: for an
+active call that has sent a message, `n` bytes join `engine_held` and `memory_used` when the first
+threshold has room for them. A copy that does not fit is not made and the message goes out
+uncompressed, so a refusal is no step: taking never blocks and is never owed. `EngineGivesBackBytes(n)` is
+`release_copy`: the messages that held `n` bytes of copies are dropped, the bytes leave both
+numbers, and the calls whose send waits are owed their wake-up, as after any release. The
+lend's room check and both ceiling invariants read `memory_used`, so they see these bytes: a
+lend can be refused because the engine holds part of the budget, which a model without the term
+would have admitted. `RuntimeCreate` waits for the engine to hold nothing, as it waits for the
+predecessor to be destroyed, because the count is one for all runtimes.
+
+The fairness is on one instance, `EngineGivesBackAllBytes`, which gives back everything the
+engine holds. Giving back some would not serve: takes are unbounded in the model, and an
+engine that gave a byte back and took a byte would keep the count up for ever, which the code
+cannot do - a message makes one copy and the messages are finite. The model has no copy to
+count, so the fairness says the engine's holdings drain, and `EngineBytesEventuallyGivenBack`
+is what it buys. The takes carry none, nor does a partial give-back. The weak form is enough:
+whenever the engine holds something the step is enabled, and it stays enabled until it is taken.
 
 Deliberately absent: no handle registry (validity is modeled, not the numbering, so the
 registry's counter is an implementation of handle validity rather than a modelled object), no read-credit variable (`ak_event_consumed` frees and arms in one
@@ -422,20 +450,23 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   which is why the split keeps each preservation obligation the size it was
 - **MemoryAccountingExact**: the runtime-wide counter equals the charges of the send
   buffers actually out plus the lengths of the received messages held - by the host, until it
-  consumes them, or by the engine, until it delivers them or the call ends. This is the
+  consumes them, or by the engine, until it delivers them or the call ends - plus the bytes
+  the engine holds for itself. This is the
   accounting claim with content, and it can fail - a lend that forgets its increment, a free
   that forgets its decrement or subtracts the wrong charge, a second credit for one buffer, a
-  consumption or a cancellation that gives back the wrong bytes. Defined as the sum it
+  consumption or a cancellation that gives back the wrong bytes, a copy charged and not
+  counted. Defined as the sum it
   would be a tautology, which is why `memory_used` is a variable the actions move rather
   than an expression evaluated on demand: that is how the implementation keeps it, and it
-  is the number `ak_runtime_memory_usage` publishes. The five categories of the detailed
-  observer are definitions over the same charges and lengths, and that they add up to the
-  total is `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` - lemmas and
-  not invariants, since they hold of any state.
+  is the number `ak_runtime_memory_usage` publishes. Five categories of the detailed
+  observer are definitions over the same charges and lengths, and the sixth is
+  `BytesHeldByEngine`; that the five add up with it to the total is
+  `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` and the accounting
+  itself - lemmas and not invariants, since the first two hold of any state.
   Both sit outside the `NotFailed` umbrella: failing changes neither the counter nor any
   charge, so a host still gets its memory back afterwards and the observers still answer
 - **MemoryWithinHardCeiling**: the counter never passes the second threshold. Carried by
-  the guards of the three steps that add - a lend and the growth of an exchange below the
+  the guards of the four steps that add - a lend, the growth of an exchange and the engine's take below the
   first threshold, a received message below the second - every other step only subtracting. The first threshold is not an
   invariant: calls admitted together may pass it, by a message each
 - **ReceiveAccountingInv**: what the received side's accounting reads of a call's counts. It
@@ -523,6 +554,12 @@ New liveness guarantees:
   settles, the runtime quiesces from there, and quiescence with the tag set is the event
   having gone out. Level 2 refines this one rather than re-deriving it
 
+- **EngineBytesEventuallyGivenBack**: the bytes the engine holds for itself are given back -
+  `HasEngineHeldBytes ~> ~HasEngineHeldBytes`. A copy goes with the message that holds it, so
+  what the engine keeps is dropped, and this is what the fairness on `EngineGivesBackAllBytes`
+  buys: without it the engine's share of the counter could stand for ever and no send refused
+  for room would be promised room. It says nothing about what the engine takes meanwhile
+
 - **RefusedSendEventuallyHasRoom**: a send refused for room eventually has room while it
   waits - or stops waiting, its call having ended, or the runtime failed. The room is in the
   model's accounting, not the allocator's: the allocator picks the charge, its size classes are
@@ -533,7 +570,10 @@ New liveness guarantees:
   waiting length puts on reads: once the reads already admitted have landed nothing more is
   received, every call then drains - its metadata and each message it holds delivered and
   given back, on a ladder its delivery window bounds - every buffer out is freed, the
-  accounting makes the counter zero, and at zero the request is its own witness. Without the
+  accounting leaves on the counter what the engine holds, and room is seen at a state where
+  the engine holds nothing, which `EngineBytesEventuallyGivenBack` brings about: there the
+  counter is zero and the request is its own witness. The engine may take bytes again at once,
+  so what the property gives is a state with room and not a room that stays. Without the
   hold, received bytes would keep the counter up under steady traffic and nothing would fall.
   It says nothing about who is served: lending carries no fairness and a competing caller may
   win the race. What the waiting send is owed is the wake-up, which `EmitBudgetWake` carries,
@@ -543,13 +583,13 @@ New liveness guarantees:
 
 #### Fairness
 
-Twenty weak-fairness conjuncts, all individual, and they do not all belong to the same
+Twenty-one weak-fairness conjuncts, all individual, and they do not all belong to the same
 party. Which side owes each one is the whole point of listing them, because the ones the
 host owes are exactly the obligations a level-2 binding has to discharge.
 
 | Owed by | Conjuncts | What it means |
 | --- | --- | --- |
-| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
+| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle`, `EngineGivesBackAllBytes` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
 | FFI layer | `DeliverInitialMetadata`, `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
 | Host (binding + application) | `DeliveryCallbackReturns`, `WriteDoneReturns`, `ShutdownCallbackReturns`, `ResourcesReleasedCallbackReturns`, `HostConsumesEvent`, `HostReturnsBuffer` | Six hypotheses the ABI imposes and cannot enforce |
 
@@ -787,10 +827,10 @@ There is no slot wait: with completion at WRITE_DONE and one writer per call, th
 lend always finds the window open, which `ManagedWriterNeverObservesSlotBusy` states.
 
 **Fairness comes in three tiers, and the tiers are the point of the level.** No
-conjunct anywhere is stated over level 1's tuple: all forty-three are `WF_vars` on
-actions of this module, which is what makes level 1's twenty families *earned*
+conjunct anywhere is stated over level 1's tuple: all forty-four are `WF_vars` on
+actions of this module, which is what makes level 1's twenty-one families *earned*
 rather than restated.
-- *Runtime-owed* (`RuntimeOwedFairness`), fifteen conjuncts: one named passthrough
+- *Runtime-owed* (`RuntimeOwedFairness`), sixteen conjuncts: one named passthrough
   per level-1 family the runtime and the FFI dispatch owe - `PassNetworkSend`,
   `PassDeliverStatus`, `PassEmitWriteDone`, `PassEmitBudgetWake` and the rest, each of
   them the level-1 action beside a managed stutter - and `PassWriteDoneReturns`, the
@@ -1079,12 +1119,12 @@ is the whole content of the tier design.  A binding may declare these six obliga
 and satisfy them by restating them in level 1's vocabulary, which proves nothing at all
 - the level would be assuming what it claims to earn - or it may state its fairness on
 its own actions and let the families fall out.  This one does the second, which is why
-`RuntimeOwedFairness` carries fourteen named passthroughs rather than fourteen citations.
+`RuntimeOwedFairness` carries fifteen named passthroughs rather than fifteen citations.
 
 **The refinement is closed.**  `RefinesInit`, `RefinesNext` - one projection lemma per
 disjunct of `Next` - `FairnessRefines`, `ManagedIndInvHolds`, `ManagedSafetyHolds`,
 `DerivedInvariantsHold` and `RefinesSpec`, which makes every theorem level 1 proved
-about itself a theorem about this level.  Level 1's fourteen liveness properties come
+about itself a theorem about this level.  Level 1's fifteen liveness properties come
 back through it in one citation, `InheritedLiveness`, because level 1's variables *are*
 these variables: the state module is extended, not instantiated, so nothing needs
 translating but the prefix.
@@ -1406,7 +1446,7 @@ the artefact rather than left to rot:
 | `ci/check_state_literals.py` | Green: 16 typed state variables, 2303 literals, all admissible. A retired value neither fails to parse nor fails to type - a comparison against it is simply always false, so a guard becomes dead and a model constraint prunes more than intended while every property still reports clean. A constraint reading `call_dispose_state = "disposed"` after that value became `settled` shrank two configurations that way. Assignments are covered as well as comparisons, and by choice rather than for symmetry: `TypeOK` catches a bad one only in a run that reaches that branch, so an assignment on a rare path can sit wrong indefinitely. The binding comes from the typing conjuncts rather than a table - including the sentinel idiom `var \in OtherIds \union {"none"}`, whose only admissible literal is that sentinel - so a renamed state is caught wherever it is still spelled |
 | SANY, on the twenty-four SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
-| The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted, `ReceivedLength` the length of each message received, and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding + BytesReceived` and `MemoryWithinHardCeiling` that the total never passes `HardCeiling`. Both are in `IndInv` and proved inductive. The category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld` on the send side, `BytesHostReceived` and `BytesRuntimeReceived` on the receive side - are sums over the pairs each state selects, the compressed copies of sent messages that the engine charges to the same count being no term of any of them, since the engine holds them and no step of the model reads them, and `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` are the snapshot identities the observers must report |
+| The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted, `ReceivedLength` the length of each message received, and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding + BytesReceived + BytesHeldByEngine` and `MemoryWithinHardCeiling` that the total never passes `HardCeiling`. Both are in `IndInv` and proved inductive. The category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld` on the send side, `BytesHostReceived` and `BytesRuntimeReceived` on the receive side - are sums over the pairs each state selects, and the sixth, `BytesHeldByEngine`, is the compressed copies of sent messages that the engine charges to the same count: `engine_held`, which the engine's two steps move and the lend's room check reads. `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` are the snapshot identities the observers must report, the six adding up to the total through `MemoryAccountingExact` |
 | Level 2 | **Refined and proved, liveness included.** Thirteen modules exist, twelve of them SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in eight configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected`, its one call declaring both shapes, is exhaustive - 628413 states, depth 39 - and its constraint prunes every state with a returned buffer before the shutdown, which an exchange always leaves, so it never explores past one; `DotNetBinding_MC`, which has no such constraint, does: an exploratory run of four minutes, beyond the 30 seconds above, covered over a million states, `WriteResizesBuffer` taking 69350 of them, with no violation. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, 30 seconds each: the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Four configurations are witnesses rather than checks at level 2, and one more at level 1: their targets are stated negatively, so a violation trace is the result. `FfiGrpc_MCwitnessResize` and `DotNetBinding_MCwitnessResize` each show a lent buffer exchangeable for a larger one, the case `ResizeSendBuffer` and `WriteResizesBuffer` exist for, reached in 112 and 131 distinct states. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of these branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fourteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved, and three of the four proofs modules verify with the fingerprint cache disabled - 1809, 13512 and 23 obligations, no failure; the fourth, 33928 obligations summed over windows, ran its first 87 of 123 windows with the cache disabled and the rest with it enabled, no failure.  The seventeen cost fifteen derived invariants, listed above. |
 | Deadlock detection at level 2 | `ci/tlc.sh` passes `-deadlock`, which switches TLC's deadlock check off, so the gate has never used it at any level - worth knowing before reading a clean run as evidence of progress. Invoked directly, `DotNetBinding_MC` reaches a deadlock: every channel refused and the runtime torn down, the finite `ChannelIds` set spent, a rejected channel being terminal. That is quiescence rather than a stall, and an artefact of the bound rather than a property of the system, which the configuration now states. `AbsentRuntimeOwesNothing` carries the content instead, and a genuine mid-flight stall still breaks the liveness configuration |
 
@@ -1517,6 +1557,7 @@ refinement.
 | `AdmitRead` | the call's read loop, before it asks for its next message, finds the count below the first threshold lowered by the largest length a refused send waits on. Held back, it waits for a release or for that send to be served |
 | `NetworkReceive` | the read loop has the next message decoded and charges its length, the count staying at or below the second threshold |
 | `EndCallPastHardCeiling` | the decoded message would take the count past the second threshold: the call ends with `RESOURCE_EXHAUSTED` and the message is dropped, never charged |
+| `engine_held`, `EngineTakesBytes`, `EngineGivesBackBytes` | `CopyBudget` in `armonik-transport-ffi/src/ledger.rs`. The term is the bytes the ledger holds for compressed copies. `EngineTakesBytes` is `Ledger::hold_copy`, called by `CopyBudget::charge` once the copy is made: the bounded CAS on the byte count against the first threshold. A refusal returns no charge, the copy is dropped and the message goes out uncompressed, so it is no step of the model. `EngineGivesBackBytes` is `Ledger::release_copy`, run when the charge goes with the message that holds the copy, written or not: the bytes come off the count and the sends that wait are owed their wake-up. The count a shutdown waits on does not move for either, which is why no quiescence condition reads the term. The fairness instance, `EngineGivesBackAllBytes`, is every message that holds a copy being dropped |
 | `EmitBudgetWake` | the call's task invokes the callback with `AK_EVENT_BUDGET_WAKE`, after a release that gave bytes back while the call's send waited |
 | `NetworkSend` / `ReceiveStatus` | internal to the `grpc` module, not observable at the ABI |
 | `RuntimeFail` | any unrecoverable runtime fault - but not reaching the configured ceiling, which is a refusal, nor a genuine allocator failure inside `ak_get_call_buffer`, which refuses that lend with `AK_STATUS_INTERNAL` and changes nothing level 1 carries; the model leaves the state that follows unconstrained |

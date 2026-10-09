@@ -107,7 +107,7 @@ LEMMA FfiOnlyStutters == NextSafeFfiOnly => UNCHANGED l0_vars
            RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
            HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
-           WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake
+           WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 
 LEMMA FailProjects == NextFail => L0!NextFail
 <1>1. QED
@@ -133,7 +133,7 @@ LEMMA FfiOnlyStepsKeepL0 ==
         RequestCallCancellation, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 
 \* The mirror on the level-0 side: runtime and channel steps leave every
 \* call variable alone, so a frame about one call only ever has to look
@@ -190,7 +190,7 @@ LEMMA FfiOnlyStepsNeverStartDelivery ==
         RequestCallCancellation, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         IsDeliveryCallbackRunning, TypeOK, L0!TypeOK
 
 LEMMA NextDecomposition == Next <=> NextByFootprint
@@ -270,7 +270,46 @@ LEMMA OnlySendMessageWritesBufferSend ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
+<1>3. CASE NextFail
+    BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
+<1>4. CASE NextExplicitStutter
+    BY <1>4, SMT DEF NextExplicitStutter, RemainFailed, RemainReleased,
+        ffi_vars
+<1>5. CASE UNCHANGED vars
+    BY <1>5, SMT DEF vars, ffi_vars
+<1>6. QED
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, NextDecomposition
+    DEF NextByFootprint, NextSafe
+
+\* The bytes the engine holds have two writers, its own two steps: every other
+\* step names them in its UNCHANGED.
+LEMMA OnlyEngineStepsWriteEngineHeld ==
+    ASSUME [Next]_vars
+    PROVE  \/ \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+           \/ \E n \in Sizes : EngineGivesBackBytes(n)
+           \/ UNCHANGED engine_held
+<1>1. CASE NextSafeRefining
+    BY <1>1, SMT
+    DEF NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
+        NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
+        RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
+        ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
+        DeliverInitialMetadata, DeliverMessage, DeliverStatus,
+        DeliverCancelled, HandPayloadToHost, ffi_vars
+<1>2. CASE NextSafeFfiOnly
+    BY <1>2, SMT
+    DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
+        EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
+        ResourcesReleasedCallbackReturns, RuntimeDestroy,
+        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        LendSendBuffer, RefuseLendTooLarge,
+        RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer,
+        FreeReturnedBuffer, ResizeSendBuffer,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent,
+        AdmitRead, EmitBudgetWake
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
 <1>4. CASE NextExplicitStutter
@@ -315,7 +354,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
   <2>2. CASE NextSafeCallFfi
     BY <2>2, SMT DEF NextSafeCallFfi, RequestCallCancellation,
         ReleaseCallHandle, EmitWriteDone, WriteDoneReturns,
-        DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         RefuseLendTooLarge, RefuseLendForSlot, RefuseLendForBudget
   <2>3. QED BY <1>2, <2>1, <2>2 DEF NextSafeFfiOnly
 <1>3. CASE NextFail
@@ -345,7 +384,9 @@ LEMMA OnlyBudgetStepsWriteBudget ==
            \/ \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
            \/ \E c \in CallIds : HostConsumesEvent(c)
            \/ \E c \in CallIds : DeliverCancelled(c)
-           \/ UNCHANGED <<buffer_charge, memory_used>>
+           \/ \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+           \/ \E n \in Sizes : EngineGivesBackBytes(n)
+           \/ UNCHANGED <<buffer_charge, memory_used, engine_held>>
 <1>1. CASE NextSafeRefining
     BY <1>1, SMTT(120)
     DEF NextSafeRefining, NextSafeRuntimeOnly, NextSafeRuntimeChannel,
@@ -549,7 +590,7 @@ LEMMA OnlyReceiveStepsMoveReceivedBytes ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns,
-        AdmitRead, EmitBudgetWake, RefuseLendTooLarge,
+        AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HeldReceivedTop, EndWaitOf,
         L0!IsTerminalCall, L0!CallVars, l0_vars, L0!vars
 <1>3. CASE NextFail \/ NextExplicitStutter
@@ -1025,7 +1066,7 @@ LEMMA NextPreservesReceiveAccountingInv ==
           RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
           HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
           WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent,
-          EmitBudgetWake, RefuseLendTooLarge, RefuseLendForSlot,
+          EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge, RefuseLendForSlot,
           RefuseLendForBudget
     <3>2. QED
       BY <2>1, <3>1, <1>f, Zenon
@@ -1048,6 +1089,28 @@ LEMMA NextPreservesReceiveAccountingInv ==
     BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, NextDecomposition
     DEF NextByFootprint, NextSafe, NextSafeRefining, NextSafeFfiOnly
 
+\* The engine's steps move none of what the two sums read: no charge, no
+\* buffer, no message.  Shared by the two cases of the accounting that are
+\* the engine's.
+LEMMA EngineStepsKeepTheSums ==
+    ASSUME TypeOK,
+           \/ \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+           \/ \E n \in Sizes : EngineGivesBackBytes(n)
+    PROVE  /\ BytesOutstanding' = BytesOutstanding
+           /\ BytesReceived' = BytesReceived
+<1>1. /\ UNCHANGED <<buffer_charge, buffer_state>>
+      /\ UNCHANGED <<received, payloads_consumed_by_host>>
+      /\ \A c \in CallIds : HeldReceivedTop(c)' = HeldReceivedTop(c)
+    BY SMTT(300)
+    DEF EngineTakesBytes, EngineGivesBackBytes, HeldReceivedTop,
+        L0!IsTerminalCall, l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars,
+        L0!CallVars, TypeOK, L0!TypeOK
+<1>2. BytesReceived' = BytesReceived
+    BY <1>1, ReceivedBytesFrame
+<1>3. BytesOutstanding' = BytesOutstanding
+    BY <1>1, SendBytesFrame
+<1>4. QED BY <1>2, <1>3
+
 \* The counter tracks the charges of the buffers out plus the lengths of the
 \* messages held, across every step.  Each writer moves one side by what it
 \* adds to or takes off the counter, and leaves the other side alone.
@@ -1057,7 +1120,9 @@ LEMMA NextPreservesAccounting ==
     PROVE  MemoryAccountingExact'
 <1>0. /\ BytesOutstanding \in Nat
       /\ BytesReceived \in Nat
-    BY BytesOutstandingType, BytesReceivedType
+      /\ engine_held \in Nat
+    BY BytesOutstandingType, BytesReceivedType, CeilingIsPositive, SMT
+    DEF TypeOK, L0!TypeOK, Sizes, CeilingIsPositive
 <1>1. CASE \E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
               LendSendBuffer(c, b, ln, ch)
   <2>1. PICK c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
@@ -1093,8 +1158,11 @@ LEMMA NextPreservesAccounting ==
         HeldReceivedTop, L0!IsTerminalCall
   <2>9. memory_used' = memory_used + ch
     BY <2>1, Zenon DEF LendSendBuffer
+  <2>90. engine_held' = engine_held
+    BY <2>1, Zenon DEF LendSendBuffer
   <2>10. QED
-    BY <1>0, <2>7, <2>8, <2>9, SMT DEF MemoryAccountingExact, Sizes
+    BY <1>0, <2>7, <2>8, <2>9, <2>90, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine, Sizes
 <1>2. CASE \E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
   <2>1. PICK c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
     BY <1>2
@@ -1120,8 +1188,11 @@ LEMMA NextPreservesAccounting ==
     BY <2>1, Zenon DEF FreeReturnedBuffer
   <2>8. buffer_charge[<<c, b>>] \in Int
     BY <2>2, <2>3
+  <2>80. engine_held' = engine_held
+    BY <2>1, Zenon DEF FreeReturnedBuffer
   <2>9. QED
-    BY <1>0, <2>5, <2>6, <2>7, <2>8, SMT DEF MemoryAccountingExact
+    BY <1>0, <2>5, <2>6, <2>7, <2>8, <2>80, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine
 <1>3. CASE \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
   <2>1. PICK c \in CallIds, m \in Messages : NetworkReceive(c, m)
     BY <1>3
@@ -1131,9 +1202,11 @@ LEMMA NextPreservesAccounting ==
     BY <2>1, SendBytesFrame, Zenon DEF NetworkReceive
   <2>4. memory_used' = memory_used + MessageLength[m]
     BY <2>1, Zenon DEF NetworkReceive
+  <2>50. engine_held' = engine_held
+    BY <2>1, Zenon DEF NetworkReceive
   <2>5. QED
-    BY <1>0, <2>2, <2>3, <2>4, MessageLengthIsNat, SMT
-    DEF MemoryAccountingExact, MessageLengthIsNat
+    BY <1>0, <2>2, <2>3, <2>4, <2>50, MessageLengthIsNat, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine, MessageLengthIsNat
 <1>4. CASE \E c \in CallIds : HostConsumesEvent(c)
   <2>1. PICK c \in CallIds : HostConsumesEvent(c)
     BY <1>4
@@ -1145,8 +1218,11 @@ LEMMA NextPreservesAccounting ==
     BY <2>1, Zenon DEF HostConsumesEvent
   <2>5. NextConsumedLength(c) \in Int
     BY ReceivedLengthIsNat, SMT DEF NextConsumedLength, TypeOK, L0!TypeOK
+  <2>60. engine_held' = engine_held
+    BY <2>1, Zenon DEF HostConsumesEvent
   <2>6. QED
-    BY <1>0, <2>2, <2>3, <2>4, <2>5, SMT DEF MemoryAccountingExact
+    BY <1>0, <2>2, <2>3, <2>4, <2>5, <2>60, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine
 <1>5. CASE \E c \in CallIds : DeliverCancelled(c)
   <2>1. PICK c \in CallIds : DeliverCancelled(c)
     BY <1>5
@@ -1156,9 +1232,11 @@ LEMMA NextPreservesAccounting ==
     BY <2>1, SendBytesFrame, Zenon DEF DeliverCancelled
   <2>4. memory_used' = memory_used - UndeliveredBytes(c)
     BY <2>1, Zenon DEF DeliverCancelled
+  <2>50. engine_held' = engine_held
+    BY <2>1, Zenon DEF DeliverCancelled
   <2>5. QED
-    BY <1>0, <2>2, <2>3, <2>4, BytesReceivedType, SMT
-    DEF MemoryAccountingExact
+    BY <1>0, <2>2, <2>3, <2>4, <2>50, BytesReceivedType, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine
 \* A buffer given back, used or not, moves between two outstanding states, so
 \* the pairs summed on the send side are the same set; neither touches what
 \* the received side reads.
@@ -1179,8 +1257,11 @@ LEMMA NextPreservesAccounting ==
           L0!IsTerminalCall, l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK
     <3>2. QED BY <3>1, ReceivedBytesFrame
+  <2>30. engine_held' = engine_held
+    BY <1>6, Zenon DEF HostReturnsBuffer, SendMessage
   <2>3. QED
-    BY <2>1, <2>2, Zenon DEF MemoryAccountingExact, BytesOutstanding
+    BY <2>1, <2>2, <2>30, Zenon
+    DEF MemoryAccountingExact, BytesHeldByEngine, BytesOutstanding
 \* An exchange takes one pair out of the outstanding set and puts another in,
 \* and the counter moves by the difference of their charges: the sum over the
 \* set does the same.
@@ -1303,8 +1384,11 @@ LEMMA NextPreservesAccounting ==
     BY <2>1, Zenon DEF ResizeSendBuffer
   <2>13. buffer_charge[<<c, b>>] \in Int
     BY <2>2, <2>3
+  <2>130. engine_held' = engine_held
+    BY <2>1, Zenon DEF ResizeSendBuffer
   <2>14. QED
-    BY <1>0, <2>10, <2>11, <2>12, <2>13, SMT DEF MemoryAccountingExact, Sizes
+    BY <1>0, <2>10, <2>11, <2>12, <2>13, <2>130, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine, Sizes
 <1>7. CASE /\ ~\E c \in CallIds, b \in BufferIds, ln \in Sizes, ch \in Sizes :
                   LendSendBuffer(c, b, ln, ch)
            /\ ~\E c \in CallIds, b \in BufferIds : FreeReturnedBuffer(c, b)
@@ -1316,7 +1400,9 @@ LEMMA NextPreservesAccounting ==
            /\ ~\E c \in CallIds, b \in BufferIds : HostReturnsBuffer(c, b)
            /\ ~\E c \in CallIds, m \in Messages, b \in BufferIds :
                   SendMessage(c, m, b)
-  <2>1. UNCHANGED <<buffer_charge, memory_used>>
+           /\ ~\E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+           /\ ~\E n \in Sizes : EngineGivesBackBytes(n)
+  <2>1. UNCHANGED <<buffer_charge, memory_used, engine_held>>
     BY <1>7, OnlyBudgetStepsWriteBudget
   <2>2. /\ UNCHANGED <<received, payloads_consumed_by_host>>
         /\ \A c \in CallIds : HeldReceivedTop(c)' = HeldReceivedTop(c)
@@ -1327,8 +1413,37 @@ LEMMA NextPreservesAccounting ==
     BY <1>7, OnlyBufferStepsWriteBufferStates
   <2>5. BytesOutstanding' = BytesOutstanding
     BY <2>1, <2>4, SendBytesFrame
-  <2>6. QED BY <2>1, <2>3, <2>5, Zenon DEF MemoryAccountingExact
-<1>8. QED BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>9
+  <2>6. QED BY <2>1, <2>3, <2>5, Zenon
+               DEF MemoryAccountingExact, BytesHeldByEngine
+\* The engine's own steps move the counter and what it holds by the same
+\* bytes, and nothing else the sums read.
+<1>10. CASE \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+  <2>1. PICK c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+    BY <1>10
+  <2>2. BytesReceived' = BytesReceived /\ BytesOutstanding' = BytesOutstanding
+    BY <2>1, EngineStepsKeepTheSums
+  <2>3. /\ memory_used' = memory_used + n
+        /\ engine_held' = engine_held + n
+    BY <2>1, Zenon DEF EngineTakesBytes
+  <2>4. n \in Int
+    BY <2>1, SMT DEF Sizes
+  <2>5. QED
+    BY <1>0, <2>2, <2>3, <2>4, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine
+<1>11. CASE \E n \in Sizes : EngineGivesBackBytes(n)
+  <2>1. PICK n \in Sizes : EngineGivesBackBytes(n)
+    BY <1>11
+  <2>2. BytesReceived' = BytesReceived /\ BytesOutstanding' = BytesOutstanding
+    BY <2>1, EngineStepsKeepTheSums
+  <2>3. /\ memory_used' = memory_used - n
+        /\ engine_held' = engine_held - n
+    BY <2>1, Zenon DEF EngineGivesBackBytes
+  <2>4. n \in Int
+    BY <2>1, SMT DEF Sizes
+  <2>5. QED
+    BY <1>0, <2>2, <2>3, <2>4, SMT
+    DEF MemoryAccountingExact, BytesHeldByEngine
+<1>8. QED BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>9, <1>10, <1>11
 
 \* The counter never passes the second threshold.  The two steps that add are
 \* guarded under it - a lend under the first, which is lower - and the three
@@ -1383,7 +1498,7 @@ LEMMA NextPreservesCeiling ==
     BY <2>1, Zenon DEF DeliverCancelled
   <2>4. QED
     BY <1>0, <2>2, <2>3, SMT DEF MemoryWithinHardCeiling
-<1>6. CASE UNCHANGED <<buffer_charge, memory_used>>
+<1>6. CASE UNCHANGED <<buffer_charge, memory_used, engine_held>>
     BY <1>6, Zenon DEF MemoryWithinHardCeiling
 \* A growth is admitted against the first threshold on the difference, and a
 \* shrink only lowers the counter: either way it stays within the second.
@@ -1404,8 +1519,31 @@ LEMMA NextPreservesCeiling ==
   <2>4. QED
     BY <1>0, <2>2, <2>3, CeilingIsPositive, SMT
     DEF MemoryWithinHardCeiling, CeilingIsPositive
+\* The engine's take is admitted against the first threshold, which is the
+\* lower; its giving back only lowers the counter.
+<1>9. CASE \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+  <2>1. PICK c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+    BY <1>9
+  <2>2. /\ memory_used' = memory_used + n
+        /\ memory_used + n <= Ceiling
+    BY <2>1, Zenon DEF EngineTakesBytes, IsMemoryAvailable
+  <2>3. n \in Nat
+    BY <2>1, SMT DEF Sizes
+  <2>4. QED
+    BY <1>0, <2>2, <2>3, CeilingIsPositive, SMT
+    DEF MemoryWithinHardCeiling, CeilingIsPositive
+<1>10. CASE \E n \in Sizes : EngineGivesBackBytes(n)
+  <2>1. PICK n \in Sizes : EngineGivesBackBytes(n)
+    BY <1>10
+  <2>2. memory_used' = memory_used - n
+    BY <2>1, Zenon DEF EngineGivesBackBytes
+  <2>3. n \in Nat
+    BY <2>1, SMT DEF Sizes
+  <2>4. QED
+    BY <1>0, <2>2, <2>3, SMT DEF MemoryWithinHardCeiling
 <1>7. QED
-    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>8, OnlyBudgetStepsWriteBudget, Zenon
+    BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>8, <1>9, <1>10,
+       OnlyBudgetStepsWriteBudget, Zenon
 
 \* The three categories partition the buffers out, so their sums add up to the
 \* total.  A lemma and not an invariant: it holds of any state, there being
@@ -1505,7 +1643,7 @@ LEMMA OnlyReleaseStepsWriteReleaseFlags ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         l0_vars, L0!vars
 <1>3. CASE NextFail \/ NextExplicitStutter
     BY <1>3, SMT
@@ -1549,7 +1687,7 @@ LEMMA OnlyShutdownStepsWriteShutdownFlags ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         l0_vars, L0!vars
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, L0!RuntimeFail,
@@ -1728,9 +1866,14 @@ BufferTypes ==
     /\ buffer_state \in [CallIds -> [BufferIds -> BufferStates]]
     /\ buffer_send \in [CallIds -> [BufferIds -> Nat]]
 
-LEMMA TypeOKSplit == TypeOK <=> L0!TypeOK /\ FfiTypes /\ BufferTypes
+\* The bytes the engine holds are typed apart, for the same reason: one more
+\* conjunct on the twenty that FfiTypes carries took a step past its budget.
+EngineTypes == engine_held \in Sizes
+
+LEMMA TypeOKSplit ==
+    TypeOK <=> L0!TypeOK /\ FfiTypes /\ BufferTypes /\ EngineTypes
 <1>1. QED
-    BY DEF TypeOK, FfiTypes, BufferTypes
+    BY DEF TypeOK, FfiTypes, BufferTypes, EngineTypes
 
 \* Actions that leave every FFI variable unchanged.
 \* Reading back a nested EXCEPT, in the shape every call site has: the
@@ -1992,11 +2135,20 @@ LEMMA RefiningPreservesFfiTypes ==
         BY <1>1, <4>1, SMT DEF DeliverCancelled, FfiTypes, TypeOK
       <4>5. budget_wake_owed' \in [CallIds -> BOOLEAN]
         BY <1>1, <4>1, SMT DEF DeliverCancelled, FfiTypes, TypeOK
+      <4>55. delivery_callback_running' \in [CallIds -> BOOLEAN]
+        BY <1>1, <4>1, SMT DEF DeliverCancelled, HandPayloadToHost, FfiTypes, TypeOK
+      <4>56. UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                         write_done_callback_running,
+                         payloads_consumed_by_host, handle_released,
+                         cancel_requested, shutdown_event_emitted,
+                         shutdown_callback_running, runtime_destroyed,
+                         second_event_owed, last_lend_status,
+                         resources_released_emitted,
+                         resources_released_callback_running,
+                         buffer_charge, buffer_length, read_admitted>>
+        BY <4>1 DEF DeliverCancelled, HandPayloadToHost
       <4>6. QED
-        BY <1>1, <2>0, <4>1, <4>3, <4>4, <4>5, FS_AddElement, SMTT(300)
-        DEF DeliverCancelled, L0!CallCancel,
-            HandPayloadToHost, HasFreeDeliverySlotForTerminal, FfiTypes,
-            TypeOK, L0!TypeOK
+        BY <1>1, <2>0, <4>3, <4>4, <4>5, <4>55, <4>56, SMT DEF FfiTypes
     <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>3, <3>4, <3>5, <3>55, <3>6, <3>7,
                    <3>8, <3>9, <3>10 DEF NextSafeCallOnly
   <2>6. QED BY <1>1, <2>0, <2>1, <2>2, <2>3, <2>4, <2>5 DEF NextSafeRefining
@@ -2032,7 +2184,7 @@ LEMMA FfiOnlyPreservesFfiTypes ==
       <4>3. QED BY <1>1, <4>1, <4>2, SMT DEF HostConsumesEvent, FfiTypes
     <3>66. CASE \/ \E cId \in CallIds : AdmitRead(cId)
                 \/ \E cId \in CallIds : EmitBudgetWake(cId)
-      BY <1>1, <3>66, SMT DEF AdmitRead, EmitBudgetWake, FfiTypes
+      BY <1>1, <3>66, SMT DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, FfiTypes
     <3>60. CASE \E cId \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
                    LendSendBuffer(cId, bb, ln, ch)
       BY <1>1, <3>60, SMTT(120)
@@ -2087,10 +2239,78 @@ LEMMA FfiOnlyPreservesFfiTypes ==
         BY <4>1 DEF ResizeSendBuffer
       <4>6. QED
         BY <1>1, <4>3, <4>4, <4>5, SMT DEF FfiTypes
+    <3>68. CASE \E cId \in CallIds, n \in Sizes : EngineTakesBytes(cId, n)
+      <4>1. PICK cId \in CallIds, n \in Sizes : EngineTakesBytes(cId, n)
+        BY <3>68
+      <4>2. memory_used' \in Int
+        BY <1>1, <4>1, SMT DEF EngineTakesBytes, FfiTypes, Sizes
+      <4>3. UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                        write_done_callback_running, delivery_callback_running,
+                        payloads_consumed_by_host, handle_released,
+                        cancel_requested, shutdown_event_emitted,
+                        shutdown_callback_running, runtime_destroyed,
+                        second_event_owed, last_lend_status,
+                        resources_released_emitted,
+                        resources_released_callback_running,
+                        buffer_charge, buffer_length, read_admitted,
+                        lend_waiting, budget_wake_owed>>
+        BY <4>1 DEF EngineTakesBytes
+      <4>4. QED
+        BY <1>1, <4>2, <4>3, SMT DEF FfiTypes
+    <3>69. CASE \E n \in Sizes : EngineGivesBackBytes(n)
+      <4>1. PICK n \in Sizes : EngineGivesBackBytes(n)
+        BY <3>69
+      <4>2. memory_used' \in Int
+        BY <1>1, <4>1, SMT DEF EngineGivesBackBytes, FfiTypes, Sizes
+      <4>3. budget_wake_owed' \in [CallIds -> BOOLEAN]
+        BY <1>1, <4>1, SMT
+        DEF EngineGivesBackBytes, OweBudgetWakeToWaitingCalls,
+            IsBudgetWakeOwed, IsLendWaiting, FfiTypes
+      <4>4. UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                        write_done_callback_running, delivery_callback_running,
+                        payloads_consumed_by_host, handle_released,
+                        cancel_requested, shutdown_event_emitted,
+                        shutdown_callback_running, runtime_destroyed,
+                        second_event_owed, last_lend_status,
+                        resources_released_emitted,
+                        resources_released_callback_running,
+                        buffer_charge, buffer_length, read_admitted,
+                        lend_waiting>>
+        BY <4>1 DEF EngineGivesBackBytes
+      <4>5. QED
+        BY <1>1, <4>2, <4>3, <4>4, SMT DEF FfiTypes
     <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
-                  <3>61, <3>62, <3>63, <3>64, <3>65, <3>66, <3>67 DEF NextSafeCallFfi
+                  <3>61, <3>62, <3>63, <3>64, <3>65, <3>66, <3>67, <3>68,
+                  <3>69 DEF NextSafeCallFfi
   <2>3. QED BY <1>1, <2>1, <2>2 DEF NextSafeFfiOnly
 <1>2. QED BY <1>1, TypeOKSplit
+
+\* The engine's holdings stay within the first threshold: its take is guarded
+\* by the room it asks for, and its giving back by what it holds.
+LEMMA NextPreservesEngineTypes ==
+    TypeOK /\ [Next]_vars => EngineTypes'
+<1>1. SUFFICES ASSUME TypeOK, [Next]_vars PROVE EngineTypes'
+    OBVIOUS
+<1>0. EngineTypes
+    BY <1>1, TypeOKSplit, Zenon
+<1>2. CASE \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+  <2>1. PICK c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
+    BY <1>2
+  <2>2. QED
+    BY <1>0, <2>1, CeilingIsPositive, SMT
+    DEF EngineTakesBytes, IsEngineRoomAvailable, EngineTypes, Sizes,
+        CeilingIsPositive
+<1>3. CASE \E n \in Sizes : EngineGivesBackBytes(n)
+  <2>1. PICK n \in Sizes : EngineGivesBackBytes(n)
+    BY <1>3
+  <2>2. QED
+    BY <1>0, <2>1, CeilingIsPositive, SMT
+    DEF EngineGivesBackBytes, IsEngineHoldingAtLeast, EngineTypes, Sizes,
+        CeilingIsPositive
+<1>4. CASE UNCHANGED engine_held
+    BY <1>0, <1>4, Zenon DEF EngineTypes
+<1>5. QED
+    BY <1>1, <1>2, <1>3, <1>4, OnlyEngineStepsWriteEngineHeld
 
 LEMMA NextPreservesFfiTypes == TypeOK /\ Next => FfiTypes'
 <1>1. ASSUME TypeOK, Next
@@ -5767,6 +5987,8 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
     <3>66. CASE \/ \E cId \in CallIds : AdmitRead(cId)
                 \/ \E cId \in CallIds : EmitBudgetWake(cId)
+                \/ \E cId \in CallIds, n \in Sizes : EngineTakesBytes(cId, n)
+                \/ \E n \in Sizes : EngineGivesBackBytes(n)
       <4>1. /\ UNCHANGED l0_vars
             /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                               write_done_callback_running,
@@ -5776,7 +5998,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
             /\ \A c2 \in CallIds, b2 \in BufferIds :
                   (IsReturnedBuffer(c2, b2))' => IsReturnedBuffer(c2, b2)
         BY <3>66, SMT
-        DEF AdmitRead, EmitBudgetWake, IsReturnedBuffer,
+        DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsReturnedBuffer,
             TypeOK, L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInv
@@ -6115,7 +6337,7 @@ LEMMA EveryStepEitherDeliversOrKeepsEvents ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         IsRuntimeDrained, l0_vars, L0!vars
@@ -6154,7 +6376,7 @@ LEMMA EveryStepEitherConsumesOrKeepsReleases ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, AdmitRead, EmitBudgetWake
+        WriteDoneReturns, DeliveryCallbackReturns, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
 <1>4. CASE NextExplicitStutter
@@ -6192,7 +6414,7 @@ LEMMA EveryStepEitherEmitsOrKeepsWriteDones ==
         RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, WriteDoneReturns, DeliveryCallbackReturns,
-        HostConsumesEvent, AdmitRead, EmitBudgetWake
+        HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
 <1>4. CASE NextExplicitStutter
@@ -6226,7 +6448,7 @@ LEMMA EveryStepEitherAcquitsOrKeepsWriteDoneFlag ==
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
         RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
-        HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake
+        HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
 <1>4. CASE NextExplicitStutter
@@ -6266,7 +6488,7 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
         RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone, WriteDoneReturns,
-        DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, l0_vars, L0!vars
+        DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, l0_vars, L0!vars
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, L0!RuntimeFail,
         L0!ChannelVars, L0!CallVars
@@ -6308,7 +6530,7 @@ LEMMA EveryStepEitherLendsOrKeepsBuffers ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 <1>3. CASE NextFail
     BY <1>3, SMT DEF NextFail, RuntimeFail, ffi_vars
 <1>4. CASE NextExplicitStutter
@@ -7778,7 +8000,7 @@ LEMMA NextPreservesDestroyedClean ==
         SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
         L0!RuntimeFail, L0!RemainFailed, L0!RemainReleased,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
@@ -8189,7 +8411,7 @@ LEMMA NextPreservesShutdownSignal ==
   <2>7. CASE NextSafeCallFfi
     BY <1>1, <2>7, SMT
     DEF NextSafeCallFfi, RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
-        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         l0_vars, L0!vars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
@@ -8266,8 +8488,10 @@ THEOREM InitEstablishesIndInv == Init => IndInv
     BY <1>0, FS_EmptySet, SMT DEF Init, FfiTypes, LendStatuses
 <1>25. BufferTypes
     BY <1>0, SMT DEF Init, BufferTypes, BufferStates
+<1>27. EngineTypes
+    BY <1>0, CeilingIsPositive, SMT DEF Init, EngineTypes, Sizes
 <1>3. TypeOK
-    BY <1>1, <1>2, <1>25, TypeOKSplit DEF L0!IndInv
+    BY <1>1, <1>2, <1>25, <1>27, TypeOKSplit DEF L0!IndInv
 \* Nothing is lent yet, so every lent set is empty and its cardinality is
 \* zero - the one place the bridge needs the empty-set fact.
 \* Nothing is out and the counter is zero, so the accounting is the empty
@@ -8287,8 +8511,8 @@ THEOREM InitEstablishesIndInv == Init => IndInv
     BY <2>25, SumFunctionOnSetEmpty, Zenon DEF BytesReceived
   <2>3. QED
     BY <1>0, <2>2, <2>26, CeilingIsPositive, HardCeilingCoversCeiling, SMT
-    DEF Init, MemoryAccountingExact, MemoryWithinHardCeiling, CeilingIsPositive,
-        HardCeilingCoversCeiling
+    DEF Init, MemoryAccountingExact, BytesHeldByEngine,
+        MemoryWithinHardCeiling, CeilingIsPositive, HardCeilingCoversCeiling
 <1>27. ReceiveAccountingInv
     BY <1>0, SMT
     DEF Init, L0!Init, ReceiveAccountingInv, DeliveredWithinReceived,
@@ -8428,8 +8652,11 @@ THEOREM IndInvPreserved == IndInv /\ [Next]_vars => IndInv'
   <2>2. QED
     BY <1>0, <2>1, NextPreservesAccounting, NextPreservesCeiling,
        NextPreservesReceiveAccountingInv
+<1>27. EngineTypes'
+    BY <1>0, NextPreservesEngineTypes DEF IndInv
 <1>3. TypeOK'
-    BY <1>1, <1>2, <1>25, SMT DEF TypeOK, FfiTypes, BufferTypes, LendStatuses, L0!IndInv
+    BY <1>1, <1>2, <1>25, <1>27, SMT
+    DEF TypeOK, FfiTypes, BufferTypes, EngineTypes, LendStatuses, L0!IndInv
 <1>4. ASSUME L0!NotFailed' PROVE StrongInv'
   <2>1. L0!NotFailed
     <3>1. CASE Next
@@ -8601,9 +8828,13 @@ LEMMA SafeStepPreservesHealthyStrongInv ==
       DEF BufferStateInv, EverySendHasItsBuffer, SendsLiveInOneBuffer
     <3>4. QED BY <3>2, <3>3, <3>35, Zenon DEF BufferStateInv
   <2>3. QED BY <1>0, <2>1, <2>2
+<1>78. EngineTypes'
+  <2>1. [Next]_vars
+    BY <1>0, NextDecomposition, Zenon DEF NextByFootprint
+  <2>2. QED BY <1>0, <2>1, NextPreservesEngineTypes DEF StrongInv
 <1>8. TypeOK'
-    BY <1>5, <1>6, <1>75, SMT
-    DEF TypeOK, FfiTypes, BufferTypes, LendStatuses, L0!StrongInv, L0!StructuralInv
+    BY <1>5, <1>6, <1>75, <1>78, SMT
+    DEF TypeOK, FfiTypes, BufferTypes, EngineTypes, LendStatuses, L0!StrongInv, L0!StructuralInv
 <1>85. MemoryAccountingExact' /\ MemoryWithinHardCeiling' /\ ReceiveAccountingInv'
   <2>1. /\ MemoryAccountingExact /\ MemoryWithinHardCeiling
         /\ FfiCallInv /\ ReceiveAccountingInv
@@ -8898,7 +9129,7 @@ LEMMA CancelMonotone ==
         SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
@@ -8946,15 +9177,17 @@ LEMMA CancelMonotone ==
         <5>7. CASE \E c \in CallIds : DeliveryCallbackReturns(c)
           BY <1>1, <5>7, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
-          BY <1>1, <5>8, SMT DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+          BY <1>1, <5>8, SMT DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>10. CASE \E c \in CallIds, ln \in RequestLengths : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in CandidateCharges : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>13. CASE \E c \in CallIds : AdmitRead(c) \/ EmitBudgetWake(c)
-          BY <1>1, <5>13, SMT DEF AdmitRead, EmitBudgetWake, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+        <5>13. CASE (\E c \in CallIds : AdmitRead(c) \/ EmitBudgetWake(c))
+                    \/ (\E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n))
+                    \/ (\E n \in Sizes : EngineGivesBackBytes(n))
+          BY <1>1, <5>13, SMT DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
     <3>3. CASE NextFail
@@ -9008,7 +9241,7 @@ LEMMA CallbackFrame ==
         SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+        DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
@@ -9056,15 +9289,17 @@ LEMMA CallbackFrame ==
         <5>7. CASE \E c \in CallIds : DeliveryCallbackReturns(c)
           BY <1>1, <5>7, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF DeliveryCallbackReturns, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>8. CASE \E c \in CallIds : HostConsumesEvent(c)
-          BY <1>1, <5>8, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+          BY <1>1, <5>8, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>10. CASE \E c \in CallIds, ln \in RequestLengths : RefuseLendTooLarge(c, ln)
           BY <1>1, <5>10, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendTooLarge, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>11. CASE \E c \in CallIds, ln \in Sizes : RefuseLendForSlot(c, ln)
           BY <1>1, <5>11, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForSlot, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>12. CASE \E c \in CallIds, ln \in Sizes, ch \in CandidateCharges : RefuseLendForBudget(c, ln, ch)
           BY <1>1, <5>12, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RefuseLendForBudget, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>13. CASE \E c \in CallIds : AdmitRead(c) \/ EmitBudgetWake(c)
-          BY <1>1, <5>13, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF AdmitRead, EmitBudgetWake, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+        <5>13. CASE (\E c \in CallIds : AdmitRead(c) \/ EmitBudgetWake(c))
+                    \/ (\E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n))
+                    \/ (\E n \in Sizes : EngineGivesBackBytes(n))
+          BY <1>1, <5>13, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
     <3>3. CASE NextFail
@@ -9321,7 +9556,7 @@ LEMMA HostConsumesEventEnabled ==
     DEF HostOwnsPayload, HostOwnsSomePayload, OwedPayloads
 <1>3. QED
     BY <1>1, <1>2, ExpandENABLED, SMT
-    DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, TypeOK, L0!TypeOK,
+    DEF HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, TypeOK, L0!TypeOK,
         l0_vars, L0!vars, vars, ffi_vars
 
 \* What each drain action does to its own variables: the acquittal
@@ -10926,7 +11161,7 @@ LEMMA SlotFreeStableUnderCancel ==
           EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
           ResourcesReleasedCallbackReturns, RuntimeDestroy,
           RequestCallCancellation, ReleaseCallHandle, EmitWriteDone, WriteDoneReturns,
-          DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake,
+          DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
           LendSendBuffer, RefuseLendTooLarge,
           RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, IsRuntimeDrained, L0!ChannelsOf,
           L0!IsUnusedCall, l0_vars, L0!vars, ffi_vars,
@@ -12720,6 +12955,11 @@ LEMMA FairnessAtBuffer ==
     ASSUME Fairness, NEW cId \in CallIds, NEW b \in BufferIds
     PROVE  /\ WF_vars(HostReturnsBuffer(cId, b))
            /\ WF_vars(FreeReturnedBuffer(cId, b))
+BY IsaT(600) DEF Fairness
+
+LEMMA FairnessAtEngine ==
+    ASSUME Fairness
+    PROVE  WF_vars(EngineGivesBackAllBytes)
 BY IsaT(600) DEF Fairness
 
 \* The conjuncts some goals need still quantified: selection with no
@@ -17751,7 +17991,7 @@ LEMMA UnadmittedStaysUnadmitted ==
         RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent,
-        EmitBudgetWake, RefuseLendTooLarge, RefuseLendForSlot,
+        EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge, RefuseLendForSlot,
         RefuseLendForBudget, TypeOK
   <2>3. CASE NextFail \/ NextExplicitStutter \/ UNCHANGED vars
     BY <2>3, SMT
@@ -17911,7 +18151,7 @@ LEMMA DeliveredOnlyGrows ==
         EmitWriteDone, WriteDoneReturns, NetworkSend, AdmitRead,
         NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverStatus, DeliverCancelled,
-        DeliveryCallbackReturns, HostConsumesEvent, EmitBudgetWake,
+        DeliveryCallbackReturns, HostConsumesEvent, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
         L0!RuntimeFail, L0!RemainFailed, L0!RemainReleased,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
@@ -18520,17 +18760,18 @@ LEMMA RoomFacts ==
     PROVE  /\ [](TypeOK /\ IsLendable(len) /\ IsLendWaitingFor(cId, len) /\
                  ~HasAccountingRoomForSomeCharge(len) => ~IsReadAdmissible)
            /\ [](TypeOK /\ MemoryAccountingExact /\ NothingHeld /\
-                 NoBufferOutstanding => memory_used = 0)
-           /\ [](IsLendable(len) /\ memory_used = 0 =>
+                 NoBufferOutstanding => memory_used = BytesHeldByEngine)
+           /\ [](TypeOK /\ IsLendable(len) /\ ~HasEngineHeldBytes /\
+                 memory_used = BytesHeldByEngine =>
                  HasAccountingRoomForSomeCharge(len))
 <1>1. TypeOK /\ IsLendable(len) /\ IsLendWaitingFor(cId, len) /\
           ~HasAccountingRoomForSomeCharge(len) => ~IsReadAdmissible
     BY WaitingBlocksReads
 <1>2. TypeOK /\ MemoryAccountingExact /\ NothingHeld /\ NoBufferOutstanding
-          => memory_used = 0
+          => memory_used = BytesHeldByEngine
   <2>1. SUFFICES ASSUME TypeOK, MemoryAccountingExact, NothingHeld,
                         NoBufferOutstanding
-                 PROVE  memory_used = 0
+                 PROVE  memory_used = BytesHeldByEngine
     OBVIOUS
   <2>2. BytesReceived = 0
     BY <2>1, NothingHeldIsNoBytes DEF NothingHeld
@@ -18538,9 +18779,19 @@ LEMMA RoomFacts ==
     BY <2>1, Zenon DEF OutstandingPairs, NoBufferOutstanding
   <2>4. BytesOutstanding = 0
     BY <2>3, SumFunctionOnSetEmpty, Zenon DEF BytesOutstanding
-  <2>5. QED BY <2>1, <2>2, <2>4, SMT DEF MemoryAccountingExact
-<1>3. IsLendable(len) /\ memory_used = 0 => HasAccountingRoomForSomeCharge(len)
-    BY ZeroHasRoom
+  <2>3a. engine_held \in Nat
+    BY <2>1, CeilingIsPositive, SMT DEF TypeOK, L0!TypeOK, Sizes, CeilingIsPositive
+  <2>5. QED
+    BY <2>1, <2>2, <2>3a, <2>4, SMT DEF MemoryAccountingExact, BytesHeldByEngine
+<1>3. TypeOK /\ IsLendable(len) /\ ~HasEngineHeldBytes /\
+          memory_used = BytesHeldByEngine => HasAccountingRoomForSomeCharge(len)
+  <2>1. SUFFICES ASSUME TypeOK, IsLendable(len), ~HasEngineHeldBytes,
+                        memory_used = BytesHeldByEngine
+                 PROVE  HasAccountingRoomForSomeCharge(len)
+    OBVIOUS
+  <2>2. memory_used = 0
+    BY <2>1, SMT DEF HasEngineHeldBytes, BytesHeldByEngine, TypeOK, Sizes
+  <2>3. QED BY <2>1, <2>2, ZeroHasRoom
 <1>4. QED BY <1>1, <1>2, <1>3, PTL
 
 \* The per-call facts the assembly reads, each boxed with no hypothesis in
@@ -18662,6 +18913,61 @@ THEOREM EverythingSettlesWhileHeldBack ==
   <2>7. QED BY <2>5, <2>6, PTL
 <1>2. QED BY <1>1, PTL
 
+\* The engine's giving everything back is enabled whenever it holds something.
+LEMMA EngineGivesBackEnabled ==
+    TypeOK /\ HasEngineHeldBytes => ENABLED <<EngineGivesBackAllBytes>>_vars
+<1>1. SUFFICES ASSUME TypeOK, HasEngineHeldBytes
+               PROVE  ENABLED <<EngineGivesBackAllBytes>>_vars
+    OBVIOUS
+<1>2. engine_held \in Nat /\ 0 < engine_held
+    BY <1>1, SMT DEF HasEngineHeldBytes, TypeOK, Sizes
+<1>3. QED
+    BY <1>1, <1>2, ExpandENABLED, SMT
+    DEF EngineGivesBackAllBytes, EngineGivesBackBytes, BytesHeldByEngine,
+        IsEngineHoldingAtLeast, OweBudgetWakeToWaitingCalls,
+        IsBudgetWakeOwed, IsLendWaiting, l0_vars, L0!vars, vars, ffi_vars
+
+\* Giving everything back leaves nothing held.
+LEMMA EngineGivesBackEmptiesTheEngine ==
+    [](TypeOK /\ <<EngineGivesBackAllBytes>>_vars => (~HasEngineHeldBytes)')
+<1>1. TypeOK /\ <<EngineGivesBackAllBytes>>_vars => (~HasEngineHeldBytes)'
+  <2>1. SUFFICES ASSUME TypeOK, <<EngineGivesBackAllBytes>>_vars
+                 PROVE  (~HasEngineHeldBytes)'
+    OBVIOUS
+  <2>20. EngineTypes
+    BY <2>1, TypeOKSplit, Zenon
+  <2>2. engine_held \in Nat
+    BY <2>20, CeilingIsPositive, SMT
+    DEF EngineTypes, Sizes, CeilingIsPositive
+  <2>3. QED
+    BY <2>1, <2>2, SMT
+    DEF EngineGivesBackAllBytes, EngineGivesBackBytes, BytesHeldByEngine,
+        HasEngineHeldBytes
+<1>2. QED BY <1>1, PTL
+
+\* What the engine keeps for itself is given back: the fairness conjunct on
+\* giving all of it back, said as the leads-to it buys.
+THEOREM EngineBytesEventuallyGivenBackHolds ==
+    Spec => EngineBytesEventuallyGivenBack
+<1>1. ASSUME Spec
+      PROVE  HasEngineHeldBytes ~> ~HasEngineHeldBytes
+  <2>0. /\ Init
+        /\ [][Next]_vars
+        /\ Fairness
+    BY <1>1 DEF Spec
+  <2>1. []IndInv
+    BY <2>0, BehaviorEstablishesIndInv, PTL
+  <2>2. []TypeOK
+    BY <2>1, IndInvParts, PTL
+  <2>3. WF_vars(EngineGivesBackAllBytes)
+    BY <2>0, FairnessAtEngine
+  <2>4. [](TypeOK /\ HasEngineHeldBytes =>
+               ENABLED <<EngineGivesBackAllBytes>>_vars)
+    BY EngineGivesBackEnabled, PTL
+  <2>6. QED
+    BY <2>2, <2>3, <2>4, EngineGivesBackEmptiesTheEngine, PTL
+<1>2. QED BY <1>1, Zenon DEF EngineBytesEventuallyGivenBack
+
 THEOREM RefusedSendEventuallyHasRoomHolds ==
     Spec => RefusedSendEventuallyHasRoom
 <1>1. ASSUME Spec, NEW cId \in CallIds, NEW len \in Nat, 0 < len, IsLendable(len)
@@ -18689,8 +18995,9 @@ THEOREM RefusedSendEventuallyHasRoomHolds ==
   <2>4. /\ [](TypeOK /\ IsLendable(len) /\ IsLendWaitingFor(cId, len) /\
                 ~HasAccountingRoomForSomeCharge(len) => ~IsReadAdmissible)
         /\ [](TypeOK /\ MemoryAccountingExact /\ NothingHeld /\
-                NoBufferOutstanding => memory_used = 0)
-        /\ [](IsLendable(len) /\ memory_used = 0 =>
+                NoBufferOutstanding => memory_used = BytesHeldByEngine)
+        /\ [](TypeOK /\ IsLendable(len) /\ ~HasEngineHeldBytes /\
+                memory_used = BytesHeldByEngine =>
                 HasAccountingRoomForSomeCharge(len))
     BY RoomFacts, IsaT(600)
   <2>5. <>[](~IsReadAdmissible /\ L0!NotFailed) =>
@@ -18701,11 +19008,15 @@ THEOREM RefusedSendEventuallyHasRoomHolds ==
       BY PTL
     <3>2. <>[](~IsReadAdmissible /\ L0!NotFailed)
       BY <2>2, <2>3, <2>4, <3>1, PTL
-    <3>3. <>[](memory_used = 0)
+    <3>3. <>[](memory_used = BytesHeldByEngine)
       BY <2>2, <2>4, <2>5, <3>2, PTL
-    <3>4. <>[](HasAccountingRoomForSomeCharge(len))
-      BY <2>3, <2>4, <3>3, PTL
-    <3>5. QED BY <3>1, <3>4, PTL
+\* What is left on the counter is the engine's, and room is seen the moment
+\* it holds nothing: so it holds something for good, which it does not.
+    <3>4. <>[](HasEngineHeldBytes)
+      BY <2>2, <2>3, <2>4, <3>1, <3>3, PTL
+    <3>5. HasEngineHeldBytes ~> ~HasEngineHeldBytes
+      BY <1>1, EngineBytesEventuallyGivenBackHolds DEF EngineBytesEventuallyGivenBack
+    <3>6. QED BY <3>4, <3>5, PTL
   <2>7. QED BY <2>6, PTL
 <1>2. QED BY <1>1, IsaT(600) DEF RefusedSendEventuallyHasRoom
 
@@ -18752,6 +19063,7 @@ THEOREM LivenessTheorem == Spec => LivenessProperties
        ResourcesReleasedCallbacksReturnHolds, BufferEventuallyFreedHolds,
        CallEventuallyReclaimedHolds, RuntimeEventuallyQuiescentHolds,
        ResourcesReleasedEventuallyHolds, RefusedSendEventuallyHasRoomHolds,
+       EngineBytesEventuallyGivenBackHolds,
        
        ZenonT(120) DEF LivenessProperties
 
