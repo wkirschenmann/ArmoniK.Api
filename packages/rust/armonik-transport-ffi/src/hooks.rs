@@ -8,11 +8,24 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// What a hook runs on the thread that reaches it.
 pub type Hook = Arc<dyn Fn() + Send + Sync>;
 
-/// What a resize's hook runs, told the step the resize has reached.
-pub type StepHook = Arc<dyn Fn(ResizeStep) + Send + Sync>;
+/// What a step hook runs, told the step an entry point has reached.
+pub type StepHook<S = ResizeStep> = Arc<dyn Fn(S) + Send + Sync>;
+
+/// The parts of the debt of a buffer an overrun takes back, paid in this order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepayStep {
+    /// Nothing is paid.
+    Begun,
+    /// The call's one buffer is no longer counted.
+    Counted,
+    /// The bytes the buffer was charged are given back.
+    Released,
+    /// The send window has its slot back.
+    Permitted,
+}
 
 /// The points of an `ak_resize_call_buffer` after it has taken the buffer from the host, in order.
-/// An overrun is out of this sequence: see `after_overrun_abandoned`.
+/// An overrun is out of this sequence: see `RepayStep`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResizeStep {
     /// The buffer is taken and nothing is checked.
@@ -28,9 +41,9 @@ pub enum ResizeStep {
     Exchanged,
 }
 
-static OVERRUN_ABANDONED: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_COPY_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static RESIZE_STEP: Mutex<Option<StepHook>> = Mutex::new(None);
+static REPAY_STEP: Mutex<Option<StepHook<RepayStep>>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
@@ -117,12 +130,10 @@ pub fn channel_thread_ending(hook: Option<Hook>) {
         .unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
-/// Runs `hook` in every overrun, once the buffer is forgotten and before it is counted as taken
-/// back. `None` removes it.
-pub fn after_overrun_abandoned(hook: Option<Hook>) {
-    *OVERRUN_ABANDONED
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = hook;
+/// Runs `hook` at each step of the payment of every overrun, which a test makes panic to see that
+/// the debt is paid whatever a step does. `None` removes it.
+pub fn at_each_repay_step(hook: Option<StepHook<RepayStep>>) {
+    *REPAY_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
 /// Runs `hook` in every compressed copy that asks the ceiling for room, just before it is
@@ -137,15 +148,16 @@ pub(crate) fn run_before_copy_charge() {
     run(&BEFORE_COPY_CHARGE);
 }
 
-pub(crate) fn run_after_overrun_abandoned() {
-    run(&OVERRUN_ABANDONED);
+pub(crate) fn at_resize_step(step: ResizeStep) {
+    reach(&RESIZE_STEP, step);
 }
 
-pub(crate) fn at_resize_step(step: ResizeStep) {
-    let hook = RESIZE_STEP
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+pub(crate) fn at_repay_step(step: RepayStep) {
+    reach(&REPAY_STEP, step);
+}
+
+fn reach<S>(slot: &Mutex<Option<StepHook<S>>>, step: S) {
+    let hook = slot.lock().unwrap_or_else(PoisonError::into_inner).clone();
     if let Some(hook) = hook {
         hook(step);
     }

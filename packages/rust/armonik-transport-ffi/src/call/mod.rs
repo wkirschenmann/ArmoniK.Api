@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
-use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -11,6 +11,14 @@ use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::{Host, HostPtr};
 use crate::ledger::{Ledger, Waiter};
+
+/// A point a test hooks to make the code panic there. Nothing without the test hooks.
+macro_rules! at {
+    ($hook:ident, $($step:tt)+) => {
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::$hook(crate::hooks::$($step)+);
+    };
+}
 
 mod actor;
 mod lent;
@@ -123,6 +131,11 @@ pub(crate) struct CallState {
     // The channel itself, not its name: leaving it is not optional, and a name would make it
     // conditional on a lookup whose failure the reader has no answer for.
     channel: Arc<AkChannel>,
+}
+
+/// Runs a step whose panic is not to stop the steps after it.
+fn contained(step: impl FnOnce()) {
+    let _ = catch_unwind(AssertUnwindSafe(step));
 }
 
 /// The bit of `CallState::sending` that says the sending has ended; the bits below count sends.
@@ -357,10 +370,10 @@ impl CallState {
         crate::hooks::at_resize_step(crate::hooks::ResizeStep::Taken);
         // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
         if carried > lent.len || !lent.intact() {
-            // The box is gone whatever happens next, so a panic in taking it back answers
-            // CORRUPTED too: INTERNAL would invite a retry on an owner that no longer exists.
-            let taken = ManuallyDrop::into_inner(lent);
-            let _ = catch_unwind(AssertUnwindSafe(|| self.overrun(taken)));
+            // The box is gone whatever happens next, so the answer is CORRUPTED whatever a panic
+            // in taking it back does: INTERNAL would invite a retry on an owner that no longer
+            // exists.
+            self.overrun(ManuallyDrop::into_inner(lent));
             return Err(ak_status::AK_STATUS_CORRUPTED);
         }
         let outcome = self.admits_buffer(new_len).and_then(|()| {
@@ -420,11 +433,10 @@ impl CallState {
         // The exchange is made, and no panic in parking the old arena can unmake it: the host is
         // told it succeeded. Parked once the charge is off, which makes room for it beside the
         // others.
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            #[cfg(feature = "test-hooks")]
-            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Exchanged);
+        contained(|| {
+            at!(at_resize_step, ResizeStep::Exchanged);
             drop(spares.returning(left));
-        }));
+        });
         Ok(())
     }
 
@@ -559,21 +571,42 @@ impl CallState {
 
     /// Takes back a buffer the host overran, without freeing it, and shuts the runtime down: the
     /// memory around it may be corrupted, and nothing this library does in it can be trusted.
+    ///
+    /// Never unwinds: the buffer is gone from the host whatever happens here, so the answer is
+    /// CORRUPTED whatever happens here.
     pub(crate) fn overrun(&self, lent: Box<Lent>) {
-        let (_, len) = lent.abandon();
-        // The shutdown begins whatever the accounting does: a panic there is passed on after it.
-        let accounted = catch_unwind(AssertUnwindSafe(|| {
-            #[cfg(feature = "test-hooks")]
-            crate::hooks::run_after_overrun_abandoned();
-            self.took_back(len);
+        let (_, charged) = lent.abandon();
+        // The debt is paid, so the shutdown can complete.
+        self.repay(charged);
+        contained(|| {
+            if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
+                crate::lifecycle::begin_shutdown(&runtime);
+            }
+        });
+    }
+
+    /// Pays what a lend of `charged` bytes owes the call and the ledger: its one buffer, its bytes
+    /// and its count, its slot of the window, and the wake-ups a payment owes.
+    ///
+    /// Each part is made whatever another does, the counts before the wake-ups they owe: a part
+    /// left unpaid is a runtime that never quiesces.
+    fn repay(&self, charged: usize) {
+        contained(|| {
+            at!(at_repay_step, RepayStep::Begun);
+        });
+        contained(|| {
+            self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
+            at!(at_repay_step, RepayStep::Counted);
+        });
+        contained(|| {
+            self.ledger.release_bytes(charged);
+            at!(at_repay_step, RepayStep::Released);
+        });
+        contained(|| {
             self.window.add_permits(1);
-        }));
-        if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
-            crate::lifecycle::begin_shutdown(&runtime);
-        }
-        if let Err(panic) = accounted {
-            resume_unwind(panic);
-        }
+            at!(at_repay_step, RepayStep::Permitted);
+        });
+        contained(|| self.moved_on());
     }
 
     pub(crate) fn end_send(&self) -> ak_status {

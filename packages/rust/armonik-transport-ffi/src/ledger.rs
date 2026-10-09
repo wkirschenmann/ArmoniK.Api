@@ -293,10 +293,11 @@ impl Ledger {
 
     pub(crate) fn release_bytes(&self, len: usize) {
         self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
+        // The count before the wake-ups: a panic in them leaves what the shutdown waits on paid.
+        self.release();
         if len > 0 {
             self.room_made();
         }
-        self.release();
     }
 
     /// Owes every waiting send its wake-up, all of them: waking one would lose the wake-up when
