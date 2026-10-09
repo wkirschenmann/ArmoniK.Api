@@ -233,7 +233,7 @@ pub struct RetryConfig {
     pub initial_backoff: Duration,
     pub max_backoff: Duration,
     pub backoff_multiplier: f64,
-    pub failures: Vec<Cause>,       // default: UNAVAILABLE from the server, a dial, a connection; empty retries nothing
+    pub failures: Vec<Cause>,       // default: UNAVAILABLE, 502/503/504, REFUSED_STREAM, a dial, a connection; empty retries nothing
 }
 
 pub struct ReplayConfig {
@@ -446,8 +446,9 @@ with a policy or without one, so a call that has sent past the ceilings goes aga
 sent nothing. The per-channel retry throttle,
 which A6 makes optional, is the estimate below. The policy is the channel's for every
 method, as `GrpcClient` configures it, where gRPC would allow one per method; the failures it
-retries are the list `RetryConfig::failures` names, `UNAVAILABLE` from the server, a dial and a
-connection failure unless `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` says otherwise.
+retries are the list `RetryConfig::failures` names, `UNAVAILABLE` from the server, a proxy's 502, 503
+and 504, a stream reset with REFUSED_STREAM, a dial and a connection failure unless
+`Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` says otherwise.
 
 **What a channel lets start, and be tried again, by what its server accepts.** The channel keeps
 an estimate over `AdaptiveConfig::window`: each attempt that went out and ended counts as accepted,

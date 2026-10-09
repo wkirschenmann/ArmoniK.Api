@@ -1139,8 +1139,8 @@ raising the one value. T6.1 has settled what happens when either is reached.
 T6.4 is what exercises streams. `GrpcChannelConfig::retry` is a `RetryConfig` - `MaxAttempts`,
 the backoff's `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`, and `failures`,
 the list of failures it retries - which `Grpc.OutboundTraffic.Retry` fills; its defaults are five
-attempts, a backoff from 5 to 120 seconds multiplied by 2, and `UNAVAILABLE`, a dial and a
-connection failure. The engine's own config has none, and an options document that sets nothing
+attempts, a backoff from 5 to 120 seconds multiplied by 2, and `UNAVAILABLE`, a proxy's 502, 503
+and 504, a refused stream, a dial and a connection failure. The engine's own config has none, and an options document that sets nothing
 retries. `GrpcChannelConfig::replay` is a `ReplayConfig`, `call_bytes` and `channel_bytes`, which
 `Grpc.OutboundTraffic.Replay` fills, 1 MiB and 16 MiB by default, grpc-dotnet's. The driver keeps
 each message a call sends, within both limits, and runs attempts while one fails with a listed
@@ -1649,7 +1649,8 @@ is not learned from, so every call toward it ends UNIMPLEMENTED.
 `Throttle` and `Replay`. `Retry` is `None`, no retry at all, or `ExponentialBackoff`, which holds
 `FailureList`, `MaxAttempts`, `InitialBackoffSeconds`, `MaxBackoffSeconds` and `BackoffMultiplier`;
 absent, it is `ExponentialBackoff` with every default (5 attempts, a backoff from 5 to 120 seconds,
-multiplied by 2, for `Status.UNAVAILABLE`, `Dial` and `Connection`). `ExponentialBackoff` refuses a
+multiplied by 2, for `Status.UNAVAILABLE`, `Http.502`, `Http.503`, `Http.504`,
+`Reset.REFUSED_STREAM`, `Dial` and `Connection`). `ExponentialBackoff` refuses a
 `MaxAttempts` below 2, in the engine with a message that points to `None`, and in the generated
 .NET class; an empty `FailureList` retries nothing and is allowed. A list entry is a string: `Status.X`,
 `Http.N`, `Reset.R`, `Pushback`, `Dial` or `Connection`, and `Cause` in the engine parses and prints
@@ -1662,7 +1663,8 @@ otherwise, `FailureList` among it; the `armonik` crate reads the loader. `Grpc.R
 `Grpc.Retry.Codes` with its presets are deleted from the options, and the engine's fixed limiter with them.
 The engine's `RetryConfig` still admits a `max_attempts` of 1, which the tests
 of transparent retries use. decisions.md has the reasons. Changes a release note carries:
-`RetryConfig::default` retries `UNAVAILABLE`, a dial and a connection failure, with a backoff of 5 to
+`RetryConfig::default` retries `UNAVAILABLE`, a proxy's 502, 503 and 504, a refused stream, a dial and a
+connection failure, with a backoff of 5 to
 120 seconds, and `GrpcChannelConfig::rate_limit`, `RateLimitConfig` and
 `GrpcChannelConfigError::RateLimit` are gone, which concerns the direct users of `RustGrpcChannel`
 and the `armonik` crate.

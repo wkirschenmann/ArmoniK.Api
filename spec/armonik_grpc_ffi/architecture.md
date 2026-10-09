@@ -1376,9 +1376,9 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |
 
 The translation also states `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` as
-`Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`, `Dial` and `Connection`, which is what
-grpc-dotnet retries; `ABORTED` and `UNKNOWN` count as acceptances for
-`Grpc.OutboundTraffic.Throttle`.
+`Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`, `Http.502`, `Http.503`, `Http.504`,
+`Reset.REFUSED_STREAM`, `Dial` and `Connection`, which is what grpc-dotnet retries; `ABORTED` and
+`UNKNOWN` count as acceptances for `Grpc.OutboundTraffic.Throttle`.
 
 ---
 

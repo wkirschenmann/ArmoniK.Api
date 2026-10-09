@@ -128,14 +128,16 @@ retried automatically, so that resilience is improved without additional applica
 
 ### Acceptance Criteria
 
-1. Calls that fail with status `UNAVAILABLE`, or on a connection that could not be made or ended
-   under the call, are retried by default: `UNAVAILABLE` alone is what `google.rpc.Code` advises for
-   retrying the same call. `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` names the
-   failures, as entries: `Status.X` for a gRPC status the server sent, `Http.N` for a proxy's
-   HTTP status, `Reset.R` for a stream the server reset, `Pushback`, `Dial` and `Connection`. An
-   entry that names none of these is refused, and an empty list retries nothing. The translation of
-   `GrpcClient`'s configuration states `Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`,
-   `Dial` and `Connection`, so that ArmoniK.Api.Client keeps its behaviour.
+1. Calls that fail as gRPC reads `UNAVAILABLE` are retried by default: with status `UNAVAILABLE`, with
+   a proxy's HTTP status 502, 503 or 504, on a stream the server refused (`REFUSED_STREAM`), or on a
+   connection that could not be made or ended under the call. `UNAVAILABLE` alone is what
+   `google.rpc.Code` advises for retrying the same call.
+   `Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList` names the failures, as entries:
+   `Status.X` for a gRPC status the server sent, `Http.N` for a proxy's HTTP status, `Reset.R` for a stream the
+   server reset, `Pushback`, `Dial` and `Connection`. An entry that names none of these is refused,
+   and an empty list retries nothing. The translation of `GrpcClient`'s configuration states `Status.UNAVAILABLE`, `Status.ABORTED`, `Status.UNKNOWN`,
+   `Http.502`, `Http.503`, `Http.504`, `Reset.REFUSED_STREAM`, `Dial` and `Connection`, so that
+   ArmoniK.Api.Client keeps its behaviour.
 2. The default configuration is: 5 total attempts, initial backoff 5s, maximum 120s,
    multiplier 2.
 3. The retry configuration is configurable. `Grpc.OutboundTraffic.Retry` is `None`, which retries
