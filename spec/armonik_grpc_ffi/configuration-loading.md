@@ -28,10 +28,12 @@ well as from JSON, so every host language gets the same result from the same sou
   from the Rust types; .NET's `ChannelOptions.g.cs` and `RuntimeOptions.g.cs` are generated from
   them. An unknown key is ignored and logged with its path at the root of a document, and refused
   by its path anywhere else; a value is never quoted back.
-- Two documents merge by `ChannelOptions::over`: a struct field by field, an alternative (an
-  enum: TLS verification, client identity, proxy, receive windows) whole when the two state
-  different ones. A variant that carries nothing is written as its name, `"None"`, and a variant
-  that carries something as an object of one key, `{"Url": {"Address": "..."}}`.
+- Two documents merge by `ChannelOptions::over`: a struct field by field, but for a struct with
+  a mandatory field, which is stated whole. An alternative (an enum: TLS verification, client
+  identity, proxy, receive windows) is whole when the two state different variants, and merges as
+  the variant's payload does when they state the same one. A variant that carries nothing is
+  written as its name, `"None"`, and a variant that carries something as an object of one key,
+  `{"Url": {"Address": "..."}}`.
 
 ## Decided (2026-10-06, the shape confirmed 2026-10-07)
 
@@ -74,7 +76,8 @@ well as from JSON, so every host language gets the same result from the same sou
   exposed. What it parses reaches the engine as pairs of a key's path and a text value, read as
   the environment's are, since a command line, like the environment, has only text.
 - **A key left out and a key set to a variant differ** (2026-10-08): a source that leaves an option
-  out leaves what an earlier source set, or the default, and a source that wants none says so with
+  out leaves what an earlier source set, or the default, unless the option is an optional field of
+  a group stated whole (2026-10-09), and a source that wants none says so with
   the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive`, `Http2.IdleTimeout`,
   `Grpc.Deadline` and the units of `Grpc.OutboundTraffic` have, as `Http2.SimultaneousCallsPerConnection`
   has `"FromServer"` (decisions.md, "How an option is turned off by a variant").
@@ -195,9 +198,14 @@ file or one environment configures every host alike; a document with no `Endpoin
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
-documents. A list is a value, which `over` takes whole as it takes a text or a number: the later
-source's list replaces the earlier one's, an empty list included, and a source that does not state
-it leaves the earlier one's. Two lists are never joined.
+documents. A structure with a mandatory field - a `Probe` with its `IdleSeconds`, a `Ping` with its
+`IntervalSeconds`, a `Url` with its `Address` - is stated whole, so that no source leaves it half
+stated (2026-10-09): a later source that states it replaces the earlier one's, its optional fields
+taking what it gives or their default, and one that omits a mandatory field is refused, by the
+path of the structure, whatever an earlier source states. The rule comes from the shape of the type
+and names no option. A list is a value, which `over` takes whole as it takes a text or a number:
+the later source's list replaces the earlier one's, an empty list included, and a source that
+does not state it leaves the earlier one's. Two lists are never joined.
 
 A list is stated by a file, a document, or an environment variable; the command line and pairs
 cannot state one, since a command line is parsed by .NET's configuration into keys and text, and
