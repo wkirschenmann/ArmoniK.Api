@@ -79,12 +79,12 @@ pub enum ChargeStep {
 pub enum RepayStep {
     /// Nothing is paid.
     Begun,
-    /// The call's one buffer is no longer counted.
-    Counted,
     /// The bytes the buffer was charged are given back.
     Released,
     /// The send window has its slot back.
     Permitted,
+    /// The call's one buffer is no longer counted: the call may be asked for another.
+    Counted,
 }
 
 /// The points of an `ak_resize_call_buffer` after it has taken the buffer from the host, in order.

@@ -700,18 +700,18 @@ impl CallState {
         });
     }
 
-    /// Pays what a lend owes the call and the ledger: its one buffer, the bytes and the count it
-    /// charged, its slot of the window, and the wake-ups a payment owes.
+    /// Pays what a lend owes the call and the ledger: the bytes and the count it charged, its
+    /// slot of the window, its one buffer, and the wake-ups a payment owes.
     ///
     /// Each part is made whatever another does, the counts before the wake-ups they owe: a part
     /// left unpaid is a runtime that never quiesces.
+    ///
+    /// The claim of the call's one buffer is paid last: a lend that asks while it is held is
+    /// refused with AK_STATUS_INVALID_STATE, which promises no wake-up, and never with
+    /// AK_STATUS_SLOT_BUSY, whose wake-up is a WRITE_DONE that nothing sent.
     fn repay(&self, owed: Owed) {
         guard_void(|| {
             at!(at_repay_step, RepayStep::Begun);
-        });
-        guard_void(|| {
-            self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
-            at!(at_repay_step, RepayStep::Counted);
         });
         guard_void(|| {
             if let Some(charged) = owed.bytes {
@@ -724,6 +724,10 @@ impl CallState {
                 self.window.add_permits(1);
             }
             at!(at_repay_step, RepayStep::Permitted);
+        });
+        guard_void(|| {
+            self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
+            at!(at_repay_step, RepayStep::Counted);
         });
         guard_void(|| self.moved_on());
     }
