@@ -532,7 +532,9 @@ has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has `AK_EVENT_BUDGET_WAKE`: a call refus
 ceiling has no send in flight, so nothing of that call frees room, and the event comes from the
 releases of others. The third refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because
 waiting cannot help, and `AK_STATUS_INVALID_STATE` needs none either: it reports a guard, not a
-shortage.
+shortage. Neither WRITE_DONE nor BUDGET_WAKE is raised while a lend of the call is still being
+answered, so a refusal has given back everything it took before its wake-up arrives: the lend is
+one step, as the model has it (see the ABI's Calls).
 
 The wake-up fires where the count falls - a send buffer's release, at its WRITE_DONE or when it
 is given back unsent, a received message's at `ak_event_consumed`, and a compressed copy's when

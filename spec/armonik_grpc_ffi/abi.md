@@ -331,9 +331,12 @@ is also what makes destruction sound: a released runtime has no live call, so no
 its memory back out.
 
 `AK_STATUS_INVALID_STATE` answers a second lend as well: a call has one buffer, and a lend is
-refused while the host holds it or an earlier lend of the call is still paying back what it took.
-That is a host bug and not backpressure, whether the host holds a buffer or lends from another
-thread while a lend or a resize of the same call has not returned.
+refused while the host holds it. That is a host bug and not backpressure, and so is a lend from
+another thread while a lend or a resize of the same call has not returned. A host woken by
+`AK_EVENT_WRITE_DONE` or `AK_EVENT_BUDGET_WAKE` is not lending beside another: on a live call
+neither event reaches it while a lend of the call is still being answered, so a refused lend
+has given back everything it took, the call's one buffer included, and the host may ask again
+at once.
 
 A length of zero is refused with `AK_STATUS_INVALID_ARG`: an empty message needs no buffer, and
 `ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. That send takes
@@ -398,9 +401,7 @@ an `AK_EVENT_BUDGET_WAKE`. While it waits, every call of the runtime reads only 
 lowered by that length, so the host must try again when woken or cancel the call: a send given up
 on a live call holds reception lowered for the whole runtime. The event may arrive in parallel
 with the call's data callbacks, like `AK_EVENT_WRITE_DONE`, and before its terminal; it promises
-no room, since another call may take it first. A host retries a refused lend only after that
-lend's downcall has returned: the refused lend gives the call's one buffer back as it returns, and
-a wake-up delivered while it still does can meet `AK_STATUS_INVALID_STATE`.
+no room, since another call may take it first.
 
 When `ak_call_send_message`'s allocation is freed is this library's business and is not
 observable: a call that may be retried keeps it for a replay, past its WRITE_DONE, so
