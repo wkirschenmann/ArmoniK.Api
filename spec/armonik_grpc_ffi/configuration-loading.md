@@ -193,13 +193,15 @@ file or one environment configures every host alike; a document with no `Endpoin
   sends for an object set in code.
 - **A variant that carries nothing**: in the environment and in pairs, the key's value is its name,
   matched without case - `ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None`. A variant
-  that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...` -
-  and a value beside keys under it is refused, by its path.
+  that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...`, and
+  `...__Proxy__Url__Credentials__Username=...` for the group within it - and a value beside keys under
+  it is refused, by its path.
 
 A later source overrides an earlier one option by option: a structure field by field, an
 alternative whole when two sources state different ones, as `ChannelOptions::over` merges two
 documents. A structure with a mandatory field - a `Probe` with its `IdleSeconds`, a `Ping` with its
-`IntervalSeconds`, a `Url` with its `Address` - is stated whole, so that no source leaves it half
+`IntervalSeconds`, a `Url` with its `Address`, a proxy's `Credentials` with its `Username` and its
+`Password` - is stated whole, so that no source leaves it half
 stated (2026-10-09): a later source that states it replaces the earlier one's, its optional fields
 taking what it gives or their default, and one that omits a mandatory field is refused, by the
 path of the structure, whatever an earlier source states. The rule comes from the shape of the type

@@ -217,8 +217,8 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 ### Acceptance Criteria
 
 1. The proxy can be explicitly disabled.
-2. An explicit proxy can be configured by URL, with username and password as separate fields.
-   If credentials are provided separately, the proxy URI must not contain userinfo
+2. An explicit proxy can be configured by URL, with its credentials, a username and a password, as a
+   separate group. If credentials are provided separately, the proxy URI must not contain userinfo
    (user:password in the URL) — this is a configuration error.
 3. The proxy can be read from environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`).
 4. On Windows, the system proxy (configured in network settings) is readable.
@@ -227,7 +227,7 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 
 **Status**: met. `Transport.Proxy` is `None`, `System`, its default, or `Url`, a proxy named by its
 `http://` `Address`, and authenticates to it by `Basic`, the credentials written in the URL or in
-`Username` and `Password` and refused in both. `System` reads `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and
+`Credentials`, a `Username` and a `Password` stated together, and refused in both. `System` reads `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and
 `NO_PROXY`, in either case, when the channel is created, and dials a loopback endpoint directly. On
 Windows, when the environment names no proxy, it reads the current user's network settings: a PAC
 script, which WinHTTP fetches and runs on a blocking thread, bounded by the connect timeout, else
