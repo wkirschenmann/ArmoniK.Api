@@ -67,6 +67,12 @@ jobs:
             cmd: cargo test --locked --workspace --all-features
             dir: rust
             env: {}
+          # Without the `metrics` feature, which `--all-features` turns on.
+          - lang: Rust
+            toolchain: stable
+            cmd: cargo test --locked --workspace --features armonik-transport/schema,armonik-transport/test-hooks,armonik-transport-ffi/test-hooks
+            dir: rust
+            env: {}
         plateform:
           - os: ubuntu-latest
           - os: windows-latest

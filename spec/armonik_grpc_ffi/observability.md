@@ -257,8 +257,9 @@ silent.
   not skewed by a retry.
 - **Derived at read, never counted**, and computed by the binding: current calls (started less
   ended), failed (ended with a status but OK), deadline-exceeded and unimplemented (slots of the
-  status array), open connections (dials succeeded less closed), the totals of the arrays, and the
-  compression gain (one less the ratio of the message bytes sent to the message bytes before compression).
+  status array), open connections (dials succeeded less closed), dials pending (tried less
+  succeeded and failed), the totals of the arrays, and the compression gain (one less the ratio of
+  the message bytes sent to the message bytes before compression).
 - **Gauges, read from state at collection time**: the throttle's current cap of first attempts,
   whether its retries are open or closed, the calls waiting for a turn at the cap, and the calls
   waiting for a stream. The first three are the adaptive estimate's own state, read then. A call

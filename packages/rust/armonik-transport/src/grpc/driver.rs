@@ -27,11 +27,19 @@ use super::request::{FramedMessage, RequestSlot};
 use super::retry::{jittered, OneReplay, Replay, RequestBody, Sent};
 use super::status::GrpcStatusCode;
 use super::status::{Failure, GrpcStatus, Unprocessed};
+use crate::metrics::{CallCounters, CallGuard};
 
 pub(crate) struct Driving<S> {
     stop: Stop,
     sink: S,
     control: CallControl,
+}
+
+impl<S> Driving<S> {
+    /// What the call counts.
+    pub(crate) fn counters(&self) -> CallCounters {
+        self.control.counters.clone()
+    }
 }
 
 impl Driving<()> {
@@ -67,6 +75,7 @@ struct Responding<S> {
     /// none was given.
     answered: Answered,
     head_given: bool,
+    counters: CallCounters,
 }
 
 /// What a call sends: a stream of messages the caller writes, or its one request, given once.
@@ -85,11 +94,14 @@ pub(crate) struct Outgoing {
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
     pub(crate) wait_for_ready: bool,
+    /// The call's place in the registry of its channel's stats, ended by its driver with the
+    /// status the call ends with, or as a cancelled call when the driver is dropped.
+    pub(crate) guard: Option<CallGuard>,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
     inner: Arc<Inner>,
-    outgoing: Outgoing,
+    mut outgoing: Outgoing,
     driving: Driving<S>,
 ) {
     let Driving {
@@ -97,10 +109,12 @@ pub(crate) async fn drive<S: ResponseSink>(
         sink,
         control,
     } = driving;
+    let guard = outgoing.guard.take();
     let mut responding = Responding {
         sink,
         answered: Answered::default(),
         head_given: false,
+        counters: control.counters.clone(),
     };
 
     // Held for the whole call, not released after the head. `Inner` owns the `closed` sender,
@@ -126,6 +140,10 @@ pub(crate) async fn drive<S: ResponseSink>(
     // Before the terminal, not after: a send admitted between the two would be queued for a driver
     // that has stopped, and the caller would be told it was sent.
     control.finish();
+    // Before the terminal, so that a host that reads the stats on seeing it finds the call ended.
+    if let Some(guard) = guard {
+        guard.end(status.code);
+    }
 
     // A head never given goes out with the end, empty: `TrailersOnly` if a response came,
     // `NoResponse` if none did.
@@ -314,6 +332,7 @@ async fn run<S: ResponseSink>(
         read_gate,
         one_response,
         wait_for_ready,
+        guard: _,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -376,7 +395,9 @@ async fn run<S: ResponseSink>(
             // request a resend, with a turn of its own.
             if wait_for_ready
                 && inner.admission.may_wait()
-                && until_stopped(stop, inner.connected()).await.is_none()
+                && until_stopped(stop, inner.connected(&responding.counters))
+                    .await
+                    .is_none()
             {
                 return GrpcStatus::cancelled();
             }
@@ -402,6 +423,7 @@ async fn run<S: ResponseSink>(
             } else if let Some(request) = held.take() {
                 // Compressed once, here: every attempt sends the same bytes, and the replay
                 // is charged what is sent.
+                let raw = request.len();
                 let request = match chosen {
                     Some(encoding) => {
                         match until_stopped(stop, compressed(encoding, request)).await {
@@ -411,6 +433,7 @@ async fn run<S: ResponseSink>(
                     }
                     None => request,
                 };
+                responding.counters.message_sent(raw, request.len());
                 replay = Some(Sent::One(OneReplay::new(
                     request.body(),
                     replay_limit,
@@ -468,6 +491,7 @@ async fn run<S: ResponseSink>(
                 reason = unprocessed.map(|reason| reason.to_string()).unwrap_or_default(),
                 "the request never reached the peer's application, and is sent again"
             );
+            inner.metrics.resend();
             continue;
         }
         previous += 1;
@@ -488,6 +512,7 @@ async fn run<S: ResponseSink>(
         // accepts what is sent, here and again once the backoff has passed, so that a call that
         // will not be retried does not sleep first.
         if !inner.admission.retries_open() {
+            inner.metrics.retry_refused();
             return status;
         }
         let wait = match pushback {
@@ -531,8 +556,12 @@ async fn run<S: ResponseSink>(
             return GrpcStatus::cancelled();
         }
         if !inner.admission.retries_open() {
+            inner.metrics.retry_refused();
             return status;
         }
+        inner
+            .metrics
+            .retry(|| cause::retry_slot(&policy.failures, &origin, status.code));
         retrying = true;
     }
 }
@@ -640,6 +669,7 @@ async fn attempt<S: ResponseSink>(
         wait_for_ready,
         body,
         encoding,
+        responding.counters.clone(),
     );
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::local(GrpcStatus::cancelled()),
@@ -672,6 +702,7 @@ async fn attempt<S: ResponseSink>(
                 stop,
                 &mut responding.sink,
                 &responding.answered,
+                &responding.counters,
                 read_gate,
                 one_response,
                 inner.delivery_coalescing,
@@ -696,10 +727,12 @@ enum Read {
 /// its next turn - a head's message, a message's trailers - joins what the sink holds rather than
 /// following it in a callback of its own. A round that brings the read earns the next one; only
 /// one that brings nothing tells the sink that nothing more is ready, before the wait.
+#[allow(clippy::too_many_arguments)]
 async fn finish<S: ResponseSink>(
     stop: &mut Stop,
     sink: &mut S,
     answered: &Answered,
+    counters: &CallCounters,
     read_gate: Option<&dyn ReadGate>,
     one_response: bool,
     coalescing: usize,
@@ -740,6 +773,7 @@ async fn finish<S: ResponseSink>(
             Some(Read::Message(message)) => message,
         };
         message_read = true;
+        counters.message_received();
         let bytes = message.len();
         match until_stopped(stop, sink.message(message)).await {
             None => return Ended::local(GrpcStatus::cancelled()),
