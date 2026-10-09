@@ -55,10 +55,15 @@ pub(crate) enum Command {
 #[derive(Default)]
 struct Debt {
     payloads: AtomicU32,
+    /// The call's one buffer: 0 when free, `HELD` while the host holds it, `LENDING` while a lend
+    /// that claimed it has not answered.
     buffers: AtomicU32,
     callbacks: AtomicU32,
     terminal: AtomicBool,
 }
+
+const HELD: u32 = 1;
+const LENDING: u32 = 2;
 
 impl Debt {
     fn quiet(&self) -> bool {
@@ -79,7 +84,7 @@ impl Debt {
     fn as_abi(&self) -> ak_call_debt {
         ak_call_debt {
             payloads_owed: self.payloads.load(Ordering::Acquire),
-            buffers_lent: self.buffers.load(Ordering::Acquire),
+            buffers_lent: self.buffers.load(Ordering::Acquire).min(HELD),
             callbacks_in_flight: self.callbacks.load(Ordering::Acquire),
             terminal_delivered: self.terminal.load(Ordering::Acquire) as i32,
         }
@@ -264,11 +269,16 @@ impl CallState {
     /// What the lend takes is owed back until the host has the buffer, and a refusal and a panic
     /// both pay it: the claim, the slot of the window and the bytes. A panic leaves a refused
     /// lend, which the entry point answers AK_STATUS_INTERNAL, as it does an allocator failure.
+    ///
+    /// The claim reads `LENDING` until the lend answers, and no WRITE_DONE or BUDGET_WAKE is
+    /// raised while it does (`lend_answered`): a refused lend has paid everything back, its claim
+    /// included, before the wake-up it waits for reaches a host that may ask again from inside
+    /// the callback. What it costs a lend served is the store that hands the claim to the host.
     pub(crate) fn lend(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
         if self
             .debt
             .buffers
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .compare_exchange(0, LENDING, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
             return Err(ak_status::AK_STATUS_INVALID_STATE);
@@ -289,9 +299,22 @@ impl CallState {
         };
 
         if lent.is_ok() {
+            self.debt.buffers.store(HELD, Ordering::Release);
             std::mem::forget(lending);
         }
         lent
+    }
+
+    /// Completes once a read of the claim finds no lend of this call answering, or once the call
+    /// is over, where a lend asked for from the wake-up is refused for that.
+    ///
+    /// A read-modify-write rather than a load, for the WRITE_DONE, whose slot is given back before
+    /// this: a lend that claims after it reads from it, and so sees that slot. One that claimed
+    /// before it is what it waits for, and that lend waits on nothing of the channel's.
+    pub(super) async fn lend_answered(&self) {
+        while self.debt.buffers.fetch_or(0, Ordering::SeqCst) == LENDING && self.live() {
+            tokio::task::yield_now().await;
+        }
     }
 
     /// What a buffer of `len` bytes asks of the call and of the ceiling's size, before any of its
@@ -536,7 +559,7 @@ impl CallState {
         };
         // Counted before the message is queued: its WRITE_DONE may let the host ask for a buffer
         // from inside the callback, which the one buffer a call holds would refuse.
-        self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
+        self.debt.buffers.store(0, Ordering::SeqCst);
         slot.send(Command::Send { message, charged });
         guard_void(|| {
             at!(at_send_step, SendStep::Queued);
@@ -726,7 +749,8 @@ impl CallState {
             at!(at_repay_step, RepayStep::Permitted);
         });
         guard_void(|| {
-            self.debt.buffers.fetch_sub(1, Ordering::SeqCst);
+            // The claim is this payment's alone, whether a lend made it or the host holds it.
+            self.debt.buffers.store(0, Ordering::SeqCst);
             at!(at_repay_step, RepayStep::Counted);
         });
         guard_void(|| self.moved_on());

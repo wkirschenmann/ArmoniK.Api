@@ -21,7 +21,7 @@ pub use server::TestServer;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
@@ -42,6 +42,9 @@ pub struct Event {
     owner: usize,
 }
 
+/// What a test has the host do from inside a callback, on each event once it is recorded.
+pub type Reaction = Arc<dyn Fn(ak_event_kind) + Send + Sync>;
+
 #[derive(Default)]
 pub struct Recorder {
     seen: Mutex<Vec<Event>>,
@@ -49,6 +52,7 @@ pub struct Recorder {
     holding: AtomicBool,
     runtime: AtomicU64,
     callbacks: AtomicU64,
+    reaction: Mutex<Option<Reaction>>,
 }
 
 pub unsafe extern "C" fn on_event(
@@ -62,6 +66,7 @@ pub unsafe extern "C" fn on_event(
     let callback = recorder.callbacks.fetch_add(1, Ordering::AcqRel) + 1;
     for event in unsafe { std::slice::from_raw_parts(events, count) } {
         record_one(recorder, call_ctx, event, callback);
+        recorder.react_to(event.kind);
     }
 }
 
@@ -103,6 +108,23 @@ impl Recorder {
     fn record(&self, event: Event) {
         self.seen().push(event);
         self.arrived.notify_all();
+    }
+
+    /// Has the host run `reaction` on every event from now on; `None` stops it.
+    pub fn react(&self, reaction: Option<Reaction>) {
+        *self.reaction.lock().unwrap_or_else(PoisonError::into_inner) = reaction;
+    }
+
+    // Cloned out of the lock before it runs, so a reaction that blocks holds no lock while it does.
+    fn react_to(&self, kind: ak_event_kind) {
+        let reaction = self
+            .reaction
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(reaction) = reaction {
+            reaction(kind);
+        }
     }
 
     pub fn len(&self) -> usize {
