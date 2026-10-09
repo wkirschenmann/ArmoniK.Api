@@ -42,6 +42,9 @@
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <!-- The Meter, for .NET Framework. The observable up-down counter needs 7.0 or later, and 8.0.1
+         is the version ArmoniK.Api.Common takes. -->
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

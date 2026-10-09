@@ -331,7 +331,8 @@ silent.
   flag is clear. A `Meter` per
   group, under the prefix `ArmoniK.Api.Client.RustGrpcChannel`: `.Calls`, `.Throttle`,
   `.Connections`, `.Bytes` and `.Host`. Every instrument of the engine's is observable, and reads
-    `ak_runtime_stats` when a collector collects: no listener, no ABI call. The dropped logs, which
+  `ak_runtime_stats` when a collector collects, one read for each instrument and each at its own
+  instant: no listener, no ABI call. The dropped logs, which
   are the binding's own, are the one instrument registered whatever the structure says, and the
   one that does not read it. A host filters with `AddMeter`, with views
   or with a `MeterListener`, and the engine has no option for it. A tag is the status code, or the

@@ -79,6 +79,9 @@ public sealed class NativeRuntime : IAsyncDisposable
   // What the engine's logs go to, when the runtime was given a logger factory.
   private readonly EngineLog? log_;
 
+  // The engine's counters, as instruments, when the library counts or the runtime has a log.
+  private readonly EngineMetrics? metrics_;
+
   /// <summary>What asks the engine for a runtime, handed the context its callbacks carry.</summary>
   private unsafe delegate ak_status Creating(void*     context,
                                             void*     logCallback,
@@ -126,6 +129,9 @@ public sealed class NativeRuntime : IAsyncDisposable
       Abandon();
       throw new InvalidOperationException($"the native runtime could not be created ({status}): {refusal}");
     }
+
+    metrics_ = EngineMetrics.TryCreate(handle_,
+                                       log_);
   }
 
   /// <summary>Lets go of what a creation that failed held.</summary>
@@ -539,6 +545,9 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   private async Task RetireAsync()
   {
+    // Before the runtime stops. A collection already running reads a handle the engine no longer
+    // knows, which it answers with a refusal, and reports nothing.
+    metrics_?.Dispose();
     BeginShutdown();
     await QuiescentAsync()
       .ConfigureAwait(false);
