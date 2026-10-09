@@ -8,11 +8,10 @@
 //! A key the root of the document does not declare is not refused. It is logged, with its source
 //! and its path, and the load goes on, because a file read with no prefix holds its host's own
 //! sections. Below the root, a key a struct does not declare, such as `IntervalSecond` in
-//! `Http2.KeepAlive.Ping` or `Windw` in `Grpc.Host.Receive`, is refused by its path: a misspelling
-//! there leaves an option at what an earlier source or the default gave it. A key of an alternative
-//! that names none of its variants is logged, and the option keeps what an earlier source gave it.
-//! A value that does not fit its key's type is refused, by its source and its path, and never
-//! quoted: a password is a value.
+//! `Http2.KeepAlive.Ping` or `Windw` in `Grpc.Host.Receive`, is refused by its path, and so is a key
+//! of an alternative that names none of its variants: a misspelling there leaves an option at what
+//! an earlier source or the default gave it. A value that does not fit its key's type is refused,
+//! by its source and its path, and never quoted: a password is a value.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -929,20 +928,25 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             }),
             Node::Map(entries) if entries.len() == 1 => {
                 let (name, value) = entries.into_iter().next().expect("one entry");
+                let name = spelled(name, variants, self.text);
+                if !variants.contains(&name.as_str()) {
+                    let path = joined(&self.path, &name);
+                    return Err(<Refused as de::Error>::unknown_field(&name, variants).at(&path));
+                }
                 visitor.visit_enum(Variant {
-                    name: spelled(name, variants, self.text),
+                    name,
                     value: Some(value),
                     path: self.path,
                     text: self.text,
                     shared: self.shared,
                 })
             }
-            // No key or several: the reader of an alternative takes the keys as they come, which
-            // is how it reads past a key that names no variant.
+            // No key or several: the reader of an alternative takes the keys as they come, and
+            // refuses one that names no variant.
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: Some(variants),
-                tolerant: true,
+                tolerant: false,
                 pending: None,
                 path: self.path,
                 text: self.text,

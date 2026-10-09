@@ -405,15 +405,12 @@
     "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.P12.Password", "never": "123456" }
   },
   {
-    "name": "an alternative that names no variant keeps the earlier source's, its key logged",
+    "name": "an alternative that names no variant is refused, whatever an earlier source gave it",
     "sources": [
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } } } },
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Socks": { "Address": "socks5://proxy.test:1080" } } } } } }
     ],
-    "options": {
-      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } }
-    },
-    "unknown": ["ChannelDefaults.Transport.Proxy.Socks"]
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
   },
   {
     "name": "an alternative that carries nothing is its name, in a document, an environment variable and pairs",
@@ -562,6 +559,68 @@
       { "document": { "MemoryCeiling": { "SoftMib": 1 }} }
     ],
     "refused": { "source": "a document", "key": "MemoryCeiling.SoftMib", "says": "it is none of" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, even where an earlier source states a variant",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, beside a variant it names",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://p:1" }, "Socks": { "Address": "x" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a file",
+    "files": {
+      "alternative.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probee\":{\"IdleSeconds\":30}}}}}}}}"
+    },
+    "sources": [
+      { "file": "alternative.json" }
+    ],
+    "refused": { "source": "alternative.json", "key": "ChannelDefaults.Transport.TcpKeepalive.Probee", "says": "it is none of None, Probe" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a name no variant of an alternative has is refused by the alternative's path, in an environment variable and over an earlier source",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive": "Pingg"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive", "says": "it names none of None, Ping" }
   },
   {
     "name": "a key no option declares is logged, and the rest read",

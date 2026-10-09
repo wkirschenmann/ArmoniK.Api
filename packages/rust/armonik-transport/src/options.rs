@@ -9,8 +9,8 @@
 //! The `configuration` loader reads past a key no type declares at the root of a document and logs
 //! it, a file read with no prefix holding its host's own sections, and refuses one below the root,
 //! naming its path. The schema states `additionalProperties: false` for every object. An
-//! alternative - how the server is verified, who the client is, which proxy - reads a key that
-//! names none of its variants as no alternative, and the loader logs it.
+//! alternative - how the server is verified, who the client is, which proxy - refuses a key that
+//! names none of its variants.
 
 use std::time::Duration;
 
@@ -2541,18 +2541,16 @@ macro_rules! over_variants {
 /// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
 /// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
-/// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
-/// read past instead, so that the configuration loader logs it; the alternative is then none, and
-/// keeps what an earlier source gave it. A name that is no variant is refused: it is not a key, so
-/// nothing is read past.
+/// By hand rather than by serde's derive, which refuses an object of no key: that one is no
+/// alternative stated, and keeps what an earlier source gave it. A key that names no variant is
+/// refused, and so is a name that is none.
 mod alternative {
-    use std::cell::Cell;
     use std::marker::PhantomData;
 
-    use serde::de::value::{EnumAccessDeserializer, StringDeserializer};
+    use serde::de::value::EnumAccessDeserializer;
     use serde::de::{
-        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
-        IntoDeserializer, MapAccess, VariantAccess, Visitor,
+        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IntoDeserializer,
+        MapAccess, VariantAccess, Visitor,
     };
 
     /// An enum read as an alternative, by the names of its variants.
@@ -2561,14 +2559,14 @@ mod alternative {
         const VARIANTS: &'static [&'static str];
     }
 
-    /// An alternative that may be left out, and is none when its key names no variant.
+    /// An alternative that may be left out, and is none when it is an object of no key.
     pub(super) fn optional<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<Option<T>, D::Error> {
         deserializer.deserialize_option(Optional(PhantomData))
     }
 
-    /// An alternative a document has to state, refused when its key names no variant.
+    /// An alternative a document has to state, refused when it is an object of no key.
     pub(super) fn required<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<T, D::Error> {
@@ -2604,7 +2602,7 @@ mod alternative {
         }
     }
 
-    /// The variant a name or an object's keys give, if one does.
+    /// The variant a name or an object's key gives, if one does.
     struct Chosen<T>(PhantomData<T>);
 
     impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
@@ -2614,31 +2612,16 @@ mod alternative {
             write!(f, "one of {}", T::VARIANTS.join(", "))
         }
 
-        /// A name, or an object of one key: the enum's own reader takes the variant, once a name
-        /// that is no variant has been read past.
+        /// A name, or an object of one key.
         fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Option<T>, A::Error> {
-            let unknown = Cell::new(false);
-            let read = T::deserialize(EnumAccessDeserializer::new(Known::<T, A> {
-                data,
-                unknown: &unknown,
-                kind: PhantomData,
-            }));
-            match read {
-                Ok(read) => Ok(Some(read)),
-                Err(_) if unknown.get() => Ok(None),
-                Err(refused) => Err(refused),
-            }
+            T::deserialize(EnumAccessDeserializer::new(data)).map(Some)
         }
 
         /// An object of no key or of several, which a loader hands over as it reads it: the
-        /// variant its keys name, if one does; two are refused.
+        /// variant its key names, if it has one; two are refused.
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
             let mut chosen = None;
             while let Some(key) = map.next_key::<String>()? {
-                if !T::VARIANTS.contains(&key.as_str()) {
-                    map.next_value::<IgnoredAny>()?;
-                    continue;
-                }
                 if chosen.is_some() {
                     return Err(de::Error::custom(
                         "it names two alternatives, of which one is chosen at a time",
@@ -2650,38 +2633,6 @@ mod alternative {
                 })?);
             }
             Ok(chosen)
-        }
-    }
-
-    /// An enum access that reads past a variant `T` does not have, saying so in `unknown`.
-    struct Known<'a, T, A> {
-        data: A,
-        unknown: &'a Cell<bool>,
-        kind: PhantomData<T>,
-    }
-
-    impl<'de, 'a, T: Alternative, A: EnumAccess<'de>> EnumAccess<'de> for Known<'a, T, A> {
-        type Error = A::Error;
-        type Variant = A::Variant;
-
-        fn variant_seed<V: DeserializeSeed<'de>>(
-            self,
-            seed: V,
-        ) -> Result<(V::Value, A::Variant), A::Error> {
-            let (name, variant): (String, A::Variant) = self.data.variant()?;
-            if T::VARIANTS.contains(&name.as_str()) {
-                let name = seed.deserialize(StringDeserializer::<A::Error>::new(name))?;
-                return Ok((name, variant));
-            }
-            // A key's value is read past, so that a loader logs the key; a name has none to read,
-            // and is refused.
-            match variant.newtype_variant::<IgnoredAny>() {
-                Ok(_) => {
-                    self.unknown.set(true);
-                    Err(de::Error::custom("a variant this engine does not know"))
-                }
-                Err(_) => Err(de::Error::unknown_variant(&name, T::VARIANTS)),
-            }
         }
     }
 
@@ -3394,15 +3345,10 @@ mod tests {
             r#"{"Proxy":"Url"}"#,
             r#"{"Proxy":"Socks"}"#,
             r#"{"Proxy":"none"}"#,
+            r#"{"Proxy":{"Socks":{"Address":"x"}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
         }
-        assert_eq!(
-            read(r#"{"Proxy":{"Socks":{"Address":"x"}}}"#)
-                .expect("a key that names none is read past")
-                .proxy,
-            None
-        );
     }
 
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
@@ -4503,11 +4449,9 @@ mod tests {
                 ..AdaptiveOptions::default()
             }))
         );
-        assert_eq!(
-            read(r#"{"Throttle":{"Elsewhere":true}}"#)
-                .expect("a key that names none is read past")
-                .throttle,
-            None
+        assert!(
+            read(r#"{"Throttle":{"Elsewhere":true}}"#).is_err(),
+            "a key that names none of the variants is refused"
         );
 
         let over = |own: ThrottleOptions, default: ThrottleOptions| {
