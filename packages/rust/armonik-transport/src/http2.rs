@@ -22,7 +22,7 @@ use tower_service::Service;
 use crate::coalesce::Coalescing;
 use crate::proxy::ProxyConnector;
 use crate::proxy::ProxyError;
-pub use crate::proxy::{ProxyConfig, ProxySource};
+pub use crate::proxy::{BasicCredentials, ProxyConfig, ProxySource};
 use crate::tls::{Refused, Trust};
 use crate::utils::{chain, safe_endpoint};
 

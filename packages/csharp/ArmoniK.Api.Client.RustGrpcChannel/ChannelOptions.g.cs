@@ -966,8 +966,8 @@ public abstract record ProxyOptions
     /// <summary>What the proxy is authenticated to with, by <c>Basic</c>.</summary>
     /// <remarks>
     ///   Defaults to none. Ignored when the system names no proxy. Beside the environment's proxy,
-    ///   each half that is not empty takes the place of the one that proxy's URL carries; beside the
-    ///   one Windows' settings name, they are the credentials.
+    ///   they are sent whole in place of what its URL carries, and its URL's own apply only when none
+    ///   are stated; beside the one Windows' settings name, they are the credentials.
     /// </remarks>
     public ProxyCredentials? Credentials { get; init; }
 
@@ -1147,7 +1147,8 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
 
 /// <summary>
 ///   The username and password a proxy is authenticated to with, by <c>Basic</c>. Both are stated, and
-///   together: a source that states a pair replaces the one an earlier source stated.
+///   together: a source that states a pair replaces the one an earlier source stated, and an empty
+///   half is an empty string, never an absent one.
 /// </summary>
 /// <param name="Username">The username, which <c>Basic</c> forbids a <c>:</c> in.</param>
 /// <param name="Password">The password that goes with <c>Username</c>, empty when the proxy asks for none.</param>
