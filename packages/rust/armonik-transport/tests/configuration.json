@@ -655,6 +655,50 @@
     }
   },
   {
+    "name": "a proxy's credentials are a pair, in an environment variable as in a document",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Address": "http://proxy.test:3128",
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Credentials__Username": "bob",
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Credentials__Password": "x"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128", "Credentials": { "Username": "bob", "Password": "x" } } } } }
+    }
+  },
+  {
+    "name": "a proxy's credentials stated by a username alone are refused, naming the password, whatever an earlier source states",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__Proxy__System__Credentials__Username": "bob" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Transport.Proxy.System.Credentials", "says": "it lacks Password", "never": "s3cret" }
+  },
+  {
+    "name": "a system proxy with no credentials keeps the earlier ones, and a pair stated over them replaces them",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": {} } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } }
+    }
+  },
+  {
+    "name": "a pair of credentials stated over another is the pair stated",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__Proxy__System__Credentials__Username": "bob", "ChannelDefaults__Transport__Proxy__System__Credentials__Password": "x" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "bob", "Password": "x" } } } } }
+    }
+  },
+  {
     "name": "a key no option declares is logged, and the rest read",
     "sources": [
       { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }

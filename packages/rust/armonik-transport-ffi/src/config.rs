@@ -1160,7 +1160,7 @@ mod tests {
         use armonik_transport::http2::ProxySource;
 
         let config = config_of(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         );
         let proxy = &config.transport.proxy;
         let ProxySource::Explicit(uri) = &proxy.source else {
@@ -1322,7 +1322,7 @@ mod tests {
     #[test]
     fn an_alternative_the_channel_states_replaces_the_defaults() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(defaults.as_ref(), br#"{"Transport":{"Proxy":"None"}}"#)
@@ -1343,7 +1343,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_checked_before_it_is_merged() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let Err(refused) = parse_over(

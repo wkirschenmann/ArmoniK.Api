@@ -218,7 +218,8 @@ namespace ArmoniK.Api.Client.Submitter
 
     // The proxy as the managed transport reads the three options: empty is the default configuration,
     // which is the system's, `none` and `system` are words, and anything else is an address, which the
-    // credentials go with.
+    // credentials go with. The engine takes them as a pair, so one half set is a pair with the other
+    // empty, as the managed transport's NetworkCredential reads it.
     private static ProxyOptions Proxy(GrpcClient options)
     {
       switch (options.Proxy)
@@ -234,12 +235,10 @@ namespace ArmoniK.Api.Client.Submitter
         default:
           return new ProxyOptions.Url(options.Proxy)
                  {
-                   Username = string.IsNullOrEmpty(options.ProxyUsername)
-                                ? null
-                                : options.ProxyUsername,
-                   Password = string.IsNullOrEmpty(options.ProxyPassword)
-                                ? null
-                                : options.ProxyPassword,
+                   Credentials = string.IsNullOrEmpty(options.ProxyUsername) && string.IsNullOrEmpty(options.ProxyPassword)
+                                   ? null
+                                   : new ProxyCredentials(options.ProxyUsername ?? string.Empty,
+                                                          options.ProxyPassword ?? string.Empty),
                  };
       }
     }

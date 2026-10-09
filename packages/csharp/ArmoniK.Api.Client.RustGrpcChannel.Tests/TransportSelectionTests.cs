@@ -843,6 +843,26 @@ public class TransportSelectionTests
                                   "credentials alone say nothing of the proxy");
                       Assert.That(Encoded(new GrpcClient
                                           {
+                                            Proxy         = "proxy.test:3128",
+                                            ProxyUsername = "user",
+                                          }),
+                                  Does.Contain(@"""Credentials"":{""Username"":""user"",""Password"":""""}"),
+                                  "a username alone is a pair with an empty password, as the managed transport reads it");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            Proxy         = "proxy.test:3128",
+                                            ProxyPassword = "s3cret",
+                                          }),
+                                  Does.Contain(@"""Credentials"":{""Username"":"""",""Password"":""s3cret""}"),
+                                  "and a password alone one with an empty username");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
+                                            Proxy = "proxy.test:3128",
+                                          }),
+                                  Does.Not.Contain("Credentials"),
+                                  "no credentials are stated when neither half is");
+                      Assert.That(Encoded(new GrpcClient
+                                          {
                                             CertP12 = "client.p12",
                                             CertPem = "ignored.pem",
                                             KeyPem  = "ignored.key",
@@ -863,6 +883,7 @@ public class TransportSelectionTests
                    KeyPem                = "client.key",
                    Proxy                 = "http://proxy.test:3128",
                    ProxyUsername         = "user",
+                   ProxyPassword         = "s3cret",
                    MaxAttempts           = 3,
                    RequestTimeout        = TimeSpan.FromSeconds(7),
                  };
@@ -892,7 +913,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""ServerCertificates"":""None""")
                                       .And.Contain(@"""ClientCertificate"":{""Pem"":{""Certificate"":""client.pem"",""Key"":""client.key""}}")
-                                      .And.Contain(@"""Url"":{""Address"":""http://proxy.test:3128"",""Username"":""user""}")
+                                      .And.Contain(@"""Url"":{""Address"":""http://proxy.test:3128"",""Credentials"":{""Username"":""user"",""Password"":""s3cret""}}")
                                       .And.Contain(@"""MaxAttempts"":3")
                                       .And.Contain(@"""Deadline"":{""Default"":7}"));
                       Assert.That(System.Text.Encoding.UTF8.GetString(NativeClientOptions.Translate(new GrpcClient(),
