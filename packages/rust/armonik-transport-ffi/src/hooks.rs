@@ -195,8 +195,8 @@ pub fn at_each_lend_step(hook: Option<StepHook<LendStep>>) {
     *LEND_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
-/// Runs `hook` at each step of every charge of bytes the ledger makes,
-/// which a test makes panic to see that a charge is either made or not. `None` removes it.
+/// Runs `hook` at each step of every charge of bytes the ledger makes, which a test makes panic to
+/// see that a charge is either made or not. `None` removes it.
 pub fn at_each_charge_step(hook: Option<StepHook<ChargeStep>>) {
     *CHARGE_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
