@@ -212,11 +212,12 @@ impl GrpcChannel {
         let outgoing = Outgoing {
             path,
             metadata,
-            messages: Sending::Stream(messages),
+            messages: Sending::Stream(messages.charging(options.compression_budget.clone())),
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
+            compression_budget: options.compression_budget,
         };
         self.inner
             .spawner
@@ -240,11 +241,12 @@ impl GrpcChannel {
         let outgoing = Outgoing {
             path,
             metadata,
-            messages: Sending::Stream(messages),
+            messages: Sending::Stream(messages.charging(options.compression_budget.clone())),
             deadline,
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
+            compression_budget: options.compression_budget,
         };
         Ok((
             send,
@@ -274,6 +276,7 @@ impl GrpcChannel {
             read_gate: options.read_gate,
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
+            compression_budget: options.compression_budget,
         };
         Ok((
             request,

@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+use armonik_transport::grpc::{Charge, CompressionBudget};
 use tokio::sync::{watch, Notify};
 
 use crate::abi::{ak_memory_usage, ak_status};
@@ -170,6 +171,20 @@ impl Ledger {
     /// the slack of the spare arena it took.
     pub(crate) fn hold_more(&self, len: usize) -> bool {
         self.add_bytes(len)
+    }
+
+    /// Charges a copy the engine holds, unless that would pass the first threshold. It is bytes
+    /// only: the host owes nothing for it, so it is not in the count a shutdown waits on.
+    pub(crate) fn hold_copy(&self, len: usize) -> bool {
+        self.add_bytes(len)
+    }
+
+    /// Gives a copy's bytes back, and owes the sends that wait their wake-up.
+    pub(crate) fn release_copy(&self, len: usize) {
+        self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
+        if len > 0 {
+            self.room_made();
+        }
     }
 
     /// Whether a lend charged `old` bytes could be charged `new` instead right now, which is the
@@ -388,6 +403,44 @@ impl Drop for Received {
     }
 }
 
+/// What the engine's compression asks of the ceiling for the copies it makes. A copy is charged as
+/// a lend is, against the first threshold, and never waits for room: the engine sends the message
+/// as it is instead. The engine holds a copy, not the host, so a shutdown does not wait on it as it
+/// does on a lend.
+pub(crate) struct CopyBudget(pub(crate) Arc<Ledger>);
+
+impl std::fmt::Debug for CopyBudget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CopyBudget").finish_non_exhaustive()
+    }
+}
+
+impl CompressionBudget for CopyBudget {
+    fn charge(&self, bytes: usize) -> Option<Charge> {
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::run_before_copy_charge();
+        if !self.0.hold_copy(bytes) {
+            return None;
+        }
+        Some(Box::new(Copied {
+            ledger: Arc::clone(&self.0),
+            len: bytes,
+        }))
+    }
+}
+
+/// A compressed copy's charge, given back with the message that holds the copy.
+struct Copied {
+    ledger: Arc<Ledger>,
+    len: usize,
+}
+
+impl Drop for Copied {
+    fn drop(&mut self) {
+        self.ledger.release_copy(self.len);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,6 +457,22 @@ mod tests {
         assert!(ledger.empty());
         assert_eq!(ledger.hold_bytes(65), Err(ak_status::AK_STATUS_BUDGET_BUSY));
         assert!(ledger.empty(), "the refusal gave its count back");
+        assert_eq!(ledger.usage().bytes_used, 0);
+    }
+
+    /// A copy is bytes against the first threshold and no count: the engine holds it, so a shutdown
+    /// that waits for what the host owes does not wait for it.
+    #[test]
+    fn a_copy_is_charged_without_a_count() {
+        let ledger = Ledger::new(64, 0).expect("a valid ledger");
+
+        assert!(ledger.hold_copy(40));
+        assert!(ledger.empty());
+        assert_eq!(ledger.usage().bytes_used, 40);
+        assert!(!ledger.hold_copy(25), "past the ceiling");
+        assert_eq!(ledger.usage().bytes_used, 40);
+
+        ledger.release_copy(40);
         assert_eq!(ledger.usage().bytes_used, 0);
     }
 

@@ -29,6 +29,7 @@ pub enum ResizeStep {
 }
 
 static OVERRUN_ABANDONED: Mutex<Option<Hook>> = Mutex::new(None);
+static BEFORE_COPY_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static RESIZE_STEP: Mutex<Option<StepHook>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
@@ -122,6 +123,18 @@ pub fn after_overrun_abandoned(hook: Option<Hook>) {
     *OVERRUN_ABANDONED
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` in every compressed copy that asks the ceiling for room, just before it is
+/// charged. `None` removes it.
+pub fn before_copy_charge(hook: Option<Hook>) {
+    *BEFORE_COPY_CHARGE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+pub(crate) fn run_before_copy_charge() {
+    run(&BEFORE_COPY_CHARGE);
 }
 
 pub(crate) fn run_after_overrun_abandoned() {

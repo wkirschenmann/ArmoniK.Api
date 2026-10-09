@@ -19,7 +19,7 @@ use super::call::{
 };
 use super::cause;
 use super::channel::Inner;
-use super::compression::{compressed, Encoding};
+use super::compression::{compressed, CompressionBudget, Encoding};
 use super::contained::contained;
 use super::metadata::Metadata;
 use super::origin::{Origin, Pushback};
@@ -85,6 +85,8 @@ pub(crate) struct Outgoing {
     pub(crate) read_gate: Option<Arc<dyn ReadGate>>,
     pub(crate) one_response: bool,
     pub(crate) wait_for_ready: bool,
+    /// What the compressed copy of a call's one request is counted against.
+    pub(crate) compression_budget: Option<Arc<dyn CompressionBudget>>,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -314,6 +316,7 @@ async fn run<S: ResponseSink>(
         read_gate,
         one_response,
         wait_for_ready,
+        compression_budget,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -404,7 +407,9 @@ async fn run<S: ResponseSink>(
                 // is charged what is sent.
                 let request = match chosen {
                     Some(encoding) => {
-                        match until_stopped(stop, compressed(encoding, request)).await {
+                        let compressing =
+                            compressed(encoding, request, compression_budget.as_ref());
+                        match until_stopped(stop, compressing).await {
                             Some(request) => request,
                             None => return GrpcStatus::cancelled(),
                         }

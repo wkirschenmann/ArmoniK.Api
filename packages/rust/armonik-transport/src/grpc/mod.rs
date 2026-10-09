@@ -23,7 +23,7 @@ pub use call::{
 };
 pub use cause::{Cause, UnknownCause};
 pub use channel::{CallDriver, GrpcChannel, GrpcChannelConfig};
-pub use compression::Encoding;
+pub use compression::{Charge, CompressionBudget, Encoding};
 pub use error::{CallError, ChannelError, GrpcChannelConfigError};
 pub use metadata::{Metadata, MetadataError, MetadataValue, BINARY_SUFFIX};
 // Public only through `hooks::Attempt`, so that h2 and http types stay out of the API.

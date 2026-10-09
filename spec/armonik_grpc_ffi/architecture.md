@@ -450,7 +450,9 @@ apply, and the host ends it by giving back what it holds or by cancelling.
 **What a buffer charges against the budget** is the capacity of the allocation that backs it,
 not merely the size the host asked for: `charge(b)` is what backs `b`, known before the lend,
 `len` is the request it must cover, and `bytes_used` is the sum of `charge(b)` over every buffer
-lent and not yet freed, plus the length of every message received and not yet given back. Each lend
+lent and not yet freed, plus the length of every message received and not yet given back, plus
+the compressed copies the engine holds, which the model leaves out: they are the engine's, not
+what the host owes. Each lend
 gets an arena of `len` and a few bytes more, eight ahead of it, the gRPC prefix in the last five,
 and the sentinel after it, and is charged `len`, the request. A lend of 64 KiB or more takes a
 spare of its channel's when one fits, at most an eighth larger, and is charged its slack too, what
@@ -480,9 +482,18 @@ outside the ceiling, wrong by however much it comes to - silently, and in the di
 matters. The allocator's own size-class rounding stays outside regardless: Rust's stable
 allocation interface does not report it, and it is small against a message.
 
-What the ceiling bounds is what the engine lends and what it has received and not had back.
-The copy tonic's encoder makes of each message is outside it, and so is what hyper buffers below
-the decoder within the flow-control window; neither is bounded runtime-wide.
+What the ceiling bounds is what the engine lends, what it has received and not had back, and the
+compressed copy of a sent message while the message holds it. A copy is charged once it is made, at
+the size its allocation keeps, against the first threshold as a lend is, and given back when the
+message is dropped, written or not; the replay of a call that sends one request holds its message until the call
+ends. The engine holds it and not the host, so a shutdown does not
+wait for it as it does for a lend. A copy with no room is dropped: the message goes out with the
+compressed flag clear, on a call whose `grpc-encoding` says otherwise, which the length-prefixed
+message allows per message. The copy being built is outside the ceiling, as the encoder's own
+state is. Compression is an optimisation, so it never waits for room and never ends a call. The buffer's own
+charge is given back when its message is committed or acquitted, which may be before the copy is
+made, so the two are in addition only while both are held. What hyper buffers below the decoder
+within the flow-control window is outside the ceiling, and is not bounded runtime-wide.
 
 **What an exchange of a buffer charges** is the difference. `ak_resize_call_buffer` is a lend of
 the new length and a return of the old one that the ledger sees as one step: the charge moves
@@ -524,7 +535,8 @@ waiting cannot help, and `AK_STATUS_INVALID_STATE` needs none either: it reports
 shortage.
 
 The wake-up fires where the count falls - a send buffer's release, at its WRITE_DONE or when it
-is given back unsent, and a received message's at `ak_event_consumed` - and never at a commit,
+is given back unsent, a received message's at `ak_event_consumed`, and a compressed copy's when
+its message is dropped - and never at a commit,
 which moves bytes from the host to the runtime without freeing any: a signal on that edge would
 be a wake-up that never comes. It wakes every call refused since the last release, carries no
 payload and takes no delivery credit, as WRITE_DONE takes none. Waking every one rather than one

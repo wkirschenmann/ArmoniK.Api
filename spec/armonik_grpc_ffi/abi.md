@@ -434,7 +434,9 @@ it had made and lets the exception through.
 #### Memory usage
 
 `ak_runtime_memory_usage` is the runtime's accounting, one number against the ceiling: the bytes
-of the buffers lent and of the messages received and not yet given back. A retry after a lend
+of the buffers lent, of the messages received and not yet given back, and of the compressed
+copies of sent messages while they are held - a copy the ceiling has no room for is dropped, and
+the message goes out uncompressed. A retry after a lend
 refused with `AK_STATUS_BUDGET_BUSY` does not read it - `AK_EVENT_BUDGET_WAKE` says when a
 release gave bytes back - but an operator does. A buffer occupies the ceiling from `ak_get_call_buffer` until the
 runtime frees its bytes, and committing it frees nothing - it hands the same bytes from the host
@@ -501,6 +503,10 @@ The detailed form of the memory usage, an observability tool rather than one a r
 //                        messages decoded and not yet delivered, at most one per
 //                        call, each waiting for a delivery credit. The host frees
 //                        them by consuming what it already holds.
+//
+// The compressed copies of sent messages that the engine holds are counted in
+// bytes_used and in none of these categories: the identity below holds for a
+// runtime that holds none, and the detailed form is not built.
 //
 // The first two fields of ak_memory_usage_detailed are the base struct's, in the
 // same order, so a host upgrades by changing the call and the type and re-reading

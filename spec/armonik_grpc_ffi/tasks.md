@@ -1700,13 +1700,14 @@ array of `Complete(byte[])`. The model has `ResizeSendBuffer` at level 1 and
 `WriteResizesBuffer` at level 2. Not done: a send window above one, its measurement, and its
 default.
 
-**Follow-up, decided on 2026-10-07**: the compressed copy of a message, which gRPC compression
-(T6.15) makes, counts against the FFI's memory ceiling, in addition to the host's buffer and
-released with the message. The ceiling charges only the buffer today and leaves the encoder's
-copy outside it (`architecture.md`, what the ceiling bounds), a paragraph that is amended when
-this is built. Open: what the engine does when the ceiling has no room for the compressed bytes.
-The committed buffer holds its charge until its WRITE_DONE, so waiting as a lend does has
-nothing to wake it; ending the call is the candidate.
+**Follow-up, decided on 2026-10-07 and done on 2026-10-09**: the compressed copy of a message,
+which gRPC compression (T6.15) makes, counts against the FFI's memory ceiling, in addition to
+the host's buffer. The engine asks a `CompressionBudget` of the call, which the FFI answers from
+its ledger: the copy is charged once it is made and given back with the message that holds it. With
+no room the copy is dropped and the message is sent uncompressed, with the flag clear, on a call
+whose `grpc-encoding` says otherwise; the call is neither ended nor made to wait
+(`decisions.md`, the compression row). Tests: `tests/compressed_copy.rs` for a one-request call
+and a stream, and `compression.rs`' own. The engine counts nothing of the refusals.
 
 ---
 

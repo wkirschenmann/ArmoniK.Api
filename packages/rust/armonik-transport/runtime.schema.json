@@ -25,11 +25,11 @@
   "additionalProperties": false,
   "$defs": {
     "MemoryCeilingOptions": {
-      "description": "The memory the runtime holds: the bytes counting the buffers lent to send and the messages\nreceived until the host gives them back, and where work waits and where the runtime stops.",
+      "description": "The memory the runtime holds: the bytes counting the buffers lent to send, the messages\nreceived until the host gives them back and the compressed copies of sent messages while they\nare held, and where work waits and where the runtime stops.",
       "type": "object",
       "properties": {
         "SoftMiB": {
-          "description": "The MiB the runtime holds before work waits: a call stops reading, and a send waits for\nroom.\n\nDefaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger\nvalue is that too.",
+          "description": "The MiB the runtime holds before work waits: a call stops reading, and a send waits for\nroom. A compressed copy that would pass it is dropped instead, and its message goes out\nuncompressed.\n\nDefaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger\nvalue is that too.",
           "type": "integer",
           "format": "int64",
           "minimum": 1

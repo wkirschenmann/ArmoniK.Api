@@ -7,6 +7,7 @@
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use flate2::write::{GzEncoder, ZlibEncoder};
@@ -52,11 +53,15 @@ impl Encoding {
         framed
     }
 
-    /// The compressed form of `message`, or None when it is not smaller: the flag is per message,
-    /// so one that gains nothing goes out as it is.
-    fn compress(self, message: &[u8]) -> Option<FramedMessage> {
+    /// The compressed form of `message`, or None when it is not smaller or the budget has no room
+    /// for it: the flag is per message, so either goes out as it is.
+    fn compress(
+        self,
+        message: &[u8],
+        budget: Option<&dyn CompressionBudget>,
+    ) -> Option<FramedMessage> {
         // Each encoder writes into a vector, which does not fail.
-        let framed = match self {
+        let mut framed = match self {
             Self::Gzip => {
                 let mut encoder =
                     GzEncoder::new(Self::prefixed(message), flate2::Compression::default());
@@ -85,9 +90,31 @@ impl Encoding {
         if framed.len() - FRAME_PREFIX >= message.len() {
             return None;
         }
-        FramedMessage::compressed_in_place(framed)
+        // Charged once made, at the size the allocation keeps, and given back when the message is
+        // dropped, written or not. A copy refused is dropped: the one being built is outside the
+        // budget.
+        let charge = match budget {
+            Some(budget) => {
+                framed.shrink_to_fit();
+                Some(budget.charge(framed.len())?)
+            }
+            None => None,
+        };
+        FramedMessage::compressed_in_place(framed, charge)
     }
 }
+
+/// What a message's compressed copy is counted against: the caller's memory ceiling, when it has
+/// one. A copy it has no room for is dropped once made, and the message goes out as the caller
+/// wrote it. The copy being built is outside the budget.
+pub trait CompressionBudget: std::fmt::Debug + Send + Sync {
+    /// Counts a copy of `bytes` bytes, or None when there is no room for it. Never waits. What it
+    /// returns is dropped when the message holding the copy is, which gives the bytes back.
+    fn charge(&self, bytes: usize) -> Option<Charge>;
+}
+
+/// Bytes counted against a [`CompressionBudget`], given back when it is dropped.
+pub type Charge = Box<dyn Send + Sync>;
 
 /// `encodings` with a repeated one left out after its first, in the order given.
 pub(crate) fn distinct(encodings: &[Encoding]) -> Vec<Encoding> {
@@ -228,29 +255,44 @@ pub(crate) fn compresses_in_place(message: &FramedMessage) -> bool {
     message.len() < OFF_THE_RUNTIME_FROM
 }
 
-/// `message` compressed with `encoding` where it is, or as it is when that gains nothing.
-pub(crate) fn compressed_in_place(encoding: Encoding, message: FramedMessage) -> FramedMessage {
+/// `message` compressed with `encoding` where it is, or as it is when that gains nothing or the
+/// budget has no room for the copy.
+pub(crate) fn compressed_in_place(
+    encoding: Encoding,
+    message: FramedMessage,
+    budget: Option<&dyn CompressionBudget>,
+) -> FramedMessage {
     #[cfg(feature = "test-hooks")]
     crate::hooks::count_compression();
     if message.is_empty() {
         return message;
     }
-    encoding.compress(message.payload()).unwrap_or(message)
+    encoding
+        .compress(message.payload(), budget)
+        .unwrap_or(message)
 }
 
-/// `message` compressed with `encoding`, or as it is when that gains nothing.
-pub(crate) async fn compressed(encoding: Encoding, message: FramedMessage) -> FramedMessage {
+/// `message` compressed with `encoding`, or as it is when that gains nothing or the budget has no
+/// room for the copy.
+pub(crate) async fn compressed(
+    encoding: Encoding,
+    message: FramedMessage,
+    budget: Option<&Arc<dyn CompressionBudget>>,
+) -> FramedMessage {
     if compresses_in_place(&message) {
-        return compressed_in_place(encoding, message);
+        return compressed_in_place(encoding, message, budget.map(|budget| &**budget));
     }
     #[cfg(feature = "test-hooks")]
     crate::hooks::count_compression();
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return encoding.compress(message.payload()).unwrap_or(message);
+        return encoding
+            .compress(message.payload(), budget.map(|budget| &**budget))
+            .unwrap_or(message);
     };
     let whole: Bytes = message.body();
+    let budget = budget.cloned();
     let done = runtime
-        .spawn_blocking(move || encoding.compress(&whole[FRAME_PREFIX..]))
+        .spawn_blocking(move || encoding.compress(&whole[FRAME_PREFIX..], budget.as_deref()))
         .await;
     // A task that did not finish leaves the message as it was, which is a valid answer.
     match done {
@@ -293,7 +335,7 @@ mod tests {
             let text = b"abc".repeat(1000);
             let message = FramedMessage::copy_of(&text).expect("a message");
 
-            let sent = compressed(encoding, message).await;
+            let sent = compressed(encoding, message, None).await;
 
             assert_eq!(sent.body()[0], 1, "the compressed flag, {encoding:?}");
             assert_eq!(
@@ -311,7 +353,7 @@ mod tests {
     async fn deflate_is_the_zlib_structure() {
         let message = FramedMessage::copy_of(&b"abc".repeat(1000)).expect("a message");
 
-        let sent = compressed(Encoding::Deflate, message).await;
+        let sent = compressed(Encoding::Deflate, message, None).await;
 
         let header = &sent.payload()[..2];
         assert_eq!(header[0] & 0x0f, 8, "the deflate method");
@@ -325,7 +367,7 @@ mod tests {
                 let message = FramedMessage::copy_of(text).expect("a message");
                 let before = message.body();
 
-                let sent = compressed(encoding, message).await;
+                let sent = compressed(encoding, message, None).await;
 
                 assert_eq!(sent.body(), before, "{encoding:?} {text:?}");
                 assert_eq!(sent.body()[0], 0);
@@ -442,7 +484,7 @@ mod tests {
             let text = vec![7; 4 * OFF_THE_RUNTIME_FROM];
             let message = FramedMessage::copy_of(&text).expect("a message");
 
-            let sent = compressed(encoding, message).await;
+            let sent = compressed(encoding, message, None).await;
 
             assert_eq!(sent.body()[0], 1);
             assert_eq!(inflated(encoding, &sent), text, "{encoding:?}");
@@ -455,10 +497,82 @@ mod tests {
         let text = vec![7; 2 * OFF_THE_RUNTIME_FROM];
         let message = FramedMessage::copy_of(&text).expect("a message");
 
-        let sent = ready_now(compressed(Encoding::Zstd, message));
+        let sent = ready_now(compressed(Encoding::Zstd, message, None));
 
         assert_eq!(sent.body()[0], 1);
         assert_eq!(inflated(Encoding::Zstd, &sent), text);
+    }
+
+    /// A budget of `room` bytes that counts what it has charged.
+    #[derive(Debug)]
+    struct Room {
+        room: usize,
+        charged: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    struct Counted(usize, Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.1.fetch_sub(self.0, Ordering::SeqCst);
+        }
+    }
+
+    impl CompressionBudget for Room {
+        fn charge(&self, bytes: usize) -> Option<Charge> {
+            if self.charged.load(Ordering::SeqCst) + bytes > self.room {
+                return None;
+            }
+            self.charged.fetch_add(bytes, Ordering::SeqCst);
+            Some(Box::new(Counted(bytes, Arc::clone(&self.charged))))
+        }
+    }
+
+    /// The copy is counted while the message lives and given back with it; a copy the budget has
+    /// no room for is dropped, and the message goes as it is, through either path.
+    #[tokio::test]
+    async fn a_copy_is_charged_for_the_life_of_its_message_and_refused_when_it_does_not_fit() {
+        for encoding in ALL {
+            for len in [10_000, 4 * OFF_THE_RUNTIME_FROM] {
+                let text = vec![7; len];
+                let charged = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let budget: Arc<dyn CompressionBudget> = Arc::new(Room {
+                    room: 1000,
+                    charged: Arc::clone(&charged),
+                });
+
+                let sent = compressed(
+                    encoding,
+                    FramedMessage::copy_of(&text).expect("a message"),
+                    Some(&budget),
+                )
+                .await;
+                assert_eq!(sent.body()[0], 1, "{encoding:?} {len}");
+                let held = charged.load(Ordering::SeqCst);
+                assert_eq!(held, sent.body().len(), "{encoding:?} {len}");
+                assert!(held > 0 && held <= 1000, "{encoding:?} {len}: {held}");
+                let copy = sent.body();
+                drop(sent);
+                assert_eq!(
+                    charged.load(Ordering::SeqCst),
+                    held,
+                    "a copy still holds it"
+                );
+                drop(copy);
+                assert_eq!(charged.load(Ordering::SeqCst), 0, "{encoding:?} {len}");
+
+                let none: Arc<dyn CompressionBudget> = Arc::new(Room {
+                    room: held - 1,
+                    charged: Arc::clone(&charged),
+                });
+                let whole = FramedMessage::copy_of(&text).expect("a message");
+                let before = whole.body();
+                let sent = compressed(encoding, whole, Some(&none)).await;
+                assert_eq!(sent.body(), before, "{encoding:?} {len}: as it was");
+                assert_eq!(sent.body()[0], 0);
+                assert_eq!(charged.load(Ordering::SeqCst), 0, "{encoding:?} {len}");
+            }
+        }
     }
 
     /// Polls a future that never waits.
