@@ -100,7 +100,7 @@ impl CountingBench {
         self.sniffer.feed(&self.frame, &self.conn);
     }
 
-    /// A call's whole life in the registry: its counters made, registered and ended.
+    /// A call's whole life in the registry: its counters made, registered, ended and let go.
     pub fn call_lifecycle(&self) {
         let counters = crate::metrics::CallCounters::new();
         let guard = self.metrics.start_call(&counters);

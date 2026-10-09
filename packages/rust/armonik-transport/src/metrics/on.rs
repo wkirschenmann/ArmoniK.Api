@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::sync::atomic::{
     AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering::Relaxed,
 };
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
 use super::{
     reset_slot, CloseReason, GaugeSource, HostEvent, Stats, CLOSE_SLOTS, RESET_SLOTS, RETRY_SLOTS,
@@ -54,6 +54,8 @@ struct Body {
 struct CallBlock {
     driver: Padded<Driver>,
     body: Padded<Body>,
+    /// The status the call ended with, plus one, or zero while it runs. Set once, by its guard.
+    ended: AtomicU8,
 }
 
 impl CallBlock {
@@ -63,6 +65,9 @@ impl CallBlock {
         totals.messages_sent += self.body.0.messages_sent.get();
         totals.message_bytes_raw += self.body.0.raw.get();
         totals.message_bytes_sent += self.body.0.sent.get();
+        if let Some(status) = self.ended.load(Relaxed).checked_sub(1) {
+            totals.calls_ended[usize::from(status)] += 1;
+        }
     }
 }
 
@@ -291,19 +296,27 @@ impl Metrics {
         sources.push(source);
     }
 
-    /// Puts a call in the registry, from now until its guard ends it.
+    /// Puts a call in the registry, where it stays until the last holder of its counters lets go.
     pub(crate) fn start_call(&self, counters: &CallCounters) -> CallGuard {
-        let shard = shard_of_this_thread();
-        let slot = {
-            let mut shard = locked(&self.0.shards[shard].0);
-            shard.totals.calls_started += 1;
-            shard.live.insert(Arc::clone(&counters.0))
-        };
-        CallGuard {
-            registry: Some(Arc::clone(&self.0)),
-            shard,
-            slot,
+        // A call is registered once: counters already in the registry are not entered again by a
+        // repeat that follows the first. Starting one call's counters from two threads at once is
+        // not supported.
+        if counters.fold.home.get().is_some() {
+            return CallGuard(counters.clone());
         }
+        let shard = shard_of_this_thread();
+        {
+            let mut guarded = locked(&self.0.shards[shard].0);
+            guarded.totals.calls_started += 1;
+            let slot = guarded.live.insert(Arc::clone(&counters.block));
+            let home = Home {
+                registry: Arc::clone(&self.0),
+                shard,
+                slot,
+            };
+            let _ = counters.fold.home.set(home);
+        }
+        CallGuard(counters.clone())
     }
 
     pub(crate) fn retry(&self, slot: impl FnOnce() -> usize) {
@@ -349,8 +362,15 @@ impl Metrics {
 }
 
 /// A call's counters, shared by the tasks that write them.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct CallCounters(Arc<CallBlock>);
+///
+/// A task may count after the call has ended, as the tail of a request body or the delivery of
+/// the last messages to a host do, so the block stays in the registry, summed live, until the last
+/// task that holds the counters lets go; only then are they added to the shard's totals.
+#[derive(Clone, Debug)]
+pub(crate) struct CallCounters {
+    block: Arc<CallBlock>,
+    fold: Arc<Fold>,
+}
 
 impl std::fmt::Debug for CallBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -358,31 +378,73 @@ impl std::fmt::Debug for CallBlock {
     }
 }
 
+impl Default for CallCounters {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Where a started call's block lives in the registry.
+struct Home {
+    registry: Arc<Registry>,
+    shard: usize,
+    slot: usize,
+}
+
+/// Moves a call's block from the live ones to the totals of its shard, when the last holder of its
+/// counters is gone.
+struct Fold {
+    home: OnceLock<Home>,
+}
+
+impl std::fmt::Debug for Fold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fold").finish_non_exhaustive()
+    }
+}
+
+impl Drop for Fold {
+    fn drop(&mut self) {
+        let Some(home) = self.home.get() else {
+            return;
+        };
+        let mut shard = locked(&home.registry.shards[home.shard].0);
+        if let Some(block) = shard.live.take(home.slot) {
+            block.add_to(&mut shard.totals);
+        }
+    }
+}
+
 impl CallCounters {
     pub(crate) fn new() -> Self {
-        Self::default()
+        Self {
+            block: Arc::default(),
+            fold: Arc::new(Fold {
+                home: OnceLock::new(),
+            }),
+        }
     }
 
     pub(crate) fn message_received(&self) {
-        self.0.driver.0.messages_received.add(1);
+        self.block.driver.0.messages_received.add(1);
     }
 
     /// A message taken from the call's request stream, `raw` bytes as the caller wrote it and
     /// `sent` as the engine sends it.
     pub(crate) fn message_sent(&self, raw: usize, sent: usize) {
-        let body = &self.0.body.0;
+        let body = &self.block.body.0;
         body.messages_sent.add(1);
         body.raw.add(raw as u64);
         body.sent.add(sent as u64);
     }
 
     pub(crate) fn window_wait(&self) {
-        self.0.driver.0.window_waits.add(1);
+        self.block.driver.0.window_waits.add(1);
     }
 
     /// The call waits for a session to open or to have room, until the guard is dropped.
     pub(crate) fn wait_for_stream(&self) -> StreamWait<'_> {
-        self.0.driver.0.waiting_for_stream.store(1, Relaxed);
+        self.block.driver.0.waiting_for_stream.store(1, Relaxed);
         StreamWait(self)
     }
 }
@@ -391,38 +453,33 @@ pub(crate) struct StreamWait<'a>(&'a CallCounters);
 
 impl Drop for StreamWait<'_> {
     fn drop(&mut self) {
-        self.0 .0.driver.0.waiting_for_stream.store(0, Relaxed);
+        self.0.block.driver.0.waiting_for_stream.store(0, Relaxed);
     }
 }
 
 /// A call's place in the registry. Ended with the status the call ends with, or CANCELLED when it
 /// is dropped first, which is what a call whose driver never ran, or was dropped, is.
-pub(crate) struct CallGuard {
-    registry: Option<Arc<Registry>>,
-    shard: usize,
-    slot: usize,
-}
+pub(crate) struct CallGuard(CallCounters);
 
 impl CallGuard {
-    pub(crate) fn end(mut self, code: GrpcStatusCode) {
-        self.finish(code);
+    pub(crate) fn end(self, code: GrpcStatusCode) {
+        self.set(code);
     }
 
-    fn finish(&mut self, code: GrpcStatusCode) {
-        let Some(registry) = self.registry.take() else {
-            return;
-        };
-        let mut shard = locked(&registry.shards[self.shard].0);
-        if let Some(block) = shard.live.take(self.slot) {
-            block.add_to(&mut shard.totals);
-        }
-        shard.totals.calls_ended[(code as usize).min(STATUS_SLOTS - 1)] += 1;
+    /// The first status stands.
+    fn set(&self, code: GrpcStatusCode) {
+        let status = (code as usize).min(STATUS_SLOTS - 1) as u8 + 1;
+        let _ = self
+            .0
+            .block
+            .ended
+            .compare_exchange(0, status, Relaxed, Relaxed);
     }
 }
 
 impl Drop for CallGuard {
     fn drop(&mut self) {
-        self.finish(GrpcStatusCode::Cancelled);
+        self.set(GrpcStatusCode::Cancelled);
     }
 }
 
@@ -747,6 +804,137 @@ mod tests {
         let metrics = Metrics::new();
         drop(metrics.start_call(&CallCounters::default()));
         assert_eq!(metrics.stats().ended_with(GrpcStatusCode::Cancelled), 1);
+    }
+
+    fn live_calls(metrics: &Metrics) -> usize {
+        let live = |shard: &Padded<Mutex<Shard>>| locked(&shard.0).live.live().count();
+        metrics.0.shards.iter().map(live).sum()
+    }
+
+    /// What a call counts after its driver has ended it, as the tail of its request body and the
+    /// delivery of its last messages do, is in the sum while the call has holders and in the
+    /// totals after.
+    #[test]
+    fn a_count_after_the_call_ended_is_not_lost() {
+        let metrics = Metrics::new();
+        let counters = CallCounters::default();
+        let guard = metrics.start_call(&counters);
+        counters.message_sent(10, 4);
+        guard.end(GrpcStatusCode::Ok);
+
+        counters.message_sent(6, 6);
+        counters.message_received();
+        counters.window_wait();
+        counters.window_wait();
+
+        let tally = |stats: &Stats| {
+            (
+                stats.ended_with(GrpcStatusCode::Ok),
+                stats.messages_sent,
+                (stats.message_bytes_raw, stats.message_bytes_sent),
+                stats.messages_received,
+                stats.host_window_waits,
+            )
+        };
+        let after_the_end = metrics.stats();
+        assert_eq!(tally(&after_the_end), (1, 2, (16, 10), 1, 2));
+        assert_eq!(after_the_end.calls_started, 1);
+        assert_eq!(live_calls(&metrics), 1, "its counters still have a holder");
+
+        drop(counters);
+        let folded = metrics.stats();
+        assert_eq!(tally(&folded), (1, 2, (16, 10), 1, 2));
+        assert_eq!(folded.calls_ended.iter().sum::<u64>(), 1);
+        assert_eq!(live_calls(&metrics), 0, "the last holder folded it");
+    }
+
+    #[test]
+    fn counters_already_in_the_registry_are_not_entered_again() {
+        let metrics = Metrics::new();
+        let counters = CallCounters::default();
+        let first = metrics.start_call(&counters);
+        let second = metrics.start_call(&counters);
+        assert_eq!(metrics.stats().calls_started, 1);
+        assert_eq!(live_calls(&metrics), 1);
+
+        first.end(GrpcStatusCode::Ok);
+        drop(second);
+        let stats = metrics.stats();
+        assert_eq!(
+            stats.ended_with(GrpcStatusCode::Ok),
+            1,
+            "the first status stands"
+        );
+        assert_eq!(stats.calls_ended.iter().sum::<u64>(), 1);
+    }
+
+    /// Whichever of the guard and the holders of the counters goes first, each count is in the
+    /// totals once.
+    #[test]
+    fn a_call_is_folded_once_whatever_the_order_of_its_holders() {
+        let metrics = Metrics::new();
+
+        let counters = CallCounters::default();
+        let guard = metrics.start_call(&counters);
+        counters.message_sent(1, 1);
+        drop(counters);
+        guard.end(GrpcStatusCode::Unavailable);
+
+        let counters = CallCounters::default();
+        let held = counters.clone();
+        drop(metrics.start_call(&counters));
+        held.message_sent(2, 2);
+        drop(counters);
+        held.window_wait();
+        drop(held);
+
+        let stats = metrics.stats();
+        assert_eq!(stats.calls_started, 2);
+        assert_eq!(stats.ended_with(GrpcStatusCode::Unavailable), 1);
+        assert_eq!(stats.ended_with(GrpcStatusCode::Cancelled), 1);
+        assert_eq!((stats.messages_sent, stats.message_bytes_raw), (2, 3));
+        assert_eq!(stats.host_window_waits, 1);
+        assert_eq!(live_calls(&metrics), 0);
+    }
+
+    /// A task that goes on counting while its call is ended and read is counted exactly, and a
+    /// counter is never seen to go back.
+    #[test]
+    fn a_writer_that_outlives_the_end_of_its_call_is_counted_exactly() {
+        const BEFORE: u64 = 1000;
+        const AFTER: u64 = 50_000;
+        let metrics = Metrics::new();
+        let counters = CallCounters::default();
+        let guard = metrics.start_call(&counters);
+        let (half_done, half) = std::sync::mpsc::channel();
+        let (ended, ending) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            for _ in 0..BEFORE {
+                counters.message_sent(1, 1);
+            }
+            half_done.send(()).expect("the call is ended");
+            ending.recv().expect("the call ended");
+            for _ in 0..AFTER {
+                counters.message_sent(1, 1);
+            }
+        });
+        half.recv().expect("half is written");
+        guard.end(GrpcStatusCode::Ok);
+        ended.send(()).expect("the writer waits");
+
+        let mut seen = 0;
+        while !writer.is_finished() {
+            let sent = metrics.stats().messages_sent;
+            assert!(sent >= seen, "a counter went back from {seen} to {sent}");
+            seen = sent;
+        }
+        writer.join().expect("the writer finished");
+
+        let stats = metrics.stats();
+        assert_eq!(stats.messages_sent, BEFORE + AFTER);
+        assert_eq!(stats.message_bytes_sent, BEFORE + AFTER);
+        assert_eq!(stats.ended_with(GrpcStatusCode::Ok), 1);
+        assert_eq!(live_calls(&metrics), 0);
     }
 
     #[test]

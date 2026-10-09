@@ -285,19 +285,23 @@ silent.
     thread's, chosen once from a number each thread draws on its first count, so that threads do
     not meet on a lock unless there are more of them than shards. Dials and the closes of
     connections are added under the one lock that the connections' registry has.
-  - Each call is in the registry from its start to its end, in the shard of the thread that
-    started it, and leaves its counters in that shard's totals, under the same lock, when it ends:
-    a call that is never driven ends CANCELLED when it is dropped. A connection is in the
-    connections' registry from its dial's success to its end in the same way. A read sums the
-    totals of every shard and the blocks of every live call and connection, a shard at a time
-    under its lock, so that a call is counted once - live or finished, never both and never
-    neither - and a shard never holds more ends than starts: a derived current count is not
-    negative. A long stream's
+  - Each call is in the registry from its start until the last task that holds its counters lets
+    go, in the shard of the thread that started it, and then leaves its counters in that shard's
+    totals, under the same lock. The status it ends with is kept in the call's block and read with
+    it, live or folded: a call that is never driven ends CANCELLED when it is dropped. A
+    connection is in the connections' registry from its dial's success to the end of its session,
+    and leaves its counters in the totals then: its task is the only one that counts for it, and
+    that task has ended. A read sums the totals of every shard and the blocks of every live call
+    and connection, a shard at a time under its lock, so that a call is counted once - live or
+    finished, never both and never neither - and a shard never holds more ends than starts: a
+    derived current count is not negative. A long stream's
     numbers are therefore current at each collection: totals flushed at a call's end alone would
     leave a long call invisible until it closed, which a collection must not do. The read runs once
     per collection, and not on any path a call takes.
   - What a call writes after its driver has ended it, such as the tail of a request body a closing
-    stream still polls, is not counted.
+    stream still polls and the delivery of its last messages to the host, is counted: its
+    counters stay in the registry until their last holder lets go, and are in a read as they were
+    before the end.
 - **The `metrics` feature.** A Cargo feature of `armonik-transport`, and one of
   `armonik-transport-ffi` that enables it. Both are off by default, the FFI included. Without it,
   a counting point is an empty function, the registry has no state, and a call or a connection
@@ -448,21 +452,23 @@ Measured on a Windows laptop, in release, by `cargo bench -p armonik-transport -
 --features test-hooks,metrics` and the same without `metrics`: the counting points alone, each the
 best of five runs of two million operations per thread, timed in the threads from when all are
 ready, with counters of their own per thread and a registry they share. Three runs of each build;
-the table gives the least and the most of the three.
+the table gives the least and the most of the three, taken while other builds ran on the machine.
 
 | What | 1 thread | 8 threads |
 |------|----------|-----------|
 | Without the feature, any point | under 0.05 ns | under 0.05 ns |
-| A message sent and a message received | 2.8 to 4.0 ns | 4.8 to 6.5 ns |
-| A 16 KiB read of a connection, its bytes counted and its frame read | 12.6 to 20.4 ns | 34.8 to 51.3 ns |
-| A call put in the registry and ended, its counters made | 247 to 478 ns | 1.7 to 1.9 us |
-| A retry, added under a shard's lock | 41 to 46 ns | 48 to 72 ns |
+| A message sent and a message received | 3.8 to 4.7 ns | 4.6 to 13.5 ns |
+| A 16 KiB read of a connection, its bytes counted and its frame read | 15.3 to 35.2 ns | 24.1 to 63.2 ns |
+| A call put in the registry and ended, its counters made and let go | 483 to 1075 ns | 1.4 to 2.3 us |
+| A retry, added under a shard's lock | 35 to 75 ns | 53 to 87 ns |
 
 Without the feature the compiler removes the points, so the loop times as nothing. The eight
 threads have a shard each, which is the best case for the locks: a process with more threads than
 shards shares them, and the bench does not show that. A call's registry entry is the one cost that
-is not a store: two shard locks and the allocation of the call's counters, which the bench does not
-separate. It is paid once per call.
+is not a store: a shard lock when the call starts and another when the last holder of its counters
+lets go, and two allocations, the counters and the place that folds them, which the bench does
+not separate. The eight threads cost two to three times the one, probably because the registry's
+reference count is written by each call, whichever shard it is in. It is paid once per call.
 
 The same bench times unary calls over loopback, from a current-thread runtime, which is a channel's
 thread in the C ABI, and from tokio's multi-thread runtime with four workers, each with and without

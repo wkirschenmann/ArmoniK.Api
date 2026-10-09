@@ -185,6 +185,44 @@ async fn a_stream_that_is_open_is_counted_as_it_goes() {
     assert_eq!(channel.stats().ended_with(GrpcStatusCode::Ok), 1);
 }
 
+/// The host's delivery of the last messages of a call is counted by the call's own task, which
+/// runs after the driver has ended the call.
+#[tokio::test]
+async fn a_count_made_after_the_call_ended_is_in_the_stats() {
+    let server = TestServer::start().await;
+    let channel = channel(&server.endpoint);
+
+    let (mut send, mut recv, control) = channel
+        .start_call(CallStartOptions::new(CHAT))
+        .expect("the call starts")
+        .split();
+    send.send_message(Bytes::from_static(b"one"))
+        .await
+        .expect("sent");
+    send.end_send().await.expect("the half-close");
+    loop {
+        match recv.next_message().await.expect("an answer") {
+            RecvResult::Message(_) => {}
+            RecvResult::End(status) => {
+                assert_eq!(status.code, GrpcStatusCode::Ok);
+                break;
+            }
+        }
+    }
+    assert_eq!(channel.stats().ended_with(GrpcStatusCode::Ok), 1);
+    assert_eq!(channel.stats().host_window_waits, 0);
+
+    control.count_window_wait();
+    control.count_window_wait();
+    assert_eq!(channel.stats().host_window_waits, 2);
+
+    drop((recv, control));
+    let stats = channel.stats();
+    assert_eq!(stats.host_window_waits, 2, "the call left its counts");
+    assert_eq!((stats.messages_sent, stats.messages_received), (1, 1));
+    assert_eq!(stats.ended_with(GrpcStatusCode::Ok), 1);
+}
+
 #[tokio::test]
 async fn a_message_is_counted_before_and_after_its_compression() {
     let server = TestServer::start().await;
