@@ -39,6 +39,11 @@ required-features = ["metrics"]
 name = "panics"
 required-features = ["test-hooks"]
 
+# The cost of the counting, run with the `metrics` feature and without it.
+[[bench]]
+name = "metrics"
+harness = false
+
 # The cost of the estimate's decisions: `cargo bench -p armonik-transport --features test-hooks`.
 [[bench]]
 name = "admission"

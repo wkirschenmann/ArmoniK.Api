@@ -1883,6 +1883,16 @@ feature, `metrics`, that is off by default and compiles the counting to nothing;
 twice, and the binding told which to load before the first runtime (`NativeLibrarySelection`,
 `GrpcClient.NativeMetrics`). Histograms are set aside.
 
+**Status**: done. Delivered in `observability.md`'s terms: the engine counts behind its `metrics`
+feature, off by default, with single-writer counters, a registry of shards and live calls and
+connections, and a reader of the HTTP/2 frames in the connection wrapper; `ak_runtime_stats` and
+its record `ak_stats` are in the header for both builds; the binding registers five meters' observable
+instruments only when the library counts; the library is built twice and selected by
+`NativeLibrarySelection` or `GrpcClient.NativeMetrics`. The costs measured are in
+`observability.md`. Not built: a read of the stats per channel across the ABI, so an instrument
+has no endpoint tag; switching builds in a process; CI for the .NET suites against both builds,
+which is T6.12's.
+
 **Deliverable**: a host that asks for the library built with the metrics - `GrpcClient.NativeMetrics`,
 or `NativeLibrarySelection` before its first runtime - sees the engine's counters and gauges in
 its metrics pipeline with no polling code of its own, and one that does not pays for none of them.

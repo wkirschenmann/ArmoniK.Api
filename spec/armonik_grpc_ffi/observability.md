@@ -1,7 +1,7 @@
 # Observability: what a host can see of the engine
 
 Status: decided on 2026-10-07, the metrics on 2026-10-08 and 2026-10-09. T10.1 (logs and the
-effective configuration) is built; T10.2 (metrics) is decided and T10.3 (traces) is to build.
+effective configuration) and T10.2 (metrics) are built; T10.3 (traces) is to build.
 
 The logs cross through a callback a host gives when it creates the runtime, the traces through one
 of their own, and the metrics are read on demand. A host that wants none of them gives none and
@@ -441,6 +441,38 @@ and the call, with a callback that does nothing. Each value is rendered as text 
 message is formatted, which a static message and borrowed values would not need; the engine uses
 neither. The creation's cost is the cache's rebuild, which scales with the callsites a
 process has registered.
+
+## What the metrics cost
+
+Measured on a Windows laptop, in release, by `cargo bench -p armonik-transport --bench metrics
+--features test-hooks,metrics` and the same without `metrics`: the counting points alone, each the
+best of five runs of two million operations per thread, timed in the threads from when all are
+ready, with counters of their own per thread and a registry they share. Three runs of each build;
+the table gives the least and the most of the three.
+
+| What | 1 thread | 8 threads |
+|------|----------|-----------|
+| Without the feature, any point | under 0.05 ns | under 0.05 ns |
+| A message sent and a message received | 2.8 to 4.0 ns | 4.8 to 6.5 ns |
+| A 16 KiB read of a connection, its bytes counted and its frame read | 12.6 to 20.4 ns | 34.8 to 51.3 ns |
+| A call put in the registry and ended, its counters made | 247 to 478 ns | 1.7 to 1.9 us |
+| A retry, added under a shard's lock | 41 to 46 ns | 48 to 72 ns |
+
+Without the feature the compiler removes the points, so the loop times as nothing. The eight
+threads have a shard each, which is the best case for the locks: a process with more threads than
+shards shares them, and the bench does not show that. A call's registry entry is the one cost that
+is not a store: two shard locks and the allocation of the call's counters, which the bench does not
+separate. It is paid once per call.
+
+The same bench times unary calls over loopback, from a current-thread runtime, which is a channel's
+thread in the C ABI, and from tokio's multi-thread runtime with four workers, each with and without
+the feature. Five paired runs of 20000 calls, 32 at once, gave medians of 113 microseconds a call
+without the feature and 101 with it on the current-thread runtime, and 104 without and 95 with it
+on the multi-thread one, these being the medians of the five runs' medians. A run's median is
+between 68 and 185 microseconds, and the runs of one build differ by a third to the whole of
+their median: the difference is not visible. Other builds ran on the machine during the runs, so
+that says that the counting is lost in the noise of a call, which is about a hundred microseconds,
+and not that it costs nothing.
 
 ## The engine's events
 
