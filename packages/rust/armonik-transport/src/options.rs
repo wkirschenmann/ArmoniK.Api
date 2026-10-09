@@ -6,10 +6,11 @@
 //! enforces it. What a type cannot say - that an endpoint names a scheme this engine speaks -
 //! the transport says, by option name.
 //!
-//! A key no type declares is read past rather than refused, so that the `configuration` loader logs
-//! it and goes on; the schema still states `additionalProperties: false`, which tells whoever edits
-//! a document what the engine will log. An alternative - how the server is verified, who the client
-//! is, which proxy - reads a key that names none of its variants the same way, as no alternative.
+//! The `configuration` loader reads past a key no type declares at the root of a document and logs
+//! it, a file read with no prefix holding its host's own sections, and refuses one below the root,
+//! naming its path. The schema states `additionalProperties: false` for every object. An
+//! alternative - how the server is verified, who the client is, which proxy - reads a key that
+//! names none of its variants as no alternative, and the loader logs it.
 
 use std::time::Duration;
 
@@ -171,7 +172,6 @@ impl Default for ProxyOptions {
 /// The credentials the system's proxy is authenticated to with, by `Basic`.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -200,7 +200,6 @@ pub struct ProxyCredentials {
 /// A proxy named by its address.
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -528,7 +527,6 @@ pub enum ClientCertificate {
 /// A client certificate and its key, from PEM files.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -565,7 +563,6 @@ impl PemCertificate {
 /// A client certificate and its key, from a PKCS#12 bundle.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -595,7 +592,6 @@ impl P12Certificate {
 /// A certificate of a Windows certificate store.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -880,7 +876,6 @@ pub enum TcpKeepalive {
 /// socket option holds.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -998,7 +993,6 @@ pub enum Http2KeepAlive {
 /// The PINGs of a session.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1168,7 +1162,6 @@ pub enum Http2ReceiveOptions {
 /// HTTP/2 flow-control windows of fixed sizes.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1295,7 +1288,6 @@ impl RetryOptions {
 /// What a failed call is sent again by.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1483,7 +1475,6 @@ impl ThrottleOptions {
 /// The estimate of a server's health, and what it does.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -2551,9 +2542,9 @@ macro_rules! over_variants {
 /// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
 /// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
-/// read past instead, as a struct reads past a key it does not declare, so that the configuration
-/// loader logs it; the alternative is then none, and keeps what an earlier source gave it. A name
-/// that is no variant is refused: it is not a key, so nothing is read past.
+/// read past instead, so that the configuration loader logs it; the alternative is then none, and
+/// keeps what an earlier source gave it. A name that is no variant is refused: it is not a key, so
+/// nothing is read past.
 mod alternative {
     use std::cell::Cell;
     use std::marker::PhantomData;
@@ -4782,8 +4773,8 @@ mod tests {
     }
 
     /// A size in KiB, a bound in bytes and a deadline are read under the names the schema spells,
-    /// the acronym's capital included, and a state is a variant: a key spelled otherwise would be
-    /// read past, and the value never taken.
+    /// the acronym's capital included, and a state is a variant: a key spelled otherwise is
+    /// refused, and the value never taken.
     #[test]
     fn the_sizes_and_the_deadline_are_read_under_their_names_and_merged_as_variants() {
         let options: ChannelOptions = crate::configuration::Configuration::with_prefix("")
@@ -5318,8 +5309,8 @@ mod tests {
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
     /// name they stopped agreeing on would be an option the generated C# sets and the schema
-    /// admits, which the loader reads past: nothing would refuse it, so what this asserts is that
-    /// nothing is logged as unknown.
+    /// admits, which the loader would refuse by its path below the root, or log at it: what this
+    /// asserts is that the document is read and nothing is logged as unknown.
     #[cfg(feature = "schema")]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
@@ -5349,7 +5340,7 @@ mod tests {
                 let said = logged.said();
                 assert!(
                     said.is_empty(),
-                    "the schema declares {document}, which serde reads past: {said}"
+                    "the schema declares {document}, which the loader logs as unknown: {said}"
                 );
             }
         }
@@ -5399,8 +5390,7 @@ mod tests {
     /// takes the alternative `alternative` picks in the base of its alternatives' count, and hands
     /// what is left of the index to the choices that alternative holds.
     ///
-    /// Values rather than a name list, because an unknown name is logged and a value of the wrong
-    /// type refused, and only a document carrying both exercises the two.
+    /// Values rather than a name list, so that the document is read as well as named.
     #[cfg(feature = "schema")]
     fn a_value_for(
         node: &serde_json::Value,

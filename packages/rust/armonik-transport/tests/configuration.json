@@ -175,7 +175,7 @@
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
       "ArmoniKFixture__MemoryCeiling__SoftMiB": "8192",
-      "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
+      "ArmoniKFixture__Nope": "1",
       "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
     },
     "sources": [
@@ -190,7 +190,7 @@
         "Grpc": { "Deadline": { "Default": 2.5 } }
       }
     },
-    "unknown": ["ChannelDefaults.Http2.Nope"]
+    "unknown": ["Nope"]
   },
   {
     "name": "an environment value that is not of its key's type is refused by its path",
@@ -237,13 +237,13 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "Nope": "x" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
       "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
     },
-    "unknown": ["ChannelDefaults.Grpc.Nope"]
+    "unknown": ["Nope"]
   },
   {
     "name": "a file and a document give a list as an array, a later source's list replacing an earlier one's whole",
@@ -512,6 +512,56 @@
     "options": {
       "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20, "WhileIdle": true } } } }
     }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "FramesPerWrit": 4 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.FramesPerWrit", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, even where an earlier source states the group correctly",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "base" } } } },
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgnt": "over" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.UserAgnt", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in a file",
+    "files": {
+      "group.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Grpc\":{\"Receive\":{\"Compresion\":[\"Gzip\"]}}}}}}}"
+    },
+    "sources": [
+      { "file": "group.json" }
+    ],
+    "refused": { "source": "group.json", "key": "ChannelDefaults.Grpc.Receive.Compresion", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Host__Receive__Windw": "2"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Host.Receive.Windw", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Transport__ConnectTimeoutSecond": "3" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Transport.ConnectTimeoutSecond", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, the runtime's own groups included",
+    "sources": [
+      { "document": { "MemoryCeiling": { "SoftMib": 1 }} }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMib", "says": "it is none of" }
   },
   {
     "name": "a key no option declares is logged, and the rest read",

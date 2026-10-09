@@ -191,9 +191,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  `{}` is a valid configuration.
         ///
         ///  The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-        ///  a number and not a string spelled like one. A key no option declares is ignored rather than
-        ///  refused. That schema, `options.schema.json`, names each option with its type and, where it has
-        ///  them, its range and default.
+        ///  a number and not a string spelled like one. A key no option declares is ignored at the root
+        ///  of the document and refused below it. That schema, `options.schema.json`, names each option
+        ///  with its type and, where it has them, its range and default.
         ///
         ///  ak_channel_delivery_window reads back the delivery window the channel ended up with.
         ///
@@ -691,8 +691,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     /// <summary>
     ///  Where a runtime's configuration comes from: sources, read in order when the runtime is created,
     ///  a later one over an earlier one option by option. A key the vocabulary does not declare is
-    ///  ignored rather than refused; a value that does not fit its key is refused, with its source and
-    ///  its path, and never quoted.
+    ///  ignored at the root of a document and refused below it; a value that does not fit its key is
+    ///  refused, with its source and its path, and never quoted.
     ///
     ///  Versioned as the options structs are, but for its fourth field, which is source_count rather
     ///  than reserved.

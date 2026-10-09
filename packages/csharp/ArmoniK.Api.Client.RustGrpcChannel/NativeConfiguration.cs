@@ -39,9 +39,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 ///   </para>
 ///   <para>
 ///     The files and the environment are read by the engine alone, so every host of it reads them
-///     the same way. A key no option declares is ignored rather than refused; a value that does
-///     not fit its key is refused when the runtime is created, by its source and its path, and
-///     never quoted.
+///     the same way. A key no option declares is ignored at the root of a document and refused
+///     below it; a value that does not fit its key is refused when the runtime is created, by its
+///     source and its path, and never quoted.
 ///   </para>
 /// </remarks>
 public sealed class NativeConfiguration
@@ -102,9 +102,9 @@ public sealed class NativeConfiguration
   /// <exception cref="ArgumentNullException"><paramref name="args" /> is null.</exception>
   /// <remarks>
   ///   The keys under the prefix, the whole command line with none, reach the engine as text, read
-  ///   as the environment's values are: by their key's type, a key no option declares ignored. A
-  ///   command line states no list, and the engine refuses a list option on one by its path. An
-  ///   alternative that carries nothing is the key's value, <c>--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy=None</c>.
+  ///   as the environment's values are: by their key's type, a key no option declares ignored at the
+  ///   root and refused below it. A command line states no list, and the engine refuses a list
+  ///   option on one by its path. An alternative that carries nothing is the key's value, <c>--ArmoniK:Client:Grpc:ChannelDefaults:Transport:Proxy=None</c>.
   /// </remarks>
   public NativeConfiguration LoadConfigFromCommandLine(string[] args)
   {
