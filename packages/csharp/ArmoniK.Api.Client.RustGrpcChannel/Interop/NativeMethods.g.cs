@@ -184,8 +184,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
         /// <summary>
         ///  What the engine counts and reads of its own state, over every channel of the runtime: the
-        ///  calls, retries, connections, bytes and waits, and the gauges of the throttle. Synchronous,
-        ///  non-blocking and observational: it changes nothing.
+        ///  calls, retries, connections, bytes and waits, and the gauges of the throttle, and what the
+        ///  runtime counts that belongs to no channel, the waits and refusals of its memory ceiling.
+        ///  Synchronous, non-blocking and observational: it changes nothing.
         ///
         ///  `out` is a record the host sizes and this library fills, which ak_stats describes: the host
         ///  sets `struct_size` to the size of its own definition, at least the first four fields, and zero
@@ -205,6 +206,48 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_stats", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_status ak_runtime_stats(ulong runtime, ak_stats* @out, ak_error* out_error);
+
+        /// <summary>
+        ///  What the engine counts and reads of the endpoint a channel is on: the calls, retries,
+        ///  connections, bytes and waits of every channel of the runtime to that endpoint, this one and
+        ///  those that closed before it, and the gauges of the channels of it that are open. Two channels
+        ///  to one endpoint read the same numbers, and ak_channel_endpoint names what they share. What
+        ///  belongs to no endpoint is not here and is in ak_runtime_stats: the waits and refusals of the
+        ///  memory ceiling, which are zero in this record. Synchronous, non-blocking and observational.
+        ///
+        ///  `out` is the record of ak_runtime_stats, sized and filled as it is; a library built without its
+        ///  `metrics` feature answers AK_STATUS_OK with `flags` clear and every counter zero.
+        ///
+        ///  A handle that names no channel, a released channel once its last call has ended included, is
+        ///  AK_STATUS_HANDLE_STALE. A null `out`, or one whose head is wrong, is AK_STATUS_INVALID_ARG.
+        ///
+        ///  # Safety
+        ///
+        ///  `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+        ///  `out_error` must be null or writable for an `ak_error`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_channel_stats", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern ak_status ak_channel_stats(ulong channel, ak_stats* @out, ak_error* out_error);
+
+        /// <summary>
+        ///  The endpoint a channel is on, as its host and port and nothing else, in UTF-8: the key its
+        ///  counters are kept under, which ak_channel_stats reads. The scheme is not in it, nor a user name
+        ///  or a password, nor the port when the endpoint states none.
+        ///
+        ///  The host supplies a buffer of `capacity` bytes. The library writes as much of the endpoint as
+        ///  fits and sets `*length` to its whole length, which a host that finds it above `capacity` asks
+        ///  again with a larger buffer for. A `capacity` of zero with a null `buffer` only asks the length.
+        ///
+        ///  A handle that names no channel is AK_STATUS_HANDLE_STALE. A null `length`, or a null `buffer`
+        ///  with a capacity above zero, is AK_STATUS_INVALID_ARG.
+        ///
+        ///  # Safety
+        ///
+        ///  `buffer` must be writable for `capacity` bytes, `length` must be writable, and `out_error` must
+        ///  be null or writable for an `ak_error`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_channel_endpoint", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern ak_status ak_channel_endpoint(ulong channel, byte* buffer, nuint capacity, nuint* length, ak_error* out_error);
 
         /// <summary>
         ///  Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the

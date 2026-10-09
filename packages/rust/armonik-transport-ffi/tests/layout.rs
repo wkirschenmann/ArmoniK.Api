@@ -658,6 +658,10 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     let _: extern "C" fn(ak_handle) -> ak_channel_state = ak_channel_status;
     let _: unsafe extern "C" fn(ak_handle, *mut u32, *mut ak_error) -> ak_status =
         ak_channel_delivery_window;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_stats, *mut ak_error) -> ak_status =
+        ak_channel_stats;
+    let _: unsafe extern "C" fn(ak_handle, *mut u8, usize, *mut usize, *mut ak_error) -> ak_status =
+        ak_channel_endpoint;
 
     let _: unsafe extern "C" fn(
         ak_handle,
@@ -717,6 +721,8 @@ fn every_entry_point_the_header_declares_is_exported() {
             "ak_channel_delivery_window",
             ak_channel_delivery_window as *const (),
         ),
+        ("ak_channel_stats", ak_channel_stats as *const ()),
+        ("ak_channel_endpoint", ak_channel_endpoint as *const ()),
         ("ak_call_start", ak_call_start as *const ()),
         ("ak_get_call_buffer", ak_get_call_buffer as *const ()),
         ("ak_call_send_message", ak_call_send_message as *const ()),
@@ -814,6 +820,14 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
         (
             "ak_channel_delivery_window",
             &["ak_handle", "uint32_t *", "ak_error *"],
+        ),
+        (
+            "ak_channel_stats",
+            &["ak_handle", "ak_stats *", "ak_error *"],
+        ),
+        (
+            "ak_channel_endpoint",
+            &["ak_handle", "uint8_t *", "size_t", "size_t *", "ak_error *"],
         ),
         (
             "ak_call_start",

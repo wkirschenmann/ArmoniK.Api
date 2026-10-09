@@ -453,8 +453,16 @@ ceiling is held.
 #### Stats
 
 `ak_runtime_stats(runtime, &stats, &error)` writes the counters and gauges of the runtime's
-channels as one `ak_stats`: calls started and ended per status, messages, retries per what failed,
-resends, dials, sessions closed per reason, streams the peer reset per HTTP/2 error code, bytes,
+channels as one `ak_stats`, and `ak_channel_stats(channel, &stats, &error)` writes those of the
+channel's endpoint as another of the same record. The runtime keeps one registry for each host
+and port a channel was created on: two channels there read the same numbers, what a closed one
+counted stays in them, and the runtime's read is the sum of the endpoints' and of what no endpoint
+owns, the waits and refusals at the memory ceiling, which are zero in a channel's record.
+`ak_channel_endpoint(channel, buffer, capacity, &length, &error)` writes that host and port in
+UTF-8, as much as fits, and sets `length` to the whole of it, which a host that finds it above
+`capacity` asks again with a larger buffer for; a null `buffer` with a capacity of zero asks only
+the length. A handle that names no channel is `AK_STATUS_HANDLE_STALE`. The record holds calls
+started and ended per status, messages, retries per what failed, resends, dials, sessions closed per reason, streams the peer reset per HTTP/2 error code, bytes,
 the waits and refusals at the memory ceiling, and the throttle's gauges (observability.md has what
 each counts, and how the .NET binding derives from them). It is observational and outside the
 formal model, synchronous and non-blocking, and counts nothing itself: what it reads the engine

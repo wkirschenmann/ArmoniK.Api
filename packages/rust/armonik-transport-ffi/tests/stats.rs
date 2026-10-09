@@ -1,5 +1,6 @@
-//! What `ak_runtime_stats` answers: the counters of a runtime's calls when the library counts, an
-//! empty structure when it does not, and the refusals of a record that is not as it asks.
+//! What `ak_runtime_stats` and `ak_channel_stats` answer: the counters of a runtime's calls, and of
+//! the calls to one endpoint, when the library counts, an empty structure when it does not, and the
+//! refusals of a record that is not as it asks.
 
 // The fixture serves every cardinality; which parts this binary reaches is not a fact about it.
 #[allow(dead_code)]
@@ -9,13 +10,45 @@ use std::mem::{offset_of, size_of};
 
 use armonik_transport_ffi::*;
 use support::host::*;
-use support::{blob, ECHO};
+use support::{blob, TestServer, ECHO};
 
 /// Whether the library under test was built to count.
 const COUNTING: bool = cfg!(feature = "metrics");
 
 fn stats_into(runtime: ak_handle, stats: &mut ak_stats) -> ak_status {
     unsafe { ak_runtime_stats(runtime, stats, std::ptr::null_mut()) }
+}
+
+fn channel_stats(channel: ak_handle) -> ak_stats {
+    let mut stats = asking(size_of::<ak_stats>());
+    let status = unsafe { ak_channel_stats(channel, &mut stats, std::ptr::null_mut()) };
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    stats
+}
+
+fn endpoint_of(channel: ak_handle) -> String {
+    let mut length = 0usize;
+    let status = unsafe {
+        ak_channel_endpoint(
+            channel,
+            std::ptr::null_mut(),
+            0,
+            &mut length,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    let mut buffer = vec![0u8; length];
+    unsafe {
+        ak_channel_endpoint(
+            channel,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut length,
+            std::ptr::null_mut(),
+        )
+    };
+    String::from_utf8(buffer).expect("an endpoint is UTF-8")
 }
 
 fn asking(size: usize) -> ak_stats {
@@ -33,9 +66,15 @@ fn read(runtime: ak_handle) -> ak_stats {
 
 /// A call that sends one message and reads its echo, to its end.
 fn echo_once(host: &Host, channel: ak_handle, message: &[u8]) {
+    echo_nth(host, channel, message, 1);
+}
+
+/// The `nth` call of the host's run to send one message and read its echo, to its end: the
+/// recorder keeps every event, so it waits for the terminals of all the calls so far.
+fn echo_nth(host: &Host, channel: ak_handle, message: &[u8], nth: usize) {
     let call = start_call(channel, ECHO, &blob(&[]));
     send_one(call, message);
-    host.recorder.await_terminal();
+    host.recorder.await_terminals(nth);
     host.recorder.consume_all();
     support::await_call_reclaimed(call);
 }
@@ -206,4 +245,141 @@ fn a_record_the_library_cannot_read_is_refused() {
         stats_into(AK_HANDLE_NONE, &mut stats),
         ak_status::AK_STATUS_HANDLE_STALE
     );
+}
+
+/// Two channels to two endpoints are two series, and the runtime reads their sum.
+#[test]
+fn the_channels_of_two_endpoints_are_read_apart_and_the_runtime_reads_both() {
+    let (first, second) = (TestServer::start(), TestServer::start());
+    let host = Host::start();
+    let (a, b) = (
+        host.channel(&first.endpoint),
+        host.channel(&second.endpoint),
+    );
+    echo_nth(&host, a, b"one", 1);
+    echo_nth(&host, a, b"two", 2);
+    echo_nth(&host, b, b"three", 3);
+
+    let (of_a, of_b, all) = (channel_stats(a), channel_stats(b), read(host.runtime));
+    if COUNTING {
+        assert_eq!((of_a.calls_started, of_b.calls_started), (2, 1));
+        assert_eq!((of_a.messages_sent, of_b.messages_sent), (2, 1));
+        assert_eq!((of_a.message_bytes_raw, of_b.message_bytes_raw), (6, 5));
+        assert_eq!((of_a.dials_succeeded, of_b.dials_succeeded), (1, 1));
+        assert_eq!(all.calls_started, 3);
+        assert_eq!(all.message_bytes_raw, 11);
+        assert_eq!(all.dials_succeeded, 2);
+    } else {
+        for stats in [&of_a, &of_b, &all] {
+            assert_eq!(stats.flags & AK_STATS_COUNTING, 0);
+            assert_eq!(stats.calls_started, 0);
+        }
+    }
+    assert_eq!(
+        endpoint_of(a),
+        first
+            .endpoint
+            .trim_end_matches('/')
+            .trim_start_matches("http://")
+    );
+    assert_ne!(endpoint_of(a), endpoint_of(b));
+    ak_channel_release(a);
+    ak_channel_release(b);
+    host.stop();
+}
+
+/// What a closed channel counted stays with its endpoint, which a channel opened after it reads.
+#[test]
+fn the_counts_of_a_closed_channel_stay_with_its_endpoint() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let first = host.channel(&server.endpoint);
+    let beside = host.channel(&server.endpoint);
+    echo_nth(&host, first, b"one", 1);
+    assert_eq!(
+        channel_stats(beside).calls_started,
+        u64::from(COUNTING),
+        "two channels to one endpoint read one registry"
+    );
+
+    ak_channel_release(first);
+    support::poll_until(
+        || ak_channel_status(first) == ak_channel_state::AK_CHANNEL_NONE,
+        || "the channel was not reclaimed".to_owned(),
+    );
+    let mut stats = asking(size_of::<ak_stats>());
+    assert_eq!(
+        unsafe { ak_channel_stats(first, &mut stats, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
+
+    let later = host.channel(&server.endpoint);
+    echo_nth(&host, later, b"two", 2);
+    assert_eq!(channel_stats(later).calls_started, 2 * u64::from(COUNTING));
+    assert_eq!(read(host.runtime).calls_started, 2 * u64::from(COUNTING));
+    ak_channel_release(beside);
+    ak_channel_release(later);
+    host.stop();
+}
+
+#[test]
+fn an_endpoint_is_read_with_a_buffer_that_may_be_short() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel(&server.endpoint);
+    let whole = endpoint_of(channel);
+
+    let mut buffer = [0xAAu8; 4];
+    let mut length = 0usize;
+    let status = unsafe {
+        ak_channel_endpoint(
+            channel,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut length,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    assert_eq!(length, whole.len(), "the whole length, whatever fits");
+    assert_eq!(&buffer[..], &whole.as_bytes()[..4]);
+
+    assert_eq!(
+        unsafe {
+            ak_channel_endpoint(
+                channel,
+                std::ptr::null_mut(),
+                4,
+                &mut length,
+                std::ptr::null_mut(),
+            )
+        },
+        ak_status::AK_STATUS_INVALID_ARG
+    );
+    assert_eq!(
+        unsafe {
+            ak_channel_endpoint(
+                channel,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        },
+        ak_status::AK_STATUS_INVALID_ARG
+    );
+    assert_eq!(
+        unsafe {
+            ak_channel_endpoint(
+                AK_HANDLE_NONE,
+                std::ptr::null_mut(),
+                0,
+                &mut length,
+                std::ptr::null_mut(),
+            )
+        },
+        ak_status::AK_STATUS_HANDLE_STALE
+    );
+    ak_channel_release(channel);
+    host.stop();
 }

@@ -192,10 +192,12 @@ silent.
 ## Decided for the metrics (2026-10-08, 2026-10-09)
 
 - **Counters and gauges, read on demand.** One structure holds them: read per channel by
-  `GrpcChannel::stats()` in Rust, and over the channels of a runtime by `ak_runtime_stats` across
-  the ABI. The memory the runtime holds stays `ak_runtime_memory_usage`'s. The .NET binding exposes
-  the structure through observable instruments of `Meter`s, which a collector reads at its own
-  pace; `System.Diagnostics.DiagnosticSource` brings the `Meter` to .NET Framework.
+  `GrpcChannel::stats()` in Rust, and across the ABI over the channels of a runtime by
+  `ak_runtime_stats` and over the channels of one endpoint by `ak_channel_stats`, which answers
+  with the same record; `ak_channel_endpoint` names that endpoint. The memory the runtime holds
+  stays `ak_runtime_memory_usage`'s. The .NET binding exposes the structure through observable
+  instruments of `Meter`s, which a collector reads at its own pace;
+  `System.Diagnostics.DiagnosticSource` brings the `Meter` to .NET Framework.
 - **What the engine counts, as monotonic counters:**
 
   | Group | Counter | Counted where |
@@ -298,6 +300,14 @@ silent.
     numbers are therefore current at each collection: totals flushed at a call's end alone would
     leave a long call invisible until it closed, which a collection must not do. The read runs once
     per collection, and not on any path a call takes.
+  - **A call knows its endpoint through its channel's registry.** The runtime keeps one registry
+    for each host and port a channel was created on, with no scheme, user name or password, and
+    gives it to every channel there, so that a channel's counts and its calls' are the
+    endpoint's. The runtime's own registry is their parent: it counts what no endpoint owns, the
+    memory ceiling's waits and refusals, and reads its children besides, so that `ak_runtime_stats`
+    is the sum and `ak_channel_stats` is one child. A registry lives as long as the runtime: what a
+    closed channel counted stays in it, and a channel opened later goes on from it. Its cost is a
+    registry of eight shards for each endpoint the runtime has seen.
   - What a call writes after its driver has ended it, such as the tail of a request body a closing
     stream still polls and the delivery of its last messages to the host, is counted: its
     counters stay in the registry until their last holder lets go, and are in a read as they were
@@ -314,7 +324,7 @@ silent.
   it counts what its `ReadGate` makes it wait for - and the FFI reports its three through the
   registry its runtime shares: a call's delivery window through the call's own counters, the
   memory ceiling's waits and refusals through the registry.
-- **One ABI for both builds.** `ak_runtime_stats` is always in the header, and answers `AK_STATUS_OK`
+- **One ABI for both builds.** `ak_runtime_stats` and `ak_channel_stats` are always in the header, and answer `AK_STATUS_OK`
   with an empty structure from a library built without the feature, never a not-supported status:
   a host built once runs against either library. The structure is the host's to size, and the
   library's to fill: a third kind of record beside the options the host fills and the records the
@@ -335,15 +345,23 @@ silent.
   flag is clear. A `Meter` per
   group, under the prefix `ArmoniK.Api.Client.RustGrpcChannel`: `.Calls`, `.Throttle`,
   `.Connections`, `.Bytes` and `.Host`. Every instrument of the engine's is observable, and reads
-  `ak_runtime_stats` when a collector collects, one read for each instrument and each at its own
-  instant: no listener, no ABI call. The dropped logs, which
+  the engine when a collector collects, one read for each instrument and each at its own
+  instant: no listener, no ABI call. Which read an instrument makes is stated below. The dropped logs, which
   are the binding's own, are the one instrument registered whatever the structure says, and the
   one that does not read it. A host filters with `AddMeter`, with views
   or with a `MeterListener`, and the engine has no option for it. A tag is the status code, or the
   reason or origin of what is counted, and never a method name: a method name is unbounded, and
   a series is kept per tag value.
-  A runtime is read over all its channels, so no instrument carries an endpoint: a breakdown per
-  endpoint is a read per channel, which the ABI does not offer.
+  **Each instrument but three carries the endpoint it counts for**, as OpenTelemetry's
+  `server.address`, the host, and `server.port`, when the endpoint states one. The binding reads
+  `ak_channel_stats` through one open channel of each endpoint the runtime has a channel open on,
+  and tags what it reports with that endpoint, so two channels to two endpoints are two series
+  and two channels to one are one; an endpoint that states no port has no `server.port`. An endpoint with no channel open has no series: its counts are
+  kept and are in `ak_runtime_stats`, and a channel opened on it goes on from them. Three read
+  the runtime and carry no endpoint, because nothing in the engine gives them one: the memory
+  ceiling's waits and refusals (`armonik.client.host.memory.waits` and `.refusals`), which the
+  ledger counts for the runtime, and the logs the binding dropped
+  (`armonik.client.logs.dropped`), which are the binding's own.
 - **The instruments**, named by OpenTelemetry's guidance - lowercase, dot-separated, no unit or
   `_total` in the name, a plural for what is counted, the unit in UCUM. The seven of grpc-dotnet's
   EventCounters are among them, with their meaning:
@@ -382,6 +400,7 @@ silent.
   | Host | `armonik.client.host.memory.refusals` | counter, `{refusal}` | | |
   | Host | `armonik.client.logs.dropped` | counter, `{record}` | | |
 
+  Every other instrument has `server.address` and `server.port` as tags, which the table leaves out.
   `armonik.dial.outcome` is `succeeded` or `failed`, and `rpc.response.status_code` a status's name, such as `UNAVAILABLE`. `armonik.retry.origin` is `status`, `http`,
   `reset`, `pushback`, `dial` or `connection`, and `armonik.retry.reason` the status name, the HTTP
   status or `other`, or the HTTP/2 error name, none for the others. The gauge `compression.gain` is

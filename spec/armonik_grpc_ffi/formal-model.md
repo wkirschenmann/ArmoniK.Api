@@ -1522,7 +1522,7 @@ refinement.
 | `RuntimeFail` | any unrecoverable runtime fault - but not reaching the configured ceiling, which is a refusal, nor a genuine allocator failure inside `ak_get_call_buffer`, which refuses that lend with `AK_STATUS_INTERNAL` and changes nothing level 1 carries; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 | none: outside the model | `ak_channel_delivery_window` writes the delivery window the channel ended up with. The constant `DeliveryCredits` stands for any one channel's window, and that the value read equals it is an assumption of how the model is instantiated. The window is fixed for the life of the channel and the read changes no state, so it takes no step and has no linearization point |
-| none: outside the model | `ak_runtime_stats` writes the counters and gauges the engine keeps of its channels' calls, connections and waits. It is observational: it changes no state the model carries and takes no step, so it has no linearization point. Whether the library counts at all is a property of how it was built, which the record's flags report |
+| none: outside the model | `ak_runtime_stats` and `ak_channel_stats` write the counters and gauges the engine keeps of its channels' calls, connections and waits, over the runtime and over one channel's endpoint, and `ak_channel_endpoint` writes the endpoint a channel is on. They are observational: they change no state the model carries and take no step, so they have no linearization point. Whether the library counts at all is a property of how it was built, which the record's flags report |
 
 #### Which ABI argument becomes what
 

@@ -131,6 +131,7 @@ public sealed class NativeRuntime : IAsyncDisposable
     }
 
     metrics_ = EngineMetrics.TryCreate(handle_,
+                                       OpenChannels,
                                        log_);
   }
 
@@ -430,6 +431,17 @@ public sealed class NativeRuntime : IAsyncDisposable
                                       settled);
       channels_.Add(channel);
       return channel;
+    }
+  }
+
+  /// <summary>The channels this runtime has open, by handle and by the endpoint the engine names them with.</summary>
+  private IReadOnlyList<(ulong Handle, string Endpoint)> OpenChannels()
+  {
+    lock (gate_)
+    {
+      return channels_.Select(channel => (channel.Handle,
+                                          channel.ServerEndpoint))
+                      .ToArray();
     }
   }
 

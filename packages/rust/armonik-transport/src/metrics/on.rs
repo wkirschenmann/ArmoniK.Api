@@ -99,6 +99,15 @@ impl ConnBlock {
 }
 
 impl Stats {
+    /// Adds the gauges of `other` to these.
+    fn absorb_gauges(&mut self, other: &Stats) {
+        self.throttle_cap_per_second += other.throttle_cap_per_second;
+        self.channels_capped += other.channels_capped;
+        self.channels_retries_closed += other.channels_retries_closed;
+        self.calls_waiting_at_cap += other.calls_waiting_at_cap;
+        self.calls_waiting_for_stream += other.calls_waiting_for_stream;
+    }
+
     /// Adds the counters of `other` to these.
     fn absorb(&mut self, other: &Stats) {
         fn add<const N: usize>(into: &mut [u64; N], from: &[u64; N]) {
@@ -185,6 +194,8 @@ struct Registry {
     shards: [Padded<Mutex<Shard>>; SHARDS],
     connections: Mutex<Connections>,
     gauges: Mutex<Vec<Weak<dyn GaugeSource>>>,
+    /// The registries this one reads besides its own, which live as long as it does.
+    children: Mutex<Vec<Metrics>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -231,7 +242,17 @@ impl Metrics {
             shards: std::array::from_fn(|_| Padded(Mutex::new(Shard::default()))),
             connections: Mutex::new(Connections::default()),
             gauges: Mutex::new(Vec::new()),
+            children: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// A registry of its own that this one reads as well: `stats()` of this is the sum of its own
+    /// counts and its children's, and `stats()` of the child is the child's alone. A child counts
+    /// for as long as its parent exists, so that what a closed channel counted stays in the sum.
+    pub fn child(&self) -> Self {
+        let child = Self::new();
+        locked(&self.0.children).push(child.clone());
+        child
     }
 
     /// The counters and gauges, now: the totals the finished calls and connections left, and the
@@ -272,6 +293,13 @@ impl Metrics {
             }
             stats.channels_retries_closed += u64::from(!gauges.retries_open);
             stats.calls_waiting_at_cap += gauges.waiting_at_cap;
+        }
+        // Outside the registry's own locks, as the sources are: a child takes its own.
+        let children = locked(&self.0.children).clone();
+        for child in &children {
+            let read = child.stats();
+            stats.absorb(&read);
+            stats.absorb_gauges(&read);
         }
         stats
     }
@@ -935,6 +963,25 @@ mod tests {
         assert_eq!(stats.message_bytes_sent, BEFORE + AFTER);
         assert_eq!(stats.ended_with(GrpcStatusCode::Ok), 1);
         assert_eq!(live_calls(&metrics), 0);
+    }
+
+    #[test]
+    fn a_parent_reads_its_children_and_a_child_reads_itself() {
+        let parent = Metrics::new();
+        let (one, two) = (parent.child(), parent.child());
+        parent.count_host(HostEvent::MemoryWait);
+        one.dial_tried();
+        one.dial_tried();
+        two.dial_tried();
+
+        assert_eq!(one.stats().dials_tried, 2);
+        assert_eq!(two.stats().dials_tried, 1);
+        assert_eq!(one.stats().host_memory_waits, 0, "the parent's own");
+        let all = parent.stats();
+        assert_eq!((all.dials_tried, all.host_memory_waits), (3, 1));
+
+        drop((one, two));
+        assert_eq!(parent.stats().dials_tried, 3, "a child stays counted");
     }
 
     #[test]

@@ -15,6 +15,8 @@ use crate::tables;
 
 pub(crate) struct AkChannel {
     pub(crate) grpc: GrpcChannel,
+    /// Where it is, as host and port: the key its counters are kept under.
+    pub(crate) endpoint: String,
     pub(crate) runtime: ak_handle,
     pub(crate) delivery_credits: usize,
     pub(crate) max_sends_in_flight: usize,
@@ -229,8 +231,14 @@ pub(crate) fn create(
     let connect_eagerly = settings.connect_eagerly();
 
     let ChannelThread { spawner, stop } = owner.start_channel_thread()?;
+    // Host and port, which is what a server is told apart by: http and https to one are one.
+    let key = match (endpoint.host(), endpoint.port_u16()) {
+        (Some(host), Some(port)) => format!("{host}:{port}"),
+        (Some(host), None) => host.to_owned(),
+        (None, _) => String::new(),
+    };
     let mut config = settings.into_channel_config(endpoint);
-    config.metrics = Some(owner.metrics().clone());
+    config.metrics = Some(owner.metrics_of(&key));
     let grpc = GrpcChannel::new(config, spawner.clone()).map_err(Refusal::channel)?;
     let dialled = grpc.clone();
 
@@ -238,6 +246,7 @@ pub(crate) fn create(
         .insert_with(|handle| {
             let channel = Arc::new(AkChannel {
                 grpc,
+                endpoint: key,
                 runtime,
                 delivery_credits,
                 max_sends_in_flight,

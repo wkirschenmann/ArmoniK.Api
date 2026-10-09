@@ -20,6 +20,10 @@ impl Metrics {
         Stats::default()
     }
 
+    pub fn child(&self) -> Self {
+        Self
+    }
+
     pub fn count_host(&self, _event: HostEvent) {}
 
     pub(crate) fn watch(&self, _source: Weak<dyn GaugeSource>) {}

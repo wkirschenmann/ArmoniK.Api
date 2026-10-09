@@ -1877,7 +1877,8 @@ to 138 ns for one delivered.
 
 **Prerequisite**: T10.1, whose logs the engine's counting points sit beside
 **Commit**: as `observability.md` decides: one structure of counters and gauges, read on demand
-per channel by `GrpcChannel::stats()` and per runtime by `ak_runtime_stats`, behind the .NET
+per channel by `GrpcChannel::stats()`, per endpoint by `ak_channel_stats` and per runtime by
+`ak_runtime_stats`, behind the .NET
 binding's `Meter`s' observable instruments; counted by single-writer counters behind a Cargo
 feature, `metrics`, that is off by default and compiles the counting to nothing; the library built
 twice, and the binding told which to load before the first runtime (`NativeLibrarySelection`,
@@ -1889,9 +1890,8 @@ connections, and a reader of the HTTP/2 frames in the connection wrapper; `ak_ru
 its record `ak_stats` are in the header for both builds; the binding registers five meters' observable
 instruments only when the library counts; the library is built twice and selected by
 `NativeLibrarySelection` or `GrpcClient.NativeMetrics`. The costs measured are in
-`observability.md`. Not built: a read of the stats per channel across the ABI, so an instrument
-has no endpoint tag; CI for the .NET suites against both builds, which is T6.12's. A process
-loads one build.
+`observability.md`. Not built: CI for the .NET suites against both builds, which is T6.12's. A
+process loads one build.
 
 **Deliverable**: a host that asks for the library built with the metrics - `GrpcClient.NativeMetrics`,
 or `NativeLibrarySelection` before its first runtime - sees the engine's counters and gauges in

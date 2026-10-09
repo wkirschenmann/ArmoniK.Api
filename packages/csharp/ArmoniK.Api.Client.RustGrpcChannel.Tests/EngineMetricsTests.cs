@@ -92,7 +92,7 @@ public class EngineMetricsTests : EchoServerFixture
     internal double Value(string instrument,
                           params (string Tag, string Value)[] tags)
       => Measurements.Where(measurement => measurement.Instrument == instrument && tags.All(tag => measurement.Tags.TryGetValue(tag.Tag,
-                                                                                                                              out var value) && Equals(value,
+                                                                                                                              out var value) && Equals(value?.ToString(),
                                                                                                                                                        tag.Value)))
                      .Sum(measurement => measurement.Value);
 
@@ -214,6 +214,81 @@ public class EngineMetricsTests : EchoServerFixture
                                   Is.EqualTo(1));
                       Assert.That(collector.Value("armonik.client.dials.pending"),
                                   Is.EqualTo(0));
+                    });
+  }
+
+  [Test]
+  public async Task TwoChannelsToTwoEndpointsAreTwoSeriesTaggedWithTheirServer()
+  {
+    if (!Counts)
+    {
+      Assert.Ignore("this run is against the build with no counters");
+    }
+
+    using var other = EchoServerProcess.Start();
+    var       one   = new Uri(Endpoint);
+    var       two   = new Uri(other.Endpoint);
+    using var collector = new Collector();
+    await using var first  = Runtime.Channel(Endpoint);
+    await using var second = Runtime.Channel(other.Endpoint);
+    await Say(first,
+              2)
+      .ConfigureAwait(false);
+    await Say(second,
+              3)
+      .ConfigureAwait(false);
+    collector.Collect();
+
+    var ofOne = new[]
+                {
+                  ("server.address", one.Host),
+                  ("server.port", one.Port.ToString()),
+                };
+    var ofTwo = new[]
+                {
+                  ("server.address", two.Host),
+                  ("server.port", two.Port.ToString()),
+                };
+    var perEndpoint = collector.Measurements.Where(measurement => measurement.Instrument == "armonik.client.calls.started")
+                               .ToList();
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(perEndpoint,
+                                  Has.Count.EqualTo(2),
+                                  "a series for each endpoint");
+                      Assert.That(collector.Value("armonik.client.calls.started",
+                                                  ofOne),
+                                  Is.EqualTo(2));
+                      Assert.That(collector.Value("armonik.client.calls.started",
+                                                  ofTwo),
+                                  Is.EqualTo(3));
+                      Assert.That(collector.Value("armonik.client.messages.sent",
+                                                  ofTwo),
+                                  Is.EqualTo(3));
+                      Assert.That(collector.Value("armonik.client.dials",
+                                                  ofOne.Concat(new[]
+                                                                    {
+                                                                      ("armonik.dial.outcome", "succeeded"),
+                                                                    })
+                                                       .ToArray()),
+                                  Is.EqualTo(1));
+                      Assert.That(collector.Measurements.Where(measurement => measurement.Instrument == "armonik.client.host.memory.waits"),
+                                  Is.Not.Empty.And.All.Matches<(string Instrument, double Value, Dictionary<string, object?> Tags)>(measurement => !measurement.Tags.ContainsKey("server.address")),
+                                  "the memory ceiling is the runtime's, not an endpoint's");
+                    });
+
+    await first.DisposeAsync()
+               .ConfigureAwait(false);
+    collector.Collect();
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(collector.Value("armonik.client.calls.started",
+                                                  ofOne),
+                                  Is.EqualTo(0),
+                                  "an endpoint with no open channel has no series");
+                      Assert.That(collector.Value("armonik.client.calls.started",
+                                                  ofTwo),
+                                  Is.EqualTo(3));
                     });
   }
 
@@ -409,6 +484,30 @@ public class EngineMetricsTests : EchoServerFixture
                 Has.All.Matches<string>(name => System.Text.RegularExpressions.Regex.IsMatch(name,
                                                                                              "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$")),
                 "lowercase, dot-separated, no dashes and no unit");
+  }
+
+  [Test]
+  public void AnEndpointIsTaggedWithItsHostAndItsPortWhenItStatesOne()
+  {
+    static string Show(string endpoint)
+      => string.Join(",",
+                     EngineMetrics.ServerTags(endpoint)
+                                  .Select(tag => $"{tag.Key}={tag.Value}"));
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(Show("127.0.0.1:5001"),
+                                  Is.EqualTo("server.address=127.0.0.1,server.port=5001"));
+                      Assert.That(Show("armonik.example"),
+                                  Is.EqualTo("server.address=armonik.example"),
+                                  "no port stated, none tagged");
+                      Assert.That(Show("[::1]:5001"),
+                                  Is.EqualTo("server.address=::1,server.port=5001"));
+                      Assert.That(Show("[::1]"),
+                                  Is.EqualTo("server.address=::1"));
+                      Assert.That(Show("host:notaport"),
+                                  Is.EqualTo("server.address=host"));
+                    });
   }
 
   [Test]
