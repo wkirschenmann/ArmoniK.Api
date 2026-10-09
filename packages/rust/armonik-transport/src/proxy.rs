@@ -59,55 +59,56 @@ impl std::fmt::Debug for ProxySource {
     }
 }
 
-/// The proxy a connection tunnels through, and how it authenticates to it.
-#[derive(Clone, Default)]
+/// The username and password a proxy is authenticated to with, by `Basic`. They are one pair: an
+/// empty half is an empty string, sent as such and never filled from another source.
+#[derive(Clone)]
 #[non_exhaustive]
-pub struct ProxyConfig {
-    pub source: ProxySource,
-    /// Empty for none.
+pub struct BasicCredentials {
     pub username: String,
-    /// Empty for none; never printed.
+    /// Never printed.
     pub password: SecretString,
 }
 
-impl std::fmt::Debug for ProxyConfig {
+impl BasicCredentials {
+    /// The pair as stated, an empty half included.
+    pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+            password: password.into().into(),
+        }
+    }
+}
+
+impl std::fmt::Debug for BasicCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ProxyConfig")
-            .field("source", &self.source)
+        f.debug_struct("BasicCredentials")
             .field("username", &self.username)
             .finish_non_exhaustive()
     }
 }
 
+/// The proxy a connection tunnels through, and how it authenticates to it.
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct ProxyConfig {
+    pub source: ProxySource,
+    /// The credentials stated for the proxy, or none, in which case the URL of a proxy the
+    /// environment names applies.
+    pub credentials: Option<BasicCredentials>,
+}
+
 impl ProxyConfig {
-    /// The ready `Proxy-Authorization` value, or none when no credential is set.
+    /// The ready `Proxy-Authorization` value, or none when no credentials are stated.
     fn authorization(&self) -> Option<HeaderValue> {
-        let password = self.password.expose_secret();
-        if self.username.is_empty() && password.is_empty() {
-            return None;
-        }
-        Some(basic(&self.username, password))
+        self.credentials
+            .as_ref()
+            .map(|pair| basic(&pair.username, pair.password.expose_secret()))
     }
 
     /// The value for a proxy the environment names, given the one `Matcher` built from that
-    /// proxy's URL: each half of the credentials set here takes the place of the URL's.
+    /// proxy's URL: the credentials stated here, whole, else the URL's own.
     fn merged(&self, from_env: Option<&HeaderValue>) -> Option<HeaderValue> {
-        let password = self.password.expose_secret();
-        if self.username.is_empty() && password.is_empty() {
-            return from_env.cloned();
-        }
-        let (url_username, url_password) = from_env.map(unbasic).unwrap_or_default();
-        let username = if self.username.is_empty() {
-            &url_username
-        } else {
-            &self.username
-        };
-        let password = if password.is_empty() {
-            &url_password
-        } else {
-            password
-        };
-        Some(basic(username, password))
+        self.authorization().or_else(|| from_env.cloned())
     }
 }
 
@@ -119,24 +120,6 @@ fn basic(username: &str, password: &str) -> HeaderValue {
         .expect("base64 is always a valid header value");
     value.set_sensitive(true);
     value
-}
-
-/// The username and password a `Basic` value carries, split at the first `:`, which RFC 7617
-/// forbids in the username: one the URL's username percent-encodes moves into the password. A
-/// value `hyper_util` did not build decodes as nothing.
-fn unbasic(value: &HeaderValue) -> (String, String) {
-    let encoded = value
-        .to_str()
-        .unwrap_or_default()
-        .trim_start_matches("Basic ");
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .unwrap_or_default();
-    let decoded = String::from_utf8_lossy(&decoded);
-    match decoded.split_once(':') {
-        Some((username, password)) => (username.to_owned(), password.to_owned()),
-        None => (decoded.into_owned(), String::new()),
-    }
 }
 
 /// Whether `target` names this machine: `localhost` and its subdomains, which RFC 6761 keeps
@@ -199,8 +182,8 @@ pub struct ProxyConnector<S> {
 enum Route {
     Direct,
     Via(Uri, Option<HeaderValue>),
-    /// The matcher, and the credentials that take the place of the URL's. Behind an `Arc`
-    /// because a connector is cloned per dial and a `Matcher` is not `Clone`.
+    /// The matcher, and the credentials that take the place of the URL's, when stated. Behind an
+    /// `Arc` because a connector is cloned per dial and a `Matcher` is not `Clone`.
     Environment(Arc<(Matcher, ProxyConfig)>),
     /// The user's network settings, and the credentials the proxy they name is shown.
     #[cfg(windows)]

@@ -1167,7 +1167,8 @@ mod tests {
             panic!("{proxy:?}");
         };
         assert_eq!(uri.to_string(), "http://proxy.test:3128/");
-        assert_eq!(proxy.username, "alice");
+        let pair = proxy.credentials.as_ref().expect("stated credentials");
+        assert_eq!(pair.username, "alice");
         assert!(!format!("{proxy:?}").contains("s3cret"));
     }
 
@@ -1335,7 +1336,7 @@ mod tests {
             proxy.source,
             armonik_transport::http2::ProxySource::Disabled
         );
-        assert_eq!(proxy.username, "");
+        assert!(proxy.credentials.is_none());
     }
 
     /// A channel's document is checked alone before it is merged: credentials in a `Url`
