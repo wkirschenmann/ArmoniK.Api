@@ -41,8 +41,8 @@ public enum NativeEngineBuild
 /// package manager reads native assets from, and the build with its counters in a <c>metrics</c>
 /// folder beside it. A library is loaded once for the life of the process, so the choice is made
 /// before the first runtime is created - the first call of the binding that reaches the engine
-/// loads it - and asking for the other build afterwards is refused. Switching builds in a process is
-/// not supported yet; it needs the first library to be unloaded, which the binding does not do.
+/// loads it - and asking for the other build afterwards is refused. A process loads one build, since
+/// the binding does not unload the library it loaded.
 public static class NativeLibrarySelection
 {
   private static readonly object Gate = new();
@@ -70,7 +70,7 @@ public static class NativeLibrarySelection
   /// <summary>Asks for the build the process loads, which has to be done before the first runtime is created.</summary>
   /// <param name="build">The build to load.</param>
   /// <exception cref="InvalidOperationException">
-  ///   The engine is already loaded as the other build. Switching is not supported yet.
+  ///   The engine is already loaded as the other build.
   /// </exception>
   public static void Select(NativeEngineBuild build)
   {
@@ -88,7 +88,7 @@ public static class NativeLibrarySelection
       {
         if (build != requested_)
         {
-          throw new InvalidOperationException($"the native engine is already loaded as the {requested_} build, and asking for the {build} build is refused: " + "a library is loaded once for the life of the process, and switching builds is not supported yet. "
+          throw new InvalidOperationException($"the native engine is already loaded as the {requested_} build, and asking for the {build} build is refused: " + "a process loads one build, since a library is loaded once for the life of the process and is not unloaded. "
                                               + "Select the build before the first native runtime is created.");
         }
 

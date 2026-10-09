@@ -1890,8 +1890,8 @@ its record `ak_stats` are in the header for both builds; the binding registers f
 instruments only when the library counts; the library is built twice and selected by
 `NativeLibrarySelection` or `GrpcClient.NativeMetrics`. The costs measured are in
 `observability.md`. Not built: a read of the stats per channel across the ABI, so an instrument
-has no endpoint tag; switching builds in a process; CI for the .NET suites against both builds,
-which is T6.12's.
+has no endpoint tag; CI for the .NET suites against both builds, which is T6.12's. A process
+loads one build.
 
 **Deliverable**: a host that asks for the library built with the metrics - `GrpcClient.NativeMetrics`,
 or `NativeLibrarySelection` before its first runtime - sees the engine's counters and gauges in

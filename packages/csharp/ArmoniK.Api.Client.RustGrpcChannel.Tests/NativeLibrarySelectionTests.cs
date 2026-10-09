@@ -143,8 +143,7 @@ public class NativeLibrarySelectionTests
                       Assert.That(refused!.Message,
                                   Does.Contain(other.ToString()));
                       Assert.That(refused.Message,
-                                  Does.Contain("not supported yet"),
-                                  "switching is something not built yet, not something impossible");
+                                  Does.Contain("a process loads one build"));
                       Assert.That(NativeLibrarySelection.Loaded,
                                   Is.EqualTo(NativeEngineSelection.Wanted),
                                   "the refusal leaves the loaded build as it was");

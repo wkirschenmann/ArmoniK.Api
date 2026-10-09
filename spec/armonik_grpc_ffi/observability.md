@@ -410,7 +410,7 @@ silent.
   for this, and refuses the metrics build on any other runtime: a .NET Core host searches the
   application's folder before it matches a module loaded by path. A library is loaded
   once for the life of the process, so asking for the other build after one is loaded is refused
-  with an error that says that switching is not supported: the first library would have to be
+  with an error that says that a process loads one build: the first library would have to be
   unloaded, and the binding does not unload.
 - **`GrpcClient.NativeMetrics` selects it from ArmoniK.Api.Client.** A boolean, false by default,
   read when the process's native runtime is created, which the first client to need one does, and

@@ -111,7 +111,7 @@ public class NativeMetricsOptionTests
       Assert.Multiple(() =>
                       {
                         Assert.That(refused!.Message,
-                                    Does.Contain("switching builds is not supported"));
+                                    Does.Contain("a process loads one build"));
                         Assert.That(NativeLibrarySelection.Loaded,
                                     Is.EqualTo(NativeEngineBuild.Default),
                                     "the refusal leaves the engine as it was");
