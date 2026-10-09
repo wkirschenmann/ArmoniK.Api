@@ -7,8 +7,10 @@
 //!
 //! A key the document does not declare is not refused. It is logged, with its source and its path,
 //! and the load goes on, so that a configuration written for a later engine still loads and a
-//! misspelled key is still said. A value that does not fit its key's type is refused, by its source
-//! and its path, and never quoted: a password is a value.
+//! misspelled key is still said. A field the payload of a variant does not declare, such as
+//! `IntervalSecond` in `Http2.KeepAlive.Ping`, is refused by its path instead: a misspelling there
+//! changes what the chosen variant does. A value that does not fit its key's type is refused, by
+//! its source and its path, and never quoted: a password is a value.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -140,7 +142,8 @@ impl Configuration {
         self
     }
 
-    /// Reads the sources, in order, into one document, each key it does not declare logged.
+    /// Reads the sources, in order, into one document, each key it does not declare logged, except
+    /// a field of a variant's payload, which is refused.
     ///
     /// The first refusal ends the load. With no source, or none that contributes, the document is
     /// its type's default.
@@ -646,7 +649,8 @@ impl Texts {
     }
 }
 
-/// Reads one source's tree into the document, each key it does not declare logged.
+/// Reads one source's tree into the document, each key it does not declare logged, except a field
+/// of a variant's payload, which is refused.
 fn read<D: serde::de::DeserializeOwned>(
     tree: Tree,
     source: &SourceName,
@@ -730,6 +734,10 @@ impl de::Error for Refused {
 
     fn unknown_variant(_: &str, expected: &'static [&'static str]) -> Self {
         Self::custom(format_args!("it names none of {}", expected.join(", ")))
+    }
+
+    fn unknown_field(_: &str, expected: &'static [&'static str]) -> Self {
+        Self::custom(format_args!("it is none of {}", expected.join(", ")))
     }
 
     fn missing_field(field: &'static str) -> Self {
@@ -1016,8 +1024,9 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a> {
             None => key,
         };
         let read = seed.deserialize(key.clone().into_deserializer());
+        let path = joined(&self.path, &key);
         self.pending = Some((key, node));
-        read.map(Some)
+        read.map(Some).map_err(|refused: Refused| refused.at(&path))
     }
 
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, Refused> {

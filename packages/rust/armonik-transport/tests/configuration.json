@@ -456,6 +456,64 @@
     "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy", "says": "it names two alternatives" }
   },
   {
+    "name": "a field the variant of an alternative does not have is refused by its path, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSecond": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
+  },
+  {
+    "name": "a field the variant of an alternative does not have is refused even where an earlier source states the variant",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FailureAllowance": 3 } } } } } } },
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FailureAllowence": 4 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.FailureAllowence", "says": "it is none of" }
+  },
+  {
+    "name": "a field the variant of an alternative does not have is refused by its path, in a file",
+    "files": {
+      "probe.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probe\":{\"IdleSeconds\":30,\"Interval\":5}}}}}}}}"
+    },
+    "sources": [
+      { "file": "probe.json" }
+    ],
+    "refused": { "source": "probe.json", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.Interval", "says": "it is none of" }
+  },
+  {
+    "name": "a field the variant of an alternative does not have is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive__Ping__IntervalSecond": "10"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
+  },
+  {
+    "name": "a field the variant of an alternative does not have is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Http2__KeepAlive__Ping__IntervalSecond": "10" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
+  },
+  {
+    "name": "the fields of a variant are read in an environment variable and in pairs, in any case",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ARMONIKFIXTURE__ChannelDefaults__Http2__KeepAlive__Ping__IntervalSeconds": "10",
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive__Ping__whileidle": "true"
+    },
+    "sources": [
+      { "environment": true },
+      { "pairs": { "ChannelDefaults__Http2__KeepAlive__Ping__INTERVALSECONDS": "20" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20, "WhileIdle": true } } } }
+    }
+  },
+  {
     "name": "a key no option declares is logged, and the rest read",
     "sources": [
       { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }
