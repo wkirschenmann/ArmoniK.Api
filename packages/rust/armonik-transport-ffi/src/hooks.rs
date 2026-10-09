@@ -126,6 +126,14 @@ pub fn runtime_options(
         .map(|found| found.options().clone())
 }
 
+/// Whether the call's send is recorded as waiting for room, which lowers what every call of the
+/// runtime may read. `None` for a call that is not in the table.
+pub fn is_waiting_for_room(call: crate::abi::ak_handle) -> Option<bool> {
+    crate::tables::calls()
+        .get(call)
+        .map(|found| found.is_waiting_for_room())
+}
+
 /// How many arenas lends have allocated rather than taken from a channel's spares.
 pub fn new_arenas() -> usize {
     NEW_ARENAS.load(Ordering::SeqCst)

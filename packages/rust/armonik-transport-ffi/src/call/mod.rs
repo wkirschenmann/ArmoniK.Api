@@ -166,6 +166,18 @@ impl Drop for Lending<'_> {
     }
 }
 
+/// A lend's record of its send as waiting for room, which ends the wait when it is dropped.
+/// `CallState::charge_or_wait` forgets it when the record is to stand.
+struct Waiting<'a> {
+    call: &'a CallState,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        guard_void(|| self.call.ledger.stop_waiting(&self.call.waiter));
+    }
+}
+
 /// The bit of `CallState::sending` that says the sending has ended; the bits below count sends.
 const SENDING_ENDED: u32 = 1 << 31;
 
@@ -198,6 +210,11 @@ impl Drop for Queueing<'_> {
 impl CallState {
     pub(crate) fn debt(&self) -> ak_call_debt {
         self.debt.as_abi()
+    }
+
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn is_waiting_for_room(&self) -> bool {
+        self.waiter.is_waiting()
     }
 
     pub(crate) fn cancel(self: &Arc<Self>) {
@@ -308,23 +325,10 @@ impl CallState {
         at!(at_lend_step, LendStep::Windowed);
         #[cfg(feature = "test-hooks")]
         crate::hooks::run_before_charge();
-        if self.ledger.hold_bytes(len).is_err() {
-            // Recorded, then tried again: a release between the refusal and the record owes this
-            // send nothing, and the second try is what sees it. Read against the end after the
-            // record, for the order `Ledger::stop_waiting` states.
-            self.ledger.wait(&self.waiter, len);
-            if !self.live() {
-                self.ledger.stop_waiting(&self.waiter);
-                return Err(ak_status::AK_STATUS_INVALID_STATE);
-            }
-            if let Err(refused) = self.ledger.hold_bytes(len) {
-                // The wake-up this refusal promises is the task's to raise.
-                self.spawn_task();
-                return Err(refused);
-            }
-        }
-        // Served: reads are no longer held back for it. Only a lend of this call records a wait,
-        // and one lend runs at a time, so a wait this reads as absent is absent.
+        self.charge_or_wait(len)?;
+        // Served: reads are no longer held back for it. A wait that an earlier refusal of this
+        // call left is ended here. Only a lend of this call records a wait, and one lend runs at
+        // a time, so a wait this reads as absent is absent.
         lending.owed.bytes = Some(len);
         if self.waiter.is_waiting() {
             self.ledger.stop_waiting(&self.waiter);
@@ -374,6 +378,34 @@ impl CallState {
             len,
             owner: Box::into_raw(lent) as *mut c_void,
         })
+    }
+
+    /// Charges a lend of `len` bytes, or records the send as waiting for room and tries again.
+    ///
+    /// Recorded, then tried again: a release between the refusal and the record owes this send
+    /// nothing, and the second try is what sees it. Read against the end after the record, for
+    /// the order `Ledger::stop_waiting` states.
+    ///
+    /// The record stands only on the refusal for the budget, whose wake-up the task raises. Any
+    /// other way out takes it back, a panic included: a refused lend holds nothing, and a send
+    /// that no lend is waiting for must not lower what every call may read.
+    fn charge_or_wait(self: &Arc<Self>, len: usize) -> Result<(), ak_status> {
+        if self.ledger.hold_bytes(len).is_ok() {
+            return Ok(());
+        }
+        let waiting = Waiting { call: self };
+        self.ledger.wait(&self.waiter, len);
+        if !self.live() {
+            return Err(ak_status::AK_STATUS_INVALID_STATE);
+        }
+        match self.ledger.hold_bytes(len) {
+            Ok(()) => Ok(()),
+            Err(refused) => {
+                self.spawn_task();
+                std::mem::forget(waiting);
+                Err(refused)
+            }
+        }
     }
 
     /// Exchanges the buffer the host holds for one of `new_len` bytes, with the first `carried`
