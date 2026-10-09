@@ -1290,7 +1290,7 @@ ChannelOptions.g.cs      <- committed; the build compares it with what the schem
 UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument,
     │ or, empty, the Endpoint of the runtime's options
     │ the configuration loader into ChannelOptions, a key no option declares
-    │ logged and ignored, a field of a variant's payload refused;
+    │ logged and ignored at the root, refused below it;
     │ ChannelSettings checks every bound again, and each
     │ unit's conversion, in armonik-transport, reads the certificate files it names
     ▼
@@ -1313,9 +1313,9 @@ the shape every option takes, and gives the reasons:
   is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
 - `additionalProperties: false` everywhere, which tells whoever edits a document what the engine
-  does not declare; the engine ignores such a key rather than refusing it, and logs it with its
-  source and path, so that a misspelled key does not give the defaults unsaid, except a field of a
-  variant's payload, which it refuses (configuration-loading.md);
+  does not declare; the engine ignores such a key at the root of a document and logs it with its
+  source and path, and refuses it, by its path, anywhere else, so that a misspelled key does not
+  give the defaults unsaid (configuration-loading.md);
 - options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
   which serde writes in its externally tagged form: a variant that carries nothing is its name, a
   string, and one that carries something is an object of one key that holds it -

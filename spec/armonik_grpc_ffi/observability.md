@@ -51,7 +51,7 @@ silent.
   inside it is dropped, since delivering it would enter the callback again on its own stack.
 - **Events logged while the runtime is created are delivered on the host's calling thread, before
   the creation returns.** The configuration's load runs inside the creation, and its events - the
-  unknown keys - cannot be selected by a filter that is among what it loads. They are kept on the
+  unknown keys at a root - cannot be selected by a filter that is among what it loads. They are kept on the
   loading thread, which is the one thread that logs then, and delivered once the filter is known,
   each as the filter selects it. A refused creation delivers them too, selected by the default
   filter, since they say why; the callback is detached before the call returns.
@@ -63,8 +63,8 @@ silent.
   has a filter of its own.
   `Logging` is therefore a key of the runtime's options, which a host's own `Logging` section - the
   one `Microsoft.Extensions.Logging` reads from `appsettings.json` - meets in a file read with no
-  prefix: its `LogLevel` is logged as the unknown key `Logging.LogLevel`, and the filter is not
-  touched. Under the default prefix the two do not meet.
+  prefix: its `LogLevel` is refused as the unknown key `Logging.LogLevel`, there being no
+  tolerance below a document's root. Under the default prefix the two do not meet.
 - **Directives match by module-path segment, and `*` by text.** A directive is a level (`info`),
   a target and its level (`h2=debug`), or a target alone, which is all its levels. A target covers
   itself and the modules below it: `h2` covers `h2` and `h2::proto::connection`, not `h2x`, and
@@ -129,8 +129,9 @@ silent.
   so that a steady state allocates nothing, and a key is the field's static name.
 - **Nothing is allocated for a disabled event.** What is not selected is decided by the callsite's
   cached interest, before an event is built.
-- **Unknown configuration keys are logged at info**, with their source and their path, never their
-  value, since a misspelled key may hold a secret.
+- **Unknown configuration keys at the root of a document are logged at info**, with their source
+  and their path, never their value, since a misspelled key may hold a secret. One below the root
+  is refused, and the refusal names its path.
 - **The effective configuration is logged at info.** Once when the runtime is created, and once for
   each channel whose creation states options that differ from what it would take from the runtime -
   the channel's own document merged over the runtime's defaults, with its endpoint as

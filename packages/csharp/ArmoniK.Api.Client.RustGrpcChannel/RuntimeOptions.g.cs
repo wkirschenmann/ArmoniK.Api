@@ -85,9 +85,10 @@ public sealed class RuntimeOptions
 
   /// <summary>
   ///   Channel options every channel of the runtime takes where its own options state none: the
-  ///   two are merged option by option, a struct's options within it, and the channel's win; an
-  ///   alternative - how the server is verified, who the client is, which proxy - merges its fields
-  ///   over the same alternative and is taken whole over another.
+  ///   two are merged option by option, a struct's options within it, and the channel's win; a
+  ///   group of options with a mandatory field, such as a <c>Probe</c>, is stated whole and replaces the
+  ///   default's. An alternative - how the server is verified, who the client is, which proxy -
+  ///   merges as its payload does over the same alternative and is taken whole over another.
   /// </summary>
   /// <remarks>Defaults to none.</remarks>
   [JsonPropertyName("ChannelDefaults")]

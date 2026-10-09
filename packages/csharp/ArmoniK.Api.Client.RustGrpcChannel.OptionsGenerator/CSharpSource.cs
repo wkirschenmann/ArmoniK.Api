@@ -336,8 +336,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                  option.Description);
 
         // The name is spelled rather than left to the serializer's policy: this document is a
-        // contract with the engine, which reads past an option it does not know, and a policy
-        // set elsewhere would be enough to turn every option into one.
+        // contract with the engine, which refuses an option it does not know below the root, and
+        // a policy set elsewhere would be enough to turn every option into one.
         Lines(source,
               $$"""
                 [JsonPropertyName("{{option.Name}}")]

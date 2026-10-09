@@ -556,9 +556,10 @@ typedef struct {
     /**
      * A channel document, in the vocabulary of ak_channel_create's config_json, whose options
      * every channel of the runtime takes where its own document states none: the two are merged
-     * option by option, a struct's options within it, and the channel's win; an alternative - how
-     * the server is verified, who the client is, which proxy - merges its fields over the same
-     * alternative and is taken whole over another. Empty states none.
+     * option by option, a struct's options within it, and the channel's win; a group of options
+     * with a mandatory field is stated whole and replaces the default's, and an alternative - how
+     * the server is verified, who the client is, which proxy - merges as its payload does over the
+     * same alternative and is taken whole over another. Empty states none.
      * Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
      */
     ak_bytes_in channel_defaults_json;
@@ -683,8 +684,8 @@ typedef struct {
 /**
  * Where a runtime's configuration comes from: sources, read in order when the runtime is created,
  * a later one over an earlier one option by option. A key the vocabulary does not declare is
- * ignored rather than refused; a value that does not fit its key is refused, with its source and
- * its path, and never quoted.
+ * ignored at the root of a document and refused below it; a value that does not fit its key is
+ * refused, with its source and its path, and never quoted.
  *
  * Versioned as the options structs are, but for its fourth field, which is source_count rather
  * than reserved.
@@ -920,9 +921,9 @@ ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out, ak_er
  * `{}` is a valid configuration.
  *
  * The document is structured and typed, and a JSON schema states it: objects nest, and a number is
- * a number and not a string spelled like one. A key no option declares is ignored rather than
- * refused. That schema, `options.schema.json`, names each option with its type and, where it has
- * them, its range and default.
+ * a number and not a string spelled like one. A key no option declares is ignored at the root
+ * of the document and refused below it. That schema, `options.schema.json`, names each option
+ * with its type and, where it has them, its range and default.
  *
  * ak_channel_delivery_window reads back the delivery window the channel ended up with.
  *

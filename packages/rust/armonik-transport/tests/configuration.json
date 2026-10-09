@@ -175,7 +175,7 @@
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
       "ArmoniKFixture__MemoryCeiling__SoftMiB": "8192",
-      "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
+      "ArmoniKFixture__Nope": "1",
       "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
     },
     "sources": [
@@ -190,7 +190,7 @@
         "Grpc": { "Deadline": { "Default": 2.5 } }
       }
     },
-    "unknown": ["ChannelDefaults.Http2.Nope"]
+    "unknown": ["Nope"]
   },
   {
     "name": "an environment value that is not of its key's type is refused by its path",
@@ -237,13 +237,13 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "Nope": "x" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
       "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
     },
-    "unknown": ["ChannelDefaults.Grpc.Nope"]
+    "unknown": ["Nope"]
   },
   {
     "name": "a file and a document give a list as an array, a later source's list replacing an earlier one's whole",
@@ -405,15 +405,12 @@
     "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.P12.Password", "never": "123456" }
   },
   {
-    "name": "an alternative that names no variant keeps the earlier source's, its key logged",
+    "name": "an alternative that names no variant is refused, whatever an earlier source gave it",
     "sources": [
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } } } },
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Socks": { "Address": "socks5://proxy.test:1080" } } } } } }
     ],
-    "options": {
-      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } }
-    },
-    "unknown": ["ChannelDefaults.Transport.Proxy.Socks"]
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
   },
   {
     "name": "an alternative that carries nothing is its name, in a document, an environment variable and pairs",
@@ -499,7 +496,7 @@
     "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
   },
   {
-    "name": "the fields of a variant are read in an environment variable and in pairs, in any case",
+    "name": "the fields of a variant are read in an environment variable and in pairs, in any case, a later source stating the variant replacing it whole",
     "prefix": "ArmoniKFixture",
     "environment": {
       "ARMONIKFIXTURE__ChannelDefaults__Http2__KeepAlive__Ping__IntervalSeconds": "10",
@@ -510,7 +507,151 @@
       { "pairs": { "ChannelDefaults__Http2__KeepAlive__Ping__INTERVALSECONDS": "20" } }
     ],
     "options": {
-      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20, "WhileIdle": true } } } }
+      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20 } } } }
+    }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "FramesPerWrit": 4 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.FramesPerWrit", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, even where an earlier source states the group correctly",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "base" } } } },
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgnt": "over" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.UserAgnt", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in a file",
+    "files": {
+      "group.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Grpc\":{\"Receive\":{\"Compresion\":[\"Gzip\"]}}}}}}}"
+    },
+    "sources": [
+      { "file": "group.json" }
+    ],
+    "refused": { "source": "group.json", "key": "ChannelDefaults.Grpc.Receive.Compresion", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Host__Receive__Windw": "2"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Host.Receive.Windw", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Transport__ConnectTimeoutSecond": "3" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Transport.ConnectTimeoutSecond", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, the runtime's own groups included",
+    "sources": [
+      { "document": { "MemoryCeiling": { "SoftMib": 1 }} }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMib", "says": "it is none of" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, even where an earlier source states a variant",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, beside a variant it names",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://p:1" }, "Socks": { "Address": "x" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a file",
+    "files": {
+      "alternative.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probee\":{\"IdleSeconds\":30}}}}}}}}"
+    },
+    "sources": [
+      { "file": "alternative.json" }
+    ],
+    "refused": { "source": "alternative.json", "key": "ChannelDefaults.Transport.TcpKeepalive.Probee", "says": "it is none of None, Probe" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a name no variant of an alternative has is refused by the alternative's path, in an environment variable and over an earlier source",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive": "Pingg"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive", "says": "it names none of None, Ping" }
+  },
+  {
+    "name": "a variant with a mandatory field is stated whole, what a later source leaves out being the default's and not the earlier source's",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60, "IntervalSeconds": 10, "Retries": 3 } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__TcpKeepalive__Probe__IdleSeconds": "30" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 30 } } } }
+    }
+  },
+  {
+    "name": "a variant stated without its mandatory field is refused, whatever an earlier source states",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__TcpKeepalive__Probe__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe", "says": "it lacks IdleSeconds" }
+  },
+  {
+    "name": "a variant with only optional fields is merged field by field",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 70000, "ConnectionWindowBytes": 90000 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000 } } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000, "ConnectionWindowBytes": 90000 } } } }
     }
   },
   {

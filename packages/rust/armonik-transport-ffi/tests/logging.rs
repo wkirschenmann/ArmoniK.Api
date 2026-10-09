@@ -140,7 +140,7 @@ fn has(records: &[Record], target: &str, level: u32, message: &str) -> bool {
 #[test]
 fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
     let _turn = turn();
-    let host = create(r#"{"Misspelled":1,"Logging":{"Filtre":"debug"}}"#).expect("a runtime");
+    let host = create(r#"{"Misspelled":1,"Elsewhere":{"Level":"debug"}}"#).expect("a runtime");
 
     let records = logged();
     let unknown: Vec<_> = records
@@ -158,7 +158,7 @@ fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
         .filter_map(|record| record.field("key"))
         .collect();
     assert!(keys.contains(&"Misspelled"), "{keys:?}");
-    assert!(keys.contains(&"Logging.Filtre"), "{keys:?}");
+    assert!(keys.contains(&"Elsewhere"), "{keys:?}");
     // A value is never quoted.
     assert!(records
         .iter()

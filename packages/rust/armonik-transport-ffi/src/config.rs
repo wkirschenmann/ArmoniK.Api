@@ -270,7 +270,7 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
 }
 
 /// A channel document, through the loader a runtime's configuration goes through, so that a key
-/// it does not declare is logged as one in any other source is.
+/// it does not declare is logged at its root and refused below it, as in any other source.
 fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
     let json = std::str::from_utf8(json).map_err(|_| ConfigRefusal::NotUtf8)?;
     Configuration::with_prefix("")
@@ -1001,13 +1001,21 @@ mod tests {
         assert_eq!(config.max_sends_in_flight, 1);
     }
 
-    /// The loader logs it, as it logs one from any source; the channel is the one its other options
-    /// make.
+    /// The loader logs one at the root, as it logs one from any source; the channel is the one its
+    /// other options make. In a group it is refused.
     #[test]
-    fn an_option_spelled_wrong_is_ignored_rather_than_refused() {
+    fn an_option_spelled_wrong_is_ignored_at_the_root_and_refused_in_a_group() {
         let settings = parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
-            .expect("an unknown key is no refusal");
+            .expect("an unknown key at the root is no refusal");
         assert_eq!(settings.delivery_credits(), 2);
+
+        let Err(refused) = parse(br#"{"Grpc":{"Host":{"Receive":{"Windw":2}}}}"#) else {
+            panic!("an unknown key in a group is admitted");
+        };
+        assert!(
+            refused.to_string().contains("Grpc.Host.Receive.Windw"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -1191,7 +1199,8 @@ mod tests {
     }
 
     /// A channel's document is merged over the runtime's defaults option by option, a struct's
-    /// options within it: what the channel states wins, and what it leaves out is the default's.
+    /// options within it: what the channel states wins, and what it leaves out is the default's,
+    /// but for a group of options with a mandatory field, which the channel states whole.
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(

@@ -303,9 +303,9 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// `{}` is a valid configuration.
 ///
 /// The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-/// a number and not a string spelled like one. A key no option declares is ignored rather than
-/// refused. That schema, `options.schema.json`, names each option with its type and, where it has
-/// them, its range and default.
+/// a number and not a string spelled like one. A key no option declares is ignored at the root
+/// of the document and refused below it. That schema, `options.schema.json`, names each option
+/// with its type and, where it has them, its range and default.
 ///
 /// ak_channel_delivery_window reads back the delivery window the channel ended up with.
 ///

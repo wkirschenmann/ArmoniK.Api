@@ -78,15 +78,16 @@ the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and t
 as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
 its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
 from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
-declares is ignored rather than refused, in every source and in a channel's own document, except a field
-inside a variant's payload, which is refused; the ignored key is logged
+declares is ignored at the root of a document, in every source and in a channel's own document, and
+refused by its path anywhere else; the ignored key is logged
 by the engine through `tracing`, at info, which reaches the host's log callback (observability.md).
 
 `ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
 option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`. A
-struct merges field by field; an alternative - how the server is verified, who the client is, which
-proxy - is an enum, whose fields merge the same way over the same alternative, and which is taken
-whole over another, so no merge combines two alternatives into one neither stated. Options that only
+struct merges field by field, but for one with a mandatory field, which is stated whole; an
+alternative - how the server is verified, who the client is, which proxy - is an enum, which merges
+as its payload does over the same alternative, and which is taken whole over another, so no
+merge combines two alternatives into one neither stated. Options that only
 bound one another, such as the two backoff bounds, merge as any option, and a merge where they
 disagree is refused as a document stating both would be. Its schema is the channel's, so the
 generator renders `RuntimeOptions.g.cs` with `--reuse` of the channel schema and refers to the

@@ -5,12 +5,13 @@
 //! later one is merged over an earlier one by the type's own [`Document::over`], so that what the
 //! sources mean does not depend on who listed them.
 //!
-//! A key the document does not declare is not refused. It is logged, with its source and its path,
-//! and the load goes on, so that a configuration written for a later engine still loads and a
-//! misspelled key is still said. A field the payload of a variant does not declare, such as
-//! `IntervalSecond` in `Http2.KeepAlive.Ping`, is refused by its path instead: a misspelling there
-//! changes what the chosen variant does. A value that does not fit its key's type is refused, by
-//! its source and its path, and never quoted: a password is a value.
+//! A key the root of the document does not declare is not refused. It is logged, with its source
+//! and its path, and the load goes on, because a file read with no prefix holds its host's own
+//! sections. Below the root, a key a struct does not declare, such as `IntervalSecond` in
+//! `Http2.KeepAlive.Ping` or `Windw` in `Grpc.Host.Receive`, is refused by its path, and so is a key
+//! of an alternative that names none of its variants: a misspelling there leaves an option at what
+//! an earlier source or the default gave it. A value that does not fit its key's type is refused,
+//! by its source and its path, and never quoted: a password is a value.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -35,7 +36,8 @@ const SEPARATOR: &str = "__";
 /// A document a configuration can be read into, merged one over another.
 pub trait Document: serde::de::DeserializeOwned + Default {
     /// This document over `earlier`: what this one states wins, and what it leaves out is the
-    /// earlier one's.
+    /// earlier one's, but for a group of options with a mandatory field, which this one states
+    /// whole.
     fn over(self, earlier: Self) -> Self;
 }
 
@@ -142,8 +144,8 @@ impl Configuration {
         self
     }
 
-    /// Reads the sources, in order, into one document, each key it does not declare logged, except
-    /// a field of a variant's payload, which is refused.
+    /// Reads the sources, in order, into one document, each key the root does not declare logged,
+    /// and a key any other struct does not declare refused.
     ///
     /// The first refusal ends the load. With no source, or none that contributes, the document is
     /// its type's default.
@@ -649,8 +651,8 @@ impl Texts {
     }
 }
 
-/// Reads one source's tree into the document, each key it does not declare logged, except a field
-/// of a variant's payload, which is refused.
+/// Reads one source's tree into the document, each key its root does not declare logged, and a key
+/// any other struct does not declare refused.
 fn read<D: serde::de::DeserializeOwned>(
     tree: Tree,
     source: &SourceName,
@@ -834,6 +836,7 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: None,
+                tolerant: false,
                 pending: None,
                 path,
                 text,
@@ -897,6 +900,9 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: Some(fields),
+                // The root alone, under a prefix as under none: a file read with no prefix holds
+                // its host's own sections.
+                tolerant: self.path.is_empty(),
                 pending: None,
                 path: self.path,
                 text: self.text,
@@ -923,19 +929,25 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             }),
             Node::Map(entries) if entries.len() == 1 => {
                 let (name, value) = entries.into_iter().next().expect("one entry");
+                let name = spelled(name, variants, self.text);
+                if !variants.contains(&name.as_str()) {
+                    let path = joined(&self.path, &name);
+                    return Err(<Refused as de::Error>::unknown_field(&name, variants).at(&path));
+                }
                 visitor.visit_enum(Variant {
-                    name: spelled(name, variants, self.text),
+                    name,
                     value: Some(value),
                     path: self.path,
                     text: self.text,
                     shared: self.shared,
                 })
             }
-            // No key or several: the reader of an alternative takes the keys as they come, which
-            // is how it reads past a key that names no variant.
+            // No key or several: the reader of an alternative takes the keys as they come, and
+            // refuses one that names no variant.
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: Some(variants),
+                tolerant: false,
                 pending: None,
                 path: self.path,
                 text: self.text,
@@ -1002,7 +1014,10 @@ fn spelled(name: String, known: &'static [&'static str], text: bool) -> String {
 
 struct Entries<'a> {
     entries: std::vec::IntoIter<(String, Node)>,
+    /// The keys the type declares, when it is a struct or an alternative.
     fields: Option<&'static [&'static str]>,
+    /// Whether a key `fields` does not hold is read past and logged, rather than refused.
+    tolerant: bool,
     pending: Option<(String, Node)>,
     path: String,
     text: bool,
@@ -1023,8 +1038,13 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a> {
             Some(fields) => spelled(key, fields, self.text),
             None => key,
         };
-        let read = seed.deserialize(key.clone().into_deserializer());
         let path = joined(&self.path, &key);
+        if let Some(fields) = self.fields {
+            if !self.tolerant && !fields.contains(&key.as_str()) {
+                return Err(<Refused as de::Error>::unknown_field(&key, fields).at(&path));
+            }
+        }
+        let read = seed.deserialize(key.clone().into_deserializer());
         self.pending = Some((key, node));
         read.map(Some).map_err(|refused: Refused| refused.at(&path))
     }

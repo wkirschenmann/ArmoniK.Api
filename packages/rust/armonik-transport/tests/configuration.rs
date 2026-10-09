@@ -114,37 +114,51 @@ fn every_fixture_loads_the_options_or_the_refusal_it_states() {
     }
 }
 
-/// A channel's own document goes through the same loader, and logs what it does not declare.
+/// A channel's own document goes through the same loader: its root logs what it does not
+/// declare, and a group of it refuses one.
 #[test]
-fn a_channel_document_logs_what_it_does_not_declare() {
+fn a_channel_document_logs_what_its_root_does_not_declare_and_refuses_the_rest() {
     let logged = Logged::default();
     let subscriber = tracing_subscriber::registry().with(logged.clone());
     let loaded: Result<ChannelOptions, ConfigRefusal> =
         tracing::subscriber::with_default(subscriber, || {
             Configuration::with_prefix("")
-                .document(r#"{"Grpc":{"UserAgnt":"typo","UserAgent":"armonik"}}"#)
+                .document(r#"{"UserAgnt":"typo","Grpc":{"UserAgent":"armonik"}}"#)
                 .load()
         });
 
-    let loaded = loaded.expect("an unknown key is no refusal");
+    let loaded = loaded.expect("an unknown key at the root is no refusal");
     assert_eq!(loaded.grpc.user_agent.as_deref(), Some("armonik"));
-    assert_eq!(logged.keys(), ["Grpc.UserAgnt"]);
+    assert_eq!(logged.keys(), ["UserAgnt"]);
+
+    let refused = Configuration::with_prefix("")
+        .document(r#"{"Grpc":{"UserAgnt":"typo","UserAgent":"armonik"}}"#)
+        .load::<ChannelOptions>()
+        .expect_err("an unknown key in a group is refused");
+    assert_eq!(refused.key(), Some("Grpc.UserAgnt"));
 }
 
-/// The logging filter is a key of the runtime's options, and a host's own `Logging` section, read
-/// with no prefix, holds keys the loader does not know.
+/// The logging filter is a key of the runtime's options. A host's own section, read with no
+/// prefix, is logged at the root, and its `Logging` section, which meets the runtime's own group,
+/// is refused by its path.
 #[test]
-fn the_logging_filter_loads_and_a_hosts_logging_section_is_an_unknown_key() {
+fn the_logging_filter_loads_and_a_hosts_sections_are_logged_or_refused() {
     let logged = Logged::default();
     let subscriber = tracing_subscriber::registry().with(logged.clone());
     let loaded: Result<RuntimeOptions, ConfigRefusal> =
         tracing::subscriber::with_default(subscriber, || {
             Configuration::with_prefix("")
-                .document(r#"{"Logging":{"Filter":"h2=debug","LogLevel":{"Default":"Debug"}}}"#)
+                .document(r#"{"Logging":{"Filter":"h2=debug"},"Serilog":{"Level":"Debug"}}"#)
                 .load()
         });
 
-    let loaded = loaded.expect("an unknown key is no refusal");
+    let loaded = loaded.expect("an unknown key at the root is no refusal");
     assert_eq!(loaded.logging.filter.as_deref(), Some("h2=debug"));
-    assert_eq!(logged.keys(), ["Logging.LogLevel"]);
+    assert_eq!(logged.keys(), ["Serilog"]);
+
+    let refused = Configuration::with_prefix("")
+        .document(r#"{"Logging":{"Filter":"h2=debug","LogLevel":{"Default":"Debug"}}}"#)
+        .load::<RuntimeOptions>()
+        .expect_err("a host's Logging section is refused where it meets the runtime's");
+    assert_eq!(refused.key(), Some("Logging.LogLevel"));
 }

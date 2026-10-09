@@ -6,10 +6,11 @@
 //! enforces it. What a type cannot say - that an endpoint names a scheme this engine speaks -
 //! the transport says, by option name.
 //!
-//! A key no type declares is read past rather than refused, so that the `configuration` loader logs
-//! it and goes on; the schema still states `additionalProperties: false`, which tells whoever edits
-//! a document what the engine will log. An alternative - how the server is verified, who the client
-//! is, which proxy - reads a key that names none of its variants the same way, as no alternative.
+//! The `configuration` loader reads past a key no type declares at the root of a document and logs
+//! it, a file read with no prefix holding its host's own sections, and refuses one below the root,
+//! naming its path. The schema states `additionalProperties: false` for every object. An
+//! alternative - how the server is verified, who the client is, which proxy - refuses a key that
+//! names none of its variants.
 
 use std::time::Duration;
 
@@ -171,7 +172,6 @@ impl Default for ProxyOptions {
 /// The credentials the system's proxy is authenticated to with, by `Basic`.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -180,8 +180,7 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// username. Taken from the runtime's channel defaults, with their `Password`, only when these
-    /// options state neither.
+    /// username.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
@@ -190,8 +189,7 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// password. Taken from the runtime's channel defaults, with their `Username`, only when these
-    /// options state neither.
+    /// password.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -200,7 +198,6 @@ pub struct ProxyCredentials {
 /// A proxy named by its address.
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -215,17 +212,11 @@ pub struct ProxyUrl {
     pub address: String,
 
     /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
-    ///
-    /// Taken from the runtime's channel defaults, with their `Password`, only when they name the
-    /// same `Address` and these options state neither.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
 
     /// The password that goes with `Username`.
-    ///
-    /// Taken from the runtime's channel defaults, with their `Username`, only when they name the
-    /// same `Address` and these options state neither.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -528,7 +519,6 @@ pub enum ClientCertificate {
 /// A client certificate and its key, from PEM files.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -565,7 +555,6 @@ impl PemCertificate {
 /// A client certificate and its key, from a PKCS#12 bundle.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -576,8 +565,7 @@ pub struct P12Certificate {
 
     /// The password the bundle is protected by.
     ///
-    /// Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-    /// the same `Path`.
+    /// Defaults to the empty one.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -595,7 +583,6 @@ impl P12Certificate {
 /// A certificate of a Windows certificate store.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -880,7 +867,6 @@ pub enum TcpKeepalive {
 /// socket option holds.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -998,7 +984,6 @@ pub enum Http2KeepAlive {
 /// The PINGs of a session.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1168,7 +1153,6 @@ pub enum Http2ReceiveOptions {
 /// HTTP/2 flow-control windows of fixed sizes.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1295,7 +1279,6 @@ impl RetryOptions {
 /// What a failed call is sent again by.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1483,7 +1466,6 @@ impl ThrottleOptions {
 /// The estimate of a server's health, and what it does.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -2474,15 +2456,27 @@ pub struct HostReceiveOptions {
     pub coalescing_bytes: Option<i32>,
 }
 
-/// Options stated over their defaults: a struct field by field, recursively, and an option is the
-/// default's where it is not stated. An alternative stated over the same one merges its fields
-/// the same way; over another, it is taken whole, so two alternatives are never combined into one
-/// neither stated.
+/// Options stated over their defaults, by the shape of the type alone. A struct with only optional
+/// fields merges field by field, recursively, and an option is the default's where it is not
+/// stated. A struct with a mandatory field is stated whole: it replaces the default's, its optional
+/// fields taking what it states or their default, so that no source leaves it half stated. An
+/// alternative stated over the same variant merges what the two carry by that rule, and over
+/// another variant is taken whole, so two alternatives are never combined into one neither stated.
 trait Over {
+    /// Whether a struct holding this as a field has it mandatory: so of a value and of a struct
+    /// with a mandatory field of its own, not of an `Option` or of a struct with none.
+    fn mandatory(&self) -> bool {
+        true
+    }
+
     fn over(self, defaults: &Self) -> Self;
 }
 
 impl<T: Over + Clone> Over for Option<T> {
+    fn mandatory(&self) -> bool {
+        false
+    }
+
     fn over(self, defaults: &Self) -> Self {
         match (self, defaults) {
             (Some(own), Some(default)) => Some(own.over(default)),
@@ -2550,18 +2544,16 @@ macro_rules! over_variants {
 /// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
 /// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
-/// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
-/// read past instead, as a struct reads past a key it does not declare, so that the configuration
-/// loader logs it; the alternative is then none, and keeps what an earlier source gave it. A name
-/// that is no variant is refused: it is not a key, so nothing is read past.
+/// By hand rather than by serde's derive, which refuses an object of no key: that one is no
+/// alternative stated, and keeps what an earlier source gave it. A key that names no variant is
+/// refused, and so is a name that is none.
 mod alternative {
-    use std::cell::Cell;
     use std::marker::PhantomData;
 
-    use serde::de::value::{EnumAccessDeserializer, StringDeserializer};
+    use serde::de::value::EnumAccessDeserializer;
     use serde::de::{
-        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
-        IntoDeserializer, MapAccess, VariantAccess, Visitor,
+        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IntoDeserializer,
+        MapAccess, VariantAccess, Visitor,
     };
 
     /// An enum read as an alternative, by the names of its variants.
@@ -2570,14 +2562,14 @@ mod alternative {
         const VARIANTS: &'static [&'static str];
     }
 
-    /// An alternative that may be left out, and is none when its key names no variant.
+    /// An alternative that may be left out, and is none when it is an object of no key.
     pub(super) fn optional<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<Option<T>, D::Error> {
         deserializer.deserialize_option(Optional(PhantomData))
     }
 
-    /// An alternative a document has to state, refused when its key names no variant.
+    /// An alternative a document has to state, refused when it is an object of no key.
     pub(super) fn required<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<T, D::Error> {
@@ -2613,7 +2605,7 @@ mod alternative {
         }
     }
 
-    /// The variant a name or an object's keys give, if one does.
+    /// The variant a name or an object's key gives, if one does.
     struct Chosen<T>(PhantomData<T>);
 
     impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
@@ -2623,31 +2615,16 @@ mod alternative {
             write!(f, "one of {}", T::VARIANTS.join(", "))
         }
 
-        /// A name, or an object of one key: the enum's own reader takes the variant, once a name
-        /// that is no variant has been read past.
+        /// A name, or an object of one key.
         fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Option<T>, A::Error> {
-            let unknown = Cell::new(false);
-            let read = T::deserialize(EnumAccessDeserializer::new(Known::<T, A> {
-                data,
-                unknown: &unknown,
-                kind: PhantomData,
-            }));
-            match read {
-                Ok(read) => Ok(Some(read)),
-                Err(_) if unknown.get() => Ok(None),
-                Err(refused) => Err(refused),
-            }
+            T::deserialize(EnumAccessDeserializer::new(data)).map(Some)
         }
 
         /// An object of no key or of several, which a loader hands over as it reads it: the
-        /// variant its keys name, if one does; two are refused.
+        /// variant its key names, if it has one; two are refused.
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
             let mut chosen = None;
             while let Some(key) = map.next_key::<String>()? {
-                if !T::VARIANTS.contains(&key.as_str()) {
-                    map.next_value::<IgnoredAny>()?;
-                    continue;
-                }
                 if chosen.is_some() {
                     return Err(de::Error::custom(
                         "it names two alternatives, of which one is chosen at a time",
@@ -2659,38 +2636,6 @@ mod alternative {
                 })?);
             }
             Ok(chosen)
-        }
-    }
-
-    /// An enum access that reads past a variant `T` does not have, saying so in `unknown`.
-    struct Known<'a, T, A> {
-        data: A,
-        unknown: &'a Cell<bool>,
-        kind: PhantomData<T>,
-    }
-
-    impl<'de, 'a, T: Alternative, A: EnumAccess<'de>> EnumAccess<'de> for Known<'a, T, A> {
-        type Error = A::Error;
-        type Variant = A::Variant;
-
-        fn variant_seed<V: DeserializeSeed<'de>>(
-            self,
-            seed: V,
-        ) -> Result<(V::Value, A::Variant), A::Error> {
-            let (name, variant): (String, A::Variant) = self.data.variant()?;
-            if T::VARIANTS.contains(&name.as_str()) {
-                let name = seed.deserialize(StringDeserializer::<A::Error>::new(name))?;
-                return Ok((name, variant));
-            }
-            // A key's value is read past, so that a loader logs the key; a name has none to read,
-            // and is refused.
-            match variant.newtype_variant::<IgnoredAny>() {
-                Ok(_) => {
-                    self.unknown.set(true);
-                    Err(de::Error::custom("a variant this engine does not know"))
-                }
-                Err(_) => Err(de::Error::unknown_variant(&name, T::VARIANTS)),
-            }
         }
     }
 
@@ -2804,12 +2749,20 @@ over_variants!(StoreSearch {
     FriendlyName,
 });
 
-/// `Over` for a struct of options, every field merged. The fields are destructured without `..`,
-/// so a field the struct gains and this does not list fails to compile.
+/// `Over` for a struct of options: every field merged, or the struct stated whole when one field is
+/// mandatory. The fields are destructured without `..`, so a field the struct gains and this does
+/// not list fails to compile.
 macro_rules! over_fields {
     ($type:ident { $($field:ident),+ $(,)? }) => {
         impl Over for $type {
+            fn mandatory(&self) -> bool {
+                [$(self.$field.mandatory()),+].into_iter().any(|stated| stated)
+            }
+
             fn over(self, defaults: &Self) -> Self {
+                if self.mandatory() {
+                    return self;
+                }
                 let Self { $($field),+ } = self;
                 Self {
                     $($field: $field.over(&defaults.$field)),+
@@ -2955,58 +2908,13 @@ over_fields!(ReplayOptions {
 });
 over_fields!(PemCertificate { certificate, key });
 
-/// A username and its password are one credential: stating either states it, and nothing of the
-/// default's is paired with it.
-impl Over for ProxyCredentials {
-    fn over(self, defaults: &Self) -> Self {
-        let Self { username, password } = &self;
-        if username.is_some() || password.is_some() {
-            self
-        } else {
-            defaults.clone()
-        }
-    }
-}
-
-/// Credentials go with the proxy they were stated for: the default's are taken only for the same
-/// address, and whole, as `ProxyCredentials` takes them; another address is the channel's own,
-/// with its own credentials or none.
-impl Over for ProxyUrl {
-    fn over(self, defaults: &Self) -> Self {
-        let Self {
-            address,
-            username,
-            password,
-        } = self;
-        let stated = username.is_some() || password.is_some();
-        if address != defaults.address || stated {
-            return Self {
-                address,
-                username,
-                password,
-            };
-        }
-        Self {
-            address,
-            username: defaults.username.clone(),
-            password: defaults.password.clone(),
-        }
-    }
-}
-
-/// A password goes with the bundle it opens: the default's is taken only for the same path.
-impl Over for P12Certificate {
-    fn over(self, defaults: &Self) -> Self {
-        if self.path != defaults.path {
-            return self;
-        }
-        let Self { path, password } = self;
-        Self {
-            password: password.over(&defaults.password),
-            path,
-        }
-    }
-}
+over_fields!(ProxyCredentials { username, password });
+over_fields!(ProxyUrl {
+    address,
+    username,
+    password,
+});
+over_fields!(P12Certificate { path, password });
 over_fields!(StoreCertificate {
     location,
     name,
@@ -3028,11 +2936,12 @@ impl ChannelOptions {
     }
 
     /// These options over `defaults`: field by field, recursively, an option stated here winning
-    /// and one left out the default's. An alternative - how the server is verified, who the client
-    /// is, which proxy - stated over the same one merges its fields the same way, and over another
-    /// is taken whole. Options that only bound one another, such as the two backoff bounds, merge
-    /// as any option, and a merge where they disagree is refused as a document stating both would
-    /// be.
+    /// and one left out the default's, but for a group of options with a mandatory field, such as
+    /// a `Probe`, which is stated whole and replaces the default's. An alternative - how the server
+    /// is verified, who the client is, which proxy - stated over the same one merges as its
+    /// payload does, and over another is taken whole. Options that only bound one another, such as
+    /// the two backoff bounds, merge as any option, and a merge where they disagree is refused as a
+    /// document stating both would be.
     pub fn over(self, defaults: &Self) -> Self {
         Over::over(self, defaults)
     }
@@ -3061,9 +2970,10 @@ pub struct RuntimeOptions {
     pub memory_ceiling: MemoryCeilingOptions,
 
     /// Channel options every channel of the runtime takes where its own options state none: the
-    /// two are merged option by option, a struct's options within it, and the channel's win; an
-    /// alternative - how the server is verified, who the client is, which proxy - merges its fields
-    /// over the same alternative and is taken whole over another.
+    /// two are merged option by option, a struct's options within it, and the channel's win; a
+    /// group of options with a mandatory field, such as a `Probe`, is stated whole and replaces the
+    /// default's. An alternative - how the server is verified, who the client is, which proxy -
+    /// merges as its payload does over the same alternative and is taken whole over another.
     ///
     /// Defaults to none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3405,15 +3315,10 @@ mod tests {
             r#"{"Proxy":"Url"}"#,
             r#"{"Proxy":"Socks"}"#,
             r#"{"Proxy":"none"}"#,
+            r#"{"Proxy":{"Socks":{"Address":"x"}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
         }
-        assert_eq!(
-            read(r#"{"Proxy":{"Socks":{"Address":"x"}}}"#)
-                .expect("a key that names none is read past")
-                .proxy,
-            None
-        );
     }
 
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
@@ -3694,20 +3599,19 @@ mod tests {
         assert_eq!(refused.key(), "System.Username");
     }
 
-    /// The system proxy's credentials are one credential over the defaults too: taken whole when
-    /// the channel states none, and not at all when it states either.
+    /// The system proxy's credentials have no mandatory field, so they merge field by field over
+    /// the defaults, as any group of options does.
     #[test]
-    fn the_system_proxys_credentials_merge_whole() {
+    fn the_system_proxys_credentials_merge_field_by_field() {
         let defaults = system(Some("alice"), Some("s3cret"));
         assert_eq!(system(None, None).over(&defaults), defaults);
         assert_eq!(
             system(Some("bob"), None).over(&defaults),
-            system(Some("bob"), None),
-            "another username takes none of the default's password"
+            system(Some("bob"), Some("s3cret"))
         );
         assert_eq!(
             system(None, Some("other")).over(&defaults),
-            system(None, Some("other"))
+            system(Some("alice"), Some("other"))
         );
     }
 
@@ -4514,11 +4418,9 @@ mod tests {
                 ..AdaptiveOptions::default()
             }))
         );
-        assert_eq!(
-            read(r#"{"Throttle":{"Elsewhere":true}}"#)
-                .expect("a key that names none is read past")
-                .throttle,
-            None
+        assert!(
+            read(r#"{"Throttle":{"Elsewhere":true}}"#).is_err(),
+            "a key that names none of the variants is refused"
         );
 
         let over = |own: ThrottleOptions, default: ThrottleOptions| {
@@ -4768,11 +4670,8 @@ mod tests {
         assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(
             merged.http2.keep_alive,
-            Some(Http2KeepAlive::Ping(Http2Ping {
-                while_idle: Some(true),
-                ..Http2Ping::new(Seconds(5.0))
-            })),
-            "a ping over a ping merges its fields"
+            Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
+            "a ping, which has a mandatory interval, replaces the default's whole"
         );
         assert_eq!(
             merged.http2.receive,
@@ -4784,8 +4683,8 @@ mod tests {
     }
 
     /// A size in KiB, a bound in bytes and a deadline are read under the names the schema spells,
-    /// the acronym's capital included, and a state is a variant: a key spelled otherwise would be
-    /// read past, and the value never taken.
+    /// the acronym's capital included, and a state is a variant: a key spelled otherwise is
+    /// refused, and the value never taken.
     #[test]
     fn the_sizes_and_the_deadline_are_read_under_their_names_and_merged_as_variants() {
         let options: ChannelOptions = crate::configuration::Configuration::with_prefix("")
@@ -5148,10 +5047,11 @@ mod tests {
         assert_eq!(retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
-    /// An alternative stated over the same one merges its fields as a struct does, down to the
-    /// alternative a field of it holds - but for credentials, which another target leaves behind.
+    /// An alternative stated over the same one merges as its payload does: a payload with a
+    /// mandatory field, which each one stated here has, replaces the default's whole, an optional
+    /// field it leaves out included.
     #[test]
-    fn a_stated_alternative_over_the_same_one_merges_its_fields() {
+    fn a_stated_alternative_over_the_same_one_replaces_a_payload_with_a_mandatory_field() {
         let mut default_url = ProxyUrl::new("http://default.test:3128");
         default_url.username = Some("alice".to_owned());
         default_url.password = Some(Password::new("s3cret"));
@@ -5197,28 +5097,28 @@ mod tests {
         };
         assert_eq!(url.address, "http://own.test:3128");
         assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "the default's password is for another proxy"
-        );
+        assert_eq!(url.password, None, "the default's password is not paired");
         let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
         else {
             panic!("{:?}", merged.transport.tls.server_certificates);
         };
         assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
         assert_eq!(store.name.as_deref(), Some("Pinned"));
-        assert_eq!(store.location, Some(StoreLocation::LocalMachine));
+        assert_eq!(
+            store.location, None,
+            "the default's location is not combined with the store stated"
+        );
         assert_eq!(
             merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
-            "the default's password is for another bundle"
+            "the default's password is not paired"
         );
     }
 
-    /// Credentials stated for a target are taken for the same target: a proxy's for the same
-    /// address, and only whole, a bundle's password for the same path.
+    /// A proxy URL and a bundle have a mandatory field, so each is stated whole: nothing of the
+    /// default's credentials is taken, the same address or path included.
     #[test]
-    fn credentials_are_taken_for_the_target_they_were_stated_for() {
+    fn a_proxy_url_and_a_bundle_are_stated_whole() {
         let mut default_url = ProxyUrl::new("http://proxy.test:3128");
         default_url.username = Some("alice".to_owned());
         default_url.password = Some(Password::new("s3cret"));
@@ -5259,23 +5159,65 @@ mod tests {
         let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
             panic!("{:?}", merged.transport.proxy);
         };
-        assert_eq!(url.username.as_deref(), Some("alice"));
-        assert_eq!(url.password, Some(Password::new("s3cret")));
+        assert_eq!(url.username, None);
+        assert_eq!(url.password, None);
 
         let Some(ProxyOptions::Url(url)) = merged_with(Some("bob")).transport.proxy else {
             panic!("a Url is merged into a Url");
         };
         assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "another username takes none of the default's password"
-        );
+        assert_eq!(url.password, None);
         assert_eq!(
             merged.transport.tls.client_certificate,
-            Some(ClientCertificate::P12(P12Certificate::new(
-                "me.p12",
-                Some(Password::new("bundle"))
-            )))
+            Some(ClientCertificate::P12(P12Certificate::new("me.p12", None)))
+        );
+    }
+
+    /// A group with a mandatory field is stated whole, over the same variant or not, and one with
+    /// only optional fields merges field by field.
+    #[test]
+    fn a_group_with_a_mandatory_field_is_stated_whole() {
+        let probe = |own: TcpProbe| TransportOptions {
+            tcp_keepalive: Some(TcpKeepalive::Probe(own)),
+            ..TransportOptions::default()
+        };
+        let earlier = probe(TcpProbe {
+            interval_seconds: Some(10),
+            retries: Some(3),
+            ..TcpProbe::new(60)
+        });
+        assert_eq!(
+            probe(TcpProbe::new(30)).over(&earlier),
+            probe(TcpProbe::new(30)),
+            "the interval and the count of the earlier probe are not kept"
+        );
+        assert_eq!(
+            TransportOptions {
+                tcp_keepalive: Some(TcpKeepalive::None),
+                ..TransportOptions::default()
+            }
+            .over(&earlier)
+            .tcp_keepalive,
+            Some(TcpKeepalive::None),
+            "another variant is taken whole"
+        );
+        assert_eq!(
+            TransportOptions::default().over(&earlier),
+            earlier,
+            "a probe left out is the earlier one"
+        );
+
+        let windows = |stream: Option<i32>, connection: Option<i32>| Http2Options {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
+                stream_window_bytes: stream,
+                connection_window_bytes: connection,
+            })),
+            ..Http2Options::default()
+        };
+        assert_eq!(
+            windows(Some(80_000), None).over(&windows(Some(70_000), Some(90_000))),
+            windows(Some(80_000), Some(90_000)),
+            "windows have no mandatory field"
         );
     }
 
@@ -5320,8 +5262,8 @@ mod tests {
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
     /// name they stopped agreeing on would be an option the generated C# sets and the schema
-    /// admits, which the loader reads past: nothing would refuse it, so what this asserts is that
-    /// nothing is logged as unknown.
+    /// admits, which the loader would refuse by its path below the root, or log at it: what this
+    /// asserts is that the document is read and nothing is logged as unknown.
     #[cfg(feature = "schema")]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
@@ -5351,7 +5293,7 @@ mod tests {
                 let said = logged.said();
                 assert!(
                     said.is_empty(),
-                    "the schema declares {document}, which serde reads past: {said}"
+                    "the schema declares {document}, which the loader logs as unknown: {said}"
                 );
             }
         }
@@ -5401,8 +5343,7 @@ mod tests {
     /// takes the alternative `alternative` picks in the base of its alternatives' count, and hands
     /// what is left of the index to the choices that alternative holds.
     ///
-    /// Values rather than a name list, because an unknown name is logged and a value of the wrong
-    /// type refused, and only a document carrying both exercises the two.
+    /// Values rather than a name list, so that the document is read as well as named.
     #[cfg(feature = "schema")]
     fn a_value_for(
         node: &serde_json::Value,

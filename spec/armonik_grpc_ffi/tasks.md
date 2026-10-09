@@ -1522,11 +1522,11 @@ and in the `armonik` crate alike. The .NET binding takes no `IConfiguration`: it
 `LoadConfigFromObject`, each adding a source, the command line parsed in .NET's idiom inside the
 binding. `RuntimeOptions` moves to `armonik-transport` and gains `Endpoint`, which
 `ak_channel_create` takes when given an empty endpoint. An unknown key is logged through `tracing`
-and ignored, in every source and on every host, a field of a variant's payload excepted, which is
-refused (2026-10-09). The schema keeps `additionalProperties: false`,
-which tells an editor of a file what the engine logs; the test that the schema and serde read the
-same names, `every_option_the_schema_declares_is_one_serde_reads`, asserts that nothing is logged
-as unknown, since serde no longer refuses what the two stop agreeing on. abi.md, architecture.md -
+and ignored at the root of a document, and refused by its path anywhere else, in every source and
+on every host (2026-10-09). The schema keeps `additionalProperties: false`,
+which tells an editor of a file what the engine refuses; the test that the schema and serde read the
+same names, `every_option_the_schema_declares_is_one_serde_reads`, asserts that every declared
+option loads and that nothing is logged as unknown. abi.md, architecture.md -
 its `additionalProperties` rule included - and formal-model.md, which describe the endpoint as an
 argument, `RuntimeOptions` as the FFI's and an unknown option as refused, follow with it; the
 done tasks of phase 3 in this file, which say the same, stay as the record of what they built.
