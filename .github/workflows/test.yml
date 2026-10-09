@@ -436,6 +436,12 @@ jobs:
         working-directory: packages/rust
         run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi --features armonik-transport/test-hooks,armonik-transport-ffi/test-hooks
 
+      # The same with the counting on: its frame reader and the layout of its record are what a
+      # 32-bit target could put differently.
+      - name: Test with metrics
+        working-directory: packages/rust
+        run: cargo test --locked --target i686-pc-windows-msvc -p armonik-transport -p armonik-transport-ffi --features armonik-transport/test-hooks,armonik-transport-ffi/test-hooks,armonik-transport/metrics,armonik-transport-ffi/metrics
+
   # The engine built against h2-batch's patch, through its recipe: what nothing else builds, and
   # what a new h2 in Cargo.lock would stop building.
   test-rust-h2-batch:

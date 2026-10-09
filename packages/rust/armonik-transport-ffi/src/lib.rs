@@ -281,6 +281,66 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
     unsafe { refusal::answer(out_error, answered) }
 }
 
+/// What the engine counts and reads of its own state, over every channel of the runtime: the
+/// calls, retries, connections, bytes and waits, and the gauges of the throttle. Synchronous,
+/// non-blocking and observational: it changes nothing.
+///
+/// `out` is a record the host sizes and this library fills, which ak_stats describes: the host
+/// sets `struct_size` to the size of its own definition, at least the first four fields, and zero
+/// to the others of the head. The library writes the eight-byte words that lie within that size and
+/// sets `struct_size` to what it wrote. A library built without its `metrics` feature answers
+/// AK_STATUS_OK with `flags` clear and every counter zero, never a status that says it is not
+/// supported, so that one host serves either build.
+///
+/// An `out` whose `struct_size` is below sixteen, or whose version, flags or reserved is not zero,
+/// is AK_STATUS_INVALID_ARG, as is a null `out`; a runtime handle that names nothing is
+/// AK_STATUS_HANDLE_STALE.
+///
+/// # Safety
+///
+/// `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_runtime_stats(
+    runtime: ak_handle,
+    out: *mut ak_stats,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        if out.is_null() {
+            return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+        }
+        // The head alone is read: the rest of the host's record is for the library to write, and
+        // may be uninitialized.
+        let declared = out.cast::<u32>().read_unaligned() as usize;
+        if declared < std::mem::offset_of!(ak_stats, calls_started) {
+            return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+        }
+        let mut head = std::mem::MaybeUninit::<ak_stats>::zeroed();
+        std::ptr::copy_nonoverlapping(
+            out.cast::<u8>(),
+            head.as_mut_ptr().cast::<u8>(),
+            std::mem::offset_of!(ak_stats, calls_started),
+        );
+        let asked = read_versioned(head.as_ptr())?;
+        let found = tables::runtimes()
+            .get(runtime)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        let value = ak_stats::from(&found.metrics().stats());
+        // Whole words only: the head is 16 bytes and every field after it a multiple of eight.
+        let size = std::mem::size_of::<ak_stats>();
+        let written = (asked.struct_size as usize).min(size) & !7;
+        std::ptr::copy_nonoverlapping(
+            std::ptr::from_ref(&value).cast::<u8>(),
+            out.cast::<u8>(),
+            written,
+        );
+        out.cast::<u32>().write_unaligned(written as u32);
+        Ok(())
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
 /// Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the
 /// certificate files the document names, and resolves no name and opens no socket until the
 /// channel's first call. A bad endpoint or a bad document is AK_STATUS_INVALID_ARG, a file that

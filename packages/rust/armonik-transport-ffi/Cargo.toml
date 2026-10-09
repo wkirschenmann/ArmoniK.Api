@@ -26,6 +26,10 @@ tracing.workspace = true
 tracing-core.workspace = true
 
 [features]
+# Counts what the engine does, for `ak_runtime_stats`. Off by default, so that a build that does not
+# ask for it carries no counting; the entry point is in the header either way, and answers an
+# empty structure without it.
+metrics = ["armonik-transport/metrics"]
 # Points where a test holds a host thread inside a downcall, counts of the channels' threads and
 # of the arenas lends allocate, and the transport's own hooks. Off unless a test asks for it; no
 # shipped build enables it.

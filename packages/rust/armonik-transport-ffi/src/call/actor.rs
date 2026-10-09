@@ -254,6 +254,7 @@ impl Delivering {
         // Forgotten like the send window's: the credit is spent until the host consumes the
         // payload, and `ak_event_consumed` is what gives it back.
         if !self.took_credit() {
+            self.state.control.count_window_wait();
             self.flush();
             let state = &self.state;
             let permit = tokio::select! {
@@ -311,6 +312,7 @@ impl ResponseSink for Delivering {
         let Some(charge) = self.state.ledger.hold_received(data.len()) else {
             // Freed at once, and the peer told: past the second threshold the process would run
             // out of memory before the host gave anything back.
+            self.state.ledger.refused();
             self.state.control.cancel();
             return Err(GrpcStatus::new(
                 GrpcStatusCode::ResourceExhausted,

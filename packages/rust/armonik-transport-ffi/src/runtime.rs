@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 use std::time::Duration;
 
+use armonik_transport::metrics::Metrics;
 use armonik_transport::options::{ChannelOptions, RuntimeOptions};
 use tokio::sync::{oneshot, watch};
 
@@ -19,6 +20,8 @@ pub(crate) struct AkRuntime {
     spawner: tokio::runtime::Handle,
     host: Arc<Host>,
     ledger: Arc<Ledger>,
+    /// What every channel of the runtime counts into, and `ak_runtime_stats` reads.
+    metrics: Metrics,
     state: AtomicI32,
     gate: RwLock<()>,
     /// The thread that finishes the shutdown, once there is one.
@@ -111,7 +114,9 @@ impl AkRuntime {
         (ceiling, hard_ceiling): (u64, u64),
         host: Host,
     ) -> Result<Arc<Self>, Refusal> {
-        let ledger = Ledger::new(ceiling, hard_ceiling).map_err(|_| THRESHOLDS_CROSSED)?;
+        let metrics = Metrics::new();
+        let ledger = Ledger::counting_in(ceiling, hard_ceiling, metrics.clone())
+            .map_err(|_| THRESHOLDS_CROSSED)?;
 
         // One worker: what runs here is the shutdown's orchestration, the channels' work running
         // on threads of their own.
@@ -128,6 +133,7 @@ impl AkRuntime {
             spawner,
             host: Arc::new(host),
             ledger: Arc::new(ledger),
+            metrics,
             state: AtomicI32::new(ak_runtime_state::AK_RUNTIME_RUNNING as i32),
             gate: RwLock::new(()),
             teardown: Mutex::new(None),
@@ -225,6 +231,10 @@ impl AkRuntime {
 
     pub(crate) fn ledger(&self) -> &Arc<Ledger> {
         &self.ledger
+    }
+
+    pub(crate) fn metrics(&self) -> &Metrics {
+        &self.metrics
     }
 
     pub(crate) fn services(&self) -> CallServices<'_> {

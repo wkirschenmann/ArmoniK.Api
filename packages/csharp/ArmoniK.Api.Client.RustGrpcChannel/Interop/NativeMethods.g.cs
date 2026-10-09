@@ -48,6 +48,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         internal const uint AK_CONFIG_NO_PREFIX = 1;
         /// <summary>
+        ///  In ak_stats.flags, written by the library: it keeps counters. Clear, the structure is empty and
+        ///  every field past the first four is zero.
+        /// </summary>
+        internal const uint AK_STATS_COUNTING = 1;
+        /// <summary>
         ///  In ak_call_start_options.flags: timeout_ns states the call's deadline.
         /// </summary>
         internal const uint AK_CALL_HAS_DEADLINE = 1;
@@ -176,6 +181,30 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         [DllImport(__DllName, EntryPoint = "ak_runtime_memory_usage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern ak_status ak_runtime_memory_usage(ulong runtime, ak_memory_usage* @out, ak_error* out_error);
+
+        /// <summary>
+        ///  What the engine counts and reads of its own state, over every channel of the runtime: the
+        ///  calls, retries, connections, bytes and waits, and the gauges of the throttle. Synchronous,
+        ///  non-blocking and observational: it changes nothing.
+        ///
+        ///  `out` is a record the host sizes and this library fills, which ak_stats describes: the host
+        ///  sets `struct_size` to the size of its own definition, at least the first four fields, and zero
+        ///  to the others of the head. The library writes the eight-byte words that lie within that size and
+        ///  sets `struct_size` to what it wrote. A library built without its `metrics` feature answers
+        ///  AK_STATUS_OK with `flags` clear and every counter zero, never a status that says it is not
+        ///  supported, so that one host serves either build.
+        ///
+        ///  An `out` whose `struct_size` is below sixteen, or whose version, flags or reserved is not zero,
+        ///  is AK_STATUS_INVALID_ARG, as is a null `out`; a runtime handle that names nothing is
+        ///  AK_STATUS_HANDLE_STALE.
+        ///
+        ///  # Safety
+        ///
+        ///  `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+        ///  `out_error` must be null or writable for an `ak_error`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "ak_runtime_stats", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern ak_status ak_runtime_stats(ulong runtime, ak_stats* @out, ak_error* out_error);
 
         /// <summary>
         ///  Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the
@@ -751,6 +780,141 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  smaller. Never zero.
         /// </summary>
         public ulong ceiling;
+    }
+
+    /// <summary>
+    ///  What the engine counts and reads of its own state, over every channel of a runtime, as
+    ///  ak_runtime_stats writes it. Counters only grow; a gauge is the state at the call.
+    ///
+    ///  A third kind of record, beside the options a host fills and the records this library fills
+    ///  whole. It starts with struct_size, version, flags and reserved, and every field after them is
+    ///  a `uint64_t`, a `double` or an array of `uint64_t`, so that its layout is the same on every
+    ///  target whatever alignment an eight-byte integer has. The host sets struct_size to the size of
+    ///  its definition, at least those four fields, and the rest of the head to zero; the library
+    ///  writes the eight-byte words that lie within that size, and sets struct_size to the number of
+    ///  bytes it wrote. A field past it reads as zero in a host that zeroed its record first. A host
+    ///  that passes the four fields alone learns whether the library counts, from flags.
+    ///
+    ///  A library built without its `metrics` feature answers AK_STATUS_OK with flags clear and every
+    ///  counter zero: one ABI serves both builds. The structure's size and the lengths of its arrays
+    ///  are fixed; a slot added to an array is a new array or a new ABI version, and a field is
+    ///  appended.
+    ///
+    ///  An array is indexed by its slots: calls_ended by the gRPC status number, 0 to 16, and
+    ///  streams_reset by the HTTP/2 error code of RFC 9113, 0 to 13, the last slot being any other.
+    ///  retries is indexed by what failed and was retried: slots 0 to 15 the gRPC statuses 1 to 16 as
+    ///  the server stated them, 16 to 22 an HTTP status that stated none of them (408, 429, 500, 502,
+    ///  503, 504, then any other), 23 to 37 a reset by the slots of streams_reset, 38 a pushback, 39 a
+    ///  dial, 40 a connection (which a GOAWAY that left a call unprocessed counts as). A retry is
+    ///  counted when it is sent. connections_closed is indexed by the reason a session ended: 0 the
+    ///  peer's GOAWAY, 1 a keepalive that timed out, 2 the engine's idle timeout, 3 an I/O error, 4
+    ///  the engine closing its channel, 5 the peer closing the stream of bytes with no GOAWAY, 6 an
+    ///  HTTP/2 protocol error, 7 something else.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct ak_stats
+    {
+        /// <summary>
+        ///  In: sizeof the record the host was built with, at least 16. Out: the bytes written.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  Zero, the one revision of this record there is.
+        /// </summary>
+        public uint version;
+        /// <summary>
+        ///  In: zero. Out: AK_STATS_COUNTING or none.
+        /// </summary>
+        public uint flags;
+        /// <summary>
+        ///  Zero.
+        /// </summary>
+        public uint reserved;
+        /// <summary>
+        ///  Calls started.
+        /// </summary>
+        public ulong calls_started;
+        /// <summary>
+        ///  Calls ended, by the status they ended with.
+        /// </summary>
+        public fixed ulong calls_ended[17];
+        /// <summary>
+        ///  Messages taken from the calls' request streams, once whatever the attempts that send them,
+        ///  and read off their responses.
+        /// </summary>
+        public ulong messages_sent;
+        public ulong messages_received;
+        /// <summary>
+        ///  Retries, by what was retried; see the slots above.
+        /// </summary>
+        public fixed ulong retries[41];
+        /// <summary>
+        ///  Retries the adaptive estimate of a channel stopped.
+        /// </summary>
+        public ulong retries_refused;
+        /// <summary>
+        ///  Calls whose messages outgrew a replay ceiling, so that they are never tried again.
+        /// </summary>
+        public ulong calls_not_replayable;
+        /// <summary>
+        ///  Requests the peer's application never processed, sent again at once.
+        /// </summary>
+        public ulong resends;
+        public ulong dials_tried;
+        public ulong dials_succeeded;
+        public ulong dials_failed;
+        /// <summary>
+        ///  Sessions that ended, by reason; see the slots above.
+        /// </summary>
+        public fixed ulong connections_closed[8];
+        /// <summary>
+        ///  Streams the peer reset, by HTTP/2 error code, whether or not a call was on them.
+        /// </summary>
+        public fixed ulong streams_reset[15];
+        /// <summary>
+        ///  The HTTP/2 bytes the connections wrote and read, above TLS.
+        /// </summary>
+        public ulong wire_bytes_sent;
+        public ulong wire_bytes_received;
+        /// <summary>
+        ///  The bytes of the messages as their callers wrote them, and as the engine sent them, the
+        ///  gRPC prefix of each left out: a message once, whatever the attempts that send it.
+        /// </summary>
+        public ulong message_bytes_raw;
+        public ulong message_bytes_sent;
+        /// <summary>
+        ///  Deliveries that found every credit of Grpc.Host.Receive.Window spent.
+        /// </summary>
+        public ulong host_window_waits;
+        /// <summary>
+        ///  Reads held back, and sends made to wait, by the memory ceiling.
+        /// </summary>
+        public ulong host_memory_waits;
+        /// <summary>
+        ///  Sends refused with AK_STATUS_BUDGET_BUSY, and received messages dropped, by the ceiling.
+        /// </summary>
+        public ulong host_memory_refusals;
+        /// <summary>
+        ///  Gauge: the rate of first attempts, a second, that the channels whose estimate caps them
+        ///  allow together; zero when none does.
+        /// </summary>
+        public double throttle_cap_per_second;
+        /// <summary>
+        ///  Gauge: channels whose first attempts are capped.
+        /// </summary>
+        public ulong channels_capped;
+        /// <summary>
+        ///  Gauge: channels whose estimate has stopped retries.
+        /// </summary>
+        public ulong channels_retries_closed;
+        /// <summary>
+        ///  Gauge: calls waiting for their turn at a cap.
+        /// </summary>
+        public ulong calls_waiting_at_cap;
+        /// <summary>
+        ///  Gauge: calls waiting for a session to open or to have room for them.
+        /// </summary>
+        public ulong calls_waiting_for_stream;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -221,6 +221,65 @@ public class AbiLayoutTests
                                      Is.EqualTo(8));
                        });
 
+  /// <summary>A head of four integers, then fields of eight bytes in steps of eight, so that no architecture
+  /// puts padding where another does not.</summary>
+  [Test]
+  public void TheStatsRecordIsAHeadAndFieldsOfEightBytes()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(Offset<ak_stats>("struct_size"),
+                                     Is.EqualTo(0));
+                         Assert.That(Offset<ak_stats>("version"),
+                                     Is.EqualTo(4));
+                         Assert.That(Offset<ak_stats>("flags"),
+                                     Is.EqualTo(8));
+                         Assert.That(Offset<ak_stats>("reserved"),
+                                     Is.EqualTo(12));
+
+                         var at = 16;
+                         foreach (var (name, words) in new[]
+                                                       {
+                                                         ("calls_started", 1),
+                                                         ("calls_ended", 17),
+                                                         ("messages_sent", 1),
+                                                         ("messages_received", 1),
+                                                         ("retries", 41),
+                                                         ("retries_refused", 1),
+                                                         ("calls_not_replayable", 1),
+                                                         ("resends", 1),
+                                                         ("dials_tried", 1),
+                                                         ("dials_succeeded", 1),
+                                                         ("dials_failed", 1),
+                                                         ("connections_closed", 8),
+                                                         ("streams_reset", 15),
+                                                         ("wire_bytes_sent", 1),
+                                                         ("wire_bytes_received", 1),
+                                                         ("message_bytes_raw", 1),
+                                                         ("message_bytes_sent", 1),
+                                                         ("host_window_waits", 1),
+                                                         ("host_memory_waits", 1),
+                                                         ("host_memory_refusals", 1),
+                                                         ("throttle_cap_per_second", 1),
+                                                         ("channels_capped", 1),
+                                                         ("channels_retries_closed", 1),
+                                                         ("calls_waiting_at_cap", 1),
+                                                         ("calls_waiting_for_stream", 1),
+                                                       })
+                         {
+                           Assert.That(Offset<ak_stats>(name),
+                                       Is.EqualTo(at),
+                                       name);
+                           at += 8 * words;
+                         }
+
+                         Assert.That(Marshal.SizeOf<ak_stats>(),
+                                     Is.EqualTo(at));
+                         Assert.That(at,
+                                     Is.EqualTo(832));
+                         Assert.That(NativeMethods.AK_STATS_COUNTING,
+                                     Is.EqualTo(1u));
+                       });
+
   /// <summary>The discriminants, which no size or offset would catch.</summary>
   [Test]
   public void EveryDiscriminantIsTheOneTheHeaderGives()

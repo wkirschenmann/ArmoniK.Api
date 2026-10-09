@@ -261,6 +261,7 @@ impl CallState {
                 return Err(ak_status::AK_STATUS_INVALID_STATE);
             }
             if let Err(refused) = self.ledger.hold_bytes(len) {
+                self.ledger.refused();
                 // The wake-up this refusal promises is the task's to raise.
                 self.spawn_task();
                 return Err(refused);
@@ -355,6 +356,9 @@ impl CallState {
             .admits_buffer(new_len)
             .and_then(|()| self.exchange(&mut lent, new_len, carried));
         if let Err(status) = outcome {
+            if status == ak_status::AK_STATUS_BUDGET_BUSY {
+                self.ledger.refused();
+            }
             return Err(keep(lent, status));
         }
         let ptr = lent.lent_ptr();

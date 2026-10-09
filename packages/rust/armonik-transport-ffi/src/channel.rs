@@ -229,8 +229,9 @@ pub(crate) fn create(
     let connect_eagerly = settings.connect_eagerly();
 
     let ChannelThread { spawner, stop } = owner.start_channel_thread()?;
-    let grpc = GrpcChannel::new(settings.into_channel_config(endpoint), spawner.clone())
-        .map_err(Refusal::channel)?;
+    let mut config = settings.into_channel_config(endpoint);
+    config.metrics = Some(owner.metrics().clone());
+    let grpc = GrpcChannel::new(config, spawner.clone()).map_err(Refusal::channel)?;
     let dialled = grpc.clone();
 
     let handle = tables::channels()

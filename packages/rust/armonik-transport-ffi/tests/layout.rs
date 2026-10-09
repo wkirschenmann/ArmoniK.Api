@@ -108,6 +108,36 @@ fn every_field_has_the_type_the_header_declares() {
     let _: fn(&ak_memory_usage) -> &u64 = |usage| &usage.bytes_used;
     let _: fn(&ak_memory_usage) -> &u64 = |usage| &usage.ceiling;
 
+    let _: fn(&ak_stats) -> &u32 = |stats| &stats.struct_size;
+    let _: fn(&ak_stats) -> &u32 = |stats| &stats.version;
+    let _: fn(&ak_stats) -> &u32 = |stats| &stats.flags;
+    let _: fn(&ak_stats) -> &u32 = |stats| &stats.reserved;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.calls_started;
+    let _: fn(&ak_stats) -> &[u64; 17] = |stats| &stats.calls_ended;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.messages_sent;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.messages_received;
+    let _: fn(&ak_stats) -> &[u64; 41] = |stats| &stats.retries;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.retries_refused;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.calls_not_replayable;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.resends;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.dials_tried;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.dials_succeeded;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.dials_failed;
+    let _: fn(&ak_stats) -> &[u64; 8] = |stats| &stats.connections_closed;
+    let _: fn(&ak_stats) -> &[u64; 15] = |stats| &stats.streams_reset;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.wire_bytes_sent;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.wire_bytes_received;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.message_bytes_raw;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.message_bytes_sent;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.host_window_waits;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.host_memory_waits;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.host_memory_refusals;
+    let _: fn(&ak_stats) -> &f64 = |stats| &stats.throttle_cap_per_second;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.channels_capped;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.channels_retries_closed;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.calls_waiting_at_cap;
+    let _: fn(&ak_stats) -> &u64 = |stats| &stats.calls_waiting_for_stream;
+
     let _: fn(&ak_error) -> &ak_error_kind = |error| &error.kind;
     let _: fn(&ak_error) -> &ak_bytes = |error| &error.detail;
 }
@@ -228,6 +258,103 @@ fn the_observational_structs_are_plain_integers() {
     assert_eq!(size_of::<ak_memory_usage>(), 16);
     assert_eq!(offset_of!(ak_memory_usage, bytes_used), 0);
     assert_eq!(offset_of!(ak_memory_usage, ceiling), 8);
+}
+
+/// The stats record is a head of four integers, then fields of eight bytes in steps of eight, so
+/// that no target - x86, x64, arm - puts padding where another does not.
+#[test]
+fn the_stats_record_is_a_head_and_fields_of_eight_bytes() {
+    assert_eq!(offset_of!(ak_stats, struct_size), 0);
+    assert_eq!(offset_of!(ak_stats, version), 4);
+    assert_eq!(offset_of!(ak_stats, flags), 8);
+    assert_eq!(offset_of!(ak_stats, reserved), 12);
+    assert_eq!(offset_of!(ak_stats, calls_started), 16);
+
+    let mut at = 16;
+    let mut next = |name: &str, offset: usize, words: usize| {
+        assert_eq!(offset, at, "{name}");
+        at += 8 * words;
+    };
+    next("calls_started", offset_of!(ak_stats, calls_started), 1);
+    next("calls_ended", offset_of!(ak_stats, calls_ended), 17);
+    next("messages_sent", offset_of!(ak_stats, messages_sent), 1);
+    next(
+        "messages_received",
+        offset_of!(ak_stats, messages_received),
+        1,
+    );
+    next("retries", offset_of!(ak_stats, retries), 41);
+    next("retries_refused", offset_of!(ak_stats, retries_refused), 1);
+    next(
+        "calls_not_replayable",
+        offset_of!(ak_stats, calls_not_replayable),
+        1,
+    );
+    next("resends", offset_of!(ak_stats, resends), 1);
+    next("dials_tried", offset_of!(ak_stats, dials_tried), 1);
+    next("dials_succeeded", offset_of!(ak_stats, dials_succeeded), 1);
+    next("dials_failed", offset_of!(ak_stats, dials_failed), 1);
+    next(
+        "connections_closed",
+        offset_of!(ak_stats, connections_closed),
+        8,
+    );
+    next("streams_reset", offset_of!(ak_stats, streams_reset), 15);
+    next("wire_bytes_sent", offset_of!(ak_stats, wire_bytes_sent), 1);
+    next(
+        "wire_bytes_received",
+        offset_of!(ak_stats, wire_bytes_received),
+        1,
+    );
+    next(
+        "message_bytes_raw",
+        offset_of!(ak_stats, message_bytes_raw),
+        1,
+    );
+    next(
+        "message_bytes_sent",
+        offset_of!(ak_stats, message_bytes_sent),
+        1,
+    );
+    next(
+        "host_window_waits",
+        offset_of!(ak_stats, host_window_waits),
+        1,
+    );
+    next(
+        "host_memory_waits",
+        offset_of!(ak_stats, host_memory_waits),
+        1,
+    );
+    next(
+        "host_memory_refusals",
+        offset_of!(ak_stats, host_memory_refusals),
+        1,
+    );
+    next(
+        "throttle_cap_per_second",
+        offset_of!(ak_stats, throttle_cap_per_second),
+        1,
+    );
+    next("channels_capped", offset_of!(ak_stats, channels_capped), 1);
+    next(
+        "channels_retries_closed",
+        offset_of!(ak_stats, channels_retries_closed),
+        1,
+    );
+    next(
+        "calls_waiting_at_cap",
+        offset_of!(ak_stats, calls_waiting_at_cap),
+        1,
+    );
+    next(
+        "calls_waiting_for_stream",
+        offset_of!(ak_stats, calls_waiting_for_stream),
+        1,
+    );
+    assert_eq!(size_of::<ak_stats>(), at);
+    assert_eq!(size_of::<ak_stats>(), 832);
+    assert_eq!(AK_STATS_COUNTING, 1);
 }
 
 #[test]
@@ -517,6 +644,8 @@ fn every_entry_point_has_the_signature_the_header_declares() {
     let _: unsafe extern "C" fn(ak_handle, *mut ak_error) -> ak_status = ak_runtime_destroy;
     let _: unsafe extern "C" fn(ak_handle, *mut ak_memory_usage, *mut ak_error) -> ak_status =
         ak_runtime_memory_usage;
+    let _: unsafe extern "C" fn(ak_handle, *mut ak_stats, *mut ak_error) -> ak_status =
+        ak_runtime_stats;
 
     let _: unsafe extern "C" fn(
         ak_handle,
@@ -580,6 +709,7 @@ fn every_entry_point_the_header_declares_is_exported() {
             "ak_runtime_memory_usage",
             ak_runtime_memory_usage as *const (),
         ),
+        ("ak_runtime_stats", ak_runtime_stats as *const ()),
         ("ak_channel_create", ak_channel_create as *const ()),
         ("ak_channel_release", ak_channel_release as *const ()),
         ("ak_channel_status", ak_channel_status as *const ()),
@@ -664,6 +794,10 @@ fn every_entry_point_takes_the_parameters_the_header_declares() {
         (
             "ak_runtime_memory_usage",
             &["ak_handle", "ak_memory_usage *", "ak_error *"],
+        ),
+        (
+            "ak_runtime_stats",
+            &["ak_handle", "ak_stats *", "ak_error *"],
         ),
         (
             "ak_channel_create",

@@ -317,7 +317,7 @@ silent.
   library fills whole. It starts with `struct_size`, `version`, `flags`
   and `reserved`; the host sets `struct_size` to the size of the record it was built with, which
   is at least those four fields, and the other three to zero, which are refused otherwise. The
-  library writes the fields that lie within it and sets `struct_size` to what it wrote, and
+  library writes the eight-byte words that lie within it and sets `struct_size` to what it wrote, and
   `flags` to what it is. A host that passes the four fields alone learns only whether the library
   counts. `flags` carries `AK_STATS_COUNTING` when it does. The record's fields past the
   four are `uint64_t` and `double` alone, in 8-byte steps after a head of 16 bytes, so that its

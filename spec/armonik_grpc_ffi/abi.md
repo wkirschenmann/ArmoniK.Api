@@ -203,6 +203,15 @@ and a library that predates it refuses it as an unknown flag.
 A record this library fills, `ak_error` among them, has a fixed layout instead: `ak_abi_version()`
 is the agreement, and the two sides agree at load time or they do not run.
 
+A third kind, `ak_stats`, is sized by the host and filled by the library. It starts with the same
+four fields, and the host sets `struct_size` to the size of its own definition, at least those
+four, and the others to zero, which are refused otherwise. The library writes the eight-byte words that
+lie within that size and sets `struct_size` to what it wrote, so a host built before a field
+appended to the record reads that field as the zero it left, and a host built after it reads a
+library that lacks it as the shorter answer it gets. Its fields past the head are all eight bytes,
+in steps of eight, so that its layout is one on x86, x64 and arm whatever each aligns an eight-byte
+integer to.
+
 #### Runtime lifecycle
 
 `ak_runtime_status` is the guarantee criterion, and no callback can be: a callback runs on the
@@ -440,6 +449,26 @@ second. It answers
 on a failed runtime, where a host wants the accounting most, and with `AK_STATUS_HANDLE_STALE`
 after `ak_runtime_destroy`. The detailed form, under "Specified, not built" below, says why the
 ceiling is held.
+
+#### Stats
+
+`ak_runtime_stats(runtime, &stats, &error)` writes the counters and gauges of the runtime's
+channels as one `ak_stats`: calls started and ended per status, messages, retries per what failed,
+resends, dials, sessions closed per reason, streams the peer reset per HTTP/2 error code, bytes,
+the waits and refusals at the memory ceiling, and the throttle's gauges (observability.md has what
+each counts, and how the .NET binding derives from them). It is observational and outside the
+formal model, synchronous and non-blocking, and counts nothing itself: what it reads the engine
+has kept, and it reads it once for the call.
+
+It is always in the header. A library built without the `metrics` feature of
+`armonik-transport-ffi` answers `AK_STATUS_OK` with `AK_STATS_COUNTING` clear in `flags` and every
+counter zero, and never a status that says it is not supported: a host built once serves either
+build, tells them apart by the flag - or by passing the four fields of the head alone - and has
+nothing to register when the flag is clear. The counters only grow, and a call that was running
+when the structure was read is counted in what it has done so far.
+
+Additive: `AK_ABI_VERSION` stays 1. A host that calls it against
+a library built before it fails with a missing export, an `EntryPointNotFoundException` in .NET.
 
 #### Payload consumption
 
