@@ -10,11 +10,14 @@
 
 EXTENDS FfiGrpc_MC
 
+\* Room for a charge if the engine held nothing.
+IsMemoryAvailableWithoutEngineBytes(charge) ==
+    memory_used - BytesHeldByEngine + charge <= Ceiling
+
 (***************************************************************************)
 (* Stated negatively: the violation trace IS the witness.  The engine      *)
-(* holds bytes and a lend of some length would be refused now, though it   *)
-(* would fit if the engine held nothing - the lend the model admitted      *)
-(* before it had a term for these bytes.                                   *)
+(* holds bytes and a lend of some length is refused now that would fit if  *)
+(* the engine held nothing: the refusal the term engine_held exists for.   *)
 (***************************************************************************)
 
 EngineBytesNeverRefuseALend ==
@@ -23,6 +26,6 @@ EngineBytesNeverRefuseALend ==
             /\ ContemplatesLend(cId)
             /\ HasFreeSendSlot(cId)
             /\ ~IsMemoryAvailable(len)
-            /\ memory_used - BytesHeldByEngine + len <= Ceiling)
+            /\ IsMemoryAvailableWithoutEngineBytes(len))
 
 ===============================================================================

@@ -604,8 +604,8 @@ Init ==
 \* covers both observable statuses.  Level 1 refuses until they are destroyed:
 \* a released handle is still a handle, and the budget its observers report is
 \* one runtime-wide counter, so a successor may not exist while any observer
-\* of the old accounting does, the copies the engine holds included.
-\* Strengthening a guard is what a refinement may do; weakening one is not.
+\* of the old accounting does.  Strengthening a guard is what a refinement may
+\* do; weakening one is not.
 \* Behind a name so that expanding RuntimeCreate yields one atom: inline, the
 \* quantifier lands in every obligation that reads the action, and it made a
 \* heavy preservation lemma intractable rather than merely slower.
@@ -1746,15 +1746,15 @@ LivenessProperties ==
 (* ReleaseCallHandle is taken where the last debt clears, on the host's    *)
 (* thread too - so nothing outside the library can stall them.             *)
 (*                                                                         *)
-(* The last one says the engine holds nothing for ever: a copy goes with   *)
+(* The last one says that what the engine holds drains: a copy goes with   *)
 (* the message that holds it, written or not, and a message ends with its  *)
 (* call, so every copy is dropped.  The model has no copy to name, so the  *)
 (* fairness is on the whole of what is held.  Giving back some would not   *)
 (* do: the engine takes without bound here, and one that gave a byte back  *)
-(* and took a byte would keep the count up for ever, which the code cannot *)
-(* do, a message making one copy and the messages being finite.  Taking    *)
-(* and giving back some carry none: neither is owed, and the counter       *)
-(* falling is all that a waiting send needs.                               *)
+(* and took a byte would keep the count up for ever.  The code makes one   *)
+(* copy per message, so its count reaches zero once its messages stop.     *)
+(* Taking and giving back some carry none: neither is owed, and the        *)
+(* counter falling is all that a waiting send needs.                       *)
 (*                                                                         *)
 (* The FFI layer owes four, the upcall dispatches: DeliverInitialMetadata, *)
 (* DeliverMessage, DeliverStatus and DeliverCancelled.  An event that      *)

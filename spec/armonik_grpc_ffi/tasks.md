@@ -82,7 +82,7 @@ statement that writes ENABLED cannot be reached through an instance.
 
 **Deliverable**: Level 2 TLA+ spec. Refinement verified.
 **Status**: done. `Spec => L1!Spec` proved, so level 1's guarantees are inherited
-rather than restated.  Four TLC configurations plus four witnesses, whose targets
+rather than restated.  Four TLC configurations plus five witnesses, whose targets
 are stated negatively so a violation trace is the result - without them any
 branch could be dead code.
 
@@ -1710,7 +1710,8 @@ its ledger: the copy is charged once it is made and given back with the message 
 no room the copy is dropped and the message is sent uncompressed, with the flag clear, on a call
 whose `grpc-encoding` says otherwise; the call is neither ended nor made to wait
 (`decisions.md`, the compression row). Tests: `tests/compressed_copy.rs` for a one-request call
-and a stream, and `compression.rs`' own. The engine counts nothing of the refusals.
+and a stream, and `compression.rs`' own. The engine counts nothing of the refusals. The model
+counts the copies as `engine_held`, a part of `memory_used`, at both levels (`formal-model.md`).
 
 ---
 
