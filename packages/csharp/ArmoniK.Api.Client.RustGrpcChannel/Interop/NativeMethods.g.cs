@@ -387,7 +387,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
         ///  it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
         ///  `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
-        ///  allocator failure is AK_STATUS_INTERNAL.
+        ///  allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made: it is
+        ///  a refusal like the others, with the old buffer lent and charged, so the host may retry or give
+        ///  it back. A panic after it, while the old memory is set aside, does not undo it: the answer is
+        ///  AK_STATUS_OK. A panic while taking back an overrun is AK_STATUS_CORRUPTED.
         ///
         ///  A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
         ///  after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back
@@ -631,8 +634,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public uint reserved;
         /// <summary>
-        ///  Bytes past which work waits, counting the buffers lent and the messages received until
-        ///  the host consumes them: a call stops reading, and a lend is refused with
+        ///  Bytes past which work waits, counting the buffers lent, the messages received until
+        ///  the host consumes them, and the compressed copies the engine holds while a message holds
+        ///  them: a
+        ///  call stops reading, a copy that does not fit is not made and its message goes out
+        ///  uncompressed, and a lend is refused with
         ///  AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
         ///  gigabytes, or half the address space where that is smaller - the gRPC length prefix and the
         ///  allocator between them admit no more, so a budget above it is one no single lend could draw
@@ -739,7 +745,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     internal unsafe partial struct ak_memory_usage
     {
         /// <summary>
-        ///  The buffers lent and the messages received and not yet given back, atomic snapshot. Past
+        ///  The buffers lent and the messages received and not yet given back, and the compressed
+        ///  copies the engine holds, atomic snapshot. Past
         ///  `ceiling` by up to a message per call admitted to read, and never past the second
         ///  threshold. The spare arenas channels keep to lend again are not in it: they fit under
         ///  `ceiling` beside it, give their room to any charge that needs it, and are kept until then

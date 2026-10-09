@@ -3077,8 +3077,9 @@ pub struct RuntimeOptions {
     pub logging: LoggingOptions,
 }
 
-/// The memory the runtime holds: the bytes counting the buffers lent to send and the messages
-/// received until the host gives them back, and where work waits and where the runtime stops.
+/// The memory the runtime holds: the bytes counting the buffers lent to send, the messages
+/// received until the host gives them back and the compressed copies of sent messages while they
+/// are held, and where work waits and where the runtime stops.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -3086,7 +3087,8 @@ pub struct RuntimeOptions {
 #[non_exhaustive]
 pub struct MemoryCeilingOptions {
     /// The MiB the runtime holds before work waits: a call stops reading, and a send waits for
-    /// room.
+    /// room. A compressed copy that would pass it is dropped instead, and its message goes out
+    /// uncompressed.
     ///
     /// Defaults to 4096, four gigabytes, or 2048 where half the address space is smaller; a larger
     /// value is that too.

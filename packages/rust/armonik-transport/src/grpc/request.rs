@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use bytes::{Buf, Bytes};
 use tokio::sync::Notify;
 
+use super::compression::Charge;
+
 /// The bytes ahead of a gRPC message on the wire: its compression flag and its length.
 pub const FRAME_PREFIX: usize = 5;
 
@@ -13,6 +15,18 @@ pub struct FramedMessage(Bytes);
 
 /// The compression flag of a message its peer inflates.
 const COMPRESSED: u8 = 1;
+
+/// A message's bytes and what counts them, which goes with the last reference to them.
+struct Charged {
+    buffer: Vec<u8>,
+    _charge: Charge,
+}
+
+impl AsRef<[u8]> for Charged {
+    fn as_ref(&self) -> &[u8] {
+        &self.buffer
+    }
+}
 
 /// Writes the prefix of the message that starts at `headroom` into the bytes just before it, and
 /// says where it starts; None when the headroom has no room for it, the buffer no message, or the
@@ -60,10 +74,17 @@ impl FramedMessage {
     }
 
     /// `buffer` holds a message already compressed after [`FRAME_PREFIX`] bytes kept for the
-    /// prefix, which this writes with the compressed flag set.
-    pub(crate) fn compressed_in_place(mut buffer: Vec<u8>) -> Option<Self> {
+    /// prefix, which this writes with the compressed flag set. The message owns `charge`, which is
+    /// dropped with the last of its bytes.
+    pub(crate) fn compressed_in_place(mut buffer: Vec<u8>, charge: Option<Charge>) -> Option<Self> {
         prefixed_flagged(&mut buffer, FRAME_PREFIX, COMPRESSED)?;
-        Some(Self(Bytes::from(buffer)))
+        Some(Self(match charge {
+            Some(charge) => Bytes::from_owner(Charged {
+                buffer,
+                _charge: charge,
+            }),
+            None => Bytes::from(buffer),
+        }))
     }
 
     /// A message the caller holds elsewhere, framed by a copy.

@@ -63,19 +63,12 @@ impl Lent {
         intact(&self.data, self.headroom, self.len)
     }
 
-    /// Moves the lend to `data`, an arena for `len` bytes after the same headroom, charged
-    /// `charged`, with the first `keep` bytes the host wrote carried over. Returns the arena it
-    /// leaves.
+    /// Copies the first `keep` bytes the host wrote into `data`, an arena for `len` bytes after the
+    /// same headroom, and changes nothing of the lend.
     ///
     /// `keep` is at most what was lent and what is lent now, and the old arena is intact: both are
     /// the caller's to have checked, since an arena that was overrun is not read.
-    pub(super) fn move_to(
-        &mut self,
-        mut data: Vec<u8>,
-        len: usize,
-        charged: usize,
-        keep: usize,
-    ) -> Vec<u8> {
+    pub(super) fn carry_over(&self, data: &mut Vec<u8>, len: usize, keep: usize) {
         debug_assert!(keep <= self.len && keep <= len);
         // SAFETY: each arena reserved `headroom + len` bytes and more, `keep` is within both, and
         // two allocations do not overlap. The host wrote the `keep` bytes it says it did.
@@ -84,6 +77,11 @@ impl Lent {
                 .add(self.headroom)
                 .copy_from_nonoverlapping(Vec::as_ptr(&self.data).add(self.headroom), keep)
         };
+    }
+
+    /// Moves the lend to `data`, which `carry_over` filled, charged `charged`. Returns the arena it
+    /// leaves. Plain assignments that cannot fail.
+    pub(super) fn swap_arena(&mut self, data: Vec<u8>, len: usize, charged: usize) -> Vec<u8> {
         self.len = len;
         self.charged = charged;
         std::mem::replace(&mut self.data, data)

@@ -6,6 +6,7 @@ use super::{actor, CallServices, CallTask, ReadTurn, Requests};
 use crate::abi::{ak_error_kind, ak_handle, ak_status};
 use crate::channel::AkChannel;
 use crate::host::HostPtr;
+use crate::ledger::CopyBudget;
 use crate::refusal::Refusal;
 use crate::tables;
 
@@ -62,6 +63,7 @@ pub(crate) fn start_on(
     options.read_gate = Some(Arc::clone(&turn) as _);
     options.one_response = one_response;
     options.wait_for_ready = wait_for_ready;
+    options.compression_budget = Some(Arc::new(CopyBudget(Arc::clone(services.ledger))));
 
     let prepared = if one_request {
         channel

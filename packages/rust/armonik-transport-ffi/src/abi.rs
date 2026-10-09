@@ -336,8 +336,11 @@ pub struct ak_runtime_config {
     pub flags: u32,
     /// Zero.
     pub reserved: u32,
-    /// Bytes past which work waits, counting the buffers lent and the messages received until
-    /// the host consumes them: a call stops reading, and a lend is refused with
+    /// Bytes past which work waits, counting the buffers lent, the messages received until
+    /// the host consumes them, and the compressed copies the engine holds while a message holds
+    /// them: a
+    /// call stops reading, a copy that does not fit is not made and its message goes out
+    /// uncompressed, and a lend is refused with
     /// AK_STATUS_BUDGET_BUSY. Zero, or more than this library can lend, asks for its own: four
     /// gigabytes, or half the address space where that is smaller - the gRPC length prefix and the
     /// allocator between them admit no more, so a budget above it is one no single lend could draw
@@ -450,7 +453,8 @@ pub enum ak_channel_state {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ak_memory_usage {
-    /// The buffers lent and the messages received and not yet given back, atomic snapshot. Past
+    /// The buffers lent and the messages received and not yet given back, and the compressed
+    /// copies the engine holds, atomic snapshot. Past
     /// `ceiling` by up to a message per call admitted to read, and never past the second
     /// threshold. The spare arenas channels keep to lend again are not in it: they fit under
     /// `ceiling` beside it, give their room to any charge that needs it, and are kept until then

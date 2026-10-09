@@ -9,7 +9,9 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
 use tonic::codegen::tokio_stream::Stream;
 
-use super::compression::{compressed, compressed_in_place, compresses_in_place, Encoding};
+use super::compression::{
+    compressed, compressed_in_place, compresses_in_place, CompressionBudget, Encoding,
+};
 use super::driver::{Delivery, Driving};
 use super::error::CallError;
 use super::metadata::Metadata;
@@ -137,6 +139,9 @@ pub struct CallStartOptions {
     /// deadline, a cancel, or the channel closing. A call that reached a connection is not
     /// helped: what breaks it after that ends it as it does any other.
     pub wait_for_ready: bool,
+    /// What the compressed copy of each message is counted against. None counts nothing: every
+    /// message that shrinks is sent compressed.
+    pub compression_budget: Option<Arc<dyn CompressionBudget>>,
 }
 
 impl CallStartOptions {
@@ -148,6 +153,7 @@ impl CallStartOptions {
             read_gate: None,
             one_response: false,
             wait_for_ready: false,
+            compression_budget: None,
         }
     }
 }
@@ -406,11 +412,19 @@ pub(crate) struct RequestMessages {
     /// What the messages are compressed with as they are taken, which is after the call's first
     /// attempt has taken its turn: a call that waits for one has compressed nothing.
     encoding: Option<Encoding>,
+    /// What the compressed copies are counted against.
+    budget: Option<Arc<dyn CompressionBudget>>,
     /// The compression of the message taken last, while it is not done.
     compressing: Option<Pin<Box<dyn Future<Output = FramedMessage> + Send>>>,
 }
 
 impl RequestMessages {
+    /// Counts the compressed copies against `budget`.
+    pub(crate) fn charging(mut self, budget: Option<Arc<dyn CompressionBudget>>) -> Self {
+        self.budget = budget;
+        self
+    }
+
     /// Compresses the messages taken from now on.
     pub(crate) fn compress_with(&mut self, encoding: Option<Encoding>) {
         self.encoding = encoding;
@@ -465,10 +479,12 @@ impl Stream for RequestMessages {
         // A small message is compressed where it is; a large one on a blocking thread, which this
         // waits for.
         if compresses_in_place(&message) {
-            return Poll::Ready(Some(compressed_in_place(encoding, message)));
+            let budget = this.budget.as_deref();
+            return Poll::Ready(Some(compressed_in_place(encoding, message, budget)));
         }
+        let budget = this.budget.clone();
         let mut work: Pin<Box<dyn Future<Output = FramedMessage> + Send>> =
-            Box::pin(compressed(encoding, message));
+            Box::pin(async move { compressed(encoding, message, budget.as_ref()).await });
         let done = work.as_mut().poll(cx);
         if done.is_pending() {
             this.compressing = Some(work);
@@ -507,6 +523,7 @@ pub(crate) fn create_with(
         ended: false,
         cut: control.cut.clone(),
         encoding: None,
+        budget: None,
         compressing: None,
     };
 
