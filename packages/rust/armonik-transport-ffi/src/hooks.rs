@@ -79,12 +79,12 @@ pub enum ChargeStep {
 pub enum RepayStep {
     /// Nothing is paid.
     Begun,
-    /// The call's one buffer is no longer counted.
-    Counted,
     /// The bytes the buffer was charged are given back.
     Released,
     /// The send window has its slot back.
     Permitted,
+    /// The call's one buffer is no longer counted: the call may be asked for another.
+    Counted,
 }
 
 /// The points of an `ak_resize_call_buffer` after it has taken the buffer from the host, in order.
@@ -124,6 +124,14 @@ pub fn runtime_options(
     crate::tables::runtimes()
         .get(runtime)
         .map(|found| found.options().clone())
+}
+
+/// Whether the call's send is recorded as waiting for room, which lowers what every call of the
+/// runtime may read. `None` for a call that is not in the table.
+pub fn is_waiting_for_room(call: crate::abi::ak_handle) -> Option<bool> {
+    crate::tables::calls()
+        .get(call)
+        .map(|found| found.is_waiting_for_room())
 }
 
 /// How many arenas lends have allocated rather than taken from a channel's spares.
@@ -187,8 +195,8 @@ pub fn at_each_lend_step(hook: Option<StepHook<LendStep>>) {
     *LEND_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
-/// Runs `hook` at each step of every charge of bytes the ledger makes,
-/// which a test makes panic to see that a charge is either made or not. `None` removes it.
+/// Runs `hook` at each step of every charge of bytes the ledger makes, which a test makes panic to
+/// see that a charge is either made or not. `None` removes it.
 pub fn at_each_charge_step(hook: Option<StepHook<ChargeStep>>) {
     *CHARGE_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }

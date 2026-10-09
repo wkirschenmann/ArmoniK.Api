@@ -53,6 +53,10 @@ name = "lend_panic"
 required-features = ["test-hooks"]
 
 [[test]]
+name = "receive_panic"
+required-features = ["test-hooks"]
+
+[[test]]
 name = "send_return_panic"
 required-features = ["test-hooks"]
 

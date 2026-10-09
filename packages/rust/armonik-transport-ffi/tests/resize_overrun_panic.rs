@@ -40,9 +40,9 @@ impl Drop for Panicking {
 fn a_panic_while_taking_back_an_overrun_answers_corrupted_and_the_shutdown_completes() {
     for step in [
         RepayStep::Begun,
-        RepayStep::Counted,
         RepayStep::Released,
         RepayStep::Permitted,
+        RepayStep::Counted,
     ] {
         let fixture = Host::connected();
         let (host, channel) = (&fixture.host, fixture.channel);

@@ -369,7 +369,7 @@ buffer is as that answer says:
   refusal like an allocator failure. A buffer the host held stays lent, charged and the host's,
   and `*out` as it was, so the host may retry or give the buffer back. A lend that was refused
   holds nothing: nothing is charged, no slot of the window is spent, the call's one buffer is
-  free and `*out` is untouched, so the host may ask again.
+  free, no wait for room is recorded and `*out` is untouched, so the host may ask again.
 - Once the operation is made - the message queued, or on a one-request call given; the exchange
   made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
 - Between the two, where the buffer is gone and the operation was not made - a commit whose arena
