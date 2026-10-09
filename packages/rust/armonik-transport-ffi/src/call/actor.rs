@@ -111,13 +111,14 @@ async fn budget_wakes(state: Arc<CallState>, done: oneshot::Sender<()>) {
 
 /// Raises the wake-up a release owes the call, once no lend of it is still answering: a lend
 /// refused for the budget has then given back what it took, and the host may ask again from
-/// inside the callback.
+/// inside the callback. A lend served meanwhile, on the second try of its charge, has ended
+/// the wait the wake-up was owed to, and the host that holds its buffer is owed none.
 async fn wake_for_budget(state: &CallState) {
-    if !state.waiter.take_owed() {
+    let Some(wait) = state.waiter.take_owed() else {
         return;
-    }
+    };
     state.lend_answered().await;
-    if state.accepts_work() {
+    if state.accepts_work() && state.waiter.still_waits(wait) {
         state.in_callback(|| {
             state
                 .host
