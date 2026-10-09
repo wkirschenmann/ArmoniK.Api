@@ -1199,7 +1199,8 @@ mod tests {
     }
 
     /// A channel's document is merged over the runtime's defaults option by option, a struct's
-    /// options within it: what the channel states wins, and what it leaves out is the default's.
+    /// options within it: what the channel states wins, and what it leaves out is the default's,
+    /// but for a group of options with a mandatory field, which the channel states whole.
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(

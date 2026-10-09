@@ -639,10 +639,7 @@ public abstract record ClientCertificate
     public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
 
     /// <summary>The password the bundle is protected by.</summary>
-    /// <remarks>
-    ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-    ///   the same <c>Path</c>.
-    /// </remarks>
+    /// <remarks>Defaults to the empty one.</remarks>
     public string? Password { get; init; }
 
     /// <inheritdoc />
@@ -970,8 +967,7 @@ public abstract record ProxyOptions
     /// <remarks>
     ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
-    ///   options state neither.
+    ///   username.
     /// </remarks>
     public string? Username { get; init; }
 
@@ -979,8 +975,7 @@ public abstract record ProxyOptions
     /// <remarks>
     ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
-    ///   options state neither.
+    ///   password.
     /// </remarks>
     public string? Password { get; init; }
 
@@ -1016,17 +1011,9 @@ public abstract record ProxyOptions
     public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
 
     /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
-    /// <remarks>
-    ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
-    ///   same <c>Address</c> and these options state neither.
-    /// </remarks>
     public string? Username { get; init; }
 
     /// <summary>The password that goes with <c>Username</c>.</summary>
-    /// <remarks>
-    ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
-    ///   same <c>Address</c> and these options state neither.
-    /// </remarks>
     public string? Password { get; init; }
 
     /// <inheritdoc />

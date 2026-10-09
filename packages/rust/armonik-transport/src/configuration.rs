@@ -36,7 +36,8 @@ const SEPARATOR: &str = "__";
 /// A document a configuration can be read into, merged one over another.
 pub trait Document: serde::de::DeserializeOwned + Default {
     /// This document over `earlier`: what this one states wins, and what it leaves out is the
-    /// earlier one's.
+    /// earlier one's, but for a group of options with a mandatory field, which this one states
+    /// whole.
     fn over(self, earlier: Self) -> Self;
 }
 

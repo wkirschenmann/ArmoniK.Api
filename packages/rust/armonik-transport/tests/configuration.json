@@ -496,7 +496,7 @@
     "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
   },
   {
-    "name": "the fields of a variant are read in an environment variable and in pairs, in any case",
+    "name": "the fields of a variant are read in an environment variable and in pairs, in any case, a later source stating the variant replacing it whole",
     "prefix": "ArmoniKFixture",
     "environment": {
       "ARMONIKFIXTURE__ChannelDefaults__Http2__KeepAlive__Ping__IntervalSeconds": "10",
@@ -507,7 +507,7 @@
       { "pairs": { "ChannelDefaults__Http2__KeepAlive__Ping__INTERVALSECONDS": "20" } }
     ],
     "options": {
-      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20, "WhileIdle": true } } } }
+      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20 } } } }
     }
   },
   {
@@ -621,6 +621,38 @@
       { "environment": true }
     ],
     "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive", "says": "it names none of None, Ping" }
+  },
+  {
+    "name": "a variant with a mandatory field is stated whole, what a later source leaves out being the default's and not the earlier source's",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60, "IntervalSeconds": 10, "Retries": 3 } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__TcpKeepalive__Probe__IdleSeconds": "30" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 30 } } } }
+    }
+  },
+  {
+    "name": "a variant stated without its mandatory field is refused, whatever an earlier source states",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__TcpKeepalive__Probe__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe", "says": "it lacks IdleSeconds" }
+  },
+  {
+    "name": "a variant with only optional fields is merged field by field",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 70000, "ConnectionWindowBytes": 90000 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000 } } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000, "ConnectionWindowBytes": 90000 } } } }
+    }
   },
   {
     "name": "a key no option declares is logged, and the rest read",

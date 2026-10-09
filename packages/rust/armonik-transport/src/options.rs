@@ -180,8 +180,7 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// username. Taken from the runtime's channel defaults, with their `Password`, only when these
-    /// options state neither.
+    /// username.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
@@ -190,8 +189,7 @@ pub struct ProxyCredentials {
     ///
     /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
     /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// password. Taken from the runtime's channel defaults, with their `Username`, only when these
-    /// options state neither.
+    /// password.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -214,17 +212,11 @@ pub struct ProxyUrl {
     pub address: String,
 
     /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
-    ///
-    /// Taken from the runtime's channel defaults, with their `Password`, only when they name the
-    /// same `Address` and these options state neither.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub username: Option<String>,
 
     /// The password that goes with `Username`.
-    ///
-    /// Taken from the runtime's channel defaults, with their `Username`, only when they name the
-    /// same `Address` and these options state neither.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -573,8 +565,7 @@ pub struct P12Certificate {
 
     /// The password the bundle is protected by.
     ///
-    /// Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-    /// the same `Path`.
+    /// Defaults to the empty one.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -2465,15 +2456,27 @@ pub struct HostReceiveOptions {
     pub coalescing_bytes: Option<i32>,
 }
 
-/// Options stated over their defaults: a struct field by field, recursively, and an option is the
-/// default's where it is not stated. An alternative stated over the same one merges its fields
-/// the same way; over another, it is taken whole, so two alternatives are never combined into one
-/// neither stated.
+/// Options stated over their defaults, by the shape of the type alone. A struct with only optional
+/// fields merges field by field, recursively, and an option is the default's where it is not
+/// stated. A struct with a mandatory field is stated whole: it replaces the default's, its optional
+/// fields taking what it states or their default, so that no source leaves it half stated. An
+/// alternative stated over the same variant merges what the two carry by that rule, and over
+/// another variant is taken whole, so two alternatives are never combined into one neither stated.
 trait Over {
+    /// Whether a struct holding this as a field has it mandatory: so of a value and of a struct
+    /// with a mandatory field of its own, not of an `Option` or of a struct with none.
+    fn mandatory(&self) -> bool {
+        true
+    }
+
     fn over(self, defaults: &Self) -> Self;
 }
 
 impl<T: Over + Clone> Over for Option<T> {
+    fn mandatory(&self) -> bool {
+        false
+    }
+
     fn over(self, defaults: &Self) -> Self {
         match (self, defaults) {
             (Some(own), Some(default)) => Some(own.over(default)),
@@ -2746,12 +2749,20 @@ over_variants!(StoreSearch {
     FriendlyName,
 });
 
-/// `Over` for a struct of options, every field merged. The fields are destructured without `..`,
-/// so a field the struct gains and this does not list fails to compile.
+/// `Over` for a struct of options: every field merged, or the struct stated whole when one field is
+/// mandatory. The fields are destructured without `..`, so a field the struct gains and this does
+/// not list fails to compile.
 macro_rules! over_fields {
     ($type:ident { $($field:ident),+ $(,)? }) => {
         impl Over for $type {
+            fn mandatory(&self) -> bool {
+                [$(self.$field.mandatory()),+].into_iter().any(|stated| stated)
+            }
+
             fn over(self, defaults: &Self) -> Self {
+                if self.mandatory() {
+                    return self;
+                }
                 let Self { $($field),+ } = self;
                 Self {
                     $($field: $field.over(&defaults.$field)),+
@@ -2897,58 +2908,13 @@ over_fields!(ReplayOptions {
 });
 over_fields!(PemCertificate { certificate, key });
 
-/// A username and its password are one credential: stating either states it, and nothing of the
-/// default's is paired with it.
-impl Over for ProxyCredentials {
-    fn over(self, defaults: &Self) -> Self {
-        let Self { username, password } = &self;
-        if username.is_some() || password.is_some() {
-            self
-        } else {
-            defaults.clone()
-        }
-    }
-}
-
-/// Credentials go with the proxy they were stated for: the default's are taken only for the same
-/// address, and whole, as `ProxyCredentials` takes them; another address is the channel's own,
-/// with its own credentials or none.
-impl Over for ProxyUrl {
-    fn over(self, defaults: &Self) -> Self {
-        let Self {
-            address,
-            username,
-            password,
-        } = self;
-        let stated = username.is_some() || password.is_some();
-        if address != defaults.address || stated {
-            return Self {
-                address,
-                username,
-                password,
-            };
-        }
-        Self {
-            address,
-            username: defaults.username.clone(),
-            password: defaults.password.clone(),
-        }
-    }
-}
-
-/// A password goes with the bundle it opens: the default's is taken only for the same path.
-impl Over for P12Certificate {
-    fn over(self, defaults: &Self) -> Self {
-        if self.path != defaults.path {
-            return self;
-        }
-        let Self { path, password } = self;
-        Self {
-            password: password.over(&defaults.password),
-            path,
-        }
-    }
-}
+over_fields!(ProxyCredentials { username, password });
+over_fields!(ProxyUrl {
+    address,
+    username,
+    password,
+});
+over_fields!(P12Certificate { path, password });
 over_fields!(StoreCertificate {
     location,
     name,
@@ -2970,11 +2936,12 @@ impl ChannelOptions {
     }
 
     /// These options over `defaults`: field by field, recursively, an option stated here winning
-    /// and one left out the default's. An alternative - how the server is verified, who the client
-    /// is, which proxy - stated over the same one merges its fields the same way, and over another
-    /// is taken whole. Options that only bound one another, such as the two backoff bounds, merge
-    /// as any option, and a merge where they disagree is refused as a document stating both would
-    /// be.
+    /// and one left out the default's, but for a group of options with a mandatory field, such as
+    /// a `Probe`, which is stated whole and replaces the default's. An alternative - how the server
+    /// is verified, who the client is, which proxy - stated over the same one merges as its
+    /// payload does, and over another is taken whole. Options that only bound one another, such as
+    /// the two backoff bounds, merge as any option, and a merge where they disagree is refused as a
+    /// document stating both would be.
     pub fn over(self, defaults: &Self) -> Self {
         Over::over(self, defaults)
     }
@@ -3003,9 +2970,10 @@ pub struct RuntimeOptions {
     pub memory_ceiling: MemoryCeilingOptions,
 
     /// Channel options every channel of the runtime takes where its own options state none: the
-    /// two are merged option by option, a struct's options within it, and the channel's win; an
-    /// alternative - how the server is verified, who the client is, which proxy - merges its fields
-    /// over the same alternative and is taken whole over another.
+    /// two are merged option by option, a struct's options within it, and the channel's win; a
+    /// group of options with a mandatory field, such as a `Probe`, is stated whole and replaces the
+    /// default's. An alternative - how the server is verified, who the client is, which proxy -
+    /// merges as its payload does over the same alternative and is taken whole over another.
     ///
     /// Defaults to none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3629,20 +3597,19 @@ mod tests {
         assert_eq!(refused.key(), "System.Username");
     }
 
-    /// The system proxy's credentials are one credential over the defaults too: taken whole when
-    /// the channel states none, and not at all when it states either.
+    /// The system proxy's credentials have no mandatory field, so they merge field by field over
+    /// the defaults, as any group of options does.
     #[test]
-    fn the_system_proxys_credentials_merge_whole() {
+    fn the_system_proxys_credentials_merge_field_by_field() {
         let defaults = system(Some("alice"), Some("s3cret"));
         assert_eq!(system(None, None).over(&defaults), defaults);
         assert_eq!(
             system(Some("bob"), None).over(&defaults),
-            system(Some("bob"), None),
-            "another username takes none of the default's password"
+            system(Some("bob"), Some("s3cret"))
         );
         assert_eq!(
             system(None, Some("other")).over(&defaults),
-            system(None, Some("other"))
+            system(Some("alice"), Some("other"))
         );
     }
 
@@ -4701,11 +4668,8 @@ mod tests {
         assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(
             merged.http2.keep_alive,
-            Some(Http2KeepAlive::Ping(Http2Ping {
-                while_idle: Some(true),
-                ..Http2Ping::new(Seconds(5.0))
-            })),
-            "a ping over a ping merges its fields"
+            Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
+            "a ping, which has a mandatory interval, replaces the default's whole"
         );
         assert_eq!(
             merged.http2.receive,
@@ -5081,10 +5045,11 @@ mod tests {
         assert_eq!(retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
-    /// An alternative stated over the same one merges its fields as a struct does, down to the
-    /// alternative a field of it holds - but for credentials, which another target leaves behind.
+    /// An alternative stated over the same one merges as its payload does: a payload with a
+    /// mandatory field, which each one stated here has, replaces the default's whole, an optional
+    /// field it leaves out included.
     #[test]
-    fn a_stated_alternative_over_the_same_one_merges_its_fields() {
+    fn a_stated_alternative_over_the_same_one_replaces_a_payload_with_a_mandatory_field() {
         let mut default_url = ProxyUrl::new("http://default.test:3128");
         default_url.username = Some("alice".to_owned());
         default_url.password = Some(Password::new("s3cret"));
@@ -5130,28 +5095,28 @@ mod tests {
         };
         assert_eq!(url.address, "http://own.test:3128");
         assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "the default's password is for another proxy"
-        );
+        assert_eq!(url.password, None, "the default's password is not paired");
         let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
         else {
             panic!("{:?}", merged.transport.tls.server_certificates);
         };
         assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
         assert_eq!(store.name.as_deref(), Some("Pinned"));
-        assert_eq!(store.location, Some(StoreLocation::LocalMachine));
+        assert_eq!(
+            store.location, None,
+            "the default's location is not combined with the store stated"
+        );
         assert_eq!(
             merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
-            "the default's password is for another bundle"
+            "the default's password is not paired"
         );
     }
 
-    /// Credentials stated for a target are taken for the same target: a proxy's for the same
-    /// address, and only whole, a bundle's password for the same path.
+    /// A proxy URL and a bundle have a mandatory field, so each is stated whole: nothing of the
+    /// default's credentials is taken, the same address or path included.
     #[test]
-    fn credentials_are_taken_for_the_target_they_were_stated_for() {
+    fn a_proxy_url_and_a_bundle_are_stated_whole() {
         let mut default_url = ProxyUrl::new("http://proxy.test:3128");
         default_url.username = Some("alice".to_owned());
         default_url.password = Some(Password::new("s3cret"));
@@ -5192,23 +5157,65 @@ mod tests {
         let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
             panic!("{:?}", merged.transport.proxy);
         };
-        assert_eq!(url.username.as_deref(), Some("alice"));
-        assert_eq!(url.password, Some(Password::new("s3cret")));
+        assert_eq!(url.username, None);
+        assert_eq!(url.password, None);
 
         let Some(ProxyOptions::Url(url)) = merged_with(Some("bob")).transport.proxy else {
             panic!("a Url is merged into a Url");
         };
         assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "another username takes none of the default's password"
-        );
+        assert_eq!(url.password, None);
         assert_eq!(
             merged.transport.tls.client_certificate,
-            Some(ClientCertificate::P12(P12Certificate::new(
-                "me.p12",
-                Some(Password::new("bundle"))
-            )))
+            Some(ClientCertificate::P12(P12Certificate::new("me.p12", None)))
+        );
+    }
+
+    /// A group with a mandatory field is stated whole, over the same variant or not, and one with
+    /// only optional fields merges field by field.
+    #[test]
+    fn a_group_with_a_mandatory_field_is_stated_whole() {
+        let probe = |own: TcpProbe| TransportOptions {
+            tcp_keepalive: Some(TcpKeepalive::Probe(own)),
+            ..TransportOptions::default()
+        };
+        let earlier = probe(TcpProbe {
+            interval_seconds: Some(10),
+            retries: Some(3),
+            ..TcpProbe::new(60)
+        });
+        assert_eq!(
+            probe(TcpProbe::new(30)).over(&earlier),
+            probe(TcpProbe::new(30)),
+            "the interval and the count of the earlier probe are not kept"
+        );
+        assert_eq!(
+            TransportOptions {
+                tcp_keepalive: Some(TcpKeepalive::None),
+                ..TransportOptions::default()
+            }
+            .over(&earlier)
+            .tcp_keepalive,
+            Some(TcpKeepalive::None),
+            "another variant is taken whole"
+        );
+        assert_eq!(
+            TransportOptions::default().over(&earlier),
+            earlier,
+            "a probe left out is the earlier one"
+        );
+
+        let windows = |stream: Option<i32>, connection: Option<i32>| Http2Options {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
+                stream_window_bytes: stream,
+                connection_window_bytes: connection,
+            })),
+            ..Http2Options::default()
+        };
+        assert_eq!(
+            windows(Some(80_000), None).over(&windows(Some(70_000), Some(90_000))),
+            windows(Some(80_000), Some(90_000)),
+            "windows have no mandatory field"
         );
     }
 

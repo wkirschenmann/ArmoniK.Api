@@ -650,9 +650,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// <summary>
         ///  A channel document, in the vocabulary of ak_channel_create's config_json, whose options
         ///  every channel of the runtime takes where its own document states none: the two are merged
-        ///  option by option, a struct's options within it, and the channel's win; an alternative - how
-        ///  the server is verified, who the client is, which proxy - merges its fields over the same
-        ///  alternative and is taken whole over another. Empty states none.
+        ///  option by option, a struct's options within it, and the channel's win; a group of options
+        ///  with a mandatory field is stated whole and replaces the default's, and an alternative - how
+        ///  the server is verified, who the client is, which proxy - merges as its payload does over the
+        ///  same alternative and is taken whole over another. Empty states none.
         ///  Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
         /// </summary>
         public ak_bytes_in channel_defaults_json;
