@@ -310,6 +310,14 @@ namespace ArmoniK.Api.Client.Options
     public ClientTransport Transport { get; set; } = ClientTransport.Managed;
 
     /// <summary>
+    ///   True loads the build of the native engine that counts what it does, for the instruments of the
+    ///   <c>ArmoniK.Api.Client.RustGrpcChannel.*</c> meters to read. False, the default, asks for nothing.
+    ///   It is read when the process's native engine starts, with the first channel, and a process that has
+    ///   loaded the other build refuses it. It is never sent to the engine.
+    /// </summary>
+    public bool NativeMetrics { get; set; }
+
+    /// <summary>
     ///   Which HttpMessageHandler to use.
     ///   Valid options:
     ///   - `HttpClientHandler`

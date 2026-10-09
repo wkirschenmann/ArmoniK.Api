@@ -19,31 +19,65 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.Options;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
+using ArmoniK.Api.Client.Submitter;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>Selects the build of the native engine this test process loads, before any test touches it.</summary>
 ///
-/// The suites run twice, once for each build, because a library is loaded once for the life of a
-/// process: <c>ARMONIK_TEST_NATIVE=metrics</c> runs them against the build with its counters.
+/// The suites run once for each build, because a library is loaded once for the life of a process:
+/// <c>ARMONIK_TEST_NATIVE=metrics</c> runs them against the build with its counters, and
+/// <c>ARMONIK_TEST_NATIVE=client</c> against the same build, asked for through
+/// <see cref="GrpcClient.NativeMetrics" /> by the first channel a client opens.
 [SetUpFixture]
 public class NativeEngineSelection
 {
+  private static string Mode
+    => Environment.GetEnvironmentVariable("ARMONIK_TEST_NATIVE") ?? string.Empty;
+
+  /// <summary>Whether the build is asked for by the option of the client.</summary>
+  public static bool ThroughTheClient
+    => string.Equals(Mode,
+                     "client",
+                     StringComparison.OrdinalIgnoreCase);
+
   /// <summary>The build this process was started to run against.</summary>
   public static NativeEngineBuild Wanted
-    => string.Equals(Environment.GetEnvironmentVariable("ARMONIK_TEST_NATIVE"),
-                     "metrics",
-                     StringComparison.OrdinalIgnoreCase)
+    => ThroughTheClient || string.Equals(Mode,
+                                         "metrics",
+                                         StringComparison.OrdinalIgnoreCase)
          ? NativeEngineBuild.Metrics
          : NativeEngineBuild.Default;
 
   [OneTimeSetUp]
-  public void SelectTheBuild()
-    => NativeLibrarySelection.Select(Wanted);
+  public async Task SelectTheBuild()
+  {
+    if (ThroughTheClient)
+    {
+      // The first channel of a client, which starts the engine and so loads it as the option says.
+      NativeChannelFactory.Instance.CreateChannel(new GrpcClient
+                                                  {
+                                                    Endpoint      = "http://127.0.0.1:1",
+                                                    NativeMetrics = true,
+                                                  });
+      await NativeChannelFactory.Instance.ShutdownAsync()
+                                .ConfigureAwait(false);
+    }
+    else
+    {
+      NativeLibrarySelection.Select(Wanted);
+    }
+
+    // Loaded now, so that a test that asks for the other build finds it refused whatever ran first.
+    NativeMethods.Prepare();
+    NativeMethods.ak_abi_version();
+  }
 }
 
 [TestFixture]

@@ -82,6 +82,7 @@ public class OptionVocabularyTests
                                                                             ["Endpoint"] = "a channel's endpoint is `ak_channel_create`'s own argument, or the runtime's Endpoint when that is empty",
                                                                             ["HttpMessageHandler"] = "grpc-dotnet chooses a handler, and this engine is the handler",
                                                                             ["Transport"] = "chooses between grpc-dotnet and this engine, so it is no option of the engine",
+                                                                            ["NativeMetrics"] = "chooses which build of the engine is loaded, before any option can be read, so it is no option of the engine",
                                                                             ["ReusePorts"] = "a socket option of grpc-dotnet's handler, which this engine does not use",
                                                                             ["OverrideTargetName"] = "this engine verifies the certificate against the host of the endpoint, and sends it as SNI: another name is another endpoint",
                                                                           };
