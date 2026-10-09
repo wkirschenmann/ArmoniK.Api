@@ -196,6 +196,16 @@ public class NativeConfigurationTests : EchoServerFixture
                                            .And.Message.Not.Contains("many"));
                        });
 
+  /// <summary>A value out of the bounds the schema states is refused by its path when the runtime is created.</summary>
+  [Test]
+  public void AValueOutOfItsBoundsIsRefusedByItsPath()
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("range.json",
+                                                                                                                                                              "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"ChannelDefaults\": { \"Transport\": { \"TcpKeepalive\": { \"Probe\": { \"IdleSeconds\": 0 } } } } } } } }"))))
+                                 .ConfigureAwait(false),
+                   Throws.InstanceOf<InvalidOperationException>()
+                         .With.Message.Contains("range.json: ChannelDefaults.Transport.TcpKeepalive.Probe.IdleSeconds is refused")
+                         .And.Message.Contains("between 1 and 32767"));
+
   /// <summary>Nothing null is taken as a source.</summary>
   [Test]
   public void ANullSourceIsRefused()

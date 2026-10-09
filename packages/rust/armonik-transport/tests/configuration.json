@@ -827,6 +827,256 @@
     "refused": { "source": "two.yaml", "says": "more than one YAML document" }
   },
   {
+    "name": "the bounds the schema states are admitted at their edges",
+    "sources": [
+      { "document": {
+        "MemoryCeiling": { "SoftMiB": 1 },
+        "ChannelDefaults": {
+          "Transport": { "ConnectTimeoutSeconds": 1e-9, "TcpKeepalive": { "Probe": { "IdleSeconds": 32767, "IntervalSeconds": 1, "Retries": 127 } } },
+          "Http2": {
+            "Send": { "CoalescingBytes": 0, "StreamBufferKiB": 4194303, "FramesPerWrite": 1 },
+            "Receive": { "Fixed": { "StreamWindowBytes": 1, "ConnectionWindowBytes": 65535 } },
+            "SimultaneousCallsPerConnection": { "Limit": 1 }
+          },
+          "Grpc": {
+            "UserAgent": "x",
+            "Host": { "Receive": { "Window": 536870910 }, "Send": { "Window": 1 } },
+            "OutboundTraffic": {
+              "Retry": { "ExponentialBackoff": { "MaxAttempts": 2, "BackoffMultiplier": 1.0 } },
+              "Throttle": { "Adaptive": { "Multiplier": 100.0, "ThrottleMultiplier": 1.0, "FailureAllowance": 0, "WindowSeconds": 0.012, "FloorPerSecond": 1000000.0 } }
+            }
+          }
+        }
+      } }
+    ],
+    "options": {
+      "MemoryCeiling": { "SoftMiB": 1 },
+      "ChannelDefaults": {
+        "Transport": { "ConnectTimeoutSeconds": 1e-9, "TcpKeepalive": { "Probe": { "IdleSeconds": 32767, "IntervalSeconds": 1, "Retries": 127 } } },
+        "Http2": {
+          "Send": { "CoalescingBytes": 0, "StreamBufferKiB": 4194303, "FramesPerWrite": 1 },
+          "Receive": { "Fixed": { "StreamWindowBytes": 1, "ConnectionWindowBytes": 65535 } },
+          "SimultaneousCallsPerConnection": { "Limit": 1 }
+        },
+        "Grpc": {
+          "UserAgent": "x",
+          "Host": { "Receive": { "Window": 536870910 }, "Send": { "Window": 1 } },
+          "OutboundTraffic": {
+            "Retry": { "ExponentialBackoff": { "MaxAttempts": 2, "BackoffMultiplier": 1.0 } },
+            "Throttle": { "Adaptive": { "Multiplier": 100.0, "ThrottleMultiplier": 1.0, "FailureAllowance": 0, "WindowSeconds": 0.012, "FloorPerSecond": 1000000.0 } }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "an integer below its minimum is refused by its path",
+    "sources": [
+      { "document": { "MemoryCeiling": { "SoftMiB": 0 } } }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB", "says": "it has to be at least 1", "never": "0" }
+  },
+  {
+    "name": "an integer above its maximum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 32768 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.IdleSeconds", "says": "it has to be between 1 and 32767", "never": "32768" }
+  },
+  {
+    "name": "an integer below the minimum of its range is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 0 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.IdleSeconds", "says": "it has to be between 1 and 32767" }
+  },
+  {
+    "name": "an optional integer out of its range is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 30, "Retries": 128 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.Retries", "says": "it has to be between 1 and 127" }
+  },
+  {
+    "name": "a window out of the bounds the engine's rings hold is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 0 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Receive.Window", "says": "it has to be between 1 and 536870910" }
+  },
+  {
+    "name": "a window past the largest the engine holds is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Send": { "Window": 536870911 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Send.Window", "says": "it has to be between 1 and 536870910" }
+  },
+  {
+    "name": "a count of frames past the most a write spans is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "FramesPerWrite": 257 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.FramesPerWrite", "says": "it has to be between 1 and 256" }
+  },
+  {
+    "name": "a buffer past the most KiB the session counts is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "StreamBufferKiB": 4194304 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.StreamBufferKiB", "says": "it has to be between 1 and 4194303" }
+  },
+  {
+    "name": "a connection window below the one every connection starts with is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "ConnectionWindowBytes": 65534 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Receive.Fixed.ConnectionWindowBytes", "says": "it has to be at least 65535" }
+  },
+  {
+    "name": "a count of attempts below two is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 1 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts", "says": "it has to be at least 2" }
+  },
+  {
+    "name": "a number below its minimum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "BackoffMultiplier": 0.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.BackoffMultiplier", "says": "it has to be at least 1" }
+  },
+  {
+    "name": "a number above its maximum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "Multiplier": 100.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.Multiplier", "says": "it has to be between 1 and 100" }
+  },
+  {
+    "name": "a negative allowance is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FailureAllowance": -1 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.FailureAllowance", "says": "it has to be between 0 and 1000000" }
+  },
+  {
+    "name": "a window shorter than its least is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "WindowSeconds": 0.011 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.WindowSeconds", "says": "it has to be between 0.012 and 600" }
+  },
+  {
+    "name": "a window longer than its most is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "WindowSeconds": 600.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.WindowSeconds", "says": "it has to be between 0.012 and 600" }
+  },
+  {
+    "name": "a floor that is not above zero is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FloorPerSecond": 0.0 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.FloorPerSecond", "says": "it has to be above 0 and at most 1000000" }
+  },
+  {
+    "name": "a duration shorter than a nanosecond is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "ConnectTimeoutSeconds": 0 } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.ConnectTimeoutSeconds", "says": "it has to be at least a nanosecond" }
+  },
+  {
+    "name": "a duration a Duration cannot hold is refused by its path",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"ConnectTimeoutSeconds\":18446744073709551616}}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.ConnectTimeoutSeconds", "says": "it has to be less than 18446744073709551616 seconds" }
+  },
+  {
+    "name": "a duration in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "IdleTimeout": { "After": 0 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.IdleTimeout.After", "says": "it has to be at least a nanosecond" }
+  },
+  {
+    "name": "a bound in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "SimultaneousCallsPerConnection": { "Limit": 0 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.SimultaneousCallsPerConnection.Limit", "says": "it has to be at least 1" }
+  },
+  {
+    "name": "an empty text where one is needed is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.UserAgent", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty endpoint is refused by its path",
+    "sources": [
+      { "document": { "Endpoint": "" } }
+    ],
+    "refused": { "source": "a document", "key": "Endpoint", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty text in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "ServerCertificates": { "CaPem": "" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ServerCertificates.CaPem", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty text in a group is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "ClientCertificate": { "Pem": { "Certificate": "", "Key": "key.pem" } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.Pem.Certificate", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "a value of a text source out of its bounds is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__Send__FramesPerWrite": "257"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.Send.FramesPerWrite", "says": "it has to be between 1 and 256", "never": "257" }
+  },
+  {
+    "name": "a value of a text source out of its bounds is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "MemoryCeiling__SoftMiB": "0" } }
+    ],
+    "refused": { "source": "pairs", "key": "MemoryCeiling.SoftMiB", "says": "it has to be at least 1" }
+  },
+  {
+    "name": "a number a text source gives that is no number is refused rather than read as one of no bound",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Throttle__Adaptive__Multiplier": "NaN" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.Multiplier", "says": "it has to be a finite number" }
+  },
+  {
+    "name": "a number a text source gives that is infinite is refused where the bound has no upper end",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__BackoffMultiplier": "inf" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.BackoffMultiplier", "says": "it has to be a finite number" }
+  },
+  {
+    "name": "a group stated without its mandatory field is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "TimeoutSeconds": 5 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Ping", "says": "it lacks IntervalSeconds" }
+  },
+  {
     "name": "the first refusal ends the load",
     "sources": [
       { "document": "not JSON" },

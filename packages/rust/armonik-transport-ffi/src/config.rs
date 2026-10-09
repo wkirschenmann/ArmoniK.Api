@@ -862,10 +862,6 @@ mod tests {
                 "Grpc.OutboundTraffic.Throttle.Adaptive.OverloadList[0]",
             ),
             (
-                &br#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":-1}}}}"#[..],
-                "Grpc.OutboundTraffic.Replay.MaxPerCallKiB",
-            ),
-            (
                 &br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#[..],
                 "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds and Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds are incoherent",
             ),
@@ -873,6 +869,16 @@ mod tests {
             let refused = parse(document).err().expect("refused").to_string();
             assert!(refused.starts_with(key), "{refused}");
         }
+
+        // A value out of its bounds is the loader's, which names its source.
+        let refused = parse(br#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":-1}}}}"#)
+            .err()
+            .expect("refused")
+            .to_string();
+        assert!(
+            refused.contains("Grpc.OutboundTraffic.Replay.MaxPerCallKiB is refused"),
+            "{refused}"
+        );
     }
 
     #[test]

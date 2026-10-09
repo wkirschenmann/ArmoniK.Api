@@ -45,7 +45,7 @@ pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
 /// and `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here
 /// rather than left to the conversion, which refuses correctly but names no option when it does -
 /// a caller then reads that their configuration was refused and not which line of it.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
@@ -53,6 +53,21 @@ pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
     schemars(extend("exclusiveMaximum" = 18446744073709551616.0))
 )]
 pub struct Seconds(pub f64);
+
+/// Refused at 2^64 and above, the ceiling the type states, and when it is not a number, which
+/// fails the comparison.
+impl<'de> serde::Deserialize<'de> for Seconds {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let seconds = f64::deserialize(deserializer)?;
+        if seconds < 18_446_744_073_709_551_616.0 {
+            Ok(Self(seconds))
+        } else {
+            Err(serde::de::Error::custom(
+                "it has to be less than 18446744073709551616 seconds",
+            ))
+        }
+    }
+}
 
 impl TryFrom<Seconds> for Duration {
     type Error = std::time::TryFromFloatSecsError;
@@ -85,6 +100,7 @@ pub struct TransportOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub connect_timeout_seconds: Option<Seconds>,
 
     /// How an `https://` endpoint is secured.
@@ -481,7 +497,11 @@ pub enum ServerCertificates {
 
     /// Against the roots of a PEM file, named by its path, in place of the system's. Every
     /// certificate the file holds is a root.
-    CaPem(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    CaPem(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// Against a root from a Windows certificate store, `Root` unless `Name` says otherwise, in
     /// place of the system's.
@@ -524,10 +544,12 @@ pub enum ClientCertificate {
 pub struct PemCertificate {
     /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub certificate: String,
 
     /// Path to a PEM file of the certificate's key.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub key: String,
 }
 
@@ -560,6 +582,7 @@ impl PemCertificate {
 pub struct P12Certificate {
     /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub path: String,
 
     /// The password the bundle is protected by.
@@ -596,6 +619,7 @@ pub struct StoreCertificate {
     /// The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub name: Option<String>,
 
     /// How the certificate is found in the store.
@@ -632,14 +656,26 @@ pub enum StoreLocation {
 pub enum StoreSearch {
     /// By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
     /// ignored.
-    Thumbprint(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    Thumbprint(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// By a text its subject contains, compared without case, as .NET's `FindBySubjectName`
     /// compares it.
-    SubjectName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    SubjectName(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// By its friendly name, exactly.
-    FriendlyName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    FriendlyName(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 }
 
 /// A thumbprint as the 20 bytes it writes, with what a copy from a certificate dialog carries
@@ -876,6 +912,7 @@ pub struct TcpProbe {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = 32767))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 32767>")]
     pub idle_seconds: i32,
 
     /// How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
@@ -885,12 +922,14 @@ pub struct TcpProbe {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = 32767))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 32767>")]
     pub interval_seconds: Option<i32>,
 
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 127>")]
     pub retries: Option<i32>,
 }
 
@@ -992,6 +1031,7 @@ pub struct Http2Ping {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub interval_seconds: Seconds,
 
     /// How long a PING may go unanswered before the session and its calls are ended.
@@ -1002,6 +1042,7 @@ pub struct Http2Ping {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub timeout_seconds: Option<Seconds>,
 
     /// Whether a PING is also sent while no call is open.
@@ -1037,6 +1078,7 @@ pub enum Http2IdleTimeout {
             feature = "schema",
             schemars(with = "Seconds", extend("minimum" = 1e-9))
         )]
+        #[serde(deserialize_with = "within::nanosecond")]
         Seconds,
     ),
 }
@@ -1052,7 +1094,11 @@ pub enum CallsPerConnection {
     /// At most this many, and never more than the server allows. At 1, calls follow one another
     /// on a connection but never share it, so that a GOAWAY a server sends because of one call -
     /// nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
-    Limit(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Limit(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// What an HTTP/2 session sends.
@@ -1070,6 +1116,7 @@ pub struct Http2SendOptions {
     /// Defaults to 16384, 16 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub coalescing_bytes: Option<i32>,
 
     /// How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
@@ -1088,6 +1135,7 @@ pub struct Http2SendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_STREAM_BUFFER_KIB))
     )]
+    #[serde(deserialize_with = "within::stream_buffer_kib")]
     pub stream_buffer_kib: Option<i32>,
 
     /// How many DATA frames of the peer's largest size one queued part of a request may span,
@@ -1104,6 +1152,7 @@ pub struct Http2SendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_FRAMES_PER_WRITE))
     )]
+    #[serde(deserialize_with = "within::frames_per_write")]
     pub frames_per_write: Option<i32>,
 
     /// How many bytes the headers of one request may take. It bounds what is sent, never what is
@@ -1131,7 +1180,11 @@ pub enum HeaderListBytes {
     /// SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
     /// fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
     /// anything is sent.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1161,6 +1214,7 @@ pub struct Http2FixedWindows {
     /// Defaults to 2097152, 2 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub stream_window_bytes: Option<i32>,
 
     /// How many bytes the peer may send ahead of what is read, across every call of the channel.
@@ -1170,6 +1224,7 @@ pub struct Http2FixedWindows {
     /// Defaults to 5242880, 5 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 65535>")]
     pub connection_window_bytes: Option<i32>,
 }
 
@@ -1298,6 +1353,7 @@ pub struct ExponentialBackoffOptions {
     /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 2)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 2>")]
     pub max_attempts: Option<i32>,
 
     /// The bound of the first backoff.
@@ -1308,6 +1364,7 @@ pub struct ExponentialBackoffOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub initial_backoff_seconds: Option<Seconds>,
 
     /// What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.
@@ -1318,6 +1375,7 @@ pub struct ExponentialBackoffOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub max_backoff_seconds: Option<Seconds>,
 
     /// What each bound is multiplied by; 1 retries at a fixed bound.
@@ -1325,6 +1383,7 @@ pub struct ExponentialBackoffOptions {
     /// Defaults to 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "f64", extend("minimum" = 1.0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub backoff_multiplier: Option<f64>,
 }
 
@@ -1500,6 +1559,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 100>")]
     pub multiplier: Option<f64>,
 
     /// How many times what the server does not report as overloaded the channel may send, as the
@@ -1512,6 +1572,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 100>")]
     pub throttle_multiplier: Option<f64>,
 
     /// The failures beyond the multiple of what the server accepts that are let go, so that a
@@ -1523,6 +1584,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 0, max = 1000000))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 0, 1000000>")]
     pub failure_allowance: Option<i32>,
 
     /// How far back the counts reach, from 0.012 to 600 seconds.
@@ -1533,6 +1595,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 0.012, "maximum" = 600.0))
     )]
+    #[serde(deserialize_with = "within::adaptive_window_seconds")]
     pub window_seconds: Option<Seconds>,
 
     /// The rate of first attempts, a second, that the cap never goes under, so that the channel goes
@@ -1544,6 +1607,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("exclusiveMinimum" = 0.0, "maximum" = 1000000.0))
     )]
+    #[serde(deserialize_with = "within::floor_per_second")]
     pub floor_per_second: Option<f64>,
 }
 
@@ -1617,6 +1681,7 @@ pub struct ReplayOptions {
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub max_per_call_kib: Option<i32>,
 
     /// The KiB all of the channel's calls may keep together; a call whose message would pass it is
@@ -1629,6 +1694,7 @@ pub struct ReplayOptions {
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub max_per_channel_kib: Option<i32>,
 }
 
@@ -2150,6 +2216,7 @@ pub struct GrpcOptions {
     /// Defaults to `armonik-transport/` followed by the engine's version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub user_agent: Option<String>,
 
     /// The deadline of a call that states none.
@@ -2207,6 +2274,7 @@ pub enum Deadline {
             feature = "schema",
             schemars(with = "Seconds", extend("minimum" = 1e-9))
         )]
+        #[serde(deserialize_with = "within::nanosecond")]
         Seconds,
     ),
 }
@@ -2323,7 +2391,11 @@ pub enum SendMessageSizeKiB {
     Unbounded,
 
     /// At most this many KiB (1024 bytes), counted before the message is compressed.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// The largest message a call accepts.
@@ -2335,7 +2407,11 @@ pub enum ReceiveMessageSizeKiB {
     Unbounded,
 
     /// At most this many KiB (1024 bytes), counted once the message is decompressed.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 impl SendMessageSizeKiB {
@@ -2425,6 +2501,7 @@ pub struct HostSendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
+    #[serde(deserialize_with = "within::window")]
     pub window: Option<i32>,
 }
 
@@ -2444,6 +2521,7 @@ pub struct HostReceiveOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
+    #[serde(deserialize_with = "within::window")]
     pub window: Option<i32>,
 
     /// How many bytes of a response a delivery to the host may wait to gather, so that a unary
@@ -2452,6 +2530,7 @@ pub struct HostReceiveOptions {
     /// Defaults to 16384, 16 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub coalescing_bytes: Option<i32>,
 }
 
@@ -2538,6 +2617,225 @@ macro_rules! over_variants {
                 &[$(stringify!($unit),)* $(stringify!($variant)),*];
         }
     };
+}
+
+/// The bounds the schema states, checked where a value is read: a document out of one is refused by
+/// its key's path, as one of the wrong type is, rather than when its options become a config. Each
+/// is a field's `deserialize_with`, so the field keeps the one type the schema is rendered from.
+mod within {
+    use serde::de::{Deserialize, Deserializer, Error};
+
+    use super::{Seconds, LARGEST_FRAMES_PER_WRITE, LARGEST_STREAM_BUFFER_KIB, LARGEST_WINDOW};
+
+    /// What a bound is held against: an integer, exactly, or a number.
+    pub(super) enum Measure {
+        Integer(i128),
+        Number(f64),
+    }
+
+    impl Measure {
+        fn at_least(&self, least: i64) -> bool {
+            match self {
+                Self::Integer(value) => *value >= i128::from(least),
+                Self::Number(value) => *value >= least as f64,
+            }
+        }
+
+        fn at_most(&self, most: i64) -> bool {
+            match self {
+                Self::Integer(value) => *value <= i128::from(most),
+                Self::Number(value) => *value <= most as f64,
+            }
+        }
+
+        fn number(&self) -> f64 {
+            match self {
+                Self::Integer(value) => *value as f64,
+                Self::Number(value) => *value,
+            }
+        }
+    }
+
+    /// A value a bound applies to, or none when an option is left out.
+    pub(super) trait Measured {
+        fn measured(&self) -> Option<Measure>;
+    }
+
+    macro_rules! integers {
+        ($($integer:ty),+) => {
+            $(
+                impl Measured for $integer {
+                    fn measured(&self) -> Option<Measure> {
+                        Some(Measure::Integer(i128::from(*self)))
+                    }
+                }
+            )+
+        };
+    }
+
+    integers!(i32, u64);
+
+    impl Measured for f64 {
+        fn measured(&self) -> Option<Measure> {
+            Some(Measure::Number(*self))
+        }
+    }
+
+    impl Measured for Seconds {
+        fn measured(&self) -> Option<Measure> {
+            Some(Measure::Number(self.0))
+        }
+    }
+
+    impl<T: Measured> Measured for Option<T> {
+        fn measured(&self) -> Option<Measure> {
+            self.as_ref().and_then(Measured::measured)
+        }
+    }
+
+    /// A text that can be empty, which a bound of one character refuses; an option left out is
+    /// not.
+    pub(super) trait Textual {
+        fn is_empty(&self) -> bool;
+    }
+
+    impl Textual for String {
+        fn is_empty(&self) -> bool {
+            self.as_str().is_empty()
+        }
+    }
+
+    impl<T: Textual> Textual for Option<T> {
+        fn is_empty(&self) -> bool {
+            self.as_ref().is_some_and(Textual::is_empty)
+        }
+    }
+
+    /// The value read as its type reads it, then held to `holds`, and refused with `says` - not
+    /// the value - when it does not. A number that is not finite is refused first, with a message
+    /// of its own, but for a `Seconds`, which its own reader has refused by then.
+    fn checked<'de, D, T>(
+        deserializer: D,
+        holds: impl Fn(&Measure) -> bool,
+        says: std::fmt::Arguments<'_>,
+    ) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        let value = T::deserialize(deserializer)?;
+        match value.measured() {
+            Some(Measure::Number(number)) if !number.is_finite() => {
+                Err(D::Error::custom("it has to be a finite number"))
+            }
+            Some(measure) if !holds(&measure) => Err(D::Error::custom(says)),
+            _ => Ok(value),
+        }
+    }
+
+    /// At least `MIN`.
+    pub(super) fn at_least<'de, D, T, const MIN: i64>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.at_least(MIN),
+            format_args!("it has to be at least {MIN}"),
+        )
+    }
+
+    /// From `MIN` to `MAX`.
+    pub(super) fn between<'de, D, T, const MIN: i64, const MAX: i64>(
+        deserializer: D,
+    ) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.at_least(MIN) && measure.at_most(MAX),
+            format_args!("it has to be between {MIN} and {MAX}"),
+        )
+    }
+
+    /// At least a nanosecond, the finest duration the engine holds.
+    pub(super) fn nanosecond<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.number() >= 1e-9,
+            format_args!("it has to be at least a nanosecond, 1e-9"),
+        )
+    }
+
+    /// From 0.012 to 600 seconds.
+    pub(super) fn adaptive_window_seconds<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| (0.012..=600.0).contains(&measure.number()),
+            format_args!("it has to be between 0.012 and 600"),
+        )
+    }
+
+    /// Above 0 and at most 1000000.
+    pub(super) fn floor_per_second<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.number() > 0.0 && measure.number() <= 1_000_000.0,
+            format_args!("it has to be above 0 and at most 1000000"),
+        )
+    }
+
+    /// From 1 to the most KiB a stream's send buffer may hold.
+    pub(super) fn stream_buffer_kib<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_STREAM_BUFFER_KIB as i64 }>(deserializer)
+    }
+
+    /// From 1 to the most frames one write may span.
+    pub(super) fn frames_per_write<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_FRAMES_PER_WRITE as i64 }>(deserializer)
+    }
+
+    /// From 1 to the deepest window either side of a call may be given.
+    pub(super) fn window<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_WINDOW as i64 }>(deserializer)
+    }
+
+    /// A text of at least one character.
+    pub(super) fn non_empty<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Textual,
+    {
+        let value = T::deserialize(deserializer)?;
+        if value.is_empty() {
+            Err(D::Error::custom(
+                "it has to be a text of at least one character",
+            ))
+        } else {
+            Ok(value)
+        }
+    }
 }
 
 /// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
@@ -2960,6 +3258,7 @@ pub struct RuntimeOptions {
     /// Defaults to none: every channel then names its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub endpoint: Option<String>,
 
     /// The memory the runtime holds, in two thresholds.
@@ -3003,6 +3302,7 @@ pub struct MemoryCeilingOptions {
     /// value is that too.
     #[serde(default, rename = "SoftMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub soft_mib: Option<u64>,
 
     /// The MiB past which the runtime stops: a received message that would take the count past
@@ -3013,6 +3313,7 @@ pub struct MemoryCeilingOptions {
     /// Defaults to a quarter above `SoftMiB`.
     #[serde(default, rename = "HardMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub hard_mib: Option<u64>,
 }
 
@@ -4804,11 +5105,21 @@ mod tests {
             "{refused}"
         );
 
-        for zero in [
-            r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
-            r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+        for (zero, key) in [
+            (
+                r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
+                "MemoryCeiling.SoftMiB",
+            ),
+            (
+                r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+                "MemoryCeiling.HardMiB",
+            ),
         ] {
-            let refused = read(zero).memory_ceiling.check().expect_err(zero);
+            let refused = crate::configuration::Configuration::with_prefix("")
+                .document(zero)
+                .load::<RuntimeOptions>()
+                .expect_err("a ceiling of zero is out of the schema's bounds");
+            assert_eq!(refused.key(), Some(key), "{refused}");
             assert!(refused.to_string().contains("at least 1"), "{refused}");
         }
         let number = crate::configuration::Configuration::with_prefix("")
@@ -5337,9 +5648,10 @@ mod tests {
                         .collect(),
                 )
             }
-            // A value every bound in this schema admits: an integer's `minimum` is 1 where it is
-            // stated, and the timeout's is a nanosecond.
-            Some("integer") => json!(1),
+            // A value every bound in this schema admits: an integer's own `minimum` where it
+            // states one, which is below its `maximum`, and a number of 1, which the nanosecond
+            // and the multipliers' bounds admit.
+            Some("integer") => json!(node.get("minimum").and_then(Value::as_i64).unwrap_or(1)),
             Some("number") => json!(1.0),
             Some("string") => json!("x"),
             Some("boolean") => json!(true),
