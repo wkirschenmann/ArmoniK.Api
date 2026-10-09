@@ -1,17 +1,18 @@
 //! A lend refused with SLOT_BUSY or BUDGET_BUSY has given back everything it took, the call's one
 //! buffer included, before the wake-up it waits for reaches the host. A host woken may ask again at
 //! once, from inside the callback, and is served: AK_STATUS_INVALID_STATE on a live call whose host
-//! holds no buffer is an answer an atomic lend never gives.
+//! holds no buffer is an answer an atomic lend never gives. A lend served on the second try of its
+//! charge, after a release owed its wait a wake-up, is owed none: the host holds the buffer.
 
 // The fixture serves every cardinality; which parts this binary reaches is not a fact about it.
 #[allow(dead_code)]
 mod support;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use armonik_transport_ffi::hooks::{self, RepayStep};
+use armonik_transport_ffi::hooks::{self, ChargeStep, RepayStep};
 use armonik_transport_ffi::*;
 use support::host::*;
 use support::{poll_until, Recorder, TestServer, COLLECT, ECHO};
@@ -274,6 +275,86 @@ fn asked_at_the_budget_wake(method: &str, flags: u32, step: RepayStep) {
     assert_eq!(status, ak_status::AK_STATUS_BUDGET_BUSY, "{context}");
 
     give_back(assert_served(&retry, &context));
+    for call in [call, other] {
+        assert_eq!(
+            unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+            ak_status::AK_STATUS_OK
+        );
+    }
+    host.recorder.await_terminals(2);
+    ak_channel_release(channel);
+    host.stop();
+}
+
+/// A wait is recorded, a release owes it a wake-up, and the second try of the lend's charge is
+/// served: the host holds the buffer, and the wake-up, which the model's served lend takes back, is
+/// raised to no one. On a stream whose send waits for the first time, and on a stream and a call of
+/// one request whose earlier refusal left the wait standing. A call of one request needs that
+/// refusal: it is what spawns the task that raises the wake-up.
+#[test]
+fn a_wake_up_owed_to_a_lend_served_on_its_second_try_never_reaches_the_host() {
+    let _turn = take_turn();
+    for (method, flags, refused_before) in [
+        (COLLECT, 0, false),
+        (COLLECT, 0, true),
+        (ECHO, AK_CALL_ONE_REQUEST, true),
+    ] {
+        served_on_the_second_try(method, flags, refused_before);
+    }
+}
+
+/// How long the host waits for a wake-up that must not come, and how long the release leaves the
+/// task that raises it to take the one it owes.
+const QUIET: Duration = Duration::from_millis(300);
+
+fn served_on_the_second_try(method: &str, flags: u32, refused_before: bool) {
+    let context = format!("flags {flags}, refused before: {refused_before}");
+    let server = TestServer::start();
+    let host = Host::with_ceiling(SMALL_CEILING);
+    let channel = host.channel_with(&server.endpoint, ONE_SLOT);
+    let other = start_call(channel, COLLECT, &[]);
+    let call = start_call_flagged(channel, method, &[], flags);
+    let (status, held) = lend(other, HELD);
+    assert_eq!(status, ak_status::AK_STATUS_OK, "{context}");
+    let held = parts(held);
+    if refused_before {
+        assert_eq!(
+            lend(call, ASKED).0,
+            ak_status::AK_STATUS_BUDGET_BUSY,
+            "{context}"
+        );
+    }
+
+    // The first try of the charge is refused for room and the wait recorded; the release comes
+    // before the second.
+    let lender = std::thread::current().id();
+    let tries = AtomicUsize::new(0);
+    hooks::at_each_charge_step(Some(Arc::new(move |reached| {
+        if reached == ChargeStep::Begun
+            && std::thread::current().id() == lender
+            && tries.fetch_add(1, Ordering::SeqCst) == 1
+        {
+            give_back(held);
+            std::thread::sleep(QUIET);
+        }
+    })));
+    let (status, buffer) = lend(call, ASKED);
+    hooks::at_each_charge_step(None);
+    assert_eq!(status, ak_status::AK_STATUS_OK, "{context}");
+
+    std::thread::sleep(QUIET);
+    let wakes = host
+        .recorder
+        .kinds()
+        .iter()
+        .filter(|kind| **kind == ak_event_kind::AK_EVENT_BUDGET_WAKE)
+        .count();
+    assert_eq!(
+        wakes, 0,
+        "{context}: a wake-up reached a host holding the buffer"
+    );
+
+    give_back(parts(buffer));
     for call in [call, other] {
         assert_eq!(
             unsafe { ak_call_cancel(call, std::ptr::null_mut()) },

@@ -1,5 +1,5 @@
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use armonik_transport::grpc::{Charge, CompressionBudget};
@@ -30,7 +30,11 @@ const LARGEST_LENDABLE: u64 = if (u32::MAX as u64) < (isize::MAX as u64) {
 pub(crate) struct Waiter {
     /// The length the send asked for, zero while none waits.
     len: AtomicUsize,
-    owed: AtomicBool,
+    /// The wait a release owes a wake-up, by its number plus one; zero while none is owed.
+    owed: AtomicU64,
+    /// How many waits have ended, which is the number of the one standing. Moved under the
+    /// ledger's lock, which `room_made` reads it under.
+    ended: AtomicU64,
     notify: Notify,
 }
 
@@ -40,8 +44,15 @@ impl Waiter {
         self.notify.notified().await;
     }
 
-    pub(crate) fn take_owed(&self) -> bool {
-        self.owed.swap(false, Ordering::AcqRel)
+    /// The wake-up owed, if one is, as the wait it is owed to.
+    pub(crate) fn take_owed(&self) -> Option<u64> {
+        self.owed.swap(0, Ordering::AcqRel).checked_sub(1)
+    }
+
+    /// Whether `wait` still stands. One that ended, its lend served or its call over, is owed
+    /// nothing, whatever wait stands since.
+    pub(crate) fn still_waits(&self, wait: u64) -> bool {
+        self.ended.load(Ordering::Acquire) == wait
     }
 
     pub(crate) fn is_waiting(&self) -> bool {
@@ -344,7 +355,8 @@ impl Ledger {
     /// that one does not try again.
     fn room_made(&self) {
         for waiter in self.waiting().iter() {
-            waiter.owed.store(true, Ordering::Release);
+            let wait = waiter.ended.load(Ordering::Acquire);
+            waiter.owed.store(wait + 1, Ordering::Release);
             waiter.notify.notify_one();
         }
         self.room.send_modify(|version| *version += 1);
@@ -382,8 +394,9 @@ impl Ledger {
                 return;
             }
             waiting.retain(|other| !std::ptr::eq(Arc::as_ptr(other), waiter));
+            waiter.ended.fetch_add(1, Ordering::Release);
         }
-        waiter.owed.store(false, Ordering::Release);
+        waiter.owed.store(0, Ordering::Release);
         self.room.send_modify(|version| *version += 1);
     }
 
@@ -548,7 +561,7 @@ mod tests {
         ledger.wait(&waiter, 30);
 
         assert!(ledger.recharge(60, 20));
-        assert!(waiter.take_owed());
+        assert!(waiter.take_owed().is_some());
         ledger.release_bytes(20);
     }
 
@@ -625,9 +638,33 @@ mod tests {
 
         drop(held);
 
-        assert!(one.take_owed());
-        assert!(other.take_owed());
-        assert!(!served.take_owed());
-        assert!(!one.take_owed(), "a wake-up is taken once");
+        assert!(one.take_owed().is_some());
+        assert!(other.take_owed().is_some());
+        assert!(served.take_owed().is_none());
+        assert!(one.take_owed().is_none(), "a wake-up is taken once");
+    }
+
+    /// A wake-up taken while its wait stands is owed to nobody once that wait ends, even when
+    /// another stands by the time it would be raised.
+    #[test]
+    fn a_wake_up_is_owed_to_its_wait_alone() {
+        let ledger = Arc::new(Ledger::new(64, 0).expect("a valid ledger"));
+        let waiter = Arc::new(Waiter::default());
+        let held = ledger.hold_received(60).expect("room");
+        ledger.wait(&waiter, 10);
+        drop(held);
+
+        let wait = waiter
+            .take_owed()
+            .expect("the release owes the wait a wake-up");
+        assert!(waiter.still_waits(wait));
+        ledger.stop_waiting(&waiter);
+        assert!(!waiter.still_waits(wait), "the wait was served");
+        ledger.wait(&waiter, 10);
+        assert!(
+            !waiter.still_waits(wait),
+            "another wait is not the one owed"
+        );
+        ledger.stop_waiting(&waiter);
     }
 }
