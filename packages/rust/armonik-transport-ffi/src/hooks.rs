@@ -8,6 +8,28 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// What a hook runs on the thread that reaches it.
 pub type Hook = Arc<dyn Fn() + Send + Sync>;
 
+/// What a resize's hook runs, told the step the resize has reached.
+pub type StepHook = Arc<dyn Fn(ResizeStep) + Send + Sync>;
+
+/// The points of an `ak_resize_call_buffer` after it has taken the buffer from the host, in order.
+/// An overrun is out of this sequence: see `after_overrun_abandoned`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResizeStep {
+    /// The buffer is taken and nothing is checked.
+    Taken,
+    /// The buffer is intact and the call admits the new length.
+    Admitted,
+    /// The new arena is allocated.
+    Allocated,
+    /// The kept bytes are in the new arena and the charge is not yet made. Reached again when the
+    /// first arena had no room for its slack and another is made.
+    Copied,
+    /// The charge is moved and the new arena is the buffer's: only the old arena is left to park.
+    Exchanged,
+}
+
+static OVERRUN_ABANDONED: Mutex<Option<Hook>> = Mutex::new(None);
+static RESIZE_STEP: Mutex<Option<StepHook>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
@@ -72,6 +94,12 @@ pub fn before_charge(hook: Option<Hook>) {
     *BEFORE_CHARGE.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
+/// Runs `hook` at each step of every resize, which a test makes panic to see what a panic leaves.
+/// `None` removes it.
+pub fn at_each_resize_step(hook: Option<StepHook>) {
+    *RESIZE_STEP.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
 /// Runs `hook` in every send that has counted itself in, just before it looks at the call and
 /// queues its command. `None` removes it.
 pub fn before_queueing(hook: Option<Hook>) {
@@ -86,6 +114,28 @@ pub fn channel_thread_ending(hook: Option<Hook>) {
     *CHANNEL_THREAD_ENDING
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` in every overrun, once the buffer is forgotten and before it is counted as taken
+/// back. `None` removes it.
+pub fn after_overrun_abandoned(hook: Option<Hook>) {
+    *OVERRUN_ABANDONED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+pub(crate) fn run_after_overrun_abandoned() {
+    run(&OVERRUN_ABANDONED);
+}
+
+pub(crate) fn at_resize_step(step: ResizeStep) {
+    let hook = RESIZE_STEP
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    if let Some(hook) = hook {
+        hook(step);
+    }
 }
 
 pub(crate) fn run_before_charge() {

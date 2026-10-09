@@ -45,6 +45,14 @@ name = "writes"
 required-features = ["test-hooks"]
 
 [[test]]
+name = "resize_panic"
+required-features = ["test-hooks"]
+
+[[test]]
+name = "resize_overrun_panic"
+required-features = ["test-hooks"]
+
+[[test]]
 name = "spares"
 required-features = ["test-hooks"]
 

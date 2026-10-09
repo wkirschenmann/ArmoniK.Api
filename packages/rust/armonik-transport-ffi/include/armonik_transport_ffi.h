@@ -1118,7 +1118,10 @@ void ak_return_call_buffer(ak_buffer buffer);
  * requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
  * it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
  * `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
- * allocator failure is AK_STATUS_INTERNAL.
+ * allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made: it is
+ * a refusal like the others, with the old buffer lent and charged, so the host may retry or give
+ * it back. A panic after it, while the old memory is set aside, does not undo it: the answer is
+ * AK_STATUS_OK. A panic while taking back an overrun is AK_STATUS_CORRUPTED.
  *
  * A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
  * after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back

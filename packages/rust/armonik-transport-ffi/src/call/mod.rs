@@ -1,4 +1,6 @@
 use std::ffi::c_void;
+use std::mem::ManuallyDrop;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -340,34 +342,49 @@ impl CallState {
     /// holds none. The call's one buffer, its window slot and its count against the ledger are the
     /// old buffer's and stay so, which is why none of the handshakes `lend` makes with the
     /// terminal is made again.
+    ///
+    /// A panic leaves the buffer as a refusal does. The box stays the host's until the exchange is
+    /// done, so an unwind leaks it back to the host instead of freeing it: it is the same
+    /// allocation at the same address, and `exchange` changes nothing of it until its last step.
     pub(crate) fn resize(
         self: &Arc<Self>,
-        mut lent: Box<Lent>,
+        lent: Box<Lent>,
         new_len: usize,
         carried: usize,
     ) -> Result<ak_buffer, ak_status> {
+        let mut lent = ManuallyDrop::new(lent);
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::at_resize_step(crate::hooks::ResizeStep::Taken);
         // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
         if carried > lent.len || !lent.intact() {
-            self.overrun(lent);
+            // The box is gone whatever happens next, so a panic in taking it back answers
+            // CORRUPTED too: INTERNAL would invite a retry on an owner that no longer exists.
+            let taken = ManuallyDrop::into_inner(lent);
+            let _ = catch_unwind(AssertUnwindSafe(|| self.overrun(taken)));
             return Err(ak_status::AK_STATUS_CORRUPTED);
         }
-        let outcome = self
-            .admits_buffer(new_len)
-            .and_then(|()| self.exchange(&mut lent, new_len, carried));
+        let outcome = self.admits_buffer(new_len).and_then(|()| {
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Admitted);
+            self.exchange(&mut lent, new_len, carried)
+        });
         if let Err(status) = outcome {
-            return Err(keep(lent, status));
+            return Err(keep(ManuallyDrop::into_inner(lent), status));
         }
         let ptr = lent.lent_ptr();
         Ok(ak_buffer {
             ptr,
             len: new_len,
-            owner: Box::into_raw(lent) as *mut c_void,
+            owner: Box::into_raw(ManuallyDrop::into_inner(lent)) as *mut c_void,
         })
     }
 
     /// Replaces the lend's arena by one of `new_len` bytes, if the ceiling admits what that
-    /// changes: an arena first, a spare of the channel's if one fits, and then the charge, which
-    /// is the last step that can refuse, so there is nothing to take back.
+    /// changes: an arena first, a spare of the channel's if one fits, the bytes carried into it,
+    /// and then the charge, which is the last step that can refuse. The lend itself is not
+    /// touched before the charge is made, and the step after it is plain assignments, so no
+    /// refusal and no panic finds it half done. The charge itself is atomic counters and locks
+    /// that tolerate poison, and a panic in it is not covered.
     fn exchange(&self, lent: &mut Lent, new_len: usize, carried: usize) -> Result<(), ak_status> {
         if !self.ledger.has_room_to_recharge(lent.charged, new_len) {
             return Err(ak_status::AK_STATUS_BUDGET_BUSY);
@@ -375,7 +392,13 @@ impl CallState {
         let spares = &self.channel.spares;
         let mut data = arena(HEADROOM, new_len, Some(spares))?;
         #[cfg(feature = "test-hooks")]
-        crate::hooks::run_before_charge();
+        {
+            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Allocated);
+            crate::hooks::run_before_charge();
+        }
+        lent.carry_over(&mut data, new_len, carried);
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::at_resize_step(crate::hooks::ResizeStep::Copied);
         let mut charged = new_len + slack(&data, HEADROOM, new_len);
         if !self.ledger.recharge(lent.charged, charged) {
             // The slack of a spare may have no room beside the request: an arena of its own is
@@ -385,14 +408,23 @@ impl CallState {
             }
             drop(spares.returning(data));
             data = arena(HEADROOM, new_len, None)?;
+            lent.carry_over(&mut data, new_len, carried);
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Copied);
             charged = new_len;
             if !self.ledger.recharge(lent.charged, charged) {
                 return Err(ak_status::AK_STATUS_BUDGET_BUSY);
             }
         }
-        let left = lent.move_to(data, new_len, charged, carried);
-        // Parked once the charge is off, which is what makes room for it beside the others.
-        drop(spares.returning(left));
+        let left = lent.swap_arena(data, new_len, charged);
+        // The exchange is made, and no panic in parking the old arena can unmake it: the host is
+        // told it succeeded. Parked once the charge is off, which makes room for it beside the
+        // others.
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::at_resize_step(crate::hooks::ResizeStep::Exchanged);
+            drop(spares.returning(left));
+        }));
         Ok(())
     }
 
@@ -529,10 +561,18 @@ impl CallState {
     /// memory around it may be corrupted, and nothing this library does in it can be trusted.
     pub(crate) fn overrun(&self, lent: Box<Lent>) {
         let (_, len) = lent.abandon();
-        self.took_back(len);
-        self.window.add_permits(1);
+        // The shutdown begins whatever the accounting does: a panic there is passed on after it.
+        let accounted = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::run_after_overrun_abandoned();
+            self.took_back(len);
+            self.window.add_permits(1);
+        }));
         if let Some(runtime) = crate::tables::runtimes().get(self.channel.runtime) {
             crate::lifecycle::begin_shutdown(&runtime);
+        }
+        if let Err(panic) = accounted {
+            resume_unwind(panic);
         }
     }
 

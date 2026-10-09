@@ -348,7 +348,11 @@ A refusal leaves `buffer` lent, charged and the host's, and `*out` as it was:
 `AK_STATUS_BUDGET_BUSY` when the ceiling has no room for the growth now, `AK_STATUS_MESSAGE_TOO_LARGE`
 when `new_len` is past the ceiling, `AK_STATUS_INVALID_STATE` on a call that is over or cancelled,
 or one-request and committed, `AK_STATUS_INVALID_ARG` for a `new_len` of zero, a `keep` past it, a
-null `out` or a buffer that is not lent, and `AK_STATUS_INTERNAL` for an allocator failure. A
+null `out` or a buffer that is not lent, and `AK_STATUS_INTERNAL` for an allocator failure or for a
+panic the library contains before the exchange is made, and such a panic leaves the buffer lent
+and charged and `*out` as it was, so a host may retry and then give the buffer back. A panic after
+the exchange is made is answered `AK_STATUS_OK`, and one while an overrun is taken back is
+`AK_STATUS_CORRUPTED`, the runtime shutting down. A
 `keep` past what was lent, or a write past the end of the buffer that changed the bytes the
 library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`, the buffer taken back
 unfreed, nothing carried over, the runtime shutting down. `AK_STATUS_BUDGET_BUSY` here records no
