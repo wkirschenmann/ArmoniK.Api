@@ -30,15 +30,19 @@ namespace ArmoniK.Api.Client.Submitter
   internal static class NativeClientOptions
   {
     /// <summary>
-    ///   The failures <see cref="GrpcClient" /> retries: the three statuses of its default, and the connections that
-    ///   could not be made or ended under the call. The statuses ABORTED and UNKNOWN count as acceptances for the
-    ///   engine's throttle.
+    ///   The failures <see cref="GrpcClient" /> retries: the three statuses of its default, what grpc-dotnet maps to
+    ///   UNAVAILABLE (a proxy's 502, 503 and 504 and a refused stream), and the connections that could not be made or
+    ///   ended under the call. The statuses ABORTED and UNKNOWN count as acceptances for the engine's throttle.
     /// </summary>
     private static readonly IReadOnlyList<string> GrpcClientFailures = new[]
                                                                        {
                                                                          "Status.UNAVAILABLE",
                                                                          "Status.ABORTED",
                                                                          "Status.UNKNOWN",
+                                                                         "Http.502",
+                                                                         "Http.503",
+                                                                         "Http.504",
+                                                                         "Reset.REFUSED_STREAM",
                                                                          "Dial",
                                                                          "Connection",
                                                                        };
@@ -140,9 +144,10 @@ namespace ArmoniK.Api.Client.Submitter
       }
 
       // GrpcClient retries UNAVAILABLE, ABORTED and UNKNOWN, and has no option for the statuses. The engine's
-      // own default is UNAVAILABLE alone, so the defaults of GrpcClient state the three, which the sources
-      // below may still replace; a channel states none, since its options cannot differ here. Dial and
-      // Connection are the failures that no server answered, which grpc-dotnet retries as UNAVAILABLE.
+      // own default has UNAVAILABLE alone of the statuses, so the defaults of GrpcClient state the three, which
+      // the sources below may still replace; a channel states none, since its options cannot differ here. The
+      // proxy statuses, the refused stream, Dial and Connection are failures that no server answered with a
+      // status, which grpc-dotnet retries as UNAVAILABLE.
       IReadOnlyList<string>? failures = onlySet
                                           ? null
                                           : GrpcClientFailures;

@@ -900,7 +900,7 @@ public class TransportSelectionTests
                                                                                          .Encode()),
                                   Does.Contain(@"""TcpKeepalive"":{""Probe"":{""IdleSeconds"":30,""IntervalSeconds"":30}}")
                                       .And.Contain(@"""MaxAttempts"":5")
-                                      .And.Contain(@"""FailureList"":[""Status.UNAVAILABLE"",""Status.ABORTED"",""Status.UNKNOWN"",""Dial"",""Connection""]")
+                                      .And.Contain(@"""FailureList"":[""Status.UNAVAILABLE"",""Status.ABORTED"",""Status.UNKNOWN"",""Http.502"",""Http.503"",""Http.504"",""Reset.REFUSED_STREAM"",""Dial"",""Connection""]")
                                       .And.Contain(@"""IdleTimeout"":{""After"":300}"),
                                   "for the defaults of a runtime, every option is translated");
                     });

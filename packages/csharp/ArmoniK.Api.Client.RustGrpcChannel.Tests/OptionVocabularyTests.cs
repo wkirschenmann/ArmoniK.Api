@@ -103,7 +103,7 @@ public class OptionVocabularyTests
                                                                        ["Grpc.Host.Receive.Window"] = "the delivery window, which only this ABI has",
                                                                        ["Grpc.Host.Receive.CoalescingBytes"] = "the delivery to the host, which only this ABI has",
                                                                        ["Grpc.OutboundTraffic.Retry.None"] = "the translation of a MaxAttempts of one, which is no retry",
-                                                                       ["Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList"] = "GrpcClient retries three statuses and has no option for them, which the translation states as this list",
+                                                                       ["Grpc.OutboundTraffic.Retry.ExponentialBackoff.FailureList"] = "GrpcClient retries three statuses and what grpc-dotnet maps to UNAVAILABLE, and has no option for them, which the translation states as this list",
                                                                        ["Grpc.OutboundTraffic.Replay.MaxPerCallKiB"] = "grpc-dotnet's MaxRetryBufferPerCallSize, which GrpcClient does not set",
                                                                        ["Grpc.OutboundTraffic.Replay.MaxPerChannelKiB"] = "grpc-dotnet's MaxRetryBufferSize, which GrpcClient does not set",
                                                                        ["Grpc.Host.Send.Window"] = "the send window, which only this ABI has",
