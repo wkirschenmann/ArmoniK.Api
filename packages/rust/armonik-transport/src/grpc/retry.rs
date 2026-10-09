@@ -58,11 +58,18 @@ impl Default for ReplayConfig {
     }
 }
 
-/// The failures worth another try by default: `UNAVAILABLE` from the server, and a dial or a
-/// connection that failed. `google.rpc.Code` advises UNAVAILABLE alone for retrying the same call.
+/// The failures worth another try by default: what gRPC takes as `UNAVAILABLE`, and a dial or a
+/// connection that failed. gRPC maps a proxy's 502, 503 and 504 and a stream reset with
+/// REFUSED_STREAM to `UNAVAILABLE`, and a client that retries `UNAVAILABLE` retries them; this
+/// engine names a status only when the server sent it, so the proxy's statuses and the reset are
+/// listed as what they are.
 pub fn default_failures() -> Vec<Cause> {
     vec![
         Cause::Status(GrpcStatusCode::Unavailable),
+        Cause::Http(502),
+        Cause::Http(503),
+        Cause::Http(504),
+        Cause::Reset(7),
         Cause::Dial,
         Cause::Connection,
     ]
@@ -475,6 +482,22 @@ mod tests {
             assert!(config.admissible().is_err(), "{config:?}");
         }
         assert!(RetryConfig::default().admissible().is_ok());
+    }
+
+    /// The documented default, as the options spell it.
+    #[test]
+    fn the_default_failures_are_the_documented_ones() {
+        let spelt = [
+            "Status.UNAVAILABLE",
+            "Http.502",
+            "Http.503",
+            "Http.504",
+            "Reset.REFUSED_STREAM",
+            "Dial",
+            "Connection",
+        ]
+        .map(|entry| entry.parse::<Cause>().expect("an entry"));
+        assert_eq!(default_failures(), spelt);
     }
 
     #[test]

@@ -1203,8 +1203,8 @@ pub struct Http2FixedWindows {
 pub struct OutboundTrafficOptions {
     /// Whether a failed call is sent again, and how.
     ///
-    /// Defaults to `{"ExponentialBackoff": {}}`: five attempts in all, for `Status.UNAVAILABLE`,
-    /// `Dial` and `Connection`.
+    /// Defaults to `{"ExponentialBackoff": {}}`: five attempts in all, for what gRPC takes
+    /// as `UNAVAILABLE`, a dial and a connection failure.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
@@ -1294,7 +1294,9 @@ pub struct ExponentialBackoffOptions {
     /// The failures a call is tried again for, each an entry as the options above describe.
     /// Empty retries nothing.
     ///
-    /// Defaults to `["Status.UNAVAILABLE", "Dial", "Connection"]`.
+    /// Defaults to `["Status.UNAVAILABLE", "Http.502", "Http.503", "Http.504",
+    /// "Reset.REFUSED_STREAM", "Dial", "Connection"]`: what gRPC takes as `UNAVAILABLE`, the status
+    /// a proxy's 502, 503 and 504 and a refused stream map to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub failure_list: Option<Vec<String>>,

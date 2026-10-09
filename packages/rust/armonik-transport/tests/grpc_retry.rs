@@ -104,8 +104,8 @@ async fn a_code_the_policy_does_not_name_is_not_retried() {
     assert_eq!(flaky_seen("denied").len(), 1);
 }
 
-/// The default policy retries UNAVAILABLE alone, which is what `google.rpc.Code` advises; a list
-/// that names ABORTED and UNKNOWN retries them.
+/// The default policy retries neither ABORTED nor UNKNOWN, which `google.rpc.Code` leaves to the
+/// application; a list that names them retries them.
 #[tokio::test]
 async fn aborted_and_unknown_are_retried_when_the_list_names_them_and_not_by_the_default() {
     let server = TestServer::start().await;
@@ -370,8 +370,9 @@ async fn a_stream_reset_for_another_reason_is_not_sent_again() {
     assert_eq!(refuser.seen().len(), 1);
 }
 
-/// Once a call: a second refusal is the policy's to retry, after its backoff and as an attempt,
-/// when its list names a reset for REFUSED_STREAM.
+/// Once a call: a second refusal is the policy's to retry, after its backoff and as an attempt.
+/// gRPC takes a refused stream as UNAVAILABLE, so the default list names the reset, and a list
+/// that does not ends the call there.
 #[tokio::test]
 async fn a_second_refusal_meets_the_policy() {
     let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
@@ -382,22 +383,27 @@ async fn a_second_refusal_meets_the_policy() {
 
     let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
     let channel = retrying(&refuser.endpoint, |retry| retry.max_attempts = 2);
-    let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
+    let (messages, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
     assert_eq!(
         status.code,
-        GrpcStatusCode::Unavailable,
-        "the default list names no reset: {status}"
+        GrpcStatusCode::Ok,
+        "the default list: {status}"
     );
-    assert_eq!(refuser.seen().len(), 2);
+    assert_eq!(messages, vec![Bytes::from_static(b"x")]);
+    assert_eq!(refuser.seen(), vec![None, None, Some("1".to_owned())]);
 
     let refuser = Refuser::start(Refusal::RefusedStream, 2).await;
     let channel = retrying(&refuser.endpoint, |retry| {
         retry.max_attempts = 2;
-        retry.failures.push(Cause::Reset(7));
+        retry.failures = vec![Cause::Status(GrpcStatusCode::Unavailable)];
     });
     let (_, status) = call(&channel, CallStartOptions::new(ECHO), b"x").await;
-    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
-    assert_eq!(refuser.seen(), vec![None, None, Some("1".to_owned())]);
+    assert_eq!(
+        status.code,
+        GrpcStatusCode::Unavailable,
+        "a list that names no reset: {status}"
+    );
+    assert_eq!(refuser.seen().len(), 2);
 }
 
 /// Once a call: a second GOAWAY that leaves the call unprocessed is the connection's end, which the

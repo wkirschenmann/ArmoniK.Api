@@ -2091,8 +2091,8 @@ public sealed class OutboundTrafficOptions
 
   /// <summary>Whether a failed call is sent again, and how.</summary>
   /// <remarks>
-  ///   Defaults to <c>{"ExponentialBackoff": {}}</c>: five attempts in all, for <c>Status.UNAVAILABLE</c>,
-  ///   <c>Dial</c> and <c>Connection</c>.
+  ///   Defaults to <c>{"ExponentialBackoff": {}}</c>: five attempts in all, for what gRPC takes
+  ///   as <c>UNAVAILABLE</c>, a dial and a connection failure.
   /// </remarks>
   [JsonPropertyName("Retry")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -2159,7 +2159,11 @@ public abstract record RetryOptions
     ///   The failures a call is tried again for, each an entry as the options above describe.
     ///   Empty retries nothing.
     /// </summary>
-    /// <remarks>Defaults to <c>["Status.UNAVAILABLE", "Dial", "Connection"]</c>.</remarks>
+    /// <remarks>
+    ///   Defaults to <c>["Status.UNAVAILABLE", "Http.502", "Http.503", "Http.504",
+    ///   "Reset.REFUSED_STREAM", "Dial", "Connection"]</c>: what gRPC takes as <c>UNAVAILABLE</c>, the status
+    ///   a proxy's 502, 503 and 504 and a refused stream map to.
+    /// </remarks>
     public global::System.Collections.Generic.IReadOnlyList<string>? FailureList
     {
       get => failureList_;

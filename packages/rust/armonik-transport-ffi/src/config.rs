@@ -819,6 +819,10 @@ mod tests {
             engine.retry.expect("a policy by default").failures,
             [
                 Cause::Status(GrpcStatusCode::Unavailable),
+                Cause::Http(502),
+                Cause::Http(503),
+                Cause::Http(504),
+                Cause::Reset(7),
                 Cause::Dial,
                 Cause::Connection
             ]

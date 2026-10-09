@@ -760,7 +760,7 @@
       "type": "object",
       "properties": {
         "Retry": {
-          "description": "Whether a failed call is sent again, and how.\n\nDefaults to `{\"ExponentialBackoff\": {}}`: five attempts in all, for `Status.UNAVAILABLE`,\n`Dial` and `Connection`.",
+          "description": "Whether a failed call is sent again, and how.\n\nDefaults to `{\"ExponentialBackoff\": {}}`: five attempts in all, for what gRPC takes\nas `UNAVAILABLE`, a dial and a connection failure.",
           "$ref": "#/$defs/RetryOptions"
         },
         "Throttle": {
@@ -802,7 +802,7 @@
       "type": "object",
       "properties": {
         "FailureList": {
-          "description": "The failures a call is tried again for, each an entry as the options above describe.\nEmpty retries nothing.\n\nDefaults to `[\"Status.UNAVAILABLE\", \"Dial\", \"Connection\"]`.",
+          "description": "The failures a call is tried again for, each an entry as the options above describe.\nEmpty retries nothing.\n\nDefaults to `[\"Status.UNAVAILABLE\", \"Http.502\", \"Http.503\", \"Http.504\",\n\"Reset.REFUSED_STREAM\", \"Dial\", \"Connection\"]`: what gRPC takes as `UNAVAILABLE`, the status\na proxy's 502, 503 and 504 and a refused stream map to.",
           "type": "array",
           "items": {
             "type": "string"
