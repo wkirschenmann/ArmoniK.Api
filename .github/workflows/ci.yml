@@ -247,6 +247,15 @@ jobs:
       - name: Clippy
         run: |
           cargo clippy --workspace --all-features --no-deps -- -Dwarnings -Dunused-crate-dependencies
+      - name: Clippy, default features
+        run: |
+          cargo clippy --workspace --no-deps -- -Dwarnings -Dunused-crate-dependencies
+      - name: Clippy, each feature of armonik alone
+        run: |
+          for feature in client server agent worker serde; do
+            cargo clippy -p armonik --no-default-features --features "$feature" --no-deps -- -Dwarnings -Dunused-crate-dependencies
+          done
+          cargo clippy -p armonik --no-default-features --no-deps -- -Dwarnings -Dunused-crate-dependencies
 
   lint-js:
     name: Lint JS
