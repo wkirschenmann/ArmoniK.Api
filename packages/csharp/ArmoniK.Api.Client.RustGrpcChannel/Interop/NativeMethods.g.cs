@@ -44,10 +44,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         internal const uint AK_LOG_DEBUG = 4;
         internal const uint AK_LOG_TRACE = 5;
         /// <summary>
-        ///  In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
-        /// </summary>
-        internal const uint AK_CONFIG_NO_PREFIX = 1;
-        /// <summary>
         ///  In ak_call_start_options.flags: timeout_ns states the call's deadline.
         /// </summary>
         internal const uint AK_CALL_HAS_DEADLINE = 1;
@@ -114,8 +110,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  merged over.
         ///
         ///  What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
-        ///  does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
-        ///  view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+        ///  does not know, a value on an environment source, a byte view that is null with a length or not
+        ///  UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
         ///  that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
         ///  never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
         ///  an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
@@ -191,8 +187,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  `{}` is a valid configuration.
         ///
         ///  The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-        ///  a number and not a string spelled like one. A key no option declares is ignored at the root
-        ///  of the document and refused below it. That schema, `options.schema.json`, names each option
+        ///  a number and not a string spelled like one. A key no option declares is refused by its path,
+        ///  at the root of the document as below it. That schema, `options.schema.json`, names each option
         ///  with its type and, where it has them, its range and default.
         ///
         ///  ak_channel_delivery_window reads back the delivery window the channel ended up with.
@@ -709,9 +705,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
     /// <summary>
     ///  Where a runtime's configuration comes from: sources, read in order when the runtime is created,
-    ///  a later one over an earlier one option by option. A key the vocabulary does not declare is
-    ///  ignored at the root of a document and refused below it; a value that does not fit its key is
-    ///  refused, with its source and its path, and never quoted.
+    ///  a later one over an earlier one option by option. Every source is a document, judged whole
+    ///  against the schema: a key the vocabulary does not declare, the root's included, is refused by
+    ///  its path, and so is a value that does not fit its key or its bounds, with its source, never
+    ///  quoted.
     ///
     ///  Versioned as the options structs are, but for its fourth field, which is source_count rather
     ///  than reserved.
@@ -725,7 +722,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public uint version;
         /// <summary>
-        ///  AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+        ///  None is defined: any flag is refused rather than ignored.
         /// </summary>
         public uint flags;
         /// <summary>
@@ -738,9 +735,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public ak_config_source* sources;
         /// <summary>
-        ///  The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
-        ///  the configuration is read from. Empty is `ArmoniK__Client__Grpc`; with AK_CONFIG_NO_PREFIX it
-        ///  has to be empty.
+        ///  The prefix, UTF-8, always the one given: the section of a file or of a document, and the
+        ///  start of the name of an environment variable or of a pair, that is the engine's. A host that
+        ///  keeps the engine's options beside its own gives `ArmoniK__Client__Grpc`. Empty takes
+        ///  everything: the whole of a file or of a document is the engine's, and every key of it has to
+        ///  be one the schema declares.
         /// </summary>
         public ak_bytes_in prefix;
         /// <summary>
@@ -1022,8 +1021,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     {
         /// <summary>
         ///  value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
-        ///  .toml - its document the section the prefix names, or the whole file with
-        ///  AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+        ///  .toml. The section the prefix names is judged against the schema and nothing outside it is
+        ///  looked at; with an empty prefix the whole file is. A file that does not exist is refused.
         /// </summary>
         AK_SOURCE_FILE = 1,
         /// <summary>
@@ -1034,17 +1033,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// <summary>
         ///  value: empty. The variables whose name starts with the prefix and `__`, the rest of the
         ///  name the key's path, its parts joined by `__` and compared without case, and the value text
-        ///  read by its key's type. Read once, by ak_runtime_create_from. Refused with
-        ///  AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+        ///  read by its key's type. The variables that do not have the prefix are never looked at. Read
+        ///  once, by ak_runtime_create_from. Refused with an empty prefix: every variable of the process
+        ///  would be a key.
         /// </summary>
         AK_SOURCE_ENVIRONMENT = 3,
         /// <summary>
-        ///  value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+        ///  value: a JSON document, read as AK_SOURCE_FILE's is: the section the prefix names is the
+        ///  engine's, in the vocabulary of runtime.schema.json, and the whole document with an empty
+        ///  prefix.
         /// </summary>
         AK_SOURCE_DOCUMENT = 4,
         /// <summary>
-        ///  value: a JSON object whose names are keys' paths, their parts joined by `__` under no
-        ///  prefix, and whose values are text, read as the environment's are.
+        ///  value: a JSON object whose names are the prefix, `__` and a key's path, its parts joined by
+        ///  `__`, and whose values are text, read as the environment's are. A name that does not have
+        ///  the prefix is never looked at.
         /// </summary>
         AK_SOURCE_PAIRS = 5,
     }

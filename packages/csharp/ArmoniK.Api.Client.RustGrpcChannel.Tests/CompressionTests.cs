@@ -206,7 +206,7 @@ public class CompressionTests : EchoServerFixture
 
     async Task<(string? Encoding, long Wire)> Sent(Func<NativeConfiguration, NativeConfiguration> sources)
     {
-      var configuration = sources(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+      var configuration = sources(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                       {
                                                                                         $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
                                                                                       }));
@@ -570,7 +570,7 @@ public class CompressionTests : EchoServerFixture
       File.WriteAllText(file,
                         @"{ ""ArmoniK"": { ""Client"": { ""Grpc"": { ""ChannelDefaults"": { ""Grpc"": { ""Receive"": { ""Compression"": [""Zstd"", ""Gzip""] } } } } } } }");
 
-      runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromFiles(file)
+      runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(file)
                                                                                        .LoadConfigFromCommandLine(new[]
                                                                                                                   {
                                                                                                                     $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",

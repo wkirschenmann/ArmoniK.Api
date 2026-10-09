@@ -48,7 +48,7 @@
     }
   },
   {
-    "name": "with no prefix a file's document is the whole file, its host's sections logged",
+    "name": "with an empty prefix a file is the engine's whole, and its host's sections are refused",
     "prefix": "",
     "files": {
       "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Serilog\":{\"Level\":\"Debug\"}}"
@@ -56,8 +56,71 @@
     "sources": [
       { "file": "whole.json" }
     ],
-    "options": { "Endpoint": "http://whole.test:3" },
-    "unknown": ["Serilog"]
+    "refused": { "source": "whole.json", "key": "Serilog", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+  },
+  {
+    "name": "with an empty prefix a file that holds only the engine's options is read whole",
+    "prefix": "",
+    "files": {
+      "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Logging\":{\"Filter\":\"h2=debug\"}}"
+    },
+    "sources": [
+      { "file": "whole.json" }
+    ],
+    "options": { "Endpoint": "http://whole.test:3", "Logging": { "Filter": "h2=debug" } }
+  },
+  {
+    "name": "a host's file loads under the prefix, whatever its own sections hold",
+    "files": {
+      "appsettings.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"Serilog\":{\"Level\":\"Debug\"},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://host.test:3\",\"Logging\":{\"Filter\":\"h2=debug\"}}},\"Other\":1}}"
+    },
+    "sources": [
+      { "file": "appsettings.json" }
+    ],
+    "options": { "Endpoint": "http://host.test:3", "Logging": { "Filter": "h2=debug" } }
+  },
+  {
+    "name": "the same host's file read with an empty prefix is refused, naming its Logging section",
+    "prefix": "",
+    "files": {
+      "appsettings.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://host.test:3\"}}}}"
+    },
+    "sources": [
+      { "file": "appsettings.json" }
+    ],
+    "refused": { "source": "appsettings.json", "key": "Logging.LogLevel", "says": "it is none of Filter" }
+  },
+  {
+    "name": "a misspelt key in the section a prefix names is refused although the file holds sections of its host",
+    "files": {
+      "typo.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpiont\":\"http://host.test:3\"}}}}"
+    },
+    "sources": [
+      { "file": "typo.json" }
+    ],
+    "refused": { "source": "typo.json", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+  },
+  {
+    "name": "a document is judged on the section its prefix names and not outside it",
+    "sources": [
+      { "document": "{\"Serilog\":{\"Level\":\"Debug\"},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":12}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 12 } }
+  },
+  {
+    "name": "a document with an empty prefix is refused for a key outside the vocabulary",
+    "prefix": "",
+    "sources": [
+      { "document": "{\"Serilog\":{\"Level\":\"Debug\"}}" }
+    ],
+    "refused": { "source": "a document", "key": "Serilog", "says": "it is none of" }
+  },
+  {
+    "name": "a document whose section is not an object is refused",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":7}}}" }
+    ],
+    "refused": { "source": "a document", "says": "ArmoniK__Client__Grpc is not an object" }
   },
   {
     "name": "a file with no section of the prefix contributes nothing",
@@ -175,8 +238,9 @@
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
       "ArmoniKFixture__MemoryCeiling__SoftMiB": "8192",
-      "ArmoniKFixture__Nope": "1",
-      "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
+      "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7",
+      "ArmoniKFixtureElsewhere__Nope": "1",
+      "UnrelatedVariable": "1"
     },
     "sources": [
       { "environment": true }
@@ -189,8 +253,43 @@
         "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
         "Grpc": { "Deadline": { "Default": 2.5 } }
       }
+    }
+  },
+  {
+    "name": "an environment variable under the prefix that names no key is refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__Endpiont": "http://typo.test:7"
     },
-    "unknown": ["Nope"]
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+  },
+  {
+    "name": "an environment variable under the default prefix that names no key is refused, and the others are never looked at",
+    "environment": {
+      "ArmoniK__Client__Grpc__Endpiont": "http://typo.test:7",
+      "ArmoniK__Client__Logging__LogLevel__Default": "Debug",
+      "Logging__LogLevel__Default": "Debug"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "Endpiont" }
+  },
+  {
+    "name": "environment variables outside the prefix are never looked at, whatever they name",
+    "environment": {
+      "ArmoniK__Client__Grpc__Endpoint": "http://grpc.test:1",
+      "ArmoniK__Client__Other__Endpoint": "http://other.test:2",
+      "Logging__LogLevel__Default": "Debug",
+      "ArmoniK__Client__GrpcX__Nope": "1"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "options": { "Endpoint": "http://grpc.test:1" }
   },
   {
     "name": "an environment value that is not of its key's type is refused by its path",
@@ -237,13 +336,34 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
       "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
-    },
-    "unknown": ["Nope"]
+    }
+  },
+  {
+    "name": "a pair under the prefix that names no key is refused, and a pair outside it is never looked at",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\",\"ArmoniK__Client__Grpc__Nope\":\"x\"}" }
+    ],
+    "refused": { "source": "pairs", "key": "Nope", "says": "it is none of" }
+  },
+  {
+    "name": "pairs outside the prefix are never looked at",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\",\"ArmoniK__Client__Grpc__Endpoint\":\"http://pairs.test:9\"}" }
+    ],
+    "options": { "Endpoint": "http://pairs.test:9" }
+  },
+  {
+    "name": "pairs with an empty prefix are the engine's whole, a key outside the vocabulary refused",
+    "prefix": "",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\"}" }
+    ],
+    "refused": { "source": "pairs", "key": "Logging.LogLevel", "says": "it is none of Filter" }
   },
   {
     "name": "a file and a document give a list as an array, a later source's list replacing an earlier one's whole",
@@ -655,17 +775,24 @@
     }
   },
   {
-    "name": "a key no option declares is logged, and the rest read",
+    "name": "a key no option declares is refused at the root of a document, and the rest not read",
     "sources": [
       { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }
     ],
-    "options": { "Endpoint": "http://unknown.test:9" },
-    "unknown": ["Endpiont"]
+    "refused": { "source": "a document", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+  },
+  {
+    "name": "a key no option declares is refused by a later document although an earlier one is valid",
+    "sources": [
+      { "document": { "Endpoint": "http://unknown.test:9" } },
+      { "document": { "Endpiont": "http://typo.test:9" } }
+    ],
+    "refused": { "source": "a document", "key": "Endpiont" }
   },
   {
     "name": "a key a document states twice is refused rather than taken once",
     "sources": [
-      { "document": "{\"MemoryCeiling\":{\"SoftMiB\":1},\"MemoryCeiling\":{\"SoftMiB\":2}}" }
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":1},\"MemoryCeiling\":{\"SoftMiB\":2}}}}}" }
     ],
     "refused": { "source": "a document", "says": "MemoryCeiling is stated twice" }
   },

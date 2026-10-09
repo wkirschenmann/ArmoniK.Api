@@ -173,8 +173,8 @@ const NULL_ARGUMENT: Refusal = Refusal::fixed(
 /// merged over.
 ///
 /// What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
-/// does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
-/// view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+/// does not know, a value on an environment source, a byte view that is null with a length or not
+/// UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
 /// that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
 /// never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
 /// an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
@@ -303,8 +303,8 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// `{}` is a valid configuration.
 ///
 /// The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-/// a number and not a string spelled like one. A key no option declares is ignored at the root
-/// of the document and refused below it. That schema, `options.schema.json`, names each option
+/// a number and not a string spelled like one. A key no option declares is refused by its path,
+/// at the root of the document as below it. That schema, `options.schema.json`, names each option
 /// with its type and, where it has them, its range and default.
 ///
 /// ak_channel_delivery_window reads back the delivery window the channel ended up with.

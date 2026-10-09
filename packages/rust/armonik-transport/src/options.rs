@@ -6,9 +6,8 @@
 //! enforces it. What a type cannot say - that an endpoint names a scheme this engine speaks -
 //! the transport says, by option name.
 //!
-//! The `configuration` loader reads past a key no type declares at the root of a document and logs
-//! it, a file read with no prefix holding its host's own sections, and refuses one below the root,
-//! naming its path. The schema states `additionalProperties: false` for every object. An
+//! The `configuration` loader refuses a key no type declares, at the root of a document as below
+//! it, naming its path, and so the schema states `additionalProperties: false` for every object. An
 //! alternative - how the server is verified, who the client is, which proxy - refuses a key that
 //! names none of its variants.
 
@@ -4819,12 +4818,11 @@ mod tests {
             number.is_err(),
             "a number where a pair is expected is refused"
         );
-        let unknown = read(r#"{"MemoryHardCeiling":1048576}"#);
-        assert_eq!(
-            unknown,
-            RuntimeOptions::default(),
-            "a key the schema does not know is ignored"
-        );
+        let unknown = crate::configuration::Configuration::with_prefix("")
+            .document(r#"{"MemoryHardCeiling":1048576}"#)
+            .load::<RuntimeOptions>()
+            .expect_err("a key the schema does not know is refused");
+        assert_eq!(unknown.key(), Some("MemoryHardCeiling"));
     }
 
     /// The two directions are stated apart, an encoding that is not named is refused, and a
@@ -5262,8 +5260,8 @@ mod tests {
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
     /// name they stopped agreeing on would be an option the generated C# sets and the schema
-    /// admits, which the loader would refuse by its path below the root, or log at it: what this
-    /// asserts is that the document is read and nothing is logged as unknown.
+    /// admits, which the loader would refuse by its path: what this asserts is that the document
+    /// is read.
     #[cfg(feature = "schema")]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
@@ -5273,70 +5271,20 @@ mod tests {
 
             for alternative in 0..9 {
                 let document = a_value_for(&schema, &schema, alternative);
-                let logged = Logged::default();
-                let subscriber = tracing_subscriber::fmt()
-                    .with_writer(logged.clone())
-                    .with_ansi(false)
-                    .finish();
-
-                let read = tracing::subscriber::with_default(subscriber, || {
-                    crate::configuration::Configuration::with_prefix("")
-                        .document(document.to_string())
-                        .load::<D>()
-                });
+                let read = crate::configuration::Configuration::with_prefix("")
+                    .document(document.to_string())
+                    .load::<D>();
 
                 assert!(
                     read.is_ok(),
                     "the schema declares {document}, which the loader refuses: {}",
                     read.unwrap_err()
                 );
-                let said = logged.said();
-                assert!(
-                    said.is_empty(),
-                    "the schema declares {document}, which the loader logs as unknown: {said}"
-                );
             }
         }
 
         read_all::<ChannelOptions>(&schema());
         read_all::<RuntimeOptions>(&runtime_schema());
-    }
-
-    /// What a subscriber writes, kept to be read back.
-    #[cfg(feature = "schema")]
-    #[derive(Clone, Default)]
-    struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-    #[cfg(feature = "schema")]
-    impl Logged {
-        fn said(&self) -> String {
-            let written = self.0.lock().unwrap_or_else(|held| held.into_inner());
-            String::from_utf8_lossy(&written).into_owned()
-        }
-    }
-
-    #[cfg(feature = "schema")]
-    impl std::io::Write for Logged {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(|held| held.into_inner())
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[cfg(feature = "schema")]
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self {
-            self.clone()
-        }
     }
 
     /// A value each property of `node` admits, as one document naming all of them. A `oneOf`

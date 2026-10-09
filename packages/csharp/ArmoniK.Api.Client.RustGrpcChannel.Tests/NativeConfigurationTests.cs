@@ -73,7 +73,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>A file's section under the prefix is the runtime's options, its other sections the host's.</summary>
   [Test]
   public Task AFileStatesTheRuntimesOptionsUnderThePrefix()
-    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromFiles(File("appsettings.json",
+    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("appsettings.json",
                                                                                            "{ \"Logging\": { \"LogLevel\": { \"Default\": \"Debug\" } }, " +
                                                                                            $"\"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpoint\": \"{Endpoint}\", " +
                                                                                            "\"ChannelDefaults\": { \"Grpc\": { \"UserAgent\": \"from-a-file\" } } } } } }")));
@@ -87,7 +87,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>The command line reaches the engine as text, read by each key's type.</summary>
   [Test]
   public Task ACommandLineIsReadUnderThePrefix()
-    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                            {
                                                                                              $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
                                                                                              "--ArmoniK:Client:Grpc:ChannelDefaults:Transport:ConnectTimeoutSeconds=2.5",
@@ -107,8 +107,94 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>An optional file that exists is read as any other.</summary>
   [Test]
   public Task AnOptionalFileThatExistsIsRead()
-    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromOptionalFiles(File("present.json",
+    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromOptionalFiles(File("present.json",
                                                                                                   $"{{ \"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpoint\": \"{Endpoint}\" }} }} }} }}")));
+
+  /// <summary>The same file of a host, read with the empty prefix, is the engine's whole and is refused for its first foreign key.</summary>
+  [Test]
+  public void AHostsFileReadWithTheEmptyPrefixIsRefusedNamingItsLoggingSection()
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(string.Empty).LoadConfigFromFiles(File("appsettings.json",
+                                                                                                                                         "{ \"Logging\": { \"LogLevel\": { \"Default\": \"Debug\" } }, " +
+                                                                                                                                         $"\"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpoint\": \"{Endpoint}\" }} }} }} }}"))))
+                                 .ConfigureAwait(false),
+                   Throws.InstanceOf<InvalidOperationException>()
+                         .With.Message.Contains("appsettings.json: Logging.LogLevel is refused"));
+
+  /// <summary>A misspelt key in the section the prefix names is refused although the file holds sections of its host.</summary>
+  [Test]
+  public void AMisspeltKeyInThePrefixedSectionIsRefused()
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("typo.json",
+                                                                                                                                                              "{ \"Logging\": { \"LogLevel\": { \"Default\": \"Debug\" } }, " +
+                                                                                                                                                              $"\"ArmoniK\": {{ \"Client\": {{ \"Grpc\": {{ \"Endpiont\": \"{Endpoint}\" }} }} }} }}"))))
+                                 .ConfigureAwait(false),
+                   Throws.InstanceOf<InvalidOperationException>()
+                         .With.Message.Contains("typo.json: Endpiont is refused"));
+
+  /// <summary>An argument that does not have the prefix is never looked at, and one under it that names no key is refused.</summary>
+  [Test]
+  public async Task ACommandLineIsJudgedOnWhatIsUnderThePrefix()
+  {
+    await CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
+                                                                                                                                {
+                                                                                                                                  "--Logging:LogLevel:Default=Debug",
+                                                                                                                                  $"--ArmoniK:Client:Grpc:Endpoint={Endpoint}",
+                                                                                                                                }))
+      .ConfigureAwait(false);
+
+    Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
+                                                                                                                                                              {
+                                                                                                                                                                "--ArmoniK:Client:Grpc:Endpiont=x",
+                                                                                                                                                              })))
+                              .ConfigureAwait(false),
+                Throws.InstanceOf<InvalidOperationException>()
+                      .With.Message.Contains("pairs: Endpiont is refused"));
+  }
+
+  /// <summary>A variable under the prefix that names no key is refused, and one outside it is never looked at.</summary>
+  [Test]
+  public async Task AVariableUnderThePrefixThatNamesNoKeyIsRefused()
+  {
+    const string unrelated = "AKUNRELATED__Endpiont";
+    const string typo      = "AKTYPO__Endpiont";
+    Environment.SetEnvironmentVariable(unrelated,
+                                       "x");
+    Environment.SetEnvironmentVariable(typo,
+                                       "x");
+    try
+    {
+      Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration("AKTYPO").LoadConfigFromEnvironment()))
+                                .ConfigureAwait(false),
+                  Throws.InstanceOf<InvalidOperationException>()
+                        .With.Message.Contains("the environment: Endpiont is refused"));
+
+      Environment.SetEnvironmentVariable("AKNAMED__Endpoint",
+                                         Endpoint);
+      await CallsThroughTheRuntimesEndpoint(new NativeConfiguration("AKNAMED").LoadConfigFromEnvironment())
+        .ConfigureAwait(false);
+    }
+    finally
+    {
+      Environment.SetEnvironmentVariable(unrelated,
+                                         null);
+      Environment.SetEnvironmentVariable(typo,
+                                         null);
+      Environment.SetEnvironmentVariable("AKNAMED__Endpoint",
+                                         null);
+    }
+  }
+
+  /// <summary>A value of the wrong type is refused by its path, and not quoted.</summary>
+  [Test]
+  public void AValueOfTheWrongTypeIsRefusedByItsPath()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("type.json",
+                                                                                                                                                                        "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"MemoryCeiling\": { \"SoftMiB\": \"many\" } } } } }"))))
+                                                   .ConfigureAwait(false),
+                                     Throws.InstanceOf<InvalidOperationException>()
+                                           .With.Message.Contains("type.json: MemoryCeiling.SoftMiB is refused")
+                                           .And.Message.Not.Contains("many"));
+                       });
 
   /// <summary>Nothing null is taken as a source.</summary>
   [Test]
@@ -117,14 +203,14 @@ public class NativeConfigurationTests : EchoServerFixture
                        {
                          Assert.That(() => new NativeConfiguration(null!),
                                      Throws.ArgumentNullException);
-                         Assert.That(() => new NativeConfiguration().LoadConfigFromFiles(null!),
+                         Assert.That(() => new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(null!),
                                      Throws.ArgumentNullException);
-                         Assert.That(() => new NativeConfiguration().LoadConfigFromFiles("a.json",
+                         Assert.That(() => new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles("a.json",
                                                                                          null!),
                                      Throws.ArgumentNullException);
-                         Assert.That(() => new NativeConfiguration().LoadConfigFromCommandLine(null!),
+                         Assert.That(() => new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(null!),
                                      Throws.ArgumentNullException);
-                         Assert.That(() => new NativeConfiguration().LoadConfigFromObject(null!),
+                         Assert.That(() => new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(null!),
                                      Throws.ArgumentNullException);
                          Assert.That(() => NativeRuntime.Create((NativeConfiguration)null!),
                                      Throws.ArgumentNullException);
@@ -133,7 +219,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>A later source wins: an object set in code over a file that names another endpoint, a missing optional file contributing nothing.</summary>
   [Test]
   public Task ALaterSourceWinsOverAnEarlierOne()
-    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromFiles(File("stale.json",
+    => CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("stale.json",
                                                                                           "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"Endpoint\": \"http://127.0.0.1:1\" } } } }"))
                                                                 .LoadConfigFromOptionalFiles(Path.Combine(directory_,
                                                                                                           "absent.json"))
@@ -170,7 +256,7 @@ public class NativeConfigurationTests : EchoServerFixture
                                        Endpoint);
     try
     {
-      await CallsThroughTheRuntimesEndpoint(new NativeConfiguration().LoadConfigFromEnvironment())
+      await CallsThroughTheRuntimesEndpoint(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromEnvironment())
         .ConfigureAwait(false);
     }
     finally
@@ -202,7 +288,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public async Task AChannelReadsItsWindowFromTheEngineWhateverSourceStatedTheDefault()
   {
-    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(WithWindow(7))))
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(WithWindow(7))))
                     .ConfigureAwait(false);
     await using (var channel = runtime.Channel(Endpoint))
     {
@@ -211,7 +297,7 @@ public class NativeConfigurationTests : EchoServerFixture
                   "an object");
     }
 
-    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                                                  {
                                                                                                                    "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Host:Receive:Window=6",
                                                                                                                  })))
@@ -223,7 +309,7 @@ public class NativeConfigurationTests : EchoServerFixture
                   "a command line");
     }
 
-    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromFiles(File("window.json",
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(File("window.json",
                                                                                                              "{ \"ArmoniK\": { \"Client\": { \"Grpc\": { \"ChannelDefaults\": { \"Grpc\": { \"Host\": { \"Receive\": { \"Window\": 5 } } } } } } } }"))))
                 .ConfigureAwait(false);
     await using (var channel = runtime.Channel(Endpoint))
@@ -238,7 +324,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public async Task AChannelsOwnWindowWinsAndWithNoneTheEnginesIsReadBack()
   {
-    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(WithWindow(7))))
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(WithWindow(7))))
                     .ConfigureAwait(false);
     await using (var channel = runtime.Channel(Endpoint,
                                                2))
@@ -247,7 +333,7 @@ public class NativeConfigurationTests : EchoServerFixture
                   Is.EqualTo(2));
     }
 
-    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromObject(new RuntimeOptions())))
+    runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(new RuntimeOptions())))
                 .ConfigureAwait(false);
     await using (var channel = runtime.Channel(Endpoint))
     {
@@ -260,7 +346,7 @@ public class NativeConfigurationTests : EchoServerFixture
   [Test]
   public async Task ADefaultWindowNoRingCanHoldIsRefusedAtTheChannel()
   {
-    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    var runtime = await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                                                      {
                                                                                                                        $"--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Host:Receive:Window={NativeRuntime.MaxDeliveryCredits + 1}",
                                                                                                                      })))
@@ -279,7 +365,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>What the engine refuses in a source is refused when the runtime is created, by the source and the key, the value unquoted.</summary>
   [Test]
   public void AValueNotOfItsTypeIsRefusedAtTheCreateAndNotQuoted()
-    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                                                              {
                                                                                                                                "--ArmoniK:Client:Grpc:MemoryCeiling:SoftMiB=a-great-deal",
                                                                                                                              })))
@@ -291,7 +377,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>A command line states no list: it is refused by the list's path, with the sources that do state one.</summary>
   [Test]
   public void AListOnACommandLineIsRefusedByItsPath()
-    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                                                                              {
                                                                                                                                "--ArmoniK:Client:Grpc:ChannelDefaults:Grpc:Receive:Compression:0=Gzip",
                                                                                                                              })))
@@ -328,7 +414,7 @@ public class NativeConfigurationTests : EchoServerFixture
   /// <summary>A file that does not exist is refused, by its path, unless it is optional.</summary>
   [Test]
   public void AMissingFileIsRefusedByItsPath()
-    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration().LoadConfigFromFiles(Path.Combine(directory_,
+    => Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromFiles(Path.Combine(directory_,
                                                                                                                                        "absent.json"))))
                                  .ConfigureAwait(false),
                    Throws.InstanceOf<InvalidOperationException>()

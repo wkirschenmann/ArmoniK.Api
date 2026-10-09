@@ -5,7 +5,7 @@ use snafu::{ResultExt, Snafu};
 // Re-exported here, so a caller reaches them through the client rather than through the transport
 // crate.
 #[cfg(feature = "_gen-client")]
-pub use armonik_transport::configuration::{ConfigRefusal, Configuration};
+pub use armonik_transport::configuration::{ConfigRefusal, Configuration, DEFAULT_PREFIX};
 #[cfg(feature = "_gen-client")]
 pub use armonik_transport::grpc::{GrpcChannel, GrpcStatus, GrpcStatusCode};
 #[cfg(feature = "_gen-client")]
@@ -107,7 +107,7 @@ impl Client {
     /// variables, read as [`Configuration::environment`] reads them. `ArmoniK__Client__Grpc__Endpoint`
     /// is required.
     pub async fn new() -> Result<Self, ConnectionError> {
-        Self::with_configuration(&Configuration::new().environment()).await
+        Self::with_configuration(&Configuration::with_prefix(DEFAULT_PREFIX).environment()).await
     }
 
     /// Create a new client configured by the sources `configuration` lists, connected once it
@@ -161,7 +161,7 @@ impl Client {
         use http_body_util::BodyExt;
         use hyper_util::rt::TokioExecutor;
 
-        let options: RuntimeOptions = Configuration::new()
+        let options: RuntimeOptions = Configuration::with_prefix(DEFAULT_PREFIX)
             .environment()
             .load()
             .expect("the environment's configuration");
@@ -432,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_client_with_no_endpoint_is_refused() {
-        let refused = Client::with_configuration(&Configuration::new().document("{}"))
+        let refused = Client::with_configuration(&Configuration::with_prefix("").document("{}"))
             .await
             .err();
         assert!(
@@ -443,10 +443,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_client_whose_configuration_is_refused_is_refused() {
-        let refused =
-            Client::with_configuration(&Configuration::new().document(r#"{"Endpoint": 1}"#))
-                .await
-                .err();
+        let refused = Client::with_configuration(
+            &Configuration::with_prefix("").document(r#"{"Endpoint": 1}"#),
+        )
+        .await
+        .err();
         assert!(
             matches!(refused, Some(ConnectionError::Config { .. })),
             "{refused:?}"

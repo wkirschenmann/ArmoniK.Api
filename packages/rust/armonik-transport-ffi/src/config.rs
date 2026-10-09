@@ -5,9 +5,7 @@ use armonik_transport::options::{ChannelOptions, OptionRefusal, RuntimeOptions};
 use armonik_transport::reexports::http::Uri;
 use armonik_transport::settings::{ChannelSettings, SettingRefusal};
 
-use crate::abi::{
-    ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status, AK_CONFIG_NO_PREFIX,
-};
+use crate::abi::{ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status};
 use crate::refusal::Refusal;
 
 /// Why a document was refused, named by the key it was refused over.
@@ -115,12 +113,7 @@ pub(crate) fn runtime(configuration: &Configuration) -> Result<RuntimeOptions, C
 /// byte view at its length.
 pub(crate) unsafe fn sources(config: &ak_config) -> Result<Configuration, Refusal> {
     let prefix = text(unsafe { config.prefix.as_slice() })?;
-    let mut configuration = match (config.flags & AK_CONFIG_NO_PREFIX != 0, prefix) {
-        (true, "") => Configuration::with_prefix(""),
-        (true, _) => return Err(PREFIX_BESIDE_NONE),
-        (false, "") => Configuration::new(),
-        (false, prefix) => Configuration::with_prefix(prefix),
-    };
+    let mut configuration = Configuration::with_prefix(prefix);
     let sources: &[ak_config_source] = match (config.source_count, config.sources.is_null()) {
         (0, _) => &[],
         (_, true) => return Err(crate::NULL_ARGUMENT),
@@ -159,11 +152,6 @@ fn text(bytes: Option<&[u8]>) -> Result<&str, Refusal> {
     std::str::from_utf8(bytes.ok_or(crate::NULL_SLICE)?).map_err(|_| NOT_UTF8)
 }
 
-const PREFIX_BESIDE_NONE: Refusal = Refusal::fixed(
-    ak_status::AK_STATUS_INVALID_ARG,
-    ak_error_kind::AK_ERROR_USAGE,
-    "the configuration names a prefix and AK_CONFIG_NO_PREFIX at once",
-);
 const SOURCE_RESERVED_SET: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
@@ -270,7 +258,8 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
 }
 
 /// A channel document, through the loader a runtime's configuration goes through, so that a key
-/// it does not declare is logged at its root and refused below it, as in any other source.
+/// it does not declare is refused by its path, as in any other source. The document is the
+/// channel's own, so its prefix is empty.
 fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
     let json = std::str::from_utf8(json).map_err(|_| ConfigRefusal::NotUtf8)?;
     Configuration::with_prefix("")
@@ -1001,13 +990,15 @@ mod tests {
         assert_eq!(config.max_sends_in_flight, 1);
     }
 
-    /// The loader logs one at the root, as it logs one from any source; the channel is the one its
-    /// other options make. In a group it is refused.
+    /// An option spelled wrong is refused by its path, at the root of the document as in a group.
     #[test]
-    fn an_option_spelled_wrong_is_ignored_at_the_root_and_refused_in_a_group() {
-        let settings = parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
-            .expect("an unknown key at the root is no refusal");
-        assert_eq!(settings.delivery_credits(), 2);
+    fn an_option_spelled_wrong_is_refused_at_the_root_and_in_a_group() {
+        let Err(refused) =
+            parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
+        else {
+            panic!("an unknown key at the root is admitted");
+        };
+        assert!(refused.to_string().contains("UserAgnt"), "{refused}");
 
         let Err(refused) = parse(br#"{"Grpc":{"Host":{"Receive":{"Windw":2}}}}"#) else {
             panic!("an unknown key in a group is admitted");

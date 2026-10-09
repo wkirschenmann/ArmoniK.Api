@@ -108,22 +108,33 @@ fn bytes(text: &str) -> ak_bytes_in {
 
 /// A runtime created from one document, its logs going to `collect`.
 fn create(document: &str) -> Result<Host, Refused> {
-    let sources = [ak_config_source {
-        kind: ak_source_kind::AK_SOURCE_DOCUMENT as u32,
-        reserved: 0,
-        value: bytes(document),
-    }];
+    create_from(&[(ak_source_kind::AK_SOURCE_DOCUMENT, document)])
+}
+
+/// A runtime created from sources, an empty prefix taking every key of each as the engine's.
+fn create_from(values: &[(ak_source_kind, &str)]) -> Result<Host, Refused> {
+    let sources: Vec<ak_config_source> = values
+        .iter()
+        .map(|(kind, value)| ak_config_source {
+            kind: *kind as u32,
+            reserved: 0,
+            value: bytes(value),
+        })
+        .collect();
     Host::from_config(&ak_config {
         struct_size: std::mem::size_of::<ak_config>() as u32,
         version: 0,
         flags: 0,
-        source_count: 1,
+        source_count: sources.len() as u32,
         sources: sources.as_ptr(),
         prefix: bytes(""),
         log_callback: Some(collect),
         log_ctx: context(),
     })
 }
+
+/// Pairs that name one key twice, in two cases: the loader takes the later and says so.
+const PAIRS_TWICE: &str = r#"{"Endpoint":"http://first.test:1","endpoint":"http://second.test:2"}"#;
 
 fn with_filter(filter: &str) -> String {
     json!({ "Logging": { "Filter": filter } }).to_string()
@@ -138,31 +149,22 @@ fn has(records: &[Record], target: &str, level: u32, message: &str) -> bool {
 }
 
 #[test]
-fn an_unknown_key_is_logged_at_info_on_the_thread_that_creates_the_runtime() {
+fn a_key_given_twice_is_logged_at_warn_on_the_thread_that_creates_the_runtime() {
     let _turn = turn();
-    let host = create(r#"{"Misspelled":1,"Elsewhere":{"Level":"debug"}}"#).expect("a runtime");
+    let host = create_from(&[(ak_source_kind::AK_SOURCE_PAIRS, PAIRS_TWICE)]).expect("a runtime");
 
     let records = logged();
-    let unknown: Vec<_> = records
+    let twice: Vec<_> = records
         .iter()
-        .filter(|record| record.message.contains("does not know"))
+        .filter(|record| record.message.contains("gives a key twice"))
         .collect();
-    assert_eq!(unknown.len(), 2, "{records:#?}");
-    for record in &unknown {
-        assert_eq!(record.level, AK_LOG_INFO);
-        assert_eq!(record.thread, std::thread::current().id());
-        assert_eq!(record.field("source"), Some("a document"));
-    }
-    let keys: Vec<_> = unknown
-        .iter()
-        .filter_map(|record| record.field("key"))
-        .collect();
-    assert!(keys.contains(&"Misspelled"), "{keys:?}");
-    assert!(keys.contains(&"Elsewhere"), "{keys:?}");
-    // A value is never quoted.
-    assert!(records
-        .iter()
-        .all(|record| !record.text().contains("\"1\"")));
+    assert_eq!(twice.len(), 1, "{records:#?}");
+    assert_eq!(twice[0].level, AK_LOG_WARN);
+    assert_eq!(twice[0].thread, std::thread::current().id());
+    assert_eq!(twice[0].field("source"), Some("pairs"));
+    assert_eq!(twice[0].field("key"), Some("endpoint"));
+    // The key is named and its value is not.
+    assert!(!twice[0].text().contains("second.test"));
     drop(host);
 }
 
@@ -428,7 +430,13 @@ fn an_ignored_directive_is_reported_whatever_the_filter_selects() {
 #[test]
 fn a_refused_creation_still_delivers_what_its_load_logged_and_nothing_after() {
     let _turn = turn();
-    let Err(refused) = create(r#"{"Unknown":1,"MemoryCeiling":{"SoftMiB":"many"}}"#) else {
+    let Err(refused) = create_from(&[
+        (ak_source_kind::AK_SOURCE_PAIRS, PAIRS_TWICE),
+        (
+            ak_source_kind::AK_SOURCE_DOCUMENT,
+            r#"{"MemoryCeiling":{"SoftMiB":"many"}}"#,
+        ),
+    ]) else {
         panic!("a ceiling that is not a number is admitted");
     };
     assert_eq!(refused.status, ak_status::AK_STATUS_INVALID_ARG);
@@ -436,7 +444,7 @@ fn a_refused_creation_still_delivers_what_its_load_logged_and_nothing_after() {
     assert!(
         logged()
             .iter()
-            .any(|record| record.message.contains("does not know")),
+            .any(|record| record.message.contains("gives a key twice")),
         "{:#?}",
         logged()
     );
@@ -495,18 +503,11 @@ fn ak_runtime_create_logs_by_the_default_filter() {
         reserved: 0,
         memory_ceiling: 0,
         memory_hard_ceiling: 0,
-        channel_defaults_json: bytes(r#"{"Unknown":1}"#),
+        channel_defaults_json: bytes(""),
         log_callback: Some(collect),
         log_ctx: context(),
     };
     let host = Host::from_runtime_config(&config);
-    let records = logged();
-    assert!(
-        records
-            .iter()
-            .any(|record| record.message.contains("does not know")),
-        "{records:#?}"
-    );
 
     tracing::info!(target: "armonik_transport::test", "the engine at info");
     tracing::debug!(target: "armonik_transport::test", "the engine at debug");

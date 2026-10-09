@@ -5,15 +5,21 @@
 //! later one is merged over an earlier one by the type's own [`Document::over`], so that what the
 //! sources mean does not depend on who listed them.
 //!
-//! A key the root of the document does not declare is not refused. It is logged, with its source
-//! and its path, and the load goes on, because a file read with no prefix holds its host's own
-//! sections. Below the root, a key a struct does not declare, such as `IntervalSecond` in
+//! Every source is a document, and a document is judged whole against the schema. A file and a JSON
+//! document are one already; the environment and pairs are made one from the names under the
+//! prefix, the rest of a name being the path of a key and its value a text read by that key's type.
+//! The prefix names the section of the document that is the engine's: a file or a document is
+//! judged on that section alone, and what lies outside it, a host's `Logging` or `Serilog`, is
+//! never looked at; a variable or a pair whose name does not start with the prefix is never looked
+//! at either. With an empty prefix the whole file is the engine's, and every key of it has to be
+//! one the schema declares.
+//!
+//! A key a struct does not declare, such as `Endpiont` at the root, `IntervalSecond` in
 //! `Http2.KeepAlive.Ping` or `Windw` in `Grpc.Host.Receive`, is refused by its path, and so is a key
-//! of an alternative that names none of its variants: a misspelling there leaves an option at what
-//! an earlier source or the default gave it. A value that does not fit its key's type is refused,
-//! by its source and its path, and never quoted: a password is a value.
+//! of an alternative that names none of its variants: a misspelling would leave an option at what
+//! an earlier source or the default gave it. A value that does not fit its key's type or its
+//! bounds is refused, by its source and its path, and never quoted: a password is a value.
 
-use std::cell::RefCell;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -22,11 +28,10 @@ use serde::de::{
     Unexpected, VariantAccess, Visitor,
 };
 
-/// The prefix a configuration is read under when the host names none.
-///
-/// `ArmoniK__Client__Grpc`: the gRPC part of the ArmoniK client's configuration. Its parts are
-/// joined by `__`, as an environment variable's name writes them, and a file holds them as nested
-/// sections.
+/// The prefix `ArmoniK__Client__Grpc`: the gRPC part of the ArmoniK client's configuration, which a
+/// caller that keeps the engine's options beside its own passes to
+/// [`Configuration::with_prefix`]. Its parts are joined by `__`, as an environment variable's name
+/// writes them, and a file holds them as nested sections.
 pub const DEFAULT_PREFIX: &str = "ArmoniK__Client__Grpc";
 
 /// The separator between the parts of a key's path in the environment and in pairs, as .NET's
@@ -44,7 +49,7 @@ pub trait Document: serde::de::DeserializeOwned + Default {
 /// Where a configuration comes from, in the order the sources are added.
 #[derive(Clone)]
 pub struct Configuration {
-    prefix: Option<String>,
+    prefix: String,
     sources: Vec<Source>,
 }
 
@@ -75,25 +80,17 @@ enum Source {
     Document(String),
 }
 
-impl Default for Configuration {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Configuration {
-    /// Under [`DEFAULT_PREFIX`], with no source.
-    pub fn new() -> Self {
-        Self::with_prefix(DEFAULT_PREFIX)
-    }
-
-    /// Under `prefix`, or under none when it is empty: a file's document is then the whole file.
+    /// Under `prefix`, with no source: the section of a file or of a document that is the engine's,
+    /// and the start of the name of a variable or of a pair that is. An empty prefix takes
+    /// everything: the whole of a file or of a document is the engine's.
     ///
     /// The prefix is a path, its parts joined by `__`, or by `:` as a .NET section's path is
-    /// written, which is read as `__`.
+    /// written, which is read as `__`. A caller that keeps the engine's options beside its own
+    /// passes [`DEFAULT_PREFIX`].
     pub fn with_prefix(prefix: &str) -> Self {
         Self {
-            prefix: (!prefix.is_empty()).then(|| prefix.replace(':', SEPARATOR)),
+            prefix: prefix.replace(':', SEPARATOR),
             sources: Vec::new(),
         }
     }
@@ -116,13 +113,14 @@ impl Configuration {
     }
 
     /// The variables of the process environment whose name starts with the prefix and `__`, read
-    /// when the configuration is loaded. Refused at the load when there is no prefix.
+    /// when the configuration is loaded. Refused at the load when the prefix is empty.
     pub fn environment(self) -> Self {
         self.with(Source::Environment)
     }
 
-    /// Pairs of a key's path, its parts joined by `__` under no prefix, and a text value, read as
-    /// the environment's are.
+    /// Pairs of a name and a text value, read as the environment's are: the name is the prefix, `__`
+    /// and a key's path, its parts joined by `__`, and a pair whose name does not start with the
+    /// prefix is never looked at.
     pub fn pairs(self, pairs: impl IntoIterator<Item = (String, String)>) -> Self {
         self.with(Source::Pairs(pairs.into_iter().collect()))
     }
@@ -134,7 +132,7 @@ impl Configuration {
         self.with(Source::PairsJson(json.into()))
     }
 
-    /// A JSON document in the document's vocabulary, with no prefix around it.
+    /// A JSON document, of which the section the prefix names is the engine's, as a file's is.
     pub fn document(self, json: impl Into<String>) -> Self {
         self.with(Source::Document(json.into()))
     }
@@ -144,8 +142,8 @@ impl Configuration {
         self
     }
 
-    /// Reads the sources, in order, into one document, each key the root does not declare logged,
-    /// and a key any other struct does not declare refused.
+    /// Reads the sources, in order, into one document, each judged whole: a key a struct does not
+    /// declare is refused, the root's among them.
     ///
     /// The first refusal ends the load. With no source, or none that contributes, the document is
     /// its type's default.
@@ -188,21 +186,19 @@ impl Configuration {
                 if !matches!(root, Node::Map(_)) {
                     return Err(refused("the file holds no object".to_owned()));
                 }
-                let section = match &self.prefix {
-                    None => Some(root),
-                    Some(prefix) => section(root, prefix)
-                        .map_err(|at| refused(format!("its section {at} is not an object")))?,
-                };
+                let section = section(root, &self.prefix)
+                    .map_err(|at| refused(format!("its section {at} is not an object")))?;
                 Ok(section.map(Tree::typed))
             }
             Source::Environment => {
-                let Some(prefix) = &self.prefix else {
+                if self.prefix.is_empty() {
                     return Err(refused(
-                        "the environment needs a prefix: with none, every variable of the \
-                         process would be a key"
+                        "the environment needs a prefix: with an empty one, every variable of \
+                         the process would be a key"
                             .to_owned(),
                     ));
-                };
+                }
+                let prefix = &self.prefix;
                 let mut variables = Vec::new();
                 for (name, value) in std::env::vars_os() {
                     let Some(name) = name.to_str() else {
@@ -225,7 +221,11 @@ impl Configuration {
                 variables.sort();
                 Ok(Some(Texts::from(variables, named, true)))
             }
-            Source::Pairs(pairs) => Ok(Some(Texts::from(pairs.clone(), named, false))),
+            Source::Pairs(pairs) => Ok(Some(Texts::from(
+                self.under_prefix(pairs.iter().cloned()),
+                named,
+                false,
+            ))),
             Source::PairsJson(json) => {
                 let not_pairs = || refused("they are not a JSON object of text values".to_owned());
                 let parsed: Node = serde_json::from_str(json)
@@ -240,25 +240,43 @@ impl Configuration {
                         _ => Err(not_pairs()),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Some(Texts::from(pairs, named, false)))
+                Ok(Some(Texts::from(self.under_prefix(pairs), named, false)))
             }
             Source::Document(json) => {
                 let parsed: Node = serde_json::from_str(json)
                     .map_err(|error| refused(format!("it is not JSON: {error}")))?;
-                match parsed {
-                    root @ Node::Map(_) => Ok(Some(Tree::typed(root))),
-                    _ => Err(refused("it is not a JSON object".to_owned())),
+                if !matches!(parsed, Node::Map(_)) {
+                    return Err(refused("it is not a JSON object".to_owned()));
                 }
+                let section = section(parsed, &self.prefix)
+                    .map_err(|at| refused(format!("its section {at} is not an object")))?;
+                Ok(section.map(Tree::typed))
             }
         }
+    }
+
+    /// The pairs whose name starts with the prefix, each by the rest of its name.
+    fn under_prefix(
+        &self,
+        pairs: impl IntoIterator<Item = (String, String)>,
+    ) -> Vec<(String, String)> {
+        pairs
+            .into_iter()
+            .filter_map(|(name, value)| {
+                under(&name, &self.prefix).map(|path| (path.to_owned(), value))
+            })
+            .collect()
     }
 }
 
 /// The section a prefix names in a file's tree: its parts, joined by `__`, walk down the nested
 /// sections, each key compared as written, so that `A__B` is the section `B` of the section `A`.
 /// Nothing when a section is missing; an error, the path to the section at fault, when a section
-/// is not an object.
+/// is not an object. The whole tree when the prefix is empty.
 fn section(root: Node, prefix: &str) -> Result<Option<Node>, String> {
+    if prefix.is_empty() {
+        return Ok(Some(root));
+    }
     let mut current = root;
     let mut walked = 0;
     for part in prefix.split(SEPARATOR) {
@@ -278,8 +296,12 @@ fn section(root: Node, prefix: &str) -> Result<Option<Node>, String> {
 }
 
 /// The rest of a variable's name past `prefix` and the separator, compared without case, as the
-/// environment of Windows and .NET's providers compare names.
+/// environment of Windows and .NET's providers compare names. The whole name when the prefix is
+/// empty.
 fn under<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+    if prefix.is_empty() {
+        return Some(name);
+    }
     let head = name.get(..prefix.len())?;
     let rest = name.get(prefix.len()..)?;
     if !head.eq_ignore_ascii_case(prefix) {
@@ -651,35 +673,25 @@ impl Texts {
     }
 }
 
-/// Reads one source's tree into the document, each key its root does not declare logged, and a key
-/// any other struct does not declare refused.
+/// Reads one source's tree into the document, a key a struct does not declare refused.
 fn read<D: serde::de::DeserializeOwned>(
     tree: Tree,
     source: &SourceName,
 ) -> Result<D, ConfigRefusal> {
     let shared = Shared {
-        skipped: RefCell::new(Vec::new()),
         json_lists: tree.json_lists,
     };
-    let read = D::deserialize(Reader {
+    D::deserialize(Reader {
         node: tree.root,
         path: String::new(),
         text: tree.text,
         shared: &shared,
-    });
-    for key in shared.skipped.into_inner() {
-        tracing::info!(
-            source = %source,
-            key = %key,
-            "the configuration names a key the engine does not know, which is ignored"
-        );
-    }
-    read.map_err(|refused| ConfigRefusal::new(source.clone(), refused.key, refused.why))
+    })
+    .map_err(|refused| ConfigRefusal::new(source.clone(), refused.key, refused.why))
 }
 
-/// What one read of a tree shares: the keys it passed over, and how its source states a list.
+/// What one read of a tree shares: how its source states a list.
 struct Shared {
-    skipped: RefCell<Vec<String>>,
     json_lists: bool,
 }
 
@@ -836,7 +848,6 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: None,
-                tolerant: false,
                 pending: None,
                 path,
                 text,
@@ -900,9 +911,6 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: Some(fields),
-                // The root alone, under a prefix as under none: a file read with no prefix holds
-                // its host's own sections.
-                tolerant: self.path.is_empty(),
                 pending: None,
                 path: self.path,
                 text: self.text,
@@ -947,7 +955,6 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
             Node::Map(entries) => visitor.visit_map(Entries {
                 entries: entries.into_iter(),
                 fields: Some(variants),
-                tolerant: false,
                 pending: None,
                 path: self.path,
                 text: self.text,
@@ -958,9 +965,10 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
         }
     }
 
-    fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
-        self.shared.skipped.borrow_mut().push(self.path);
-        visitor.visit_unit()
+    /// A key no type declares is refused before its value is read, so a type that asks to skip a
+    /// value is asking for what the loader does not allow.
+    fn deserialize_ignored_any<V: Visitor<'de>>(self, _: V) -> Result<V::Value, Refused> {
+        Err(de::Error::custom("it is not a key the document declares"))
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
@@ -1014,10 +1022,9 @@ fn spelled(name: String, known: &'static [&'static str], text: bool) -> String {
 
 struct Entries<'a> {
     entries: std::vec::IntoIter<(String, Node)>,
-    /// The keys the type declares, when it is a struct or an alternative.
+    /// The keys the type declares, when it is a struct or an alternative; one it does not hold is
+    /// refused.
     fields: Option<&'static [&'static str]>,
-    /// Whether a key `fields` does not hold is read past and logged, rather than refused.
-    tolerant: bool,
     pending: Option<(String, Node)>,
     path: String,
     text: bool,
@@ -1040,7 +1047,7 @@ impl<'de, 'a> MapAccess<'de> for Entries<'a> {
         };
         let path = joined(&self.path, &key);
         if let Some(fields) = self.fields {
-            if !self.tolerant && !fields.contains(&key.as_str()) {
+            if !fields.contains(&key.as_str()) {
                 return Err(<Refused as de::Error>::unknown_field(&key, fields).at(&path));
             }
         }

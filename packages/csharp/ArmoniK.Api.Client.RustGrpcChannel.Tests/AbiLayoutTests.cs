@@ -304,8 +304,6 @@ public class AbiLayoutTests
                                      Is.EqualTo(4));
                          Assert.That((int)ak_source_kind.AK_SOURCE_PAIRS,
                                      Is.EqualTo(5));
-                         Assert.That(NativeMethods.AK_CONFIG_NO_PREFIX,
-                                     Is.EqualTo(1));
                        });
 
   /// <summary>A host built against an older header sets only the bits it knew, so a bit keeps its
