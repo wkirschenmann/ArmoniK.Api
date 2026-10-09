@@ -50,8 +50,9 @@ silent.
   may be called by several threads at once. It must not call this library: an event logged from
   inside it is dropped, since delivering it would enter the callback again on its own stack.
 - **Events logged while the runtime is created are delivered on the host's calling thread, before
-  the creation returns.** The configuration's load runs inside the creation, and its events - the
-  unknown keys at a root - cannot be selected by a filter that is among what it loads. They are kept on the
+  the creation returns.** The configuration's load runs inside the creation, and its events - a key
+  that an environment or pairs give twice - cannot be selected by a filter that is among what it
+  loads. They are kept on the
   loading thread, which is the one thread that logs then, and delivered once the filter is known,
   each as the filter selects it. A refused creation delivers them too, selected by the default
   filter, since they say why; the callback is detached before the call returns.
@@ -62,9 +63,19 @@ silent.
   again. Nothing changes it while the runtime runs - no entry point, no hot reload - and no channel
   has a filter of its own.
   `Logging` is therefore a key of the runtime's options, which a host's own `Logging` section - the
-  one `Microsoft.Extensions.Logging` reads from `appsettings.json` - meets in a file read with no
-  prefix: its `LogLevel` is refused as the unknown key `Logging.LogLevel`, there being no
-  tolerance below a document's root. Under the default prefix the two do not meet.
+  one `Microsoft.Extensions.Logging` reads from `appsettings.json` - meets in a file read with an
+  empty prefix, the whole file then being the engine's: its `LogLevel` is refused as the unknown
+  key `Logging.LogLevel`. A host keeps the engine's options under `ArmoniK:Client:Grpc` and reads
+  the file with that prefix, so that its own `Logging`, `Serilog` and the rest lie outside the
+  section the engine judges and are never looked at:
+
+  ```json
+  {
+    "Logging": { "LogLevel": { "Default": "Information" } },
+    "ArmoniK": { "Client": { "Grpc": { "Endpoint": "https://armonik.example.com:5001",
+                                         "Logging": { "Filter": "armonik_transport=debug" } } } }
+  }
+  ```
 - **Directives match by module-path segment, and `*` by text.** A directive is a level (`info`),
   a target and its level (`h2=debug`), or a target alone, which is all its levels. A target covers
   itself and the modules below it: `h2` covers `h2` and `h2::proto::connection`, not `h2x`, and
@@ -129,9 +140,9 @@ silent.
   so that a steady state allocates nothing, and a key is the field's static name.
 - **Nothing is allocated for a disabled event.** What is not selected is decided by the callsite's
   cached interest, before an event is built.
-- **Unknown configuration keys at the root of a document are logged at info**, with their source
-  and their path, never their value, since a misspelled key may hold a secret. One below the root
-  is refused, and the refusal names its path.
+- **An unknown configuration key is refused, not logged**, at the root of a document as below it,
+  and the refusal names its path and never its value, since a misspelled key may hold a secret.
+  What the load logs is a key an environment or pairs give twice, at warn.
 - **The effective configuration is logged at info.** Once when the runtime is created, and once for
   each channel whose creation states options that differ from what it would take from the runtime -
   the channel's own document merged over the runtime's defaults, with its endpoint as
@@ -227,7 +238,6 @@ A target is the module that emits it. A host selects by target and level (`Loggi
 
 | Target | Level | Message | Fields |
 |--------|-------|---------|--------|
-| `armonik_transport::configuration` | info | the configuration names a key the engine does not know, which is ignored | `source`, `key` |
 | `armonik_transport::configuration` | warn | the configuration gives a key twice, which is taken from the later | `source`, `key` |
 | `armonik_transport_ffi::config` | info | the runtime's effective configuration | `endpoint`, `memory_ceiling`, `memory_hard_ceiling`, `channel_defaults`, `log_filter` |
 | `armonik_transport_ffi::config` | info | the channel's effective configuration | `endpoint`, `options` |

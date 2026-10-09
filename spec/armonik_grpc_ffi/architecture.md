@@ -1290,7 +1290,7 @@ ChannelOptions.g.cs      <- committed; the build compares it with what the schem
 UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument,
     │ or, empty, the Endpoint of the runtime's options
     │ the configuration loader into ChannelOptions, a key no option declares
-    │ logged and ignored at the root, refused below it;
+    │ refused by its path, at the root as below it;
     │ ChannelSettings checks every bound again, and each
     │ unit's conversion, in armonik-transport, reads the certificate files it names
     ▼
@@ -1313,9 +1313,9 @@ the shape every option takes, and gives the reasons:
   is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
 - `additionalProperties: false` everywhere, which tells whoever edits a document what the engine
-  does not declare; the engine ignores such a key at the root of a document and logs it with its
-  source and path, and refuses it, by its path, anywhere else, so that a misspelled key does not
-  give the defaults unsaid (configuration-loading.md);
+  does not declare; the engine refuses such a key by its path, at the root of a document as
+  anywhere else, so that a misspelled key does not give the defaults unsaid
+  (configuration-loading.md);
 - options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
   which serde writes in its externally tagged form: a variant that carries nothing is its name, a
   string, and one that carries something is an object of one key that holds it -
@@ -1332,8 +1332,9 @@ the shape every option takes, and gives the reasons:
   what it receives under `Receive`.
 
 The binding takes no `IConfiguration`: the engine reads files and the environment itself, under the
-prefix `ArmoniK__Client__Grpc` by default, and the binding hands it a command line as pairs of a
-key's path and a text value, and an object set in code as a document, through
+prefix the host gives, `ArmoniK__Client__Grpc` for a host that keeps the engine's options beside its
+own, and the binding hands it a command line as pairs of a key's path and a text value, and an
+object set in code as a document, through
 `NativeConfiguration`'s loads (configuration-loading.md). The binding does not know the delivery
 window a channel ends up with when the runtime's sources state a default: it reads it back from the
 engine with `ak_channel_delivery_window` once the channel is created, and sizes its rings from that.

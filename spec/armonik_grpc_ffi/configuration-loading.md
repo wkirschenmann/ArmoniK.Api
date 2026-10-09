@@ -26,8 +26,9 @@ well as from JSON, so every host language gets the same result from the same sou
   empty endpoint as the runtime's `Endpoint`.
 - The vocabulary is `options.schema.json` (channel) and `runtime.schema.json` (runtime), rendered
   from the Rust types; .NET's `ChannelOptions.g.cs` and `RuntimeOptions.g.cs` are generated from
-  them. An unknown key is ignored and logged with its path at the root of a document, and refused
-  by its path anywhere else; a value is never quoted back.
+  them. A source is a document, judged whole against the schema: a key it does not declare, the
+  root's included, a value of the wrong type or out of its bounds and a missing mandatory field
+  are refused by their path; a value is never quoted back.
 - Two documents merge by `ChannelOptions::over`: a struct field by field, but for a struct with
   a mandatory field, which is stated whole. An alternative (an enum: TLS verification, client
   identity, proxy, receive windows) is whole when the two state different variants, and merges as
@@ -42,12 +43,15 @@ well as from JSON, so every host language gets the same result from the same sou
   an earlier one: typically the files from the least to the most important, then the environment,
   then its own values.
 - **File formats**: JSON, YAML and TOML.
-- **Environment**: `__` as the separator, as .NET's; the prefix is the host's to choose,
-  `ArmoniK__Client__Grpc` by default (decided 2026-10-07): `ArmoniK__Client__` is the family of the
-  ArmoniK client's configuration, and `Grpc` its gRPC part, which this engine reads. A prefix is a
-  path: its parts, joined by `__` (a `:`, as a .NET section's path is written, is read as `__`), are
-  the nested sections of a file, each key compared as written
-  (`{"ArmoniK": {"Client": {"Grpc": {...}}}}`), and the start of a variable's name. Read once, when
+- **Environment**: `__` as the separator, as .NET's; the prefix is the host's to choose and is
+  always given (decided 2026-10-09: no loader, no ABI entry and no binding takes a default that
+  silently means one prefix or none). `ArmoniK__Client__Grpc` (decided 2026-10-07) is the value a
+  host that keeps the engine's options beside its own passes: `ArmoniK__Client__` is the family of
+  the ArmoniK client's configuration, and `Grpc` its gRPC part, which this engine reads. A prefix is
+  a path: its parts, joined by `__` (a `:`, as a .NET section's path is written, is read as `__`),
+  are the nested sections of a file or of a document, each key compared as written
+  (`{"ArmoniK": {"Client": {"Grpc": {...}}}}`), and the start of a variable's name. An empty prefix
+  is a prefix like another, and takes everything: the whole file is the engine's. Read once, when
   the runtime is created, and only if the host lists it among the sources.
 - **No aliases**: the keys under the prefix are the schema's. The engine maps none of the names
   `ArmoniK.Api.Client`'s managed transport reads under its `GrpcClient` section: a channel's option
@@ -81,26 +85,23 @@ well as from JSON, so every host language gets the same result from the same sou
   the variant `None`, `"None"`, which `Transport.TcpKeepalive`, `Http2.KeepAlive`, `Http2.IdleTimeout`,
   `Grpc.Deadline` and the units of `Grpc.OutboundTraffic` have, as `Http2.SimultaneousCallsPerConnection`
   has `"FromServer"` (decisions.md, "How an option is turned off by a variant").
-- **An unknown key at the root of a document is ignored, and logged** (2026-10-07), in every
-  source and on every host, a channel's own document included: the load goes on, and the log names
-  the source and the key's path, so that a misspelled key does not give the defaults with nothing
-  to say so. The engine logs through `tracing`, at info; it reaches a host through the log callback
-  it gives when the runtime is created (observability.md), the load's events delivered on the
-  creating thread, selected by the `Logging.Filter` the load found. The root keeps the tolerance
-  because a file read with no prefix holds its host's own sections, `Serilog` among them. The
-  root is the document's, which under a prefix is the section the prefix names.
-- **An unknown key anywhere else is refused** (2026-10-09), by its full path, in every source: a
-  field a struct does not declare, such as `Http2.Send.FramesPerWrit` or
-  `Http2.KeepAlive.Ping.IntervalSecond`, and a key of an alternative that names none of its
-  variants, such as `{"Pingg": {...}}` or the variable `...KeepAlive__Pingg__IntervalSeconds`, which
-  is refused naming the variants it accepts, `None, Ping`. A name that is none of them, as in
-  `KeepAlive=Pingg`, is refused at the option's own path. A misspelling there leaves an option at
-  what an earlier source or the default gave it, and a line in the log at info is too little to say
-  so. A configuration written for a later engine is not a reason to load it: it is written for
-  that engine, and an older one that drops what it does not know runs something else than the file
-  states. One consequence: a host's own `Logging` section, which a file read with no prefix holds,
-  meets the runtime's `Logging` group and is refused at `Logging.LogLevel`; under the default
-  prefix the two do not meet. decisions.md has the reasons.
+- **A source is a document, judged whole against the schema** (2026-10-09). A file or a
+  document is judged on the section its prefix names, and nothing outside that section is looked at: a host's `Logging` and
+  `Serilog` are its own. The environment, pairs and a command line are made one document from the
+  names that start with the prefix, and a name that does not is never looked at. Refused, by the
+  full key path and never quoting a value: a key the schema does not declare, at the root of the
+  document as below it (`Endpiont`, `Http2.Send.FramesPerWrit`, `Http2.KeepAlive.Ping.IntervalSecond`,
+  the variable `ArmoniK__Client__Grpc__Endpiont`), a key of an alternative that names none of its
+  variants (`{"Pingg": {...}}`, refused naming the variants it accepts, `None, Ping`), a name that
+  is none of them (`KeepAlive=Pingg`, refused at the option's own path), a value of the wrong type,
+  a value out of the bounds the schema states and a mandatory field that is missing. A misspelling
+  would leave an option at what an earlier source or the default gave it, and a line in the log is
+  too little to say so. A configuration written for a later engine is not a reason to load it: it
+  is written for that engine, and an older one that drops what it does not know runs something else
+  than the file states. With an empty prefix the whole file is the engine's and is judged whole,
+  so a host's own `Logging` section is refused at `Logging.LogLevel`, where the runtime's `Logging`
+  group meets it; a host reads its file with `ArmoniK:Client:Grpc` and the two never meet.
+  decisions.md has the reasons.
 - **The endpoint is a key of the runtime's document**, `Endpoint` (2026-10-07): the one the
   `armonik` client reaches, and the one a channel reaches when `ak_channel_create` is given none.
 - **Both hosts read the runtime's document**, which follows from the endpoint's being one of its
@@ -121,12 +122,13 @@ well as from JSON, so every host language gets the same result from the same sou
    current entry points keep working, a JSON document being the one-source case.
 4. **The same vocabulary everywhere**: the keys are the schema's; the environment and file forms
    are mechanical renderings of them, not a second vocabulary.
-5. **Said**: an unknown key at the root of a document, from any source, is logged with the
-   source and the path and otherwise ignored; one anywhere else is refused, by its path; a value
-   that does not fit its key is refused; a secret (a password, a key) never appears in a message.
+5. **Said**: a key the schema does not declare, at the root of a document or anywhere else, from
+   any source, is refused, by its path; so is a value that does not fit its key's type or its
+   bounds; a secret (a password, a key) never appears in a message.
 6. **Conformance**: one set of fixtures - sources in, resulting document or refusal out - run
-   against the Rust loader directly and against each binding through the ABI; the keys logged as
-   unknown are checked on the Rust loader, and through the ABI by the log callback (T10.1).
+   against the Rust loader directly and against each binding through the ABI, and each run through
+   a JSON Schema validator as well, which has to accept and refuse what the loader does
+   (`tests/schema.rs`).
 
 ## Shape
 
@@ -164,19 +166,22 @@ file or one environment configures every host alike; a document with no `Endpoin
 - **A file**, JSON, YAML or TOML by its extension (`.json`, `.yaml` or `.yml`, `.toml`). The
   document is the file's section named by the prefix, found by walking its parts down the nested
   sections as written (a section that is missing contributes nothing, one that is not an object is
-  refused), so the host's own `appsettings.json` can carry it beside sections the host reads
-  itself; the other sections are not the engine's, and are left alone. A file with no such section
-  contributes nothing. With no prefix, the document is the whole file, so the sections of its own
-  host that a file also holds are unknown keys, logged, but for a section that bears the name of one
-  of the runtime's own, `Logging`, which is read as the runtime's and refused where it does not fit
-  (observability.md). A missing file is refused, unless the host
-  marks it optional, as .NET's `AddJsonFile(path, optional: true)` does.
+  refused), and it is judged whole against the schema. The host's own `appsettings.json` can carry
+  it beside sections the host reads itself, `Logging` and `Serilog` among them: they lie outside the
+  section, and are never looked at. A file with no such section contributes nothing. With an empty
+  prefix, the document is the whole file, and the file belongs to the engine alone: every key of it
+  has to be one the schema declares, so that the sections of a host are refused, `Logging.LogLevel`
+  being the first a host's file usually holds (observability.md). A missing file is refused, unless
+  the host marks it optional, as .NET's `AddJsonFile(path, optional: true)` does.
 - **The environment**: the variables whose name starts with the prefix and `__`, read once, when
-  the runtime is created. The rest of a name is the key's path, its parts joined by `__`, compared
-  without case:
-  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit=4`. A value is text, parsed by the schema's type for that key. The environment needs a prefix: with none, every
-  variable of the process would be a key, and the log would name every one of them, so an
-  environment source with no prefix is refused. A key that holds a list, such as
+  the runtime is created, and built into one document: the rest of a name is the key's path, its
+  parts joined by `__`, compared without case:
+  `ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit=4`. A
+  value is text, parsed by the schema's type for that key. A variable whose name does not start
+  with the prefix is never looked at; one under it that names no key,
+  `ArmoniK__Client__Grpc__Endpiont`, is refused, as a key of a file would be. The environment needs
+  a prefix: with an empty one, every variable of the process would be a key, so an environment
+  source with an empty prefix is refused. A key that holds a list, such as
   `Grpc.Receive.Compression`, is read from its one variable, whose value is a JSON array:
   `ArmoniK__Client__Grpc__ChannelDefaults__Grpc__Receive__Compression=["Zstd","Gzip"]`. It is the
   one form: a bare value (`Zstd`, or `Zstd,Gzip`, which is not split at the commas) and keys under
@@ -184,13 +189,16 @@ file or one environment configures every host alike; a document with no `Endpoin
   environment does not) are refused, as is JSON that is not an array. An empty array states an
   empty list, and `[]` is the only way to: a variable set to nothing is refused. Each element is
   read as the element's type, a name matched without case as the other variables' values are.
-- **Pairs**: a JSON object whose names are keys' paths, their parts joined by `__`, under no
-  prefix, and whose values are text, read as the environment's values are, by the schema's type
-  for that key: `{"ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit": "4"}`. It is what a
-  binding sends for a command line it has parsed. Pairs state no list, and neither does a
-  command line: a key that holds a list is refused, by its path.
-- **A document**: JSON in the schema's vocabulary, with no prefix around it. It is what a binding
-  sends for an object set in code.
+- **Pairs**: a JSON object whose names are the prefix, `__` and a key's path, its parts joined by
+  `__`, and whose values are text, read as the environment's values are, by the schema's type for
+  that key: `{"ArmoniK__Client__Grpc__ChannelDefaults__Http2__SimultaneousCallsPerConnection__Limit": "4"}`.
+  A name that does not start with the prefix is never looked at, and the rest are built into one
+  document as the environment's are, so that with an empty prefix every name is the engine's. It
+  is what a binding sends for a command line it has parsed, every argument of it. Pairs state no
+  list, and neither does a command line: a key that holds a list is refused, by its path.
+- **A document**: JSON, of which the section the prefix names is the engine's, in the schema's
+  vocabulary, as a file's is; with an empty prefix the whole document is. It is what a binding sends
+  for an object set in code, which it nests under the prefix.
 - **A variant that carries nothing**: in the environment and in pairs, the key's value is its name,
   matched without case - `ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None`. A variant
   that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...` -
@@ -219,36 +227,56 @@ The first refusal ends the load and names its source - the file's path, `the env
 - a file that does not parse, with its line, as .NET reports one, and a file whose extension is
   none of the four;
 - a missing file not marked optional;
-- an environment source with no prefix;
+- an environment source with an empty prefix;
 - a document that is not JSON, a prefix's section that is not an object, and pairs that are not
   a JSON object of text values;
-- a value that is not of its key's type, an environment or pair value being parsed as that type;
+- a value that is not of its key's type, an environment or pair value being parsed as that type,
+  and a value out of the bounds the schema states for its key (`minimum`, `maximum`, `minLength`),
+  but for `minLength` of `Transport.Proxy.Url.Address` and of `Transport.Proxy.UrlWithCredentials`,
+  which the loader does not check.
+  A number a file or a document writes with a fraction of zero, `2.0` or `1e1`, is the integer it
+  equals, as JSON Schema reads one, and `2.5` is refused; a text of the environment or of pairs is
+  parsed by its key's type, so `2.0` is no integer there;
+- a mandatory field that is missing;
 - a list in pairs, whatever its form, with its path and the sources that do state one, and in the
   environment a list that is not a JSON array, with its path and the form that is, or an element
   that is not of its type, with the element's index in the path (`Compression.1`).
 
-A key at the root of the document, under the prefix, that the schema does not declare is not
-refused: it is logged, with its source and its path, and the load goes on. A key that a struct
-below the root does not declare is refused, by its path, and so is a key of an alternative - how
-the server is verified, who the client is, which proxy - that names none of its variants, the
-refusal naming the variants it accepts. A name that carries nothing and is none of its variants is
-refused, as is a variant that carries nothing given a value.
+A key that a struct does not declare is refused, by its path, at the root of the document, which
+is the section the prefix names, as below it; so is a key of an alternative - how the server is
+verified, who the client is, which proxy - that names none of its variants, the refusal naming the
+variants it accepts. A name that carries nothing and is none of its variants is refused, as is a
+variant that carries nothing given a value.
 
 A value is never quoted, a password being one. Through the C structure, what is malformed in it - a
-kind it does not name, a nonzero `reserved`, a flag it does not know, a value on an environment
-source, a prefix beside `AK_CONFIG_NO_PREFIX` - is `AK_STATUS_INVALID_ARG`, before any source is
+kind it does not name, a nonzero `reserved`, a flag, none being defined, a value on an environment
+source, a byte view that is null with a length - is `AK_STATUS_INVALID_ARG`, before any source is
 read.
+
+### Where the loader and the schema each decide
+
+The loader's reader decides, and no validator runs beside it (decided 2026-10-09). The reader
+refuses a key by the type that declares it, and a value by its type; the bounds the schema
+states are checked where the value is read, by a small function on the
+field's `deserialize_with` (`within::between`, `within::at_least`, `within::non_empty` and the few
+named for a bound of their own), so that the types stay the one source of the schema, which
+`schemars` renders from them, and of what the loader accepts. A runtime validator would be a
+second reader: it needs a typed document, which the environment and pairs, being text until a type
+reads them, do not give without a reader of their own, and its messages would quote what the
+loader's never do, and name an alternative's failure at the alternative and not at the key at
+fault. The two statements of a bound, the schema's and the field's, are kept in step by
+`tests/schema.rs`, which runs every fixture through the `jsonschema` crate and through the loader
+and fails when one accepts what the other refuses.
 
 ### Rust
 
 The loader lives in `armonik-transport` and is generic over the document it reads: each source is
-read into that document's type, the keys its root does not declare logged and left out, a key
-any other struct or alternative does not declare refused, and the documents merge by the type's
-own `over`. The keys left out are those serde passes over at the root, each with its path, which
-the loader's deserializer records as it skips them; below the root the deserializer refuses a key
-that is not among the fields or the variants the type declares. A configuration with no source, or none
-that contributes, loads the document's default. The document is `RuntimeOptions`, in
-`armonik-transport` with its schema: the FFI and the `armonik` crate read the same one.
+read into that document's type, a key any struct or alternative does not declare refused, a value
+out of its bounds refused, and the documents merge by the type's own `over`. The deserializer
+refuses a key that is not among the fields or the variants the type declares. A configuration with
+no source, or none that contributes, loads the document's default. The document is
+`RuntimeOptions`, in `armonik-transport` with its schema: the FFI and the `armonik` crate read the
+same one.
 
 ```rust
 /// A document a configuration can be read into, merged one over another.
@@ -259,10 +287,13 @@ pub trait Document: serde::de::DeserializeOwned + Default {
 /// Where a configuration comes from, in the order the sources are added.
 pub struct Configuration { /* prefix, sources */ }
 
+/// The prefix a caller that keeps the engine's options beside its own passes.
+pub const DEFAULT_PREFIX: &str = "ArmoniK__Client__Grpc";
+
 impl Configuration {
-    /// Under `ArmoniK__Client__Grpc`, with no source.
-    pub fn new() -> Self;
-    /// Under `prefix`, or under none when it is empty.
+    /// Under `prefix`, with no source: the section of a file or of a document that is the
+    /// engine's, and the start of the name of a variable or of a pair that is. An empty prefix
+    /// takes everything. There is no constructor without one.
     pub fn with_prefix(prefix: &str) -> Self;
     pub fn file(self, path: impl Into<PathBuf>) -> Self;
     pub fn optional_file(self, path: impl Into<PathBuf>) -> Self;
@@ -272,8 +303,8 @@ impl Configuration {
     pub fn pairs_json(self, json: impl Into<String>) -> Self;
     pub fn document(self, json: impl Into<String>) -> Self;
 
-    /// Reads the sources, in order, into one document, each key the root does not declare logged,
-    /// and a key any other struct does not declare refused.
+    /// Reads the sources, in order, into one document, each judged whole: a key a struct does
+    /// not declare is refused, the root's among them.
     pub fn load<D: Document>(&self) -> Result<D, ConfigRefusal>;
 }
 ```
@@ -287,8 +318,8 @@ typedef enum {
     AK_SOURCE_FILE = 1,           /* value: the path, UTF-8 */
     AK_SOURCE_OPTIONAL_FILE = 2,  /* value: the path; a missing file contributes nothing */
     AK_SOURCE_ENVIRONMENT = 3,    /* value: empty; another is AK_STATUS_INVALID_ARG */
-    AK_SOURCE_DOCUMENT = 4,       /* value: a JSON document, no prefix around it */
-    AK_SOURCE_PAIRS = 5,          /* value: a JSON object, key__path to text, no prefix */
+    AK_SOURCE_DOCUMENT = 4,       /* value: a JSON document, its prefix's section the engine's */
+    AK_SOURCE_PAIRS = 5,          /* value: a JSON object, prefix__key__path to text */
 } ak_source_kind;
 
 typedef struct {
@@ -297,18 +328,14 @@ typedef struct {
     ak_bytes_in value;
 } ak_config_source;
 
-enum {
-    AK_CONFIG_NO_PREFIX = 1,      /* no prefix: a file's document is the whole file */
-};
-
 typedef struct {
     uint32_t struct_size;
     uint32_t version;             /* zero */
-    uint32_t flags;               /* AK_CONFIG_*; another bit is AK_STATUS_INVALID_ARG */
+    uint32_t flags;               /* none is defined; any bit is AK_STATUS_INVALID_ARG */
     uint32_t source_count;
     const ak_config_source *sources;  /* in order, a later one over an earlier one */
-    ak_bytes_in prefix;           /* empty: ArmoniK__Client__Grpc; with AK_CONFIG_NO_PREFIX it must be
-                                     empty, else AK_STATUS_INVALID_ARG */
+    ak_bytes_in prefix;           /* always the one given; empty takes everything, and a null
+                                     pointer with a length is AK_STATUS_INVALID_ARG */
 } ak_config;
 
 ak_status ak_runtime_create_from(const ak_config *config,
@@ -327,7 +354,7 @@ does, its detail naming the source and the path.
 ### .NET
 
 ```csharp
-var configuration = new NativeConfiguration()                // or NativeConfiguration(prefix)
+var configuration = new NativeConfiguration(NativeConfiguration.DefaultPrefix)   // the prefix is always given
                       .LoadConfigFromFiles("appsettings.json", "appsettings.Production.yaml")
                       .LoadConfigFromEnvironment()
                       .LoadConfigFromCommandLine(args)
@@ -335,15 +362,18 @@ var configuration = new NativeConfiguration()                // or NativeConfigu
 await using var runtime = NativeRuntime.Create(configuration);
 ```
 
-The prefix is `ArmoniK__Client__Grpc` unless the constructor is given one; `""` is none, which the
-binding passes as `AK_CONFIG_NO_PREFIX`. `LoadConfigFromFiles` and `LoadConfigFromEnvironment` add a
+The constructor takes the prefix and has no overload without one: `NativeConfiguration.DefaultPrefix`,
+`ArmoniK__Client__Grpc`, for a host that keeps the engine's options in its `appsettings.json` under
+`ArmoniK:Client:Grpc`, whose own sections are then never looked at, and `""` for a file that is the
+engine's alone, which the binding passes as an empty prefix: the whole file is judged, and the
+environment is refused. `LoadConfigFromFiles` and `LoadConfigFromEnvironment` add a
 source the engine reads, and what the engine refuses in one surfaces at `NativeRuntime.Create`.
 `LoadConfigFromOptionalFiles` adds files the host marks optional, which contribute nothing when they
 do not exist. `LoadConfigFromCommandLine` parses the arguments with an `IConfiguration` holding the
-command-line provider alone and adds the section under the prefix - the whole tree with none - as
-pairs, each key's path joined by `__` and its value as text, so that the engine reads an unknown key
-and types a value as it does the environment's; `LoadConfigFromObject` serializes its object as a
-document, writing only the options set, so that a default does not override an earlier source. No
+command-line provider alone and adds every key as pairs, each key's path joined by `__` and its
+value as text, so that the engine takes those under the prefix and types a value as it does the
+environment's; `LoadConfigFromObject` serializes its object as a document nested under the prefix,
+writing only the options set, so that a default does not override an earlier source. No
 `IConfiguration` is taken or returned. A command line states no list, so a list option, such as
 `Receive.Compression`, is set through a file, `LoadConfigFromObject` or the environment, the
 engine refusing one on a command line by its path.

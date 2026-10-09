@@ -77,10 +77,14 @@ environment, pairs and documents, a later one over an earlier one (configuration
 the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
 as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
 its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
-from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
-declares is ignored at the root of a document, in every source and in a channel's own document, and
-refused by its path anywhere else; the ignored key is logged
-by the engine through `tracing`, at info, which reaches the host's log callback (observability.md).
+from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A source is a
+document judged whole against the schema: a key no option declares, the root's included, a value of
+the wrong type or out of the bounds the schema states and a missing mandatory field are refused by
+their path, in every source and in a channel's own document. A file or a document is judged on the
+section the `ak_config`'s prefix names, and the names of the environment and of pairs that start
+with it; everything else is never looked at. The prefix is always the one given: an empty one takes
+everything, so that the whole file is the engine's. `ak_config` defines no flag, so any bit is
+refused, and it has no default prefix.
 
 `ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
 option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`. A
