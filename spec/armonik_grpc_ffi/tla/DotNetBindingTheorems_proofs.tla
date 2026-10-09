@@ -27,9 +27,9 @@ USE DEF L1!IsStatusPending, L1!IsReadAdmitted, L1!IsLendWaiting,
 (* REFINEMENT - the initial predicate and the fairness.                    *)
 (*                                                                         *)
 (* Init conjoins level 1's own Init, so the first is a definition unfold.   *)
-(* The fairness is the interesting half: level 1 asks for twenty weak      *)
-(* fairness families over its own tuple, and this level restates every one  *)
-(* of them verbatim - fourteen in RuntimeOwedFairness, six in              *)
+(* The fairness is the interesting half: level 1 asks for twenty-one       *)
+(* weak fairness families over its own tuple, and this level restates      *)
+(* every one of them - fifteen in RuntimeOwedFairness, six in              *)
 (* BindingOwedFairness - so the implication is a projection of a            *)
 (* conjunction rather than an argument about enabledness.  Isabelle again,  *)
 (* the atoms being WF_.                                                    *)
@@ -41,9 +41,9 @@ BY DEF Init
 (***************************************************************************)
 (* THE FAIRNESS TRANSFER                                                   *)
 (*                                                                         *)
-(* Level 1 asks for twenty weak-fairness families over its own tuple and   *)
-(* this level states none of them: every conjunct of its fairness is an    *)
-(* action of this module.  So each family is earned rather than restated,  *)
+(* Level 1 asks for twenty-one weak-fairness families over its own tuple   *)
+(* and this level states none of them: every conjunct of its fairness is   *)
+(* an action of this module.  So each family is earned, not restated,      *)
 (* and the shape is three statements per family - the level-2 step         *)
 (* projects onto the level-1 one, the level-1 enabledness brings the       *)
 (* level-2 one, and PTL turns the two into the weak fairness.              *)
@@ -53,7 +53,7 @@ BY DEF Init
 (* the citation instantiated before necessitation, and that instantiation  *)
 (* is what fails.                                                         *)
 (*                                                                         *)
-(* THE RUNTIME'S FOURTEEN.  Each is carried by the passthrough that is     *)
+(* THE RUNTIME'S FIFTEEN.  Each is carried by the passthrough that is      *)
 (* that family and nothing more, so the transfer is one for one and the    *)
 (* frame is the whole proof.                                               *)
 (***************************************************************************)
@@ -611,11 +611,22 @@ LEMMA DeliveryBridge ==
   \* only buries the witness.  It is also the branch that needs the time:
   \* the work is in the frame, not in the guard.
   <2>2. CASE ~L1!L0!HasStatus(cId)
-    BY <1>1, <2>2, ExpandENABLED, SMTT(300)
-    DEF DeliveryReturns, OnEventReturns, TerminalCallbackReturns,
-       ManagedStutter, L1!DeliveryCallbackReturns,
-       L1!IsDeliveryCallbackRunning, L1!L0!HasStatus, vars, l1_vars,
-       managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+    <3>1. ENABLED <<OnEventReturns(cId)>>_vars
+      BY <1>1, <2>2, ExpandENABLED, SMT
+      DEF OnEventReturns, ManagedStutter, L1!DeliveryCallbackReturns,
+         L1!IsDeliveryCallbackRunning, L1!L0!HasStatus, vars, l1_vars,
+         managed_vars, L1!vars, L1!l0_vars, L1!ffi_vars, L1!L0!vars
+    \* The monotonicity of ENABLED: no frame to search for a witness.
+    <3>2. ENABLED <<OnEventReturns(cId)>>_vars
+              => ENABLED <<DeliveryReturns(cId)>>_vars
+      <4>1. <<OnEventReturns(cId)>>_vars => <<DeliveryReturns(cId)>>_vars
+        BY DEF DeliveryReturns
+      <4>2. (<<OnEventReturns(cId)>>_vars) \in BOOLEAN
+        OBVIOUS
+      <4>3. (<<DeliveryReturns(cId)>>_vars) \in BOOLEAN
+        OBVIOUS
+      <4>4. QED BY <4>1, <4>2, <4>3, ENABLEDaxioms
+    <3>3. QED BY <3>1, <3>2
   <2>3. QED BY <2>1, <2>2
 <1>2. QED BY <1>1, PTL
 
@@ -9215,8 +9226,8 @@ LEMMA ConsumerShapeInAtoms ==
 (***************************************************************************)
 (* THE FAIRNESS OF LEVEL 1, EARNED                                         *)
 (*                                                                         *)
-(* Twenty families, each from this level's own conjuncts.  Nineteen are     *)
-(* one-for-one transfers; the twentieth is the consumption, and it is a     *)
+(* Twenty-one families, each from this level's own conjuncts.  Twenty      *)
+(* are one-for-one transfers; the last is the consumption, and it is a     *)
 (* leads-to through the application's obligation because none of its four   *)
 (* carriers is enabled while the application neither reads nor disposes.    *)
 (***************************************************************************)
@@ -16276,7 +16287,7 @@ LEMMA KeepsCancelWaiter ==
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
            L1!IsShutdownEventEmitted, L1!SecondEventOwed
     <1>g4. PrologueReaderOnlyWaits'
-        BY SMT DEF PrologueReaderOnlyWaits,
+        BY SMTT(30) DEF PrologueReaderOnlyWaits,
            L1!IndInv, L1!TypeOK, L1!L0!TypeOK, LiveCallHasLiveChannel,
            L1!IsRuntimeQuiescent, L1!IsRuntimeDrained,
            L1!NoHostDebt, L1!IsReleasedRuntime, L1!IsClosedChannel,
@@ -25451,7 +25462,7 @@ LEMMA CommitWriteKeepsTheAcquittalComing ==
 <1>0. submitted[cId] \in Seq(Messages)
     BY Zenon DEF ManagedIndInv, L1!IndInv, L1!TypeOK, L1!L0!TypeOK
 <1>1. Len(submitted[cId]) + 1 = Len(Append(submitted[cId], msg))
-    BY <1>0, AppendProperties, Zenon
+    BY <1>0, AppendProperties, SMT
 <1>2. write_dones_emitted[cId] <= Len(submitted[cId])
     BY Zenon DEF ManagedIndInv, L1!IndInv, L1!FfiCallInv,
        L1!WriteDonesNeverExceedSends
@@ -28416,7 +28427,7 @@ LEMMA OneSendStaysOne ==
 <1>8. CASE \E cId \in CallIds, b \in BufferIds,
            len \in L1!Sizes, charge \in L1!Sizes :
              WriteLendSucceeds(cId, b, len, charge)
-    BY <1>8, SMT DEF  WriteLendSucceeds, BindingMayDowncall,
+    BY <1>8, SMTT(30) DEF  WriteLendSucceeds, BindingMayDowncall,
        L1!LendSendBuffer, L1!EndWaitOf, L1!vars, L1!ffi_vars, L1!l0_vars,
        L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars, L1!L0!CallVars,
        OneSendInFlight, L1!HasNoSendInFlight,
@@ -28745,7 +28756,7 @@ LEMMA PassthroughKeepsTheSeal ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>7. CASE L1!DeliverCancelled(c2)
-      BY <1>0, <2>0, <2>7, SMTT(60) DEF  L1!DeliverCancelled,
+      BY <1>0, <2>0, <2>7, SMTT(180) DEF  L1!DeliverCancelled,
          L1!HandPayloadToHost, L1!L0!CallCancel, L1!vars, L1!ffi_vars,
          L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars, L1!L0!ChannelVars,
          L1!L0!CallVars, SealingHoldsTheEndOfSending, IsSealing,
@@ -28760,7 +28771,7 @@ LEMMA PassthroughKeepsTheSeal ==
          ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
          ReaderVars, WriterVars
   <2>8. CASE L1!ReleaseCallHandle(c2)
-      BY <1>0, <2>0, <2>8, SMT DEF  L1!ReleaseCallHandle, L1!vars,
+      BY <1>0, <2>0, <2>8, SMTT(30) DEF  L1!ReleaseCallHandle, L1!vars,
          L1!ffi_vars, L1!l0_vars, L1!L0!vars, L1!L0!RuntimeVars,
          L1!L0!ChannelVars, L1!L0!CallVars, SealingHoldsTheEndOfSending,
          IsSealing, OneRequestCall, L1!L0!IsActiveCall,
@@ -29957,7 +29968,7 @@ THEOREM SealingPasses ==
 (* theorem about this level, and its liveness needs no translation at all:  *)
 (* level 1's variables ARE these variables - the state module is extended,  *)
 (* not instantiated - so L1!PayloadsEventuallyConsumed already speaks of    *)
-(* payloads_consumed_by_host.  Fourteen properties for one citation.        *)
+(* payloads_consumed_by_host.  Fifteen properties for one citation.        *)
 (***************************************************************************)
 
 (***************************************************************************)
@@ -36269,8 +36280,8 @@ THEOREM WaitingReaderEventuallyParses ==
 (***************************************************************************)
 (* THE FAIRNESS OF LEVEL 1, EARNED                                         *)
 (*                                                                         *)
-(* Twenty families, each from this level's own conjuncts.  Seventeen are   *)
-(* one-for-one transfers; the status's and the acquittal's wait for the    *)
+(* Twenty-one families, each from this level's own conjuncts.  Eighteen    *)
+(* are one-for-one; the status's and the acquittal's wait for the          *)
 (* seal to pass, and the consumption is a leads-to through the             *)
 (* application's obligation and, on a one-response call, the wake.         *)
 (***************************************************************************)
@@ -37245,10 +37256,10 @@ THEOREM ChannelConstructionCompletesHolds ==
 (***************************************************************************)
 (* THE SIX HOST FAMILIES                                                   *)
 (*                                                                         *)
-(* Six of level 1's twenty fairness families, stated over level 1's own     *)
-(* tuple because that is the shape L1!Fairness asks for and the shape the   *)
-(* interface declares.  They are corollaries: this level states none of     *)
-(* them, RefinesSpec gives L1!Spec, L1!Spec gives L1!Fairness, and each     *)
+(* Six of level 1's twenty-one fairness families, stated over level 1's    *)
+(* own tuple because that is the shape L1!Fairness asks for and the shape  *)
+(* the interface declares.  They are corollaries: this level states none   *)
+(* of them, RefinesSpec gives L1!Spec, L1!Spec gives L1!Fairness, and each *)
 (* family is one of its conjuncts.                                         *)
 (***************************************************************************)
 

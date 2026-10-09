@@ -2389,8 +2389,14 @@ LEMMA NextPreservesBufferTypes == TypeOK /\ Next => BufferTypes'
                ln \in Sizes, ch \in Sizes :
               ResizeSendBuffer(c0, b0, n0, ln, ch)
       BY <2>55
-    <3>2. QED
-      BY <2>0, <3>1, SMT DEF ResizeSendBuffer, BufferTypes, BufferStates
+    <3>2. buffer_state' =
+              [c \in CallIds |-> [x \in BufferIds |->
+                  IF c = c0 /\ x = b0 THEN "returned"
+                  ELSE IF c = c0 /\ x = n0 THEN "lent"
+                  ELSE buffer_state[c][x]]]
+      BY <3>1, Zenon DEF ResizeSendBuffer
+    <3>3. QED
+      BY <2>0, <3>2, SMT DEF BufferTypes, BufferStates
   <2>6. QED
     BY <1>1, <2>1, <2>2, <2>3, <2>4, <2>5, <2>55, OnlyBufferStepsWriteBufferStates,
        Zenon
@@ -3215,12 +3221,15 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 \* An active call hangs off an active channel, and an active channel
 \* hangs off a runtime that is not released.
 <1>4. ~L0!IsActiveCall(cId)
-    BY <1>1, SMT
-    DEF StrongInv, L0!StrongInv, L0!StructuralInv, L0!ChannelLifecycleInv,
+  <2>1. L0!StrongInv /\ L0!TypeOK
+    BY <1>0, TypeOKSplit, Zenon DEF StrongInv
+  <2>2. QED
+    BY <1>1, <2>1, SMT
+    DEF L0!StrongInv, L0!StructuralInv, L0!ChannelLifecycleInv,
         L0!CallLifecycleInv, L0!UsedChannels, L0!UsedCalls,
         L0!ActiveChannels, L0!ActiveChannelStates, L0!ChannelsOf,
         L0!IsActiveCall, L0!ActiveCallStates, L0!IsUnusedCall,
-        IsReleasedRuntime, TypeOK, L0!TypeOK, L0!ChannelStates,
+        IsReleasedRuntime, L0!TypeOK, L0!ChannelStates,
         L0!CallStates, L0!RuntimeStates
 <1>5. HostHoldsNoBuffer(cId)
     BY <1>1, Zenon DEF NoHostDebt
@@ -3251,7 +3260,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
     BY <1>85, Zenon DEF HostReturnsBuffer
 <1>92. \A b \in BufferIds, nb \in BufferIds, ln \in Sizes, ch \in Sizes :
           ~ResizeSendBuffer(cId, b, nb, ln, ch)
-    BY <1>4, Zenon DEF ResizeSendBuffer, L0!IsActiveCall, L0!ActiveCallStates
+    BY <1>4, Zenon DEF ResizeSendBuffer
 <1>95. QED
     BY <1>3, <1>6, <1>7, <1>75, <1>8, <1>9, <1>92
 
@@ -9049,7 +9058,7 @@ THEOREM MetadataDeliveryLift ==
 \* Every action a frame is subscripted on necessarily changes the state,
 \* so <<A>>_vars and A are the same thing.  Saying so once collapses the
 \* subscript, and with it the reasoning about inequality of a
-\* twenty-two-variable tuple that every one of those obligations was
+\* twenty-three-variable tuple that every one of those obligations was
 \* otherwise carrying.
 LEMMA SubscriptCollapses ==
     ASSUME TypeOK, NEW cId \in CallIds
