@@ -540,6 +540,8 @@ public sealed class NativeRuntime : IAsyncDisposable
                                       ak_event* events,
                                       nuint     count)
   {
+    var probeEntry = System.Diagnostics.Stopwatch.GetTimestamp();
+    Probe.MarkFirst(4);
     object? target;
     try
     {
@@ -616,6 +618,11 @@ public sealed class NativeRuntime : IAsyncDisposable
       {
         call.Arrived();
       }
+      if (terminal)
+      {
+        Probe.At[5] = probeEntry;
+        Probe.Mark(6);
+      }
     }
     catch
     {
@@ -628,6 +635,7 @@ public sealed class NativeRuntime : IAsyncDisposable
       if (terminal)
       {
         call.TerminalReturned();
+        Probe.Mark(7);
       }
     }
   }

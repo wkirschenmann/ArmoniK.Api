@@ -536,6 +536,7 @@ internal sealed class Receiver<TResponse>
       if (!delivered_.HoldsTerminal && delivered_.Count < credits_)
       {
         await arrival.ConfigureAwait(false);
+        Probe.Mark(8);
         continue;
       }
 
@@ -559,9 +560,11 @@ internal sealed class Receiver<TResponse>
           {
             case ak_event_kind.AK_EVENT_STATUS:
               end = StatusOrUnreadable(slot);
+              Probe.Mark(17);
               break;
             case ak_event_kind.AK_EVENT_INITIAL_METADATA:
               TakeHeadOrFailHeaders(slot);
+              Probe.Mark(15);
               break;
             default:
               messages++;
@@ -570,6 +573,7 @@ internal sealed class Receiver<TResponse>
                 try
                 {
                   message = marshaller_.ContextualDeserializer(new ReceivedMessage(slot.Payload));
+                  Probe.Mark(16);
                 }
                 catch (Exception thrown)
                 {
@@ -586,12 +590,16 @@ internal sealed class Receiver<TResponse>
         if (end is not null)
         {
           Resolve(end.Value);
+          Probe.Mark(18);
         }
 
         delivered_.ReleaseMany(count);
+        Probe.Mark(19);
         PublishIdleOrFinished(end is not null);
+        Probe.Mark(20);
       }
 
+      Probe.Mark(9);
       if (end is null)
       {
         continue;

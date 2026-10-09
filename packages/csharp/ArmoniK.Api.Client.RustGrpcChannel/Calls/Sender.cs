@@ -259,6 +259,7 @@ internal sealed class Sender
       ak_status status;
       try
       {
+        Probe.Mark(12);
         marshaller.ContextualSerializer(request,
                                         lent);
 

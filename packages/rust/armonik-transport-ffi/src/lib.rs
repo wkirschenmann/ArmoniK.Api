@@ -352,6 +352,7 @@ pub unsafe extern "C" fn ak_call_start(
     out: *mut ak_handle,
     out_error: *mut ak_error,
 ) -> ak_status {
+    armonik_transport::probe::mark(0);
     let answered = guard(|| {
         if options.is_null() || out.is_null() {
             return Err(NULL_ARGUMENT);
@@ -381,6 +382,7 @@ pub unsafe extern "C" fn ak_call_start(
         let one_request = options.flags & AK_CALL_ONE_REQUEST != 0;
         let one_response = options.flags & AK_CALL_ONE_RESPONSE != 0;
 
+        armonik_transport::probe::mark(1);
         unsafe {
             hand_over(
                 out,
@@ -488,6 +490,7 @@ pub unsafe extern "C" fn ak_call_send_message(
     buffer: ak_buffer,
     out_error: *mut ak_error,
 ) -> ak_status {
+    armonik_transport::probe::mark(4);
     let answered = guard(|| {
         if buffer.owner.is_null() && buffer.len == 0 {
             let found = tables::calls()
@@ -520,6 +523,16 @@ const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
     ak_error_kind::AK_ERROR_USAGE,
     "the buffer was lent to another call than the one the handle names",
 );
+
+#[no_mangle]
+pub extern "C" fn ak_probe_at(point: u32) -> i64 {
+    armonik_transport::probe::at(point as usize)
+}
+
+#[no_mangle]
+pub extern "C" fn ak_probe_reset() {
+    armonik_transport::probe::reset();
+}
 
 /// Gives a lent buffer back unused. Legal on a cancelled or terminal call: it is the only exit for
 /// a buffer whose send is refused, and the call is not reclaimed until it happens.
@@ -645,6 +658,7 @@ pub unsafe extern "C" fn ak_event_consumed(payload: ak_bytes) {
 /// consumed.
 #[no_mangle]
 pub unsafe extern "C" fn ak_events_consumed(payloads: *const ak_bytes, count: usize) {
+    armonik_transport::probe::mark(20);
     guard_void(|| {
         if payloads.is_null() || count == 0 {
             return;
@@ -653,6 +667,7 @@ pub unsafe extern "C" fn ak_events_consumed(payloads: *const ak_bytes, count: us
             drop(unsafe { call::take_payload(payload.owner) });
         }
     });
+    armonik_transport::probe::mark(23);
 }
 
 /// Frees an ak_error's detail. A no-op when detail.owner is NULL, so a host may route every error

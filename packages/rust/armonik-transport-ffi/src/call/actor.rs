@@ -37,6 +37,7 @@ pub(super) fn create(
         debt: Debt::default(),
         cancelled: AtomicBool::new(false),
         progress: watch::channel(0).0,
+        reclaimed: AtomicBool::new(false),
         over: watch::channel(false).0,
         sending: AtomicU32::new(0),
         waiter: Arc::new(Waiter::default()),
@@ -314,6 +315,7 @@ impl ResponseSink for Delivering {
             .await?;
         // Delivered once staged: the next read may come before the host has this one.
         self.state.turn.delivered();
+        armonik_transport::probe::mark_first(16);
         Ok(())
     }
 
@@ -338,8 +340,10 @@ impl ResponseSink for Delivering {
 
         // The status waits for every acquittal owed: the writer, polled after the driver, sees at
         // once that the call is over, acquits what it holds and ends.
+        armonik_transport::probe::mark(17);
         self.state.over.send_replace(true);
         let _ = (&mut self.writer_is_done).await;
+        armonik_transport::probe::mark(18);
         // The call is over, so its send waits on nothing more.
         self.state.ledger.stop_waiting(&self.state.waiter);
 
@@ -354,6 +358,7 @@ impl ResponseSink for Delivering {
             None,
         );
         self.push(ak_event_kind::AK_EVENT_STATUS, payload, status.code as i32);
+        armonik_transport::probe::mark(19);
 
         let Self { state, staged, .. } = &mut self;
         state.in_callback(|| {
@@ -370,15 +375,7 @@ impl ResponseSink for Delivering {
             state.channel.leave(Some(state.handle));
         });
         staged.0.clear();
-
-        reclaim(state).await;
     }
-}
-
-async fn reclaim(state: &Arc<CallState>) {
-    let mut progress = state.progress.subscribe();
-    let _ = progress.wait_for(|_| state.debt.settled()).await;
-    crate::lifecycle::call_settled(state.handle);
 }
 
 async fn wait_for_cancel(state: &CallState) {

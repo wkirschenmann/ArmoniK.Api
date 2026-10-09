@@ -36,6 +36,7 @@ impl Host {
     }
 
     fn emit(&self, call_ctx: HostPtr, events: &[ak_event]) {
+        armonik_transport::probe::mark_first(12);
         crate::held::assert_none_held();
         debug_assert!(!events.is_empty(), "a callback carries at least one event");
         unsafe {

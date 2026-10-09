@@ -22,6 +22,7 @@ pub mod grpc;
 pub mod hooks;
 pub mod http2;
 pub mod options;
+pub mod probe;
 mod proxy;
 mod tls;
 mod utils;

@@ -104,14 +104,56 @@ public static class Program
 
       var latencies = new double[MeasuredCalls];
       var clock     = new Stopwatch();
+      var marks     = new long[MeasuredCalls][];
       for (var call = 0; call < MeasuredCalls; call++)
       {
+        Probe.Reset();
         clock.Restart();
+        Probe.Mark(0);
         await client.SayAsync(new EchoRequest
                               {
                                 Text = "x",
                               });
+        Probe.Mark(11);
         latencies[call] = clock.Elapsed.TotalMilliseconds * 1000;
+        Probe.Collect();
+        marks[call]     = (long[])Probe.At.Clone();
+      }
+
+      if (Environment.GetEnvironmentVariable("PROBE") == "1")
+      {
+        // Each checkpoint's median offset from the call's start, in the order they come.
+        var us      = 1_000_000.0 / Stopwatch.Frequency;
+        var offsets = new List<(double Median, int Point, int Count)>();
+        for (var p = 1; p < Probe.Points; p++)
+        {
+          var values = new List<double>();
+          foreach (var m in marks)
+          {
+            if (m[p] != 0 && m[0] != 0)
+            {
+              values.Add((m[p] - m[0]) * us);
+            }
+          }
+
+          if (values.Count > MeasuredCalls / 2)
+          {
+            values.Sort();
+            offsets.Add((values[values.Count / 2], p, values.Count));
+          }
+        }
+
+        offsets.Sort((x, y) => x.Median.CompareTo(y.Median));
+        var previous = 0.0;
+        foreach (var (median, point, count) in offsets)
+        {
+          Console.Error.WriteLine("{0,-44} n={1,5} at={2,8:F1} step={3,7:F1}",
+                                  Probe.Names[point] ?? point.ToString(),
+                                  count,
+                                  median,
+                                  median - previous);
+          previous = median;
+        }
       }
 
       Array.Sort(latencies);
@@ -238,6 +280,10 @@ public static class Program
   private static string Framework()
 #if NETFRAMEWORK
     => "net4.8";
+#elif NET11_0_OR_GREATER
+    => "net11.0";
+#elif NET10_0_OR_GREATER
+    => "net10.0";
 #else
     => "net8.0";
 #endif

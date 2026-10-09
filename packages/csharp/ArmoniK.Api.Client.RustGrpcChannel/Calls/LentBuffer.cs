@@ -148,9 +148,11 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
   /// and disposal returns it.</remarks>
   internal unsafe ak_status Commit()
   {
+    Probe.Mark(2);
     var status = NativeMethods.ak_call_send_message(call_,
                                                     buffer_,
                                                     null);
+    Probe.Mark(3);
     if (status == ak_status.AK_STATUS_OK)
     {
       ReleaseBlock();
@@ -197,10 +199,12 @@ internal sealed class LentBuffer : SerializationContext, IBufferWriter<byte>, ID
     ak_status status;
     fixed (ak_buffer* lent = &buffer_)
     {
+      Probe.Mark(13);
       status = NativeMethods.ak_get_call_buffer(call_,
                                                 (nuint)length,
                                                 lent,
                                                 null);
+      Probe.Mark(14);
     }
 
     switch (status)

@@ -97,6 +97,8 @@ pub(crate) struct CallState {
     debt: Debt,
     cancelled: AtomicBool,
     progress: watch::Sender<u64>,
+    /// Set by whoever reclaims the call, so it is reclaimed once.
+    reclaimed: AtomicBool,
     over: watch::Sender<bool>,
     /// Whether the sending has ended, in `SENDING_ENDED`, beside how many sends are being queued.
     ///
@@ -317,7 +319,9 @@ impl CallState {
         }
         self.debt.payloads.fetch_sub(1, Ordering::SeqCst);
         self.ledger.release();
+        armonik_transport::probe::mark(21);
         self.moved_on();
+        armonik_transport::probe::mark(22);
     }
 
     pub(crate) fn commit(self: &Arc<Self>, lent: Box<Lent>) -> ak_status {
@@ -405,7 +409,9 @@ impl CallState {
             self.window.add_permits(1);
             self.ledger.release_bytes(charged);
         }
+        armonik_transport::probe::mark(5);
         self.spawn_task();
+        armonik_transport::probe::mark(6);
         ak_status::AK_STATUS_OK
     }
 
@@ -463,6 +469,7 @@ impl CallState {
         // `moved_on` saw no reason to.
         if self.debt.quiet() {
             self.announce();
+            self.reclaim_if_settled();
         }
     }
 
@@ -475,6 +482,15 @@ impl CallState {
     fn moved_on(&self) {
         if self.debt.settled() {
             self.announce();
+            self.reclaim_if_settled();
+        }
+    }
+
+    /// Reclaims a settled call where its last debt is paid, rather than waking a task to: the
+    /// thread that paid it is already running, and the channel's would have to be woken.
+    fn reclaim_if_settled(&self) {
+        if self.debt.settled() && !self.reclaimed.swap(true, Ordering::AcqRel) {
+            crate::lifecycle::call_settled(self.handle);
         }
     }
 

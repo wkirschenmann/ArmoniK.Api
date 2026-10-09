@@ -86,6 +86,7 @@ pub(crate) async fn drive<S: ResponseSink>(
     outgoing: Outgoing,
     driving: Driving<S>,
 ) {
+    crate::probe::mark(7);
     let Driving {
         mut stop,
         sink,
@@ -452,6 +453,7 @@ async fn attempt<S: ResponseSink>(
     // Each attempt's own: whether a response came is the last attempt's to say.
     responding.answered = Answered::default();
     let mut client = inner.client(responding.answered.clone(), one_response, body);
+    crate::probe::mark(8);
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::with(GrpcStatus::cancelled(), Pushback::Unsaid),
         Some(Err(status)) => {
@@ -464,6 +466,7 @@ async fn attempt<S: ResponseSink>(
         Some(Ok(response)) => response,
     };
 
+    crate::probe::mark(9);
     let (head, mut body, _) = response.into_parts();
     let head = head.into_headers();
 
@@ -482,6 +485,7 @@ async fn attempt<S: ResponseSink>(
         origin: HeadOrigin::Wire,
     };
     // Given whatever the stop says: once a call has a head, the caller hears it before the end.
+    crate::probe::mark(13);
     let status = match responding.sink.head(head).await {
         Err(status) => status,
         Ok(()) => {
@@ -516,14 +520,28 @@ async fn finish<S: ResponseSink>(
     body: &mut tonic::Streaming<Bytes>,
 ) -> GrpcStatus {
     let mut message_read = false;
+    crate::probe::mark(14);
+    // What is staged and not yet delivered: the head the caller gave before this, then the
+    // messages read since the last delivery, by their length.
+    let mut staged = Some(0usize);
     loop {
         let turn_only = one_response && message_read;
         let read = {
             let mut next = pin!(until_stopped(stop, read_next(read_gate, turn_only, body)));
-            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
+            let mut polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+            // As the writes are held: a delivery waits a scheduler round while it is below the
+            // limit, and a round that brings the next read earns another. The connection shares
+            // this thread, so what it decodes on its next turn - a head's message, a message's
+            // trailers - joins what is staged rather than following it in a callback of its own.
+            if polled.is_pending() && staged.is_some_and(|len| len < READ_COALESCING) {
+                tokio::task::yield_now().await;
+                polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+            }
+            match polled {
                 Poll::Ready(read) => read,
                 Poll::Pending => {
                     sink.flush();
+                    staged = None;
                     next.await
                 }
             }
@@ -534,13 +552,17 @@ async fn finish<S: ResponseSink>(
             Some(Read::Message(message)) => message,
         };
         message_read = true;
+        let len = message.len();
         match until_stopped(stop, sink.message(message)).await {
             None => return GrpcStatus::cancelled(),
             Some(Err(status)) => return status,
-            Some(Ok(())) => {}
+            Some(Ok(())) => staged = Some(staged.unwrap_or(0) + len),
         }
     }
 }
+
+/// How much a delivery holds while the next read is a scheduler round away: the writes' default.
+const READ_COALESCING: usize = 16 * 1024;
 
 async fn read_next(
     read_gate: Option<&dyn ReadGate>,
@@ -554,12 +576,15 @@ async fn read_next(
             gate.turn().await;
         } else {
             gate.admitted().await;
+            crate::probe::mark_first(15);
         }
     }
-    match body.message().await {
+    let read = body.message().await;
+    crate::probe::mark_first(10);
+    match read {
         Err(status) => Read::End(GrpcStatus::from(past_the_limit(status))),
         Ok(Some(message)) => Read::Message(message),
-        Ok(None) => Read::End(match body.trailers().await {
+        Ok(None) => Read::End(match { let t = body.trailers().await; crate::probe::mark(11); t } {
             Err(status) => GrpcStatus::from(status),
             Ok(trailers) => {
                 GrpcStatus::ok(&trailers.map(MetadataMap::into_headers).unwrap_or_default())

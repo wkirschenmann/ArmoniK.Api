@@ -155,6 +155,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                                                started,
                                                &error);
         }
+        Probe.Mark(1);
 
         if (status != ak_status.AK_STATUS_OK)
         {
@@ -354,6 +355,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
                              receiving_.Trailers);
     }
 
+    Probe.Mark(10);
     return response;
   }
 

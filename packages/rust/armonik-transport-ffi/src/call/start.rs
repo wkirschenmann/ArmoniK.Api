@@ -81,6 +81,7 @@ pub(crate) fn start_on(
             })
     };
     let (requests, control, task) = prepared.map_err(Refusal::call)?;
+    armonik_transport::probe::mark(2);
 
     let inserted = tables::calls().insert_with(|handle| {
         let state = actor::create(
@@ -118,5 +119,6 @@ pub(crate) fn start_on(
     if !one_request {
         state.spawn_task();
     }
+    armonik_transport::probe::mark(3);
     Ok(handle)
 }
