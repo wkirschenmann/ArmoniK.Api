@@ -130,6 +130,15 @@
             Pack="true"
             PackagePath="runtimes\%(NativeEngineAsset.Rid)\native\"
             Visible="false" />
+      <!-- The build with the counters, beside the first and outside the folders a package manager
+           reads native assets from, which would make two files of one name collide. -->
+      <NativeEngineMetricsAsset Include="@(RustTarget->'$(RustWorkspace)target\metrics\%(Triple)\$(RustProfile)\%(Library)')"
+                                Rid="%(RustTarget.Identity)" />
+      <None Include="@(NativeEngineMetricsAsset)"
+            Condition="'$(NativeEngineMetrics)' != 'false' AND Exists('%(NativeEngineMetricsAsset.Identity)')"
+            Pack="true"
+            PackagePath="runtimes\%(NativeEngineMetricsAsset.Rid)\metrics\"
+            Visible="false" />
       <None Include="build\ArmoniK.Api.Client.RustGrpcChannel.targets"
             Pack="true"
             PackagePath="build\;buildTransitive\"

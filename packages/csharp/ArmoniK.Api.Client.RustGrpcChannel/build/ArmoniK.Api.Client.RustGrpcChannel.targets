@@ -27,4 +27,29 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    The build of the engine with its counters, in the package's runtimes/<rid>/metrics folders, which
+    no package manager reads native assets from: .NET Framework gets it in a folder of its own beside
+    the first, named for the architecture, and .NET in the package's own layout, where
+    NativeLibrarySelection looks for it. Every project that references the package gets it, since
+    which build a process loads is decided when it runs.
+  -->
+  <Target Name="CopyArmoniKNativeMetricsEngines" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <_ArmoniKNativeMetricsEngine Include="$(MSBuildThisFileDirectory)..\runtimes\*\metrics\*" />
+      <None Include="@(_ArmoniKNativeMetricsEngine)"
+            Condition="'$(TargetFrameworkIdentifier)' != '.NETFramework'"
+            Link="runtimes\%(_ArmoniKNativeMetricsEngine.RecursiveDir)%(Filename)%(Extension)"
+            CopyToOutputDirectory="PreserveNewest"
+            CopyToPublishDirectory="PreserveNewest"
+            Visible="false" />
+      <!-- runtimes\win-<arch>\metrics\: the folder past its `win-`. -->
+      <None Include="@(_ArmoniKNativeMetricsEngine)"
+            Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework' AND $([System.String]::Copy('%(_ArmoniKNativeMetricsEngine.RecursiveDir)').StartsWith('win-'))"
+            Link="$([System.String]::Copy('%(_ArmoniKNativeMetricsEngine.RecursiveDir)').Substring(4))%(Filename)%(Extension)"
+            CopyToOutputDirectory="PreserveNewest"
+            Visible="false" />
+    </ItemGroup>
+  </Target>
+
 </Project>

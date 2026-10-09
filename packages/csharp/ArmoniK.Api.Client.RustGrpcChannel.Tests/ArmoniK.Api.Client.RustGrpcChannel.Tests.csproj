@@ -133,7 +133,31 @@
     </ItemGroup>
     <Error Condition="'@(BuiltEngine)' == ''"
            Text="no $(TestEngineLibrary) in $(BuiltEngineDir); build the binding with -p:NativeEngineRids for this architecture" />
-    <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <!-- .NET Framework as its package lays it out: in a folder named for the architecture, which the
+         binding loads by its path. A copy beside the assembly would be what the loader finds first,
+         whichever build the binding was told to load. -->
+    <Copy Condition="'$(TargetFrameworkIdentifier)' != '.NETFramework'"
+          SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
+          SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- The build with the counters, where the package puts it: runtimes/[rid]/metrics for .NET, and
+       [architecture]/metrics for .NET Framework. A run selects one of the two builds with
+       ARMONIK_TEST_NATIVE=metrics, since a process loads a library once. -->
+  <Target Name="CopyNativeMetricsEngineForTests" AfterTargets="CopyNativeEngineForTests"
+          Condition="'$(SkipNativeEngine)' != 'true' AND '$(NativeEngineMetrics)' != 'false'">
+    <PropertyGroup>
+      <TestEngineRid>@(HostRustTarget)</TestEngineRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltMetricsEngine Include="$(RustWorkspace)target\metrics\$(TestEngineTriple)\$(RustProfile)\$(TestEngineLibrary)" />
+    </ItemGroup>
+    <Error Condition="'@(BuiltMetricsEngine)' == '' OR !Exists('%(BuiltMetricsEngine.FullPath)')"
+           Text="no metrics build of $(TestEngineLibrary) in $(RustWorkspace)target\metrics\$(TestEngineTriple)\$(RustProfile); build the binding with -p:NativeEngineRids for this architecture" />
+    <Copy SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)runtimes\$(TestEngineRid)\metrics\" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
+          SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\metrics\" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -307,10 +307,12 @@ public sealed class NativeRuntime : IAsyncDisposable
     int found;
     try
     {
+      NativeMethods.Prepare();
       found = NativeMethods.ak_abi_version();
     }
     catch (DllNotFoundException absent)
     {
+      NativeLibrarySelection.ThrowIfNotFound();
       throw RustEngineMissingException.For(absent);
     }
 
@@ -524,10 +526,12 @@ public sealed class NativeRuntime : IAsyncDisposable
     {
       try
       {
+        NativeMethods.Prepare();
         return NativeMethods.ak_abi_version();
       }
       catch (DllNotFoundException absent)
       {
+        NativeLibrarySelection.ThrowIfNotFound();
         throw RustEngineMissingException.For(absent);
       }
     }

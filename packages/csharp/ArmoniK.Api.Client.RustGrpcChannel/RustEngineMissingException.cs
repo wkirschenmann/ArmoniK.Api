@@ -15,6 +15,7 @@
 // limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -32,6 +33,17 @@ public sealed class RustEngineMissingException : Exception
            inner)
   {
   }
+
+  /// <summary>The build asked for is not where the package puts it.</summary>
+  internal static RustEngineMissingException ForBuild(NativeEngineBuild   build,
+                                                      IEnumerable<string> looked,
+                                                      Exception?          inner)
+    => new($"the {build} build of `{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit {RuntimeInformation.ProcessArchitecture} process. "
+           + $"It was looked for in: {string.Join("; ", looked)}."
+           + (inner is null
+                ? string.Empty
+                : $" {inner.Message}"),
+           inner!);
 
   internal static RustEngineMissingException For(Exception inner)
   {

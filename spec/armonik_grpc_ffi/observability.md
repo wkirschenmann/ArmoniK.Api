@@ -401,9 +401,9 @@ silent.
   is not swallowed. On .NET 8 and later it installs a `DllImportResolver` for the library's
   name; on .NET Framework it loads the library by its full path before the first call, so that the
   `DllImport` that follows finds the module already loaded, by its base name, which the Windows
-  loader does. The binding's `netstandard2.0` build, which a .NET Core host older than 8 runs,
-  loads by path as .NET Framework does, and refuses the metrics build off Windows, where the
-  loader does not match a loaded module by the name a `DllImport` gives. A library is loaded
+  loader does. The binding's `netstandard2.0` build serves .NET Framework alone
+  for this, and refuses the metrics build on any other runtime: a .NET Core host searches the
+  application's folder before it matches a module loaded by path. A library is loaded
   once for the life of the process, so asking for the other build after one is loaded is refused
   with an error that says that switching is not supported: the first library would have to be
   unloaded, and the binding does not unload.
