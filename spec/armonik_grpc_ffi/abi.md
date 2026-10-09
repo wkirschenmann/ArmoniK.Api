@@ -78,8 +78,8 @@ the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and t
 as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
 its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
 from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
-declares is ignored rather than refused, in every source and in a channel's own document, except a field
-inside a variant's payload, which is refused; the ignored key is logged
+declares is ignored at the root of a document, in every source and in a channel's own document, and
+refused by its path anywhere else; the ignored key is logged
 by the engine through `tracing`, at info, which reaches the host's log callback (observability.md).
 
 `ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
