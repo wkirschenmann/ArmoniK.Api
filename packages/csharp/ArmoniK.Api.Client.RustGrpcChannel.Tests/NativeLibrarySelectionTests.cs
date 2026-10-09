@@ -166,9 +166,32 @@ public class NativeLibrarySelectionTests
                       Assert.That(missing.Message,
                                   Does.Contain("Metrics build"));
                       Assert.That(missing.Message,
+                                  Does.Contain("looked for in"));
+                      Assert.That(missing.Message,
                                   Does.Contain("the first folder"));
                       Assert.That(missing.Message,
                                   Does.Contain("the second folder"));
+                    });
+  }
+
+  [Test]
+  public void ABuildThatIsFoundAndWillNotLoadSaysWhyAndNotWhereItWasLookedFor()
+  {
+    var cause   = new BadImageFormatException("the file is for another architecture");
+    var missing = RustEngineMissingException.ForBuild(NativeEngineBuild.Metrics,
+                                                      null,
+                                                      cause);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(missing.Message,
+                                  Does.Contain("Metrics build"));
+                      Assert.That(missing.Message,
+                                  Does.Not.Contain("looked for"));
+                      Assert.That(missing.Message,
+                                  Does.Contain("the file is for another architecture"));
+                      Assert.That(missing.InnerException,
+                                  Is.SameAs(cause));
                     });
   }
 

@@ -27,23 +27,28 @@ namespace ArmoniK.Api.Client.RustGrpcChannel;
 /// how this framework resolves it.</summary>
 public sealed class RustEngineMissingException : Exception
 {
-  private RustEngineMissingException(string message,
-                                     Exception inner)
+  private RustEngineMissingException(string     message,
+                                     Exception? inner)
     : base(message,
            inner)
   {
   }
 
-  /// <summary>The build asked for is not where the package puts it.</summary>
-  internal static RustEngineMissingException ForBuild(NativeEngineBuild   build,
-                                                      IEnumerable<string> looked,
-                                                      Exception?          inner)
-    => new($"the {build} build of `{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit {RuntimeInformation.ProcessArchitecture} process. "
-           + $"It was looked for in: {string.Join("; ", looked)}."
+  /// <summary>The build asked for is not where the package puts it, or will not load.</summary>
+  /// <param name="build">The build asked for.</param>
+  /// <param name="looked">The folders it was looked for in, when it was looked for.</param>
+  /// <param name="inner">Why it would not load, when it was found.</param>
+  internal static RustEngineMissingException ForBuild(NativeEngineBuild    build,
+                                                      IEnumerable<string>? looked,
+                                                      Exception?           inner)
+    => new($"the {build} build of `{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit {RuntimeInformation.ProcessArchitecture} process."
+           + (looked is null
+                ? string.Empty
+                : $" It was looked for in: {string.Join("; ", looked)}.")
            + (inner is null
                 ? string.Empty
-                : $" {inner.Message}"),
-           inner!);
+                : $" The cause: {inner.Message}"),
+           inner);
 
   internal static RustEngineMissingException For(Exception inner)
   {

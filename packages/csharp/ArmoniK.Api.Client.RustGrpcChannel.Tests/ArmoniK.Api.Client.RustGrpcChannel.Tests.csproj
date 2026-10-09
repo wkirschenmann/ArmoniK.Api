@@ -142,6 +142,20 @@
           SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- The netstandard2.0 build of the binding, beside a .NET host that references the build for its
+       own framework, so that a test can load the one a .NET Framework consumer gets and run it on a
+       .NET runtime. -->
+  <Target Name="CopyNetStandardBindingForTests" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp'">
+    <MSBuild Projects="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj"
+             Properties="TargetFramework=netstandard2.0"
+             RemoveProperties="PlatformTarget;Prefer32Bit"
+             Targets="Build">
+      <Output TaskParameter="TargetOutputs" ItemName="NetStandardBinding" />
+    </MSBuild>
+    <Copy SourceFiles="@(NetStandardBinding)" DestinationFolder="$(OutDir)netstandard2.0\" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- The build with the counters, where the package puts it: runtimes/[rid]/metrics for .NET, and
        [architecture]/metrics for .NET Framework. A run selects one of the two builds with
        ARMONIK_TEST_NATIVE=metrics, since a process loads a library once. -->

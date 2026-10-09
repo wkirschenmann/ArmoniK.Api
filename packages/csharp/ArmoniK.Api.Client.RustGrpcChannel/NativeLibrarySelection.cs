@@ -72,6 +72,10 @@ public static class NativeLibrarySelection
   /// <exception cref="InvalidOperationException">
   ///   The engine is already loaded as the other build.
   /// </exception>
+  /// <exception cref="PlatformNotSupportedException">
+  ///   The metrics build is asked for from the netstandard2.0 build of this assembly on a runtime
+  ///   other than .NET Framework.
+  /// </exception>
   public static void Select(NativeEngineBuild build)
   {
     if (!Enum.IsDefined(typeof(NativeEngineBuild),
@@ -81,6 +85,17 @@ public static class NativeLibrarySelection
                                             build,
                                             "no such build");
     }
+
+#if !NET5_0_OR_GREATER
+    // Refused when asked: a library loaded by path loses to the application's copy here, so the
+    // default build would load in its place.
+    if (build == NativeEngineBuild.Metrics && !IsNetFramework())
+    {
+      throw new PlatformNotSupportedException("the metrics build of the native engine cannot be selected: this is the netstandard2.0 build of ArmoniK.Api.Client.RustGrpcChannel "
+                                              + $"running on {RuntimeInformation.FrameworkDescription}, where a library loaded by path loses to the one beside the application, so the default build would load. "
+                                              + "Run on .NET Framework, or use the build of this assembly for net8.0 or later, which a project targeting net8.0 or later resolves to.");
+    }
+#endif
 
     lock (Gate)
     {
@@ -113,7 +128,6 @@ public static class NativeLibrarySelection
       }
 
       committed_ = true;
-      var folders = Folders();
       try
       {
         if (requested_ == NativeEngineBuild.Metrics)
@@ -131,7 +145,7 @@ public static class NativeLibrarySelection
         if (requested_ == NativeEngineBuild.Metrics)
         {
           failure_ = RustEngineMissingException.ForBuild(requested_,
-                                                         folders,
+                                                         null,
                                                          error);
         }
       }
@@ -191,22 +205,20 @@ public static class NativeLibrarySelection
                                                 ? handle
                                                 : IntPtr.Zero);
 #else
-    // The platform's search is what the declarations meet on a .NET Core runtime, and it prefers a
-    // file beside the application over a module loaded by path; only .NET Framework, whose loader
-    // matches a module that is loaded by its name, can be told the build this way.
-    if (!RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework",
-                                                            StringComparison.Ordinal))
-    {
-      throw new PlatformNotSupportedException("the metrics build of the native engine is selected from the net8.0 build of this assembly and later, or on .NET Framework: "
-                                              + "this is the netstandard2.0 build on another runtime.");
-    }
-
+    // Only .NET Framework, whose loader matches a module that is loaded by its name, can be told
+    // the build this way; Select refuses the other runtimes.
     if (NativeMethods.LoadLibrary(path) == IntPtr.Zero)
     {
       throw new DllNotFoundException($"`{path}` could not be loaded (error {Marshal.GetLastWin32Error()})");
     }
 #endif
   }
+
+#if !NET5_0_OR_GREATER
+  private static bool IsNetFramework()
+    => RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework",
+                                                          StringComparison.Ordinal);
+#endif
 
   private static string LibraryFileName()
     => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
