@@ -810,6 +810,50 @@ impl<'a> Reader<'a> {
             _ => None,
         }
     }
+
+    /// A number written with a fraction of zero, `2.0` or `1e2`, is the integer it equals, as JSON
+    /// Schema reads one; any other value is read as it is.
+    fn whole_or_any<'de, V: Visitor<'de>>(
+        self,
+        visitor: V,
+        signed: bool,
+    ) -> Result<V::Value, Refused> {
+        match self.node {
+            // The edges are powers of two, which a double holds exactly: what lies within them
+            // is an integer of the width, and the visitor refuses what its own type cannot hold.
+            Node::Float(value)
+                if signed
+                    && value.fract() == 0.0
+                    && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0)
+                        .contains(&value) =>
+            {
+                visitor.visit_i64(value as i64)
+            }
+            Node::Float(value)
+                if !signed
+                    && value.fract() == 0.0
+                    && (0.0..18_446_744_073_709_551_616.0).contains(&value) =>
+            {
+                visitor.visit_u64(value as u64)
+            }
+            _ => self.deserialize_any(visitor),
+        }
+    }
+}
+
+/// An integer: a text parsed as one, a number with a fraction of zero as the integer it equals, and
+/// otherwise the value as it is, which the integer's visitor refuses.
+macro_rules! integer_or_any {
+    ($($method:ident => $parsed:ty, $visit:ident, $what:literal, $signed:literal;)+) => {
+        $(
+            fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Refused> {
+                match self.parsed::<$parsed>($what) {
+                    Some(parsed) => visitor.$visit(parsed?),
+                    None => self.whole_or_any(visitor, $signed),
+                }
+            }
+        )+
+    };
 }
 
 macro_rules! text_or_any {
@@ -873,15 +917,18 @@ impl<'de, 'a> Deserializer<'de> for Reader<'a> {
         }
     }
 
+    integer_or_any! {
+        deserialize_i8 => i64, visit_i64, "an integer", true;
+        deserialize_i16 => i64, visit_i64, "an integer", true;
+        deserialize_i32 => i64, visit_i64, "an integer", true;
+        deserialize_i64 => i64, visit_i64, "an integer", true;
+        deserialize_u8 => u64, visit_u64, "a positive integer", false;
+        deserialize_u16 => u64, visit_u64, "a positive integer", false;
+        deserialize_u32 => u64, visit_u64, "a positive integer", false;
+        deserialize_u64 => u64, visit_u64, "a positive integer", false;
+    }
+
     text_or_any! {
-        deserialize_i8 => i64, visit_i64, "an integer";
-        deserialize_i16 => i64, visit_i64, "an integer";
-        deserialize_i32 => i64, visit_i64, "an integer";
-        deserialize_i64 => i64, visit_i64, "an integer";
-        deserialize_u8 => u64, visit_u64, "a positive integer";
-        deserialize_u16 => u64, visit_u64, "a positive integer";
-        deserialize_u32 => u64, visit_u64, "a positive integer";
-        deserialize_u64 => u64, visit_u64, "a positive integer";
         deserialize_f32 => f64, visit_f64, "a number";
         deserialize_f64 => f64, visit_f64, "a number";
     }

@@ -43,6 +43,9 @@ h2 = "0.4"
 hyper = "1.10"
 hyper-rustls = { version = "0.27", default-features = false }
 hyper-util = "0.1"
+# Judges the schemas' own documents in a test, with no network resolver: the schemas refer to
+# nothing outside themselves.
+jsonschema = { version = "0.58", default-features = false }
 p12-keystore = "0.3"
 percent-encoding = "2"
 prost = "0.14"

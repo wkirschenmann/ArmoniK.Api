@@ -1063,6 +1063,41 @@
     "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.Multiplier", "says": "it has to be a finite number" }
   },
   {
+    "name": "an integer written with a fraction of zero is the integer it equals, as JSON Schema reads one",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":2.0,\"HardMiB\":1e1},\"ChannelDefaults\":{\"Grpc\":{\"Host\":{\"Receive\":{\"Window\":3.0}}}}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 2, "HardMiB": 10 }, "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 3 } } } } }
+  },
+  {
+    "name": "a signed integer written with a fraction of zero is the integer it equals",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probe\":{\"IdleSeconds\":5.0,\"Retries\":3e0}}}}}}}}" }
+    ],
+    "options": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 5, "Retries": 3 } } } } }
+  },
+  {
+    "name": "a negative integer written with a fraction of zero is refused by its path where it has to be positive",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":-1.0}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB" }
+  },
+  {
+    "name": "a large integer written with a fraction of zero is the integer it equals up to the width of its type",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":1,\"HardMiB\":9.1e18}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 1, "HardMiB": 9100000000000000000 } }
+  },
+  {
+    "name": "an integer written with a fraction is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 2.5 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Receive.Window", "says": "it is a number, where" }
+  },
+  {
     "name": "a number a text source gives that is infinite is refused where the bound has no upper end",
     "sources": [
       { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__BackoffMultiplier": "inf" } }
