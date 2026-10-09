@@ -3302,7 +3302,7 @@ pub struct MemoryCeilingOptions {
     /// value is that too.
     #[serde(default, rename = "SoftMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 9223372036854775807>")]
     pub soft_mib: Option<u64>,
 
     /// The MiB past which the runtime stops: a received message that would take the count past
@@ -3313,7 +3313,7 @@ pub struct MemoryCeilingOptions {
     /// Defaults to a quarter above `SoftMiB`.
     #[serde(default, rename = "HardMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
-    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 9223372036854775807>")]
     pub hard_mib: Option<u64>,
 }
 
@@ -5120,7 +5120,10 @@ mod tests {
                 .load::<RuntimeOptions>()
                 .expect_err("a ceiling of zero is out of the schema's bounds");
             assert_eq!(refused.key(), Some(key), "{refused}");
-            assert!(refused.to_string().contains("at least 1"), "{refused}");
+            assert!(
+                refused.to_string().contains("it has to be between 1 and"),
+                "{refused}"
+            );
         }
         let number = crate::configuration::Configuration::with_prefix("")
             .document(r#"{"MemoryCeiling":1048576}"#)

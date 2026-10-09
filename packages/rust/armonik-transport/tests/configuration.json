@@ -874,7 +874,7 @@
     "sources": [
       { "document": { "MemoryCeiling": { "SoftMiB": 0 } } }
     ],
-    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB", "says": "it has to be at least 1", "never": "0" }
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB", "says": "it has to be between 1 and" }
   },
   {
     "name": "an integer above its maximum is refused by its path",
@@ -1053,7 +1053,7 @@
     "sources": [
       { "pairs": { "MemoryCeiling__SoftMiB": "0" } }
     ],
-    "refused": { "source": "pairs", "key": "MemoryCeiling.SoftMiB", "says": "it has to be at least 1" }
+    "refused": { "source": "pairs", "key": "MemoryCeiling.SoftMiB", "says": "it has to be between 1 and" }
   },
   {
     "name": "a number a text source gives that is no number is refused rather than read as one of no bound",
@@ -1089,6 +1089,13 @@
       { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":1,\"HardMiB\":9.1e18}}}}}" }
     ],
     "options": { "MemoryCeiling": { "SoftMiB": 1, "HardMiB": 9100000000000000000 } }
+  },
+  {
+    "name": "a memory ceiling past the largest 64-bit integer the schema names is refused by its path",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"HardMiB\":9223372036854775808}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.HardMiB", "says": "it has to be between 1 and 9223372036854775807" }
   },
   {
     "name": "an integer written with a fraction is refused by its path",

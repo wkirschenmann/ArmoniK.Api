@@ -125,9 +125,9 @@ impl Configuration {
         self.with(Source::Pairs(pairs.into_iter().collect()))
     }
 
-    /// Pairs as a JSON object whose names are keys' paths and whose values are text. Read as
-    /// [`Configuration::pairs`] reads its own, and refused at the load when it is not such an
-    /// object.
+    /// Pairs as a JSON object whose names are the prefix, `__` and a key's path and whose values
+    /// are text. Read as [`Configuration::pairs`] reads its own, and refused at the load when it
+    /// is not such an object.
     pub fn pairs_json(self, json: impl Into<String>) -> Self {
         self.with(Source::PairsJson(json.into()))
     }
