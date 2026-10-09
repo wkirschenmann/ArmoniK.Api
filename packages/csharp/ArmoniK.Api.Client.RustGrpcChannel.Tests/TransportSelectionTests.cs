@@ -847,14 +847,14 @@ public class TransportSelectionTests
                                             ProxyUsername = "user",
                                           }),
                                   Does.Contain(@"""Credentials"":{""Username"":""user"",""Password"":""""}"),
-                                  "a username alone is a pair with an empty password, as the managed transport reads it");
+                                  "a username alone is a pair with an empty password, which the engine sends as such");
                       Assert.That(Encoded(new GrpcClient
                                           {
                                             Proxy         = "proxy.test:3128",
                                             ProxyPassword = "s3cret",
                                           }),
                                   Does.Contain(@"""Credentials"":{""Username"":"""",""Password"":""s3cret""}"),
-                                  "and a password alone one with an empty username");
+                                  "and a password alone one with an empty username, never filled from another source");
                       Assert.That(Encoded(new GrpcClient
                                           {
                                             Proxy = "proxy.test:3128",
