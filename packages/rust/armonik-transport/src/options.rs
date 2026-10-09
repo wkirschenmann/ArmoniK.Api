@@ -20,8 +20,8 @@ use secrecy::ExposeSecret;
 
 use crate::grpc::{AdaptiveConfig, Cause, GrpcStatusCode, ReplayConfig, RetryConfig};
 use crate::http2::{
-    ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
-    TlsConfig, LARGEST_FRAMES_PER_WRITE,
+    BasicCredentials, ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource,
+    ReceiveWindows, TcpConfig, TlsConfig, LARGEST_FRAMES_PER_WRITE,
 };
 
 /// The largest window either side of a call may be given.
@@ -168,7 +168,7 @@ pub enum ProxyOptions {
     /// again for two minutes.
     ///
     /// The system's proxy is never used for a loopback endpoint.
-    System(ProxyCredentials),
+    System(SystemProxy),
 
     /// The proxy at an address that carries no credentials, with its own beside it, if any.
     Url(ProxyUrl),
@@ -180,34 +180,52 @@ pub enum ProxyOptions {
 
 impl Default for ProxyOptions {
     fn default() -> Self {
-        Self::System(ProxyCredentials::default())
+        Self::System(SystemProxy::default())
     }
 }
 
-/// The credentials the system's proxy is authenticated to with, by `Basic`.
+/// What the system's proxy is given beside the address the system names.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct SystemProxy {
+    /// What the proxy is authenticated to with, by `Basic`.
+    ///
+    /// Defaults to none. Ignored when the system names no proxy. Beside the environment's proxy,
+    /// they are sent whole in place of what its URL carries, and its URL's own apply only when none
+    /// are stated; beside the one Windows' settings name, they are the credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "ProxyCredentials"))]
+    pub credentials: Option<ProxyCredentials>,
+}
+
+/// The username and password a proxy is authenticated to with, by `Basic`. Both are stated, and
+/// together: a source that states a pair replaces the one an earlier source stated, and an empty
+/// half is an empty string, never an absent one.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct ProxyCredentials {
     /// The username, which `Basic` forbids a `:` in.
-    ///
-    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// username.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub username: Option<String>,
+    pub username: String,
 
-    /// The password that goes with `Username`.
-    ///
-    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// password.
-    #[serde(default, skip_serializing)]
+    /// The password that goes with `Username`, empty when the proxy asks for none.
+    #[serde(skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub password: Option<Password>,
+    pub password: Password,
+}
+
+impl ProxyCredentials {
+    pub fn new(username: impl Into<String>, password: Password) -> Self {
+        Self {
+            username: username.into(),
+            password,
+        }
+    }
 }
 
 /// A proxy named by its address.
@@ -226,15 +244,12 @@ pub struct ProxyUrl {
     )]
     pub address: String,
 
-    /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
+    /// What the proxy is authenticated to with, by `Basic`.
+    ///
+    /// Defaults to none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub username: Option<String>,
-
-    /// The password that goes with `Username`.
-    #[serde(default, skip_serializing)]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub password: Option<Password>,
+    #[cfg_attr(feature = "schema", schemars(with = "ProxyCredentials"))]
+    pub credentials: Option<ProxyCredentials>,
 }
 
 /// A proxy's `http://` URL that carries its credentials, as `user:password@`, percent-encoded;
@@ -262,8 +277,7 @@ impl ProxyUrl {
     pub fn new(address: impl Into<String>) -> Self {
         Self {
             address: address.into(),
-            username: None,
-            password: None,
+            credentials: None,
         }
     }
 }
@@ -303,8 +317,7 @@ impl std::fmt::Debug for ProxyUrl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProxyUrl")
             .field("address", &elided(&self.address))
-            .field("username", &self.username)
-            .field("password", &self.password)
+            .field("credentials", &self.credentials)
             .finish()
     }
 }
@@ -315,12 +328,8 @@ impl ProxyOptions {
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         match self {
             Self::None => Ok(ProxyConfig::default()),
-            Self::System(credentials) => authenticated(
-                ProxySource::System,
-                &credentials.username,
-                &credentials.password,
-            )
-            .map_err(|refused| refused.under("System")),
+            Self::System(system) => authenticated(ProxySource::System, &system.credentials)
+                .map_err(|refused| refused.under("System")),
             Self::Url(url) => url.to_config().map_err(|refused| refused.under("Url")),
             Self::UrlWithCredentials(url) => url.to_config(),
         }
@@ -330,14 +339,14 @@ impl ProxyOptions {
 impl ProxyUrl {
     fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         let (proxy, userinfo) = proxy_url("Address", &self.address)?;
-        if userinfo.is_some() {
+        if userinfo.is_some_and(|userinfo| !userinfo.is_empty()) {
             return Err(OptionRefusal::new(
                 "Address",
                 "it carries `user:password@`: a proxy whose URL carries its credentials is \
-                 UrlWithCredentials, and Url states them as Username and Password",
+                 UrlWithCredentials, and Url states them as Credentials",
             ));
         }
-        authenticated(ProxySource::Explicit(proxy), &self.username, &self.password)
+        authenticated(ProxySource::Explicit(proxy), &self.credentials)
     }
 }
 
@@ -345,7 +354,7 @@ impl CredentialedUrl {
     fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         const KEY: &str = "UrlWithCredentials";
         let (proxy, userinfo) = proxy_url(KEY, &self.0)?;
-        let Some(userinfo) = userinfo else {
+        let Some(userinfo) = userinfo.filter(|userinfo| !userinfo.is_empty()) else {
             return Err(OptionRefusal::new(
                 KEY,
                 "it carries no `user:password@`: a proxy whose URL carries no credentials is Url",
@@ -368,8 +377,7 @@ impl CredentialedUrl {
         }
         Ok(ProxyConfig {
             source: ProxySource::Explicit(proxy),
-            username,
-            password: password.into(),
+            credentials: Some(BasicCredentials::new(username, password)),
         })
     }
 }
@@ -430,24 +438,26 @@ fn proxy_url(key: &str, address: &str) -> Result<(Uri, Option<String>), OptionRe
     Ok((proxy, userinfo))
 }
 
-/// `source`, authenticated to with `username` and `password`, empty when unset.
+/// `source`, authenticated to with `credentials`, with none when unset.
 fn authenticated(
     source: ProxySource,
-    username: &Option<String>,
-    password: &Option<Password>,
+    credentials: &Option<ProxyCredentials>,
 ) -> Result<ProxyConfig, OptionRefusal> {
-    let username = username.clone().unwrap_or_default();
-    if username.contains(':') {
-        return Err(OptionRefusal::new("Username", NO_COLON));
+    let Some(credentials) = credentials else {
+        return Ok(ProxyConfig {
+            source,
+            credentials: None,
+        });
+    };
+    if credentials.username.contains(':') {
+        return Err(OptionRefusal::new("Credentials.Username", NO_COLON));
     }
-    let password = password
-        .as_ref()
-        .map(|password| password.0.expose_secret().to_owned())
-        .unwrap_or_default();
     Ok(ProxyConfig {
         source,
-        username,
-        password: password.into(),
+        credentials: Some(BasicCredentials::new(
+            credentials.username.clone(),
+            credentials.password.0.expose_secret(),
+        )),
     })
 }
 
@@ -3205,11 +3215,11 @@ over_fields!(ReplayOptions {
 });
 over_fields!(PemCertificate { certificate, key });
 
+over_fields!(SystemProxy { credentials });
 over_fields!(ProxyCredentials { username, password });
 over_fields!(ProxyUrl {
     address,
-    username,
-    password,
+    credentials,
 });
 over_fields!(P12Certificate { path, password });
 over_fields!(StoreCertificate {
@@ -3820,29 +3830,34 @@ mod tests {
         }
     }
 
-    fn url(address: &str, username: Option<&str>, password: Option<&str>) -> ProxyOptions {
+    fn credentials(pair: Option<(&str, &str)>) -> Option<ProxyCredentials> {
+        pair.map(|(username, password)| ProxyCredentials::new(username, Password::new(password)))
+    }
+
+    fn url(address: &str, pair: Option<(&str, &str)>) -> ProxyOptions {
         let mut url = ProxyUrl::new(address);
-        url.username = username.map(str::to_owned);
-        url.password = password.map(Password::new);
+        url.credentials = credentials(pair);
         ProxyOptions::Url(url)
     }
 
-    fn system(username: Option<&str>, password: Option<&str>) -> ProxyOptions {
-        ProxyOptions::System(ProxyCredentials {
-            username: username.map(str::to_owned),
-            password: password.map(Password::new),
+    fn system(pair: Option<(&str, &str)>) -> ProxyOptions {
+        ProxyOptions::System(SystemProxy {
+            credentials: credentials(pair),
         })
     }
 
     #[test]
     fn a_proxy_url_becomes_the_proxy_tunnelled_through_with_its_credentials() {
         let explicit = |config: ProxyConfig| match config.source {
-            ProxySource::Explicit(uri) => (uri.to_string(), config.username, config.password),
+            ProxySource::Explicit(uri) => {
+                let pair = config.credentials.expect("stated credentials");
+                (uri.to_string(), pair.username, pair.password)
+            }
             other => panic!("{other:?}"),
         };
 
         let (uri, username, password) = explicit(
-            url("proxy.test:3128", Some("alice"), Some("s3cret"))
+            url("proxy.test:3128", Some(("alice", "s3cret")))
                 .to_config()
                 .expect("a proxy"),
         );
@@ -3871,48 +3886,105 @@ mod tests {
         let config = ProxyOptions::None.to_config().expect("no proxy");
         assert_eq!(config.source, ProxySource::Disabled);
 
-        let (uri, _, _) = explicit(
-            url("http://[::1]:3128", None, None)
-                .to_config()
-                .expect("a bracketed IPv6 proxy"),
-        );
-        assert_eq!(uri, "http://[::1]:3128/");
+        let config = url("http://@proxy.test:3128", None)
+            .to_config()
+            .expect("an empty userinfo carries nothing");
+        assert!(config.credentials.is_none(), "none stated is none");
 
-        let refused = url("proxy.test:3128", Some("corp:alice"), Some("s3cret"))
+        let config = url("http://[::1]:3128", None)
+            .to_config()
+            .expect("a bracketed IPv6 proxy");
+        let ProxySource::Explicit(uri) = &config.source else {
+            panic!("{:?}", config.source);
+        };
+        assert_eq!(uri.to_string(), "http://[::1]:3128/");
+        assert!(config.credentials.is_none(), "none stated is none");
+
+        let refused = url("proxy.test:3128", Some(("corp:alice", "s3cret")))
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "Url.Username");
+        assert_eq!(refused.key(), "Url.Credentials.Username");
     }
 
     #[test]
     fn the_system_proxy_is_the_default_and_takes_the_dedicated_credentials() {
-        assert_eq!(ProxyOptions::default(), system(None, None));
-        let config = system(Some("alice"), None)
+        assert_eq!(ProxyOptions::default(), system(None));
+        let config = system(Some(("alice", "")))
             .to_config()
             .expect("the environment's proxy");
         assert_eq!(config.source, ProxySource::System);
-        assert_eq!(config.username, "alice");
-        assert_eq!(config.password.expose_secret(), "");
-        let refused = system(Some("corp:alice"), None)
+        let pair = config.credentials.expect("stated credentials");
+        assert_eq!(pair.username, "alice");
+        assert_eq!(
+            pair.password.expose_secret(),
+            "",
+            "an empty password is stated"
+        );
+        let none = system(None).to_config().expect("the environment's proxy");
+        assert!(none.credentials.is_none(), "none stated is none");
+        let empty = system(Some(("", "")))
+            .to_config()
+            .expect("the environment's proxy");
+        assert!(empty.credentials.is_some(), "an empty pair is stated");
+        let refused = system(Some(("corp:alice", "s3cret")))
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "System.Username");
+        assert_eq!(refused.key(), "System.Credentials.Username");
     }
 
-    /// The system proxy's credentials have no mandatory field, so they merge field by field over
-    /// the defaults, as any group of options does.
+    /// A pair of credentials has two mandatory fields, so it is stated whole: a username stated
+    /// over the default's is never paired with the default's password. The system proxy has only
+    /// optional fields, so it merges, and one that states no credentials keeps the earlier ones.
     #[test]
-    fn the_system_proxys_credentials_merge_field_by_field() {
-        let defaults = system(Some("alice"), Some("s3cret"));
-        assert_eq!(system(None, None).over(&defaults), defaults);
+    fn the_system_proxys_credentials_are_stated_as_a_pair() {
+        let defaults = system(Some(("alice", "s3cret")));
+        assert_eq!(system(None).over(&defaults), defaults);
         assert_eq!(
-            system(Some("bob"), None).over(&defaults),
-            system(Some("bob"), Some("s3cret"))
+            system(Some(("bob", "x"))).over(&defaults),
+            system(Some(("bob", "x")))
         );
         assert_eq!(
-            system(None, Some("other")).over(&defaults),
-            system(Some("alice"), Some("other"))
+            system(Some(("bob", ""))).over(&defaults),
+            system(Some(("bob", ""))),
+            "an empty password is a password"
         );
+        assert_eq!(
+            system(Some(("bob", "x"))).over(&system(None)),
+            system(Some(("bob", "x")))
+        );
+        assert_eq!(
+            ProxyOptions::None.over(&defaults),
+            ProxyOptions::None,
+            "another alternative replaces the system's"
+        );
+    }
+
+    /// Credentials stated over credentials replace them whole: a half left empty is empty, and the
+    /// earlier source's is not taken for it.
+    #[test]
+    fn credentials_over_credentials_are_the_ones_stated() {
+        let defaults = credentials(Some(("alice", "s3cret")));
+        for stated in [("bob", "x"), ("bob", ""), ("", "x"), ("", "")] {
+            assert_eq!(
+                credentials(Some(stated)).over(&defaults),
+                credentials(Some(stated)),
+                "{stated:?}"
+            );
+        }
+        assert_eq!(credentials(None).over(&defaults), defaults);
+    }
+
+    /// A pair is read whole or refused, naming what it lacks, and never quoting a password.
+    #[test]
+    fn credentials_missing_a_half_are_refused_naming_it() {
+        let read = |text: &str| serde_json::from_str::<ProxyCredentials>(text);
+        let pair = read(r#"{"Username":"bob","Password":"x"}"#).expect("a pair");
+        assert_eq!(Some(pair), credentials(Some(("bob", "x"))));
+        let refused = read(r#"{"Username":"bob"}"#).expect_err("no password");
+        assert!(refused.to_string().contains("Password"), "{refused}");
+        let refused = read(r#"{"Password":"s3cret"}"#).expect_err("no username");
+        assert!(refused.to_string().contains("Username"), "{refused}");
+        assert!(!refused.to_string().contains("s3cret"), "{refused}");
     }
 
     #[test]
@@ -3927,7 +3999,7 @@ mod tests {
             ("http://[::1]:s3cret", "http://[::1]:***"),
             ("proxy.test:3128", "proxy.test:3128"),
         ] {
-            let printed = format!("{:?}", url(address, None, None));
+            let printed = format!("{:?}", url(address, None));
             assert!(printed.contains(shown), "{address}: {printed}");
             assert!(!printed.contains("s3cret"), "{printed}");
         }
@@ -3936,17 +4008,16 @@ mod tests {
     #[test]
     fn a_proxy_refusal_names_the_address_and_quotes_neither_it_nor_a_password() {
         for options in [
-            url("https://proxy.test:443", None, None),
-            url("http://alice:s3cret@proxy.test", Some("bob"), None),
-            url("http://alice:s3cret@proxy.test", None, Some("other")),
-            url("http://proxy.test:99999", None, None),
-            url("http://proxy.test:s3cret", None, None),
-            url("http://:3128", None, None),
-            url("not a url", None, None),
-            url("http://proxy.test:3128/pac.js", None, None),
-            url("http://proxy.test:3128/?s3cret", None, None),
-            url("http://proxy.test:3128#s3cret", None, None),
-            url("http://alice@proxy.test:3128", None, None),
+            url("https://proxy.test:443", None),
+            url("http://alice:s3cret@proxy.test", Some(("bob", "other"))),
+            url("http://proxy.test:99999", None),
+            url("http://proxy.test:s3cret", None),
+            url("http://:3128", None),
+            url("not a url", None),
+            url("http://proxy.test:3128/pac.js", None),
+            url("http://proxy.test:3128/?s3cret", None),
+            url("http://proxy.test:3128#s3cret", None),
+            url("http://alice@proxy.test:3128", None),
         ] {
             let refused = options.to_config().expect_err("refused");
             assert_eq!(refused.key(), "Url.Address", "{options:?}: {refused}");
@@ -3966,6 +4037,7 @@ mod tests {
             |address: &str| ProxyOptions::UrlWithCredentials(CredentialedUrl(address.to_owned()));
         for options in [
             credentialed("http://proxy.test:3128"),
+            credentialed("http://@proxy.test:3128"),
             credentialed("https://alice:s3cret@proxy.test:443"),
             credentialed("http://alice:%FF@proxy.test:3128"),
             credentialed("http://corp%3Aalice:s3cret@proxy.test:3128"),
@@ -3986,7 +4058,7 @@ mod tests {
     fn a_document_is_checked_alone_by_its_own_paths() {
         let options = ChannelOptions {
             transport: TransportOptions {
-                proxy: Some(url("http://alice:s3cret@proxy.test:3128", None, None)),
+                proxy: Some(url("http://alice:s3cret@proxy.test:3128", None)),
                 ..TransportOptions::default()
             },
             ..ChannelOptions::default()
@@ -5292,7 +5364,7 @@ mod tests {
     #[test]
     fn a_stated_alternative_replaces_the_default_whole() {
         let mut url = ProxyUrl::new("http://proxy.test:3128");
-        url.username = Some("someone".to_owned());
+        url.credentials = credentials(Some(("someone", "s3cret")));
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
@@ -5365,8 +5437,7 @@ mod tests {
     #[test]
     fn a_stated_alternative_over_the_same_one_replaces_a_payload_with_a_mandatory_field() {
         let mut default_url = ProxyUrl::new("http://default.test:3128");
-        default_url.username = Some("alice".to_owned());
-        default_url.password = Some(Password::new("s3cret"));
+        default_url.credentials = credentials(Some(("alice", "s3cret")));
         let mut store = StoreCertificate::new(StoreSearch::FriendlyName("root".to_owned()));
         store.location = Some(StoreLocation::LocalMachine);
         let defaults = ChannelOptions {
@@ -5385,7 +5456,7 @@ mod tests {
             ..ChannelOptions::default()
         };
         let mut own_url = ProxyUrl::new("http://own.test:3128");
-        own_url.username = Some("bob".to_owned());
+        own_url.credentials = credentials(Some(("bob", "x")));
         let mut own_store = StoreCertificate::new(StoreSearch::Thumbprint("ab".to_owned()));
         own_store.name = Some("Pinned".to_owned());
         let merged = ChannelOptions {
@@ -5408,8 +5479,7 @@ mod tests {
             panic!("{:?}", merged.transport.proxy);
         };
         assert_eq!(url.address, "http://own.test:3128");
-        assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(url.password, None, "the default's password is not paired");
+        assert_eq!(url.credentials, credentials(Some(("bob", "x"))));
         let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
         else {
             panic!("{:?}", merged.transport.tls.server_certificates);
@@ -5432,8 +5502,7 @@ mod tests {
     #[test]
     fn a_proxy_url_and_a_bundle_are_stated_whole() {
         let mut default_url = ProxyUrl::new("http://proxy.test:3128");
-        default_url.username = Some("alice".to_owned());
-        default_url.password = Some(Password::new("s3cret"));
+        default_url.credentials = credentials(Some(("alice", "s3cret")));
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
@@ -5448,9 +5517,9 @@ mod tests {
             },
             ..ChannelOptions::default()
         };
-        let merged_with = |username: Option<&str>| {
+        let merged_with = |pair: Option<(&str, &str)>| {
             let mut own_url = ProxyUrl::new("http://proxy.test:3128");
-            own_url.username = username.map(str::to_owned);
+            own_url.credentials = credentials(pair);
             ChannelOptions {
                 transport: TransportOptions {
                     tls: TlsOptions {
@@ -5471,14 +5540,12 @@ mod tests {
         let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
             panic!("{:?}", merged.transport.proxy);
         };
-        assert_eq!(url.username, None);
-        assert_eq!(url.password, None);
+        assert_eq!(url.credentials, None, "the default's pair is not taken");
 
-        let Some(ProxyOptions::Url(url)) = merged_with(Some("bob")).transport.proxy else {
+        let Some(ProxyOptions::Url(url)) = merged_with(Some(("bob", "x"))).transport.proxy else {
             panic!("a Url is merged into a Url");
         };
-        assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(url.password, None);
+        assert_eq!(url.credentials, credentials(Some(("bob", "x"))));
         assert_eq!(
             merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("me.p12", None)))

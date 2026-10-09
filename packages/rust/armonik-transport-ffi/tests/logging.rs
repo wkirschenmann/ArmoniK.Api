@@ -731,8 +731,8 @@ fn placeholder(root: &Value, node: &Value, depth: usize) -> Value {
 /// which is what an option added later as plain text looks like.
 const NOT_SECRET: &[&str] = &[
     "Grpc.UserAgent",
-    "Transport.Proxy.System.Username",
-    "Transport.Proxy.Url.Username",
+    "Transport.Proxy.System.Credentials.Username",
+    "Transport.Proxy.Url.Credentials.Username",
     "Transport.Tls.ClientCertificate.P12.Path",
     "Transport.Tls.ClientCertificate.Pem.Certificate",
     "Transport.Tls.ClientCertificate.Pem.Key",

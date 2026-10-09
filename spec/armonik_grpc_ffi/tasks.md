@@ -957,8 +957,8 @@ carries.
 
 **Deliverable**: a unary call through an explicit HTTP proxy, and no credential in any message.
 
-**Status**: done. `Transport.Proxy` is `None`, `System` - the environment's, with `Username` and
-`Password` - or `Url`, the proxy's `http://` `Address` with its own `Username` and `Password`: the
+**Status**: done. `Transport.Proxy` is `None`, `System` - the environment's, with optional `Credentials` - or `Url`, the proxy's
+`http://` `Address` with its own optional `Credentials`, a `Username` and a `Password` stated together: the
 three `GrpcClient` has, and what its `none` and `system` spell. The
 engine's connector tunnels through it with `hyper_util`'s `Tunnel` below TLS, so TLS stays end to
 end, and the connect timeout bounds the whole dial, tunnel included; a target naming no port is
@@ -987,11 +987,12 @@ in either case, and `NO_PROXY` as curl reads it. Each dial asks it for a route, 
 `NO_PROXY` names is dialled directly; so is a loopback endpoint, as .NET's environment proxy dials
 it, which keeps a local server reachable under a corporate `HTTP_PROXY`. A proxy the environment
 names by `https://` or a `socks` scheme is refused when the channel is created, without quoting
-its userinfo; any other value the matcher cannot read as a proxy is ignored. `Username` and
-`Password`, when set, take the place of the URL's own, half by half. In the options, an absent
-`Proxy` or `System` is this source - the default, as it is `GrpcClient`'s - while the engine's own
-`ProxyConfig` defaults to none. `tests/grpc_proxy_env.rs` is serialised and restores the variables;
-a `.test` name only the test proxy resolves shows which dials went through it.
+its userinfo; any other value the matcher cannot read as a proxy is ignored. `Credentials`, when
+stated, are sent whole in place of the URL's own, an empty half sent empty; the URL's apply only
+when none are stated. In the options, an absent `Proxy` or `System` is this source - the default, as
+it is `GrpcClient`'s - while the engine's own `ProxyConfig` defaults to none.
+`tests/grpc_proxy_env.rs` is serialised and restores the variables; a `.test` name only the test
+proxy resolves shows which dials went through it.
 
 ### T5.3: Windows system proxy
 
@@ -1009,7 +1010,7 @@ connect timeout, which also bounds the whole dial; a script that cannot be found
 manual proxy and its bypass list - names, `*` wildcards and `<local>` - to decide, as in .NET. A
 loopback endpoint is never resolved. An `https://` entry, or a manual `socks=` one when it is the
 only entry for the scheme, is refused, at the dial since nothing is resolved at creation; a script's
-`SOCKS` answer is dropped by WinHTTP itself and leaves a direct dial. `Username` and `Password`
+`SOCKS` answer is dropped by WinHTTP itself and leaves a direct dial. `Credentials`
 authenticate to whichever proxy the settings name. A resolution still running when its dial gives
 up keeps its blocking thread, and dropping the runtime waits for it, so a stuck WPAD lengthens
 `ak_runtime_destroy` - the price of keeping its promise that no thread of this library outlives it.

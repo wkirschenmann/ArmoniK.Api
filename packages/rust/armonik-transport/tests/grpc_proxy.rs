@@ -9,7 +9,7 @@ use armonik_transport::grpc::{
     CallStartOptions, GrpcChannelConfig, GrpcChannelConfigError, GrpcStatus, GrpcStatusCode,
 };
 use armonik_transport::http2::{
-    ProxyConfig, ProxySource, TlsConfig, TransportConfig, TransportErrorKind,
+    BasicCredentials, ProxyConfig, ProxySource, TlsConfig, TransportConfig, TransportErrorKind,
 };
 use bytes::Bytes;
 use common::echo::{channel_with, closed_port, unary, TestServer, ECHO};
@@ -26,8 +26,7 @@ fn proxied(endpoint: &str, proxy: &str, credentials: Option<(&str, &str)>) -> Tr
     let mut config = ProxyConfig::default();
     config.source = ProxySource::Explicit(Uri::try_from(proxy).expect("a proxy"));
     if let Some((username, password)) = credentials {
-        config.username = username.to_owned();
-        config.password = password.to_owned().into();
+        config.credentials = Some(BasicCredentials::new(username, password));
     }
     transport.proxy = config;
     transport

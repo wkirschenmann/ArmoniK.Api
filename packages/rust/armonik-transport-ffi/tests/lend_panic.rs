@@ -37,9 +37,9 @@ const LEND_STEPS: [LendStep; 7] = [
 
 const REPAY_STEPS: [RepayStep; 4] = [
     RepayStep::Begun,
-    RepayStep::Counted,
     RepayStep::Released,
     RepayStep::Permitted,
+    RepayStep::Counted,
 ];
 
 /// Takes every hook away however the test ends.
@@ -273,6 +273,175 @@ fn a_panic_while_a_refused_lend_is_paid_leaves_the_rest_paid() {
         cancel(&fixture, call);
         assert_shuts_down_clean(&fixture, call, &context);
     }
+}
+
+/// What a host that asks for a buffer at each step of the payment of another, on the one slot of
+/// the window, is answered: the steps it asked at with the answer, and the buffer it was lent.
+type Asked = Arc<Mutex<Vec<(RepayStep, ak_status)>>>;
+type Lent = Arc<Mutex<Option<(usize, usize, usize)>>>;
+
+fn ask_at_each_repay_step(call: ak_handle) -> (Asked, Lent) {
+    let asked = Asked::default();
+    let lent = Lent::default();
+    let inside = Arc::new(AtomicBool::new(false));
+    let (hook_asked, hook_lent) = (Arc::clone(&asked), Arc::clone(&lent));
+    hooks::at_each_repay_step(Some(Arc::new(move |step| {
+        // The payment of the buffer this lends is not asked at.
+        if inside.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let (status, buffer) = lend(call, 8);
+        if status == ak_status::AK_STATUS_OK {
+            *hook_lent.lock().unwrap() =
+                Some((buffer.ptr as usize, buffer.len, buffer.owner as usize));
+        }
+        hook_asked.lock().unwrap().push((step, status));
+        inside.store(false, Ordering::SeqCst);
+    })));
+    (asked, lent)
+}
+
+/// A lend asked for during a payment is refused with INVALID_STATE at the first three steps and
+/// admitted at the last, and never with SLOT_BUSY, whose wake-up is a WRITE_DONE nothing sent.
+fn assert_asked_only_once_it_is_paid(
+    asked: &Asked,
+    lent: &Lent,
+    fixture: &OneSlot,
+    call: ak_handle,
+) {
+    hooks::at_each_repay_step(None);
+    let asked = asked.lock().unwrap().clone();
+    assert_eq!(
+        asked,
+        vec![
+            (RepayStep::Begun, ak_status::AK_STATUS_INVALID_STATE),
+            (RepayStep::Released, ak_status::AK_STATUS_INVALID_STATE),
+            (RepayStep::Permitted, ak_status::AK_STATUS_INVALID_STATE),
+            (RepayStep::Counted, ak_status::AK_STATUS_OK),
+        ]
+    );
+    let (ptr, len, owner) = lent.lock().unwrap().take().expect("the last ask was lent");
+    unsafe {
+        ak_return_call_buffer(ak_buffer {
+            ptr: ptr as *mut u8,
+            len,
+            owner: owner as *mut std::ffi::c_void,
+        })
+    };
+    assert_lendable_again(fixture, call, "after the asks");
+}
+
+/// The payment of a refused lend, asked at from the same host.
+#[test]
+fn a_lend_asked_during_the_payment_of_a_refused_lend_is_not_told_to_wait_for_a_write() {
+    let _turn = take_turn();
+    let fixture = OneSlot::start();
+    let call = start_call(fixture.channel, COLLECT, &[]);
+
+    // Refused once, after the slot is spent and the bytes are charged: all three parts are owed.
+    let refused = Arc::new(AtomicBool::new(false));
+    hooks::at_each_lend_step(Some(Arc::new(move |reached| {
+        if reached == LendStep::Charged && !refused.swap(true, Ordering::SeqCst) {
+            panic!("injected at {reached:?}");
+        }
+    })));
+    let _clear = Panicking;
+    let (asked, lent) = ask_at_each_repay_step(call);
+    let (status, _) = lend(call, 16);
+
+    assert_eq!(status, ak_status::AK_STATUS_INTERNAL);
+    assert_asked_only_once_it_is_paid(&asked, &lent, &fixture, call);
+    cancel(&fixture, call);
+    assert_shuts_down_clean(&fixture, call, "refused");
+}
+
+/// The payment of a buffer given back, asked at from the same host.
+#[test]
+fn a_lend_asked_during_the_return_of_a_buffer_is_not_told_to_wait_for_a_write() {
+    let _turn = take_turn();
+    let fixture = OneSlot::start();
+    let call = start_call(fixture.channel, COLLECT, &[]);
+    let (status, buffer) = lend(call, 16);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+
+    let _clear = Panicking;
+    let (asked, lent) = ask_at_each_repay_step(call);
+    unsafe { ak_return_call_buffer(buffer) };
+
+    assert_asked_only_once_it_is_paid(&asked, &lent, &fixture, call);
+    cancel(&fixture, call);
+    assert_shuts_down_clean(&fixture, call, "returned");
+}
+
+/// A ceiling that another call's lend of `HELD` leaves too little of for a lend of `ASKED`.
+const SMALL_CEILING: u64 = 64;
+const HELD: usize = 60;
+const ASKED: usize = 16;
+
+/// A runtime whose ceiling another call's buffer nearly fills, and a call whose lend of `ASKED` is
+/// refused for the budget.
+fn with_the_budget_taken() -> (OneSlot, ak_handle, ak_handle, ak_buffer) {
+    let fixture = OneSlot::with_ceiling(SMALL_CEILING);
+    let other = start_call(fixture.channel, COLLECT, &[]);
+    let call = start_call(fixture.channel, COLLECT, &[]);
+    let (status, held) = lend(other, HELD);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    (fixture, call, other, held)
+}
+
+/// A lend refused for the budget leaves its send waiting for room, which is what its wake-up and
+/// the lowered read ceiling are for.
+#[test]
+fn a_lend_refused_for_the_budget_leaves_its_send_waiting() {
+    let _turn = take_turn();
+    let (fixture, call, other, held) = with_the_budget_taken();
+
+    let (status, _) = lend(call, ASKED);
+
+    assert_eq!(status, ak_status::AK_STATUS_BUDGET_BUSY);
+    assert_eq!(hooks::is_waiting_for_room(call), Some(true));
+    unsafe { ak_return_call_buffer(held) };
+    fixture.host.recorder.await_budget_wake();
+    assert_lendable_again(&fixture, call, "after the wake-up");
+    for call in [call, other] {
+        cancel(&fixture, call);
+    }
+    fixture.close();
+}
+
+/// A panic once the send is recorded as waiting, in the second try of the charge, refuses the lend
+/// as the others are, and the record goes with it: a refused lend holds nothing, and a send that
+/// nothing is waiting for would lower the ceiling every call reads until its call ends.
+#[test]
+fn a_panic_after_the_send_is_recorded_as_waiting_takes_the_record_back() {
+    let _turn = take_turn();
+    let (fixture, call, other, held) = with_the_budget_taken();
+
+    // The first charge of the lend is refused for the budget, and the second panics.
+    let charges = Arc::new(AtomicUsize::new(0));
+    hooks::at_each_charge_step(Some(Arc::new(move |reached| {
+        if reached == ChargeStep::Begun && charges.fetch_add(1, Ordering::SeqCst) == 1 {
+            panic!("injected in the second charge");
+        }
+    })));
+    let (status, _) = lend(call, ASKED);
+    hooks::at_each_charge_step(None);
+
+    assert_eq!(status, ak_status::AK_STATUS_INTERNAL);
+    assert_eq!(debt_of(call).buffers_lent, 0);
+    assert_eq!(
+        memory_usage(fixture.host.runtime).bytes_used,
+        HELD as u64,
+        "the other call's charge stands alone"
+    );
+    assert_eq!(hooks::is_waiting_for_room(call), Some(false));
+
+    unsafe { ak_return_call_buffer(held) };
+    assert_lendable_again(&fixture, call, "after the panic");
+    for call in [call, other] {
+        cancel(&fixture, call);
+    }
+    assert_shuts_down_clean(&fixture, call, "the second charge");
 }
 
 /// Past the size a channel keeps its arenas from.

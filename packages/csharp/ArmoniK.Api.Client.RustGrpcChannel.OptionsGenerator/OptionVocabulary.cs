@@ -36,6 +36,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
     /// <summary>One of the generated classes.</summary>
     Group,
 
+    /// <summary>One of the generated records, which an alternative holds.</summary>
+    Record,
+
     /// <summary>One of the generated closed hierarchies of records.</summary>
     Choice,
 
@@ -91,6 +94,16 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
   internal sealed class OptionGroup : OptionType
   {
     /// <summary>The options of the group, in the order the schema states them.</summary>
+    public IReadOnlyList<Option> Options { get; init; } = Array.Empty<Option>();
+  }
+
+  /// <summary>
+  ///   A group with a mandatory option, which is stated whole: one generated positional record, as an
+  ///   immutable value an alternative holds.
+  /// </summary>
+  internal sealed class OptionRecord : OptionType
+  {
+    /// <summary>The options of the record, in the order the schema states them.</summary>
     public IReadOnlyList<Option> Options { get; init; } = Array.Empty<Option>();
   }
 
@@ -255,6 +268,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
                                                  {
                                                    (OptionGroup mine, OptionGroup theirs) => Same(mine.Options,
                                                                                                   theirs.Options),
+                                                   (OptionRecord mine, OptionRecord theirs) => Same(mine.Options,
+                                                                                                    theirs.Options),
                                                    (OptionChoice mine, OptionChoice theirs) => mine.Alternatives.Count == theirs.Alternatives.Count &&
                                                                                                mine.Alternatives.Zip(theirs.Alternatives,
                                                                                                                      (a, b) => a.Name        == b.Name        &&
@@ -295,13 +310,19 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
 
       var nested = new List<(TypeDeclaration Declaration, string Name)>();
 
+      // The root is the document, a group of options all optional; below it, a type with a
+      // mandatory option is stated whole.
       types.Add(IsChoice(declaration)
                   ? ReadChoice(declaration,
                                name,
                                nested)
-                  : ReadGroup(declaration,
-                              name,
-                              nested));
+                  : types.Count > 0 && HasRequired(declaration)
+                    ? ReadRecord(declaration,
+                                 name,
+                                 nested)
+                    : ReadGroup(declaration,
+                                name,
+                                nested));
 
       foreach (var (subdeclaration, subname) in nested)
       {
@@ -310,6 +331,35 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
              types,
              read);
       }
+    }
+
+    private static bool HasRequired(TypeDeclaration declaration)
+      => declaration.HasPropertyDeclarations && declaration.PropertyDeclarations.Any(property => property.RequiredOrOptional != RequiredOrOptional.Optional);
+
+    // A record is a value a caller states whole, and an immutable one, so what it holds is a value
+    // too: a number, a text or a flag.
+    private static OptionRecord ReadRecord(TypeDeclaration declaration,
+                                           string name,
+                                           List<(TypeDeclaration Declaration, string Name)> nested)
+    {
+      var options = Declared(declaration)
+                    .Select(property => ReadOption(property,
+                                                   nested,
+                                                   false))
+                    .ToList();
+
+      if (options.FirstOrDefault(option => option.Kind != OptionKind.Value) is { } held)
+      {
+        throw new NotSupportedException($"`{name}` holds `{held.Name}`, which is not a number, a text or a flag: a record this generator renders holds values only.");
+      }
+
+      return new OptionRecord
+             {
+               Name        = name,
+               Description = Described(Description(declaration),
+                                       $"`{name}`"),
+               Options     = options,
+             };
     }
 
     private static OptionGroup ReadGroup(TypeDeclaration declaration,
@@ -400,7 +450,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         }
 
         var kind = !IsChoice(target)
-                     ? OptionKind.Group
+                     ? HasRequired(target)
+                         ? OptionKind.Record
+                         : OptionKind.Group
                      : IsEnumeration(target)
                        ? OptionKind.Enumeration
                        : OptionKind.Choice;
@@ -410,6 +462,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.OptionsGenerator
         if (kind == OptionKind.Group && !holdsGroups)
         {
           throw new NotSupportedException($"`{property.JsonPropertyName}` is a group, and an alternative holds none: a record is immutable, and a class in it would not be.");
+        }
+
+        // A class is written by the serializer's context, which is not taught to write a record.
+        if (kind == OptionKind.Record && holdsGroups)
+        {
+          throw new NotSupportedException($"`{property.JsonPropertyName}` is stated whole, and a group holds no such type: only an alternative holds one.");
         }
 
         var typeName = NameOf(target,

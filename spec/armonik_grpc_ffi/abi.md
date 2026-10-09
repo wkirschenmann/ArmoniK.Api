@@ -123,9 +123,9 @@ hold it too. `AK_STATUS_MESSAGE_TOO_LARGE` asks the same ceiling for more than i
 permanent where `AK_STATUS_BUDGET_BUSY` is transient. Only a lend refused with it is woken
 by `AK_EVENT_BUDGET_WAKE`; a resize's refusal is not (see Calls). `AK_STATUS_INVALID_STATE` is a guard that
 refused - a destroy before quiescence, a start while stopping, a lend or a send on a call that
-is over or cancelled, a second end of sending - which is not a fault, and calling it `AK_STATUS_INTERNAL` would blame the
-runtime. `AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure
-included.
+is over or cancelled, a second lend while the call's one buffer is held (see Calls), a second end
+of sending - which is not a fault, and calling it `AK_STATUS_INTERNAL` would blame the runtime.
+`AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure included.
 
 #### Errors
 
@@ -334,6 +334,11 @@ and not an error, and the same race exists on `ak_call_send_message`. Lending on
 is also what makes destruction sound: a released runtime has no live call, so nothing can hand
 its memory back out.
 
+`AK_STATUS_INVALID_STATE` answers a second lend as well: a call has one buffer, and a lend is
+refused while the host holds it or an earlier lend of the call is still paying back what it took.
+That is a host bug and not backpressure, whether the host holds a buffer or lends from another
+thread while a lend or a resize of the same call has not returned.
+
 A length of zero is refused with `AK_STATUS_INVALID_ARG`: an empty message needs no buffer, and
 `ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. That send takes
 a slot of the window and gets its `AK_EVENT_WRITE_DONE` like any other.
@@ -371,9 +376,9 @@ buffer is as that answer says:
   arena is taken to be the message; for a resize, before the exchange is made, which includes the
   ceiling's charge, moved in one step or not at all - the answer is `AK_STATUS_INTERNAL`, a
   refusal like an allocator failure. A buffer the host held stays lent, charged and the host's,
-  and `*out` as it was, so the host may retry or give the buffer back. A lend that was refused
-  holds nothing: nothing is charged, no slot of the window is spent, the call's one buffer is
-  free and `*out` is untouched, so the host may ask again.
+  and `*out` as it was, so the host may retry or give the buffer back. A lend refused by a
+  contained panic holds nothing: nothing is charged, no slot of the window is spent, the call's one
+  buffer is free, no wait for room is recorded and `*out` is untouched, so the host may ask again.
 - Once the operation is made - the message queued, or on a one-request call given; the exchange
   made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
 - Between the two, where the buffer is gone and the operation was not made - a commit whose arena
@@ -397,7 +402,9 @@ an `AK_EVENT_BUDGET_WAKE`. While it waits, every call of the runtime reads only 
 lowered by that length, so the host must try again when woken or cancel the call: a send given up
 on a live call holds reception lowered for the whole runtime. The event may arrive in parallel
 with the call's data callbacks, like `AK_EVENT_WRITE_DONE`, and before its terminal; it promises
-no room, since another call may take it first.
+no room, since another call may take it first. A host retries a refused lend only after that
+lend's downcall has returned: the refused lend gives the call's one buffer back as it returns, and
+a wake-up delivered while it still does can meet `AK_STATUS_INVALID_STATE`.
 
 When `ak_call_send_message`'s allocation is freed is this library's business and is not
 observable: a call that may be retried keeps it for a replay, past its WRITE_DONE, so

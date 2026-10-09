@@ -67,9 +67,9 @@ impl Drop for Panicking {
 
 const REPAY_STEPS: [RepayStep; 4] = [
     RepayStep::Begun,
-    RepayStep::Counted,
     RepayStep::Released,
     RepayStep::Permitted,
+    RepayStep::Counted,
 ];
 
 /// The two ways a call takes its messages, which commit by different code.

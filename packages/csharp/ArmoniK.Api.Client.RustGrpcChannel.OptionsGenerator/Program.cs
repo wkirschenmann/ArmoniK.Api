@@ -153,9 +153,10 @@ The same schema always renders the same bytes, which is what makes --check a bui
         var groups = await OptionVocabulary.ReadAsync(schemaJson)
                                            .ConfigureAwait(false);
 
+        IReadOnlyList<OptionType>? reused = null;
+
         if (reusePath is not null)
         {
-          IReadOnlyList<OptionType> reused;
           try
           {
             reused = await OptionVocabulary.ReadAsync(File.ReadAllText(reusePath))
@@ -174,7 +175,8 @@ The same schema always renders the same bytes, which is what makes --check a bui
         generated = CSharpSource.Render(groups,
                                         namespaceName,
                                         Path.GetFileName(schemaPath),
-                                        document);
+                                        document,
+                                        reused);
       }
       catch (Exception e) when (IsFileFailure(e) || e is JsonException or NotSupportedException or InvalidOperationException)
       {

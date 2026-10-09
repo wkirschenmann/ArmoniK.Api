@@ -1322,8 +1322,11 @@ the shape every option takes, and gives the reasons:
   `"ServerCertificates": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
   whose constructor is private, and its alternatives the sealed records nested in it, a
   variant that carries nothing included; the compiler does not know that they are all of them,
-  so a switch over them needs a default case. An enum whose variants all carry nothing is a
-  `oneOf` of names, and a C# enum;
+  so a switch over them needs a default case. A group of options with a mandatory one that an
+  alternative holds, a proxy's `Credentials` for instance, is stated whole and is a sealed
+  positional record of its own, holding values only, which an alternative holds as an immutable
+  value and a class does not. An enum whose variants
+  all carry nothing is a `oneOf` of names, and a C# enum;
 - nothing is required but a field an alternative cannot do without, and `{}` is a valid
   configuration;
 - an option belongs to the layer it acts on: `Transport` the dial and the socket, `Http2` the
@@ -1384,7 +1387,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `AllowUnsafeConnection` | `Transport.Tls.ServerCertificates.None` |
 | `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
-| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
+| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Credentials.Username` / `Transport.Proxy.Url.Credentials.Password`, stated as a pair when either is set, the other being empty, which the engine reads literally |
 | `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
 | `MaxAttempts` | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts`, or `Grpc.OutboundTraffic.Retry.None` for 1, with nothing else of the retries |
 | `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |

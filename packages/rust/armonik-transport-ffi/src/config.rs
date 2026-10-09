@@ -1157,14 +1157,15 @@ mod tests {
         use armonik_transport::http2::ProxySource;
 
         let config = config_of(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         );
         let proxy = &config.transport.proxy;
         let ProxySource::Explicit(uri) = &proxy.source else {
             panic!("{proxy:?}");
         };
         assert_eq!(uri.to_string(), "http://proxy.test:3128/");
-        assert_eq!(proxy.username, "alice");
+        let pair = proxy.credentials.as_ref().expect("stated credentials");
+        assert_eq!(pair.username, "alice");
         assert!(!format!("{proxy:?}").contains("s3cret"));
     }
 
@@ -1319,7 +1320,7 @@ mod tests {
     #[test]
     fn an_alternative_the_channel_states_replaces_the_defaults() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(defaults.as_ref(), br#"{"Transport":{"Proxy":"None"}}"#)
@@ -1332,7 +1333,7 @@ mod tests {
             proxy.source,
             armonik_transport::http2::ProxySource::Disabled
         );
-        assert_eq!(proxy.username, "");
+        assert!(proxy.credentials.is_none());
     }
 
     /// A channel's document is checked alone before it is merged: credentials in a `Url`
@@ -1340,7 +1341,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_checked_before_it_is_merged() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let Err(refused) = parse_over(

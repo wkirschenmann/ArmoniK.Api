@@ -32,13 +32,15 @@ pub enum ak_status {
     AK_STATUS_INVALID_ARG = 3,
     /// A fault the ABI cannot attribute.
     AK_STATUS_INTERNAL = 4,
-    /// The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
-    /// Until the send is served or the call ends, reads are held back for it across the whole
-    /// runtime, so a host woken must try again or cancel the call. A refused ak_resize_call_buffer
-    /// is none of this: it records no wait, and a host that waits lends again.
+    /// The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE,
+    /// once the refused lend has returned. Until the send is served or the call ends, reads are
+    /// held back for it across the whole runtime, so a host woken must try again or cancel the
+    /// call. A refused ak_resize_call_buffer is none of this: it records no wait, and a host that
+    /// waits lends again.
     AK_STATUS_BUDGET_BUSY = 5,
     /// A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
-    /// destroy before quiescence. A guard refused, which is not a fault.
+    /// destroy before quiescence, a lend while the call's one buffer is held or being paid back.
+    /// A guard refused, which is not a fault.
     AK_STATUS_INVALID_STATE = 6,
     /// The length exceeds the ceiling itself, so no return by anyone will ever make room.
     /// Permanent; do not retry.
@@ -94,8 +96,8 @@ pub enum ak_event_kind {
     /// And now nothing of it is outstanding.
     AK_EVENT_RESOURCES_RELEASED = 6,
     /// A release gave bytes back since this call's send was refused with AK_STATUS_BUDGET_BUSY:
-    /// try it again. Every call refused since the last release is woken, and none is promised
-    /// the room: another may take it first.
+    /// try it again, once that send's downcall has returned. Every call refused since the last
+    /// release is woken, and none is promised the room: another may take it first.
     AK_EVENT_BUDGET_WAKE = 7,
 }
 

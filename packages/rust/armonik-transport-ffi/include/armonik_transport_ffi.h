@@ -142,15 +142,17 @@ enum ak_status
      */
     AK_STATUS_INTERNAL = 4,
     /**
-     * The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE.
-     * Until the send is served or the call ends, reads are held back for it across the whole
-     * runtime, so a host woken must try again or cancel the call. A refused ak_resize_call_buffer
-     * is none of this: it records no wait, and a host that waits lends again.
+     * The runtime-wide byte ceiling is reached - retry at the call's next AK_EVENT_BUDGET_WAKE,
+     * once the refused lend has returned. Until the send is served or the call ends, reads are
+     * held back for it across the whole runtime, so a host woken must try again or cancel the
+     * call. A refused ak_resize_call_buffer is none of this: it records no wait, and a host that
+     * waits lends again.
      */
     AK_STATUS_BUDGET_BUSY = 5,
     /**
      * A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
-     * destroy before quiescence. A guard refused, which is not a fault.
+     * destroy before quiescence, a lend while the call's one buffer is held or being paid back.
+     * A guard refused, which is not a fault.
      */
     AK_STATUS_INVALID_STATE = 6,
     /**
@@ -204,8 +206,8 @@ enum ak_event_kind
     AK_EVENT_RESOURCES_RELEASED = 6,
     /**
      * A release gave bytes back since this call's send was refused with AK_STATUS_BUDGET_BUSY:
-     * try it again. Every call refused since the last release is woken, and none is promised
-     * the room: another may take it first.
+     * try it again, once that send's downcall has returned. Every call refused since the last
+     * release is woken, and none is promised the room: another may take it first.
      */
     AK_EVENT_BUDGET_WAKE = 7,
 };
@@ -1031,20 +1033,22 @@ ak_status ak_call_start(ak_handle channel,
  * shuts down. A write that leaves them as they were goes unseen.
  *
  * One unfilled buffer at a time, whatever Grpc.Host.Send.Window says: asking for a second while
- * still holding one is AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
+ * still holding one, or while an earlier lend of the call has not returned, is
+ * AK_STATUS_INVALID_STATE, a host bug rather than backpressure. The window
  * counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
  * the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
  * is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
- * runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+ * runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE. A host retries
+ * only after the refused lend has returned: until then a retry can meet AK_STATUS_INVALID_STATE.
  * AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
  * message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
  * the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
  * library contains, which can only come before the host holds the buffer: the lend is refused as
- * any other, with nothing charged, no slot of the window spent and the call's one buffer free, so
- * the host may ask again. A call that is over, or whose
- * cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
- * declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
- * SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
+ * any other, with nothing charged, no slot of the window spent, the call's one buffer free and no
+ * wait for room recorded, so the host may ask again. A call that is over, or whose cancellation
+ * has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that declared
+ * AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a SLOT_BUSY to wait
+ * on. On every refusal no buffer is lent and `*out` is untouched.
  *
  * # Safety
  *
