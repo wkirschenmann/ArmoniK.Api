@@ -528,9 +528,9 @@ The detailed form of the memory usage, an observability tool rather than one a r
 //
 // Normative here means an ABI obligation, checked by the ABI tests. The identities
 // are proved at level 1 (MemoryAccountingExact, CategoriesPartitionTotal,
-// ReceivedCategoriesPartitionTotal, MemoryWithinHardCeiling, with the sixth category
-// the bytes the engine holds, engine_held); what stays a test
-// obligation is the snapshot itself - that one read returns one coherent instant.
+// ReceivedCategoriesPartitionTotal, MemoryWithinHardCeiling; the sixth category is
+// engine_held there); what stays a test obligation is the snapshot itself - that one
+// read returns one coherent instant.
 // See "What is actually verified" in formal-model.md.
 typedef struct {
     uint64_t bytes_used;
