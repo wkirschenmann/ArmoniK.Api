@@ -362,7 +362,8 @@ A panic the library contains in `ak_call_send_message` or `ak_resize_call_buffer
 what the operation had done when it happened, and the buffer is as that answer says:
 
 - Before the buffer is used up - for a commit, before its arena is taken to be the message; for a
-  resize, before the exchange is made - the answer is `AK_STATUS_INTERNAL`, a refusal like an
+  resize, before the exchange is made, which includes the ceiling's charge, moved in one step or
+  not at all - the answer is `AK_STATUS_INTERNAL`, a refusal like an
   allocator failure. The buffer stays lent, charged and the host's, and `*out` as it was, so the
   host may retry or give the buffer back.
 - Once the operation is made - the message queued, or on a one-request call given; the exchange

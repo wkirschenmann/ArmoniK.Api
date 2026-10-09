@@ -384,8 +384,9 @@ impl CallState {
     /// changes: an arena first, a spare of the channel's if one fits, the bytes carried into it,
     /// and then the charge, which is the last step that can refuse. The lend itself is not
     /// touched before the charge is made, and the step after it is plain assignments, so no
-    /// refusal and no panic finds it half done. The charge itself is atomic counters and locks
-    /// that tolerate poison, and a panic in it is not covered.
+    /// refusal and no panic finds it half done. A panic in the charge is a refusal too:
+    /// `Ledger::recharge` moves the charge in one step and contains what follows it, so the charge
+    /// is either made, and the exchange with it, or not made, and the old charge stands.
     fn exchange(&self, lent: &mut Lent, new_len: usize, carried: usize) -> Result<(), ak_status> {
         if !self.ledger.has_room_to_recharge(lent.charged, new_len) {
             return Err(ak_status::AK_STATUS_BUDGET_BUSY);
