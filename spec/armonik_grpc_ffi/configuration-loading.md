@@ -26,7 +26,8 @@ well as from JSON, so every host language gets the same result from the same sou
   empty endpoint as the runtime's `Endpoint`.
 - The vocabulary is `options.schema.json` (channel) and `runtime.schema.json` (runtime), rendered
   from the Rust types; .NET's `ChannelOptions.g.cs` and `RuntimeOptions.g.cs` are generated from
-  them. An unknown key is ignored and logged with its path; a value is never quoted back.
+  them. An unknown key is ignored and logged with its path, except a field inside a variant's
+  payload, which is refused; a value is never quoted back.
 - Two documents merge by `ChannelOptions::over`: a struct field by field, an alternative (an
   enum: TLS verification, client identity, proxy, receive windows) whole when the two state
   different ones. A variant that carries nothing is written as its name, `"None"`, and a variant
@@ -83,6 +84,14 @@ well as from JSON, so every host language gets the same result from the same sou
   through `tracing`, at info; it reaches a host through the log callback it gives when the runtime
   is created (observability.md), the load's events delivered on the creating thread, selected by
   the `Logging.Filter` the load found.
+- **A field a variant's payload does not declare is refused** (2026-10-09), by its full path, in
+  every source: `{"Ping": {"IntervalSecond": 10}}` is refused at
+  `ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond`, where an unknown key elsewhere is logged
+  and ignored. A payload is what a variant chose, so a misspelled field changes what the option
+  does, and a line in the log at info is too little to say so. The tolerance stays at the
+  document's root, in its plain structs, and for a key within an alternative that names none of its
+  variants, which is logged and keeps what an earlier source gave the option; decisions.md has the
+  reasons.
 - **The endpoint is a key of the runtime's document**, `Endpoint` (2026-10-07): the one the
   `armonik` client reaches, and the one a channel reaches when `ak_channel_create` is given none.
 - **Both hosts read the runtime's document**, which follows from the endpoint's being one of its
@@ -104,7 +113,7 @@ well as from JSON, so every host language gets the same result from the same sou
 4. **The same vocabulary everywhere**: the keys are the schema's; the environment and file forms
    are mechanical renderings of them, not a second vocabulary.
 5. **Said**: an unknown key, from any source, is logged with the source and the path and
-   otherwise ignored; a value that does not fit its key is refused; a secret (a password, a key)
+   otherwise ignored, except a field of a variant's payload, which is refused; a value that does not fit its key is refused; a secret (a password, a key)
    never appears in a message.
 6. **Conformance**: one set of fixtures - sources in, resulting document or refusal out - run
    against the Rust loader directly and against each binding through the ABI; the keys logged as
@@ -205,8 +214,9 @@ The first refusal ends the load and names its source - the file's path, `the env
 A key under the prefix that the schema does not declare is not refused: it is logged, with its
 source and its path, and the load goes on. Within an alternative - how the server is verified, who
 the client is, which proxy - a key that names none of its variants is such a key, and the option
-keeps what an earlier source gave it. A name that carries nothing and is none of its variants is
-refused, as is a variant that carries nothing given a value.
+keeps what an earlier source gave it. A field that a variant's payload does not declare is
+refused, by its path. A name that carries nothing and is none of its variants is refused, as is a
+variant that carries nothing given a value.
 
 A value is never quoted, a password being one. Through the C structure, what is malformed in it - a
 kind it does not name, a nonzero `reserved`, a flag it does not know, a value on an environment
@@ -216,8 +226,8 @@ read.
 ### Rust
 
 The loader lives in `armonik-transport` and is generic over the document it reads: each source is
-read into that document's type, the keys it does not declare logged and left out, and the documents
-merge by the type's own `over`. The keys left out are those serde passes over, each with its path,
+read into that document's type, the keys it does not declare logged and left out, a field of a
+variant's payload refused, and the documents merge by the type's own `over`. The keys left out are those serde passes over, each with its path,
 which the loader's deserializer records as it skips them; an alternative reads a variant it does not
 know as none, which the types' own deserialization allows. A configuration with no source, or none
 that contributes, loads the document's default. The document is `RuntimeOptions`, in
@@ -245,7 +255,8 @@ impl Configuration {
     pub fn pairs_json(self, json: impl Into<String>) -> Self;
     pub fn document(self, json: impl Into<String>) -> Self;
 
-    /// Reads the sources, in order, into one document, each key it does not declare logged.
+    /// Reads the sources, in order, into one document, each key it does not declare logged, except
+    /// a field of a variant's payload, which is refused.
     pub fn load<D: Document>(&self) -> Result<D, ConfigRefusal>;
 }
 ```

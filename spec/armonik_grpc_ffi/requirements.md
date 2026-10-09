@@ -338,7 +338,8 @@ reading the transport source code.
 
 1. A configuration error (invalid endpoint, certificate not found) is reported immediately at
    channel creation with an explicit message. An unknown option is not an error: it is logged,
-   with where it came from, and ignored (configuration-loading.md, decided 2026-10-07).
+   with where it came from, and ignored (configuration-loading.md, decided 2026-10-07), except a
+   field inside a variant's payload, which is refused by its path (decided 2026-10-09).
 2. A connection error (DNS, TCP, TLS handshake) is reported with the full cause (cause chain
    flattened into a single UTF-8 message).
 3. Error messages do not contain secrets (private key paths, passwords, certificate contents).
@@ -354,8 +355,8 @@ reading the transport source code.
    offers for observation; logs, metrics and traces are T10.1 to T10.3's (observability.md).
 
 **Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today. 1's unknown
-option is ignored and logged through `tracing`, the log reaching a host through its log callback
-(observability.md).
+option is ignored and logged through `tracing`, a field of a variant's payload excepted, the log
+reaching a host through its log callback (observability.md).
 Every fallible entry point reports a family and a message through `out_error`. The .NET binding puts
 the message into its exceptions for channel and runtime creation, call start, runtime destruction
 and the half-close; the lend and the commit name their own constant refusals. A refused document or

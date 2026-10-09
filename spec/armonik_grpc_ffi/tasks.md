@@ -1522,7 +1522,8 @@ and in the `armonik` crate alike. The .NET binding takes no `IConfiguration`: it
 `LoadConfigFromObject`, each adding a source, the command line parsed in .NET's idiom inside the
 binding. `RuntimeOptions` moves to `armonik-transport` and gains `Endpoint`, which
 `ak_channel_create` takes when given an empty endpoint. An unknown key is logged through `tracing`
-and ignored, in every source and on every host. The schema keeps `additionalProperties: false`,
+and ignored, in every source and on every host, a field of a variant's payload excepted, which is
+refused (2026-10-09). The schema keeps `additionalProperties: false`,
 which tells an editor of a file what the engine logs; the test that the schema and serde read the
 same names, `every_option_the_schema_declares_is_one_serde_reads`, asserts that nothing is logged
 as unknown, since serde no longer refuses what the two stop agreeing on. abi.md, architecture.md -
