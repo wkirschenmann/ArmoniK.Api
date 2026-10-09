@@ -242,6 +242,7 @@ pub struct ProxyUrl {
         feature = "schema",
         schemars(length(min = 1), extend("writeOnly" = true))
     )]
+    #[serde(deserialize_with = "within::non_empty")]
     pub address: String,
 
     /// What the proxy is authenticated to with, by `Basic`.
@@ -262,7 +263,11 @@ pub struct ProxyUrl {
     feature = "schema",
     schemars(transparent, extend("writeOnly" = true))
 )]
-pub struct CredentialedUrl(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] pub String);
+pub struct CredentialedUrl(
+    #[serde(deserialize_with = "within::non_empty")]
+    #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    pub String,
+);
 
 /// The address is printed elided, since it holds a password.
 impl std::fmt::Debug for CredentialedUrl {

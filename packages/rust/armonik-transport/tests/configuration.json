@@ -1142,6 +1142,20 @@
     "refused": { "source": "a document", "key": "MemoryCeiling.HardMiB", "says": "it has to be between 1 and 9223372036854775807" }
   },
   {
+    "name": "an empty proxy address is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Url.Address", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty proxy address that carries its credentials is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "UrlWithCredentials": "" } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.UrlWithCredentials", "says": "it has to be a text of at least one character" }
+  },
+  {
     "name": "an integer written with a fraction is refused by its path",
     "sources": [
       { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 2.5 } } } } } }

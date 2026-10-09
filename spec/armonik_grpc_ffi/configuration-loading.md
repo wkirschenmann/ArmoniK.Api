@@ -236,9 +236,7 @@ The first refusal ends the load and names its source - the file's path, `the env
 - a document that is not JSON, a prefix's section that is not an object, and pairs that are not
   a JSON object of text values;
 - a value that is not of its key's type, an environment or pair value being parsed as that type,
-  and a value out of the bounds the schema states for its key (`minimum`, `maximum`, `minLength`),
-  but for `minLength` of `Transport.Proxy.Url.Address` and of `Transport.Proxy.UrlWithCredentials`,
-  which the loader does not check.
+  and a value out of the bounds the schema states for its key (`minimum`, `maximum`, `minLength`).
   A number a file or a document writes with a fraction of zero, `2.0` or `1e1`, is the integer it
   equals, as JSON Schema reads one, and `2.5` is refused; a text of the environment or of pairs is
   parsed by its key's type, so `2.0` is no integer there;
