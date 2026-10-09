@@ -988,10 +988,11 @@ in either case, and `NO_PROXY` as curl reads it. Each dial asks it for a route, 
 it, which keeps a local server reachable under a corporate `HTTP_PROXY`. A proxy the environment
 names by `https://` or a `socks` scheme is refused when the channel is created, without quoting
 its userinfo; any other value the matcher cannot read as a proxy is ignored. `Credentials`, when
-set, take the place of the URL's own, half by half, an empty half leaving the URL's. In the options, an absent
-`Proxy` or `System` is this source - the default, as it is `GrpcClient`'s - while the engine's own
-`ProxyConfig` defaults to none. `tests/grpc_proxy_env.rs` is serialised and restores the variables;
-a `.test` name only the test proxy resolves shows which dials went through it.
+stated, are sent whole in place of the URL's own, an empty half sent empty; the URL's apply only
+when none are stated. In the options, an absent `Proxy` or `System` is this source - the default, as
+it is `GrpcClient`'s - while the engine's own `ProxyConfig` defaults to none.
+`tests/grpc_proxy_env.rs` is serialised and restores the variables; a `.test` name only the test
+proxy resolves shows which dials went through it.
 
 ### T5.3: Windows system proxy
 

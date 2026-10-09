@@ -1386,7 +1386,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `AllowUnsafeConnection` | `Transport.Tls.ServerCertificates.None` |
 | `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
-| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Credentials.Username` / `Transport.Proxy.Url.Credentials.Password`, stated as a pair when either is set, the other being empty |
+| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Credentials.Username` / `Transport.Proxy.Url.Credentials.Password`, stated as a pair when either is set, the other being empty, which the engine reads literally |
 | `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
 | `MaxAttempts` | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts`, or `Grpc.OutboundTraffic.Retry.None` for 1, with nothing else of the retries |
 | `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |

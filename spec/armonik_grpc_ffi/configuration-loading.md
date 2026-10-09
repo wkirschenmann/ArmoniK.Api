@@ -205,9 +205,12 @@ documents. A structure with a mandatory field - a `Probe` with its `IdleSeconds`
 stated (2026-10-09): a later source that states it replaces the earlier one's, its optional fields
 taking what it gives or their default, and one that omits a mandatory field is refused, by the
 path of the structure, whatever an earlier source states. The rule comes from the shape of the type
-and names no option. A list is a value, which `over` takes whole as it takes a text or a number:
-the later source's list replaces the earlier one's, an empty list included, and a source that
-does not state it leaves the earlier one's. Two lists are never joined.
+and names no option. An empty string is a value, never an absent one: a `Credentials` stated with
+an empty `Password` states it, and the proxy is sent that password, not one filled from the URL of
+a proxy the environment names, which applies only when no `Credentials` is stated (2026-10-09).
+A list is a value, which `over` takes whole as it takes a text or a number: the later source's list
+replaces the earlier one's, an empty list included, and a source that does not state it leaves the
+earlier one's. Two lists are never joined.
 
 A list is stated by a file, a document, or an environment variable; the command line and pairs
 cannot state one, since a command line is parsed by .NET's configuration into keys and text, and
