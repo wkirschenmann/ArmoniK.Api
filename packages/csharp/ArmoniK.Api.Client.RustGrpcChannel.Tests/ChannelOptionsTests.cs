@@ -605,9 +605,16 @@ public class ChannelOptionsTests
                 Is.Not.EqualTo(new TcpKeepalive.Probe(30)));
     Assert.That(new ProxyOptions.System
                 {
-                  Username = "alice",
-                }.Username,
-                Is.EqualTo("alice"));
+                  Credentials = new ProxyCredentials("alice",
+                                                     "s3cret"),
+                }.Credentials,
+                Is.EqualTo(new ProxyCredentials("alice",
+                                                "s3cret")),
+                "a pair of credentials is a value: two that say the same are equal");
+    Assert.That(() => new ProxyCredentials("alice",
+                                           null!),
+                Throws.TypeOf<ArgumentNullException>(),
+                "a pair has both halves, as it is passed");
   }
 
   /// <summary>An alternative that carries nothing is a string, and its sibling that carries something is an object.</summary>
@@ -677,8 +684,8 @@ public class ChannelOptionsTests
     // A Url's address is elided too: one written with credentials by mistake is still a secret.
     var printed = new ProxyOptions.Url("http://carol:s3cret@proxy.test:3128")
                   {
-                    Username = "bob",
-                    Password = "hunter2",
+                    Credentials = new ProxyCredentials("bob",
+                                                       "hunter2"),
                   } + " " + new ProxyOptions.UrlWithCredentials("http://alice:s3cret@proxy.test:3128") + " " +
                   new ClientCertificate.P12("me.p12")
                   {

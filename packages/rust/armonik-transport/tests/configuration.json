@@ -48,7 +48,7 @@
     }
   },
   {
-    "name": "with no prefix a file's document is the whole file, its host's sections logged",
+    "name": "with an empty prefix a file is the engine's whole, and its host's sections are refused",
     "prefix": "",
     "files": {
       "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Serilog\":{\"Level\":\"Debug\"}}"
@@ -56,8 +56,71 @@
     "sources": [
       { "file": "whole.json" }
     ],
-    "options": { "Endpoint": "http://whole.test:3" },
-    "unknown": ["Serilog"]
+    "refused": { "source": "whole.json", "key": "Serilog", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+  },
+  {
+    "name": "with an empty prefix a file that holds only the engine's options is read whole",
+    "prefix": "",
+    "files": {
+      "whole.json": "{\"Endpoint\":\"http://whole.test:3\",\"Logging\":{\"Filter\":\"h2=debug\"}}"
+    },
+    "sources": [
+      { "file": "whole.json" }
+    ],
+    "options": { "Endpoint": "http://whole.test:3", "Logging": { "Filter": "h2=debug" } }
+  },
+  {
+    "name": "a host's file loads under the prefix, whatever its own sections hold",
+    "files": {
+      "appsettings.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"Serilog\":{\"Level\":\"Debug\"},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://host.test:3\",\"Logging\":{\"Filter\":\"h2=debug\"}}},\"Other\":1}}"
+    },
+    "sources": [
+      { "file": "appsettings.json" }
+    ],
+    "options": { "Endpoint": "http://host.test:3", "Logging": { "Filter": "h2=debug" } }
+  },
+  {
+    "name": "the same host's file read with an empty prefix is refused, naming its Logging section",
+    "prefix": "",
+    "files": {
+      "appsettings.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpoint\":\"http://host.test:3\"}}}}"
+    },
+    "sources": [
+      { "file": "appsettings.json" }
+    ],
+    "refused": { "source": "appsettings.json", "key": "Logging.LogLevel", "says": "it is none of Filter" }
+  },
+  {
+    "name": "a misspelt key in the section a prefix names is refused although the file holds sections of its host",
+    "files": {
+      "typo.json": "{\"Logging\":{\"LogLevel\":{\"Default\":\"Information\"}},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"Endpiont\":\"http://host.test:3\"}}}}"
+    },
+    "sources": [
+      { "file": "typo.json" }
+    ],
+    "refused": { "source": "typo.json", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+  },
+  {
+    "name": "a document is judged on the section its prefix names and not outside it",
+    "sources": [
+      { "document": "{\"Serilog\":{\"Level\":\"Debug\"},\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":12}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 12 } }
+  },
+  {
+    "name": "a document with an empty prefix is refused for a key outside the vocabulary",
+    "prefix": "",
+    "sources": [
+      { "document": "{\"Serilog\":{\"Level\":\"Debug\"}}" }
+    ],
+    "refused": { "source": "a document", "key": "Serilog", "says": "it is none of" }
+  },
+  {
+    "name": "a document whose section is not an object is refused",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":7}}}" }
+    ],
+    "refused": { "source": "a document", "says": "ArmoniK__Client__Grpc is not an object" }
   },
   {
     "name": "a file with no section of the prefix contributes nothing",
@@ -175,8 +238,9 @@
       "ArmoniKFixture__ChannelDefaults__Transport__Tls__ServerCertificates": "none",
       "ArmoniKFixture__ChannelDefaults__Grpc__Deadline__Default": "2.5",
       "ArmoniKFixture__MemoryCeiling__SoftMiB": "8192",
-      "ArmoniKFixture__ChannelDefaults__Http2__Nope": "1",
-      "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7"
+      "ArmoniKFixtureElsewhere__Endpoint": "http://elsewhere.test:7",
+      "ArmoniKFixtureElsewhere__Nope": "1",
+      "UnrelatedVariable": "1"
     },
     "sources": [
       { "environment": true }
@@ -189,8 +253,43 @@
         "Http2": { "SimultaneousCallsPerConnection": { "Limit": 4 } },
         "Grpc": { "Deadline": { "Default": 2.5 } }
       }
+    }
+  },
+  {
+    "name": "an environment variable under the prefix that names no key is refused",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__Endpiont": "http://typo.test:7"
     },
-    "unknown": ["ChannelDefaults.Http2.Nope"]
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+  },
+  {
+    "name": "an environment variable under the default prefix that names no key is refused, and the others are never looked at",
+    "environment": {
+      "ArmoniK__Client__Grpc__Endpiont": "http://typo.test:7",
+      "ArmoniK__Client__Logging__LogLevel__Default": "Debug",
+      "Logging__LogLevel__Default": "Debug"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "Endpiont" }
+  },
+  {
+    "name": "environment variables outside the prefix are never looked at, whatever they name",
+    "environment": {
+      "ArmoniK__Client__Grpc__Endpoint": "http://grpc.test:1",
+      "ArmoniK__Client__Other__Endpoint": "http://other.test:2",
+      "Logging__LogLevel__Default": "Debug",
+      "ArmoniK__Client__GrpcX__Nope": "1"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "options": { "Endpoint": "http://grpc.test:1" }
   },
   {
     "name": "an environment value that is not of its key's type is refused by its path",
@@ -237,13 +336,34 @@
   {
     "name": "pairs are read as the environment is",
     "sources": [
-      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3", "ChannelDefaults__Grpc__Nope": "x" } }
+      { "pairs": { "endpoint": "http://pairs.test:8", "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__MaxAttempts": "3" } }
     ],
     "options": {
       "Endpoint": "http://pairs.test:8",
       "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 3 } } } } }
-    },
-    "unknown": ["ChannelDefaults.Grpc.Nope"]
+    }
+  },
+  {
+    "name": "a pair under the prefix that names no key is refused, and a pair outside it is never looked at",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\",\"ArmoniK__Client__Grpc__Nope\":\"x\"}" }
+    ],
+    "refused": { "source": "pairs", "key": "Nope", "says": "it is none of" }
+  },
+  {
+    "name": "pairs outside the prefix are never looked at",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\",\"ArmoniK__Client__Grpc__Endpoint\":\"http://pairs.test:9\"}" }
+    ],
+    "options": { "Endpoint": "http://pairs.test:9" }
+  },
+  {
+    "name": "pairs with an empty prefix are the engine's whole, a key outside the vocabulary refused",
+    "prefix": "",
+    "sources": [
+      { "pairs": "{\"Logging__LogLevel__Default\":\"Debug\"}" }
+    ],
+    "refused": { "source": "pairs", "key": "Logging.LogLevel", "says": "it is none of Filter" }
   },
   {
     "name": "a file and a document give a list as an array, a later source's list replacing an earlier one's whole",
@@ -405,15 +525,12 @@
     "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.P12.Password", "never": "123456" }
   },
   {
-    "name": "an alternative that names no variant keeps the earlier source's, its key logged",
+    "name": "an alternative that names no variant is refused, whatever an earlier source gave it",
     "sources": [
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } } } },
       { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Socks": { "Address": "socks5://proxy.test:1080" } } } } } }
     ],
-    "options": {
-      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128" } } } }
-    },
-    "unknown": ["ChannelDefaults.Transport.Proxy.Socks"]
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
   },
   {
     "name": "an alternative that carries nothing is its name, in a document, an environment variable and pairs",
@@ -499,7 +616,7 @@
     "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Ping.IntervalSecond", "says": "it is none of" }
   },
   {
-    "name": "the fields of a variant are read in an environment variable and in pairs, in any case",
+    "name": "the fields of a variant are read in an environment variable and in pairs, in any case, a later source stating the variant replacing it whole",
     "prefix": "ArmoniKFixture",
     "environment": {
       "ARMONIKFIXTURE__ChannelDefaults__Http2__KeepAlive__Ping__IntervalSeconds": "10",
@@ -510,21 +627,216 @@
       { "pairs": { "ChannelDefaults__Http2__KeepAlive__Ping__INTERVALSECONDS": "20" } }
     ],
     "options": {
-      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20, "WhileIdle": true } } } }
+      "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 20 } } } }
     }
   },
   {
-    "name": "a key no option declares is logged, and the rest read",
+    "name": "a field a struct does not declare is refused by its path, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "FramesPerWrit": 4 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.FramesPerWrit", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, even where an earlier source states the group correctly",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "base" } } } },
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgnt": "over" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.UserAgnt", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in a file",
+    "files": {
+      "group.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Grpc\":{\"Receive\":{\"Compresion\":[\"Gzip\"]}}}}}}}"
+    },
+    "sources": [
+      { "file": "group.json" }
+    ],
+    "refused": { "source": "group.json", "key": "ChannelDefaults.Grpc.Receive.Compresion", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Grpc__Host__Receive__Windw": "2"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Grpc.Host.Receive.Windw", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Transport__ConnectTimeoutSecond": "3" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Transport.ConnectTimeoutSecond", "says": "it is none of" }
+  },
+  {
+    "name": "a field a struct does not declare is refused by its path, the runtime's own groups included",
+    "sources": [
+      { "document": { "MemoryCeiling": { "SoftMib": 1 }} }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMib", "says": "it is none of" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a document",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, even where an earlier source states a variant",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Pingg": { "IntervalSeconds": 10 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, beside a variant it names",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://p:1" }, "Socks": { "Address": "x" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Socks", "says": "it is none of None, System, Url, UrlWithCredentials" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in a file",
+    "files": {
+      "alternative.json": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probee\":{\"IdleSeconds\":30}}}}}}}}"
+    },
+    "sources": [
+      { "file": "alternative.json" }
+    ],
+    "refused": { "source": "alternative.json", "key": "ChannelDefaults.Transport.TcpKeepalive.Probee", "says": "it is none of None, Probe" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a key an alternative's variants do not include is refused, naming the variants, in pairs",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Http2__KeepAlive__Pingg__IntervalSeconds": "10" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Http2.KeepAlive.Pingg", "says": "it is none of None, Ping" }
+  },
+  {
+    "name": "a name no variant of an alternative has is refused by the alternative's path, in an environment variable and over an earlier source",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__KeepAlive": "Pingg"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "IntervalSeconds": 30 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.KeepAlive", "says": "it names none of None, Ping" }
+  },
+  {
+    "name": "a variant with a mandatory field is stated whole, what a later source leaves out being the default's and not the earlier source's",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60, "IntervalSeconds": 10, "Retries": 3 } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__TcpKeepalive__Probe__IdleSeconds": "30" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 30 } } } }
+    }
+  },
+  {
+    "name": "a variant stated without its mandatory field is refused, whatever an earlier source states",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__TcpKeepalive__Probe__IntervalSeconds": "10"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 60 } } } } } },
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe", "says": "it lacks IdleSeconds" }
+  },
+  {
+    "name": "a variant with only optional fields is merged field by field",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 70000, "ConnectionWindowBytes": 90000 } } } } } },
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000 } } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "StreamWindowBytes": 80000, "ConnectionWindowBytes": 90000 } } } }
+    }
+  },
+  {
+    "name": "a proxy's credentials are a pair, in an environment variable as in a document",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Address": "http://proxy.test:3128",
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Credentials__Username": "bob",
+      "ArmoniKFixture__ChannelDefaults__Transport__Proxy__Url__Credentials__Password": "x"
+    },
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "environment": true }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "http://proxy.test:3128", "Credentials": { "Username": "bob", "Password": "x" } } } } }
+    }
+  },
+  {
+    "name": "a proxy's credentials stated by a username alone are refused, naming the password, whatever an earlier source states",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__Proxy__System__Credentials__Username": "bob" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Transport.Proxy.System.Credentials", "says": "it lacks Password", "never": "s3cret" }
+  },
+  {
+    "name": "a system proxy with no credentials keeps the earlier ones, and a pair stated over them replaces them",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": {} } } } } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } }
+    }
+  },
+  {
+    "name": "a pair of credentials stated over another is the pair stated",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "alice", "Password": "s3cret" } } } } } } },
+      { "pairs": { "ChannelDefaults__Transport__Proxy__System__Credentials__Username": "bob", "ChannelDefaults__Transport__Proxy__System__Credentials__Password": "x" } }
+    ],
+    "options": {
+      "ChannelDefaults": { "Transport": { "Proxy": { "System": { "Credentials": { "Username": "bob", "Password": "x" } } } } }
+    }
+  },
+  {
+    "name": "a key no option declares is refused at the root of a document, and the rest not read",
     "sources": [
       { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }
     ],
-    "options": { "Endpoint": "http://unknown.test:9" },
-    "unknown": ["Endpiont"]
+    "refused": { "source": "a document", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+  },
+  {
+    "name": "a key no option declares is refused by a later document although an earlier one is valid",
+    "sources": [
+      { "document": { "Endpoint": "http://unknown.test:9" } },
+      { "document": { "Endpiont": "http://typo.test:9" } }
+    ],
+    "refused": { "source": "a document", "key": "Endpiont" }
   },
   {
     "name": "a key a document states twice is refused rather than taken once",
     "sources": [
-      { "document": "{\"MemoryCeiling\":{\"SoftMiB\":1},\"MemoryCeiling\":{\"SoftMiB\":2}}" }
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":1},\"MemoryCeiling\":{\"SoftMiB\":2}}}}}" }
     ],
     "refused": { "source": "a document", "says": "MemoryCeiling is stated twice" }
   },
@@ -557,6 +869,312 @@
       { "file": "two.yaml" }
     ],
     "refused": { "source": "two.yaml", "says": "more than one YAML document" }
+  },
+  {
+    "name": "the bounds the schema states are admitted at their edges",
+    "sources": [
+      { "document": {
+        "MemoryCeiling": { "SoftMiB": 1 },
+        "ChannelDefaults": {
+          "Transport": { "ConnectTimeoutSeconds": 1e-9, "TcpKeepalive": { "Probe": { "IdleSeconds": 32767, "IntervalSeconds": 1, "Retries": 127 } } },
+          "Http2": {
+            "Send": { "CoalescingBytes": 0, "StreamBufferKiB": 4194303, "FramesPerWrite": 1 },
+            "Receive": { "Fixed": { "StreamWindowBytes": 1, "ConnectionWindowBytes": 65535 } },
+            "SimultaneousCallsPerConnection": { "Limit": 1 }
+          },
+          "Grpc": {
+            "UserAgent": "x",
+            "Host": { "Receive": { "Window": 536870910 }, "Send": { "Window": 1 } },
+            "OutboundTraffic": {
+              "Retry": { "ExponentialBackoff": { "MaxAttempts": 2, "BackoffMultiplier": 1.0 } },
+              "Throttle": { "Adaptive": { "Multiplier": 100.0, "ThrottleMultiplier": 1.0, "FailureAllowance": 0, "WindowSeconds": 0.012, "FloorPerSecond": 1000000.0 } }
+            }
+          }
+        }
+      } }
+    ],
+    "options": {
+      "MemoryCeiling": { "SoftMiB": 1 },
+      "ChannelDefaults": {
+        "Transport": { "ConnectTimeoutSeconds": 1e-9, "TcpKeepalive": { "Probe": { "IdleSeconds": 32767, "IntervalSeconds": 1, "Retries": 127 } } },
+        "Http2": {
+          "Send": { "CoalescingBytes": 0, "StreamBufferKiB": 4194303, "FramesPerWrite": 1 },
+          "Receive": { "Fixed": { "StreamWindowBytes": 1, "ConnectionWindowBytes": 65535 } },
+          "SimultaneousCallsPerConnection": { "Limit": 1 }
+        },
+        "Grpc": {
+          "UserAgent": "x",
+          "Host": { "Receive": { "Window": 536870910 }, "Send": { "Window": 1 } },
+          "OutboundTraffic": {
+            "Retry": { "ExponentialBackoff": { "MaxAttempts": 2, "BackoffMultiplier": 1.0 } },
+            "Throttle": { "Adaptive": { "Multiplier": 100.0, "ThrottleMultiplier": 1.0, "FailureAllowance": 0, "WindowSeconds": 0.012, "FloorPerSecond": 1000000.0 } }
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "an integer below its minimum is refused by its path",
+    "sources": [
+      { "document": { "MemoryCeiling": { "SoftMiB": 0 } } }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB", "says": "it has to be between 1 and" }
+  },
+  {
+    "name": "an integer above its maximum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 32768 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.IdleSeconds", "says": "it has to be between 1 and 32767", "never": "32768" }
+  },
+  {
+    "name": "an integer below the minimum of its range is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 0 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.IdleSeconds", "says": "it has to be between 1 and 32767" }
+  },
+  {
+    "name": "an optional integer out of its range is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 30, "Retries": 128 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.TcpKeepalive.Probe.Retries", "says": "it has to be between 1 and 127" }
+  },
+  {
+    "name": "a window out of the bounds the engine's rings hold is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 0 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Receive.Window", "says": "it has to be between 1 and 536870910" }
+  },
+  {
+    "name": "a window past the largest the engine holds is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Send": { "Window": 536870911 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Send.Window", "says": "it has to be between 1 and 536870910" }
+  },
+  {
+    "name": "a count of frames past the most a write spans is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "FramesPerWrite": 257 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.FramesPerWrite", "says": "it has to be between 1 and 256" }
+  },
+  {
+    "name": "a buffer past the most KiB the session counts is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Send": { "StreamBufferKiB": 4194304 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Send.StreamBufferKiB", "says": "it has to be between 1 and 4194303" }
+  },
+  {
+    "name": "a connection window below the one every connection starts with is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "Receive": { "Fixed": { "ConnectionWindowBytes": 65534 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.Receive.Fixed.ConnectionWindowBytes", "says": "it has to be at least 65535" }
+  },
+  {
+    "name": "a count of attempts below two is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "MaxAttempts": 1 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts", "says": "it has to be at least 2" }
+  },
+  {
+    "name": "a number below its minimum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Retry": { "ExponentialBackoff": { "BackoffMultiplier": 0.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.BackoffMultiplier", "says": "it has to be at least 1" }
+  },
+  {
+    "name": "a number above its maximum is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "Multiplier": 100.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.Multiplier", "says": "it has to be between 1 and 100" }
+  },
+  {
+    "name": "a negative allowance is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FailureAllowance": -1 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.FailureAllowance", "says": "it has to be between 0 and 1000000" }
+  },
+  {
+    "name": "a window shorter than its least is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "WindowSeconds": 0.011 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.WindowSeconds", "says": "it has to be between 0.012 and 600" }
+  },
+  {
+    "name": "a window longer than its most is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "WindowSeconds": 600.5 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.WindowSeconds", "says": "it has to be between 0.012 and 600" }
+  },
+  {
+    "name": "a floor that is not above zero is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "OutboundTraffic": { "Throttle": { "Adaptive": { "FloorPerSecond": 0.0 } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.FloorPerSecond", "says": "it has to be above 0 and at most 1000000" }
+  },
+  {
+    "name": "a duration shorter than a nanosecond is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "ConnectTimeoutSeconds": 0 } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.ConnectTimeoutSeconds", "says": "it has to be at least a nanosecond" }
+  },
+  {
+    "name": "a duration a Duration cannot hold is refused by its path",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"ConnectTimeoutSeconds\":18446744073709551616}}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.ConnectTimeoutSeconds", "says": "it has to be less than 18446744073709551616 seconds" }
+  },
+  {
+    "name": "a duration in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "IdleTimeout": { "After": 0 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.IdleTimeout.After", "says": "it has to be at least a nanosecond" }
+  },
+  {
+    "name": "a bound in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "SimultaneousCallsPerConnection": { "Limit": 0 } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.SimultaneousCallsPerConnection.Limit", "says": "it has to be at least 1" }
+  },
+  {
+    "name": "an empty text where one is needed is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "UserAgent": "" } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.UserAgent", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty endpoint is refused by its path",
+    "sources": [
+      { "document": { "Endpoint": "" } }
+    ],
+    "refused": { "source": "a document", "key": "Endpoint", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty text in the payload of an alternative is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "ServerCertificates": { "CaPem": "" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ServerCertificates.CaPem", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty text in a group is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Tls": { "ClientCertificate": { "Pem": { "Certificate": "", "Key": "key.pem" } } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Tls.ClientCertificate.Pem.Certificate", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "a value of a text source out of its bounds is refused by its path, in an environment variable",
+    "prefix": "ArmoniKFixture",
+    "environment": {
+      "ArmoniKFixture__ChannelDefaults__Http2__Send__FramesPerWrite": "257"
+    },
+    "sources": [
+      { "environment": true }
+    ],
+    "refused": { "source": "the environment", "key": "ChannelDefaults.Http2.Send.FramesPerWrite", "says": "it has to be between 1 and 256", "never": "257" }
+  },
+  {
+    "name": "a value of a text source out of its bounds is refused by its path, in pairs",
+    "sources": [
+      { "pairs": { "MemoryCeiling__SoftMiB": "0" } }
+    ],
+    "refused": { "source": "pairs", "key": "MemoryCeiling.SoftMiB", "says": "it has to be between 1 and" }
+  },
+  {
+    "name": "a number a text source gives that is no number is refused rather than read as one of no bound",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Throttle__Adaptive__Multiplier": "NaN" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.OutboundTraffic.Throttle.Adaptive.Multiplier", "says": "it has to be a finite number" }
+  },
+  {
+    "name": "an integer written with a fraction of zero is the integer it equals, as JSON Schema reads one",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":2.0,\"HardMiB\":1e1},\"ChannelDefaults\":{\"Grpc\":{\"Host\":{\"Receive\":{\"Window\":3.0}}}}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 2, "HardMiB": 10 }, "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 3 } } } } }
+  },
+  {
+    "name": "a signed integer written with a fraction of zero is the integer it equals",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"ChannelDefaults\":{\"Transport\":{\"TcpKeepalive\":{\"Probe\":{\"IdleSeconds\":5.0,\"Retries\":3e0}}}}}}}}" }
+    ],
+    "options": { "ChannelDefaults": { "Transport": { "TcpKeepalive": { "Probe": { "IdleSeconds": 5, "Retries": 3 } } } } }
+  },
+  {
+    "name": "a negative integer written with a fraction of zero is refused by its path where it has to be positive",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":-1.0}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.SoftMiB" }
+  },
+  {
+    "name": "a large integer written with a fraction of zero is the integer it equals up to the width of its type",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"SoftMiB\":1,\"HardMiB\":9.1e18}}}}}" }
+    ],
+    "options": { "MemoryCeiling": { "SoftMiB": 1, "HardMiB": 9100000000000000000 } }
+  },
+  {
+    "name": "a memory ceiling past the largest 64-bit integer the schema names is refused by its path",
+    "sources": [
+      { "document": "{\"ArmoniK\":{\"Client\":{\"Grpc\":{\"MemoryCeiling\":{\"HardMiB\":9223372036854775808}}}}}" }
+    ],
+    "refused": { "source": "a document", "key": "MemoryCeiling.HardMiB", "says": "it has to be between 1 and 9223372036854775807" }
+  },
+  {
+    "name": "an empty proxy address is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "Url": { "Address": "" } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.Url.Address", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an empty proxy address that carries its credentials is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Transport": { "Proxy": { "UrlWithCredentials": "" } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Transport.Proxy.UrlWithCredentials", "says": "it has to be a text of at least one character" }
+  },
+  {
+    "name": "an integer written with a fraction is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Grpc": { "Host": { "Receive": { "Window": 2.5 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Grpc.Host.Receive.Window", "says": "it is a number, where" }
+  },
+  {
+    "name": "a number a text source gives that is infinite is refused where the bound has no upper end",
+    "sources": [
+      { "pairs": { "ChannelDefaults__Grpc__OutboundTraffic__Retry__ExponentialBackoff__BackoffMultiplier": "inf" } }
+    ],
+    "refused": { "source": "pairs", "key": "ChannelDefaults.Grpc.OutboundTraffic.Retry.ExponentialBackoff.BackoffMultiplier", "says": "it has to be a finite number" }
+  },
+  {
+    "name": "a group stated without its mandatory field is refused by its path",
+    "sources": [
+      { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "TimeoutSeconds": 5 } } } } } }
+    ],
+    "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Ping", "says": "it lacks IntervalSeconds" }
   },
   {
     "name": "the first refusal ends the load",

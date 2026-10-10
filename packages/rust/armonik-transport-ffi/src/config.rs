@@ -5,9 +5,7 @@ use armonik_transport::options::{ChannelOptions, OptionRefusal, RuntimeOptions};
 use armonik_transport::reexports::http::Uri;
 use armonik_transport::settings::{ChannelSettings, SettingRefusal};
 
-use crate::abi::{
-    ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status, AK_CONFIG_NO_PREFIX,
-};
+use crate::abi::{ak_config, ak_config_source, ak_error_kind, ak_source_kind, ak_status};
 use crate::refusal::Refusal;
 
 /// Why a document was refused, named by the key it was refused over.
@@ -115,12 +113,7 @@ pub(crate) fn runtime(configuration: &Configuration) -> Result<RuntimeOptions, C
 /// byte view at its length.
 pub(crate) unsafe fn sources(config: &ak_config) -> Result<Configuration, Refusal> {
     let prefix = text(unsafe { config.prefix.as_slice() })?;
-    let mut configuration = match (config.flags & AK_CONFIG_NO_PREFIX != 0, prefix) {
-        (true, "") => Configuration::with_prefix(""),
-        (true, _) => return Err(PREFIX_BESIDE_NONE),
-        (false, "") => Configuration::new(),
-        (false, prefix) => Configuration::with_prefix(prefix),
-    };
+    let mut configuration = Configuration::with_prefix(prefix);
     let sources: &[ak_config_source] = match (config.source_count, config.sources.is_null()) {
         (0, _) => &[],
         (_, true) => return Err(crate::NULL_ARGUMENT),
@@ -159,11 +152,6 @@ fn text(bytes: Option<&[u8]>) -> Result<&str, Refusal> {
     std::str::from_utf8(bytes.ok_or(crate::NULL_SLICE)?).map_err(|_| NOT_UTF8)
 }
 
-const PREFIX_BESIDE_NONE: Refusal = Refusal::fixed(
-    ak_status::AK_STATUS_INVALID_ARG,
-    ak_error_kind::AK_ERROR_USAGE,
-    "the configuration names a prefix and AK_CONFIG_NO_PREFIX at once",
-);
 const SOURCE_RESERVED_SET: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
@@ -270,7 +258,8 @@ pub(crate) fn parse(json: &[u8]) -> Result<ChannelSettings, ConfigRefusal> {
 }
 
 /// A channel document, through the loader a runtime's configuration goes through, so that a key
-/// it does not declare is logged as one in any other source is.
+/// it does not declare is refused by its path, as in any other source. The document is the
+/// channel's own, so its prefix is empty.
 fn read(json: &[u8]) -> Result<ChannelOptions, ConfigRefusal> {
     let json = std::str::from_utf8(json).map_err(|_| ConfigRefusal::NotUtf8)?;
     Configuration::with_prefix("")
@@ -873,10 +862,6 @@ mod tests {
                 "Grpc.OutboundTraffic.Throttle.Adaptive.OverloadList[0]",
             ),
             (
-                &br#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":-1}}}}"#[..],
-                "Grpc.OutboundTraffic.Replay.MaxPerCallKiB",
-            ),
-            (
                 &br#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":500}}}}}"#[..],
                 "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds and Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxBackoffSeconds are incoherent",
             ),
@@ -884,6 +869,16 @@ mod tests {
             let refused = parse(document).err().expect("refused").to_string();
             assert!(refused.starts_with(key), "{refused}");
         }
+
+        // A value out of its bounds is the loader's, which names its source.
+        let refused = parse(br#"{"Grpc":{"OutboundTraffic":{"Replay":{"MaxPerCallKiB":-1}}}}"#)
+            .err()
+            .expect("refused")
+            .to_string();
+        assert!(
+            refused.contains("Grpc.OutboundTraffic.Replay.MaxPerCallKiB is refused"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -1001,13 +996,23 @@ mod tests {
         assert_eq!(config.max_sends_in_flight, 1);
     }
 
-    /// The loader logs it, as it logs one from any source; the channel is the one its other options
-    /// make.
+    /// An option spelled wrong is refused by its path, at the root of the document as in a group.
     #[test]
-    fn an_option_spelled_wrong_is_ignored_rather_than_refused() {
-        let settings = parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
-            .expect("an unknown key is no refusal");
-        assert_eq!(settings.delivery_credits(), 2);
+    fn an_option_spelled_wrong_is_refused_at_the_root_and_in_a_group() {
+        let Err(refused) =
+            parse(br#"{"UserAgnt":"typo","Grpc":{"Host":{"Receive":{"Window":2}}}}"#)
+        else {
+            panic!("an unknown key at the root is admitted");
+        };
+        assert!(refused.to_string().contains("UserAgnt"), "{refused}");
+
+        let Err(refused) = parse(br#"{"Grpc":{"Host":{"Receive":{"Windw":2}}}}"#) else {
+            panic!("an unknown key in a group is admitted");
+        };
+        assert!(
+            refused.to_string().contains("Grpc.Host.Receive.Windw"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -1152,14 +1157,15 @@ mod tests {
         use armonik_transport::http2::ProxySource;
 
         let config = config_of(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice","Password":"s3cret"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         );
         let proxy = &config.transport.proxy;
         let ProxySource::Explicit(uri) = &proxy.source else {
             panic!("{proxy:?}");
         };
         assert_eq!(uri.to_string(), "http://proxy.test:3128/");
-        assert_eq!(proxy.username, "alice");
+        let pair = proxy.credentials.as_ref().expect("stated credentials");
+        assert_eq!(pair.username, "alice");
         assert!(!format!("{proxy:?}").contains("s3cret"));
     }
 
@@ -1191,7 +1197,8 @@ mod tests {
     }
 
     /// A channel's document is merged over the runtime's defaults option by option, a struct's
-    /// options within it: what the channel states wins, and what it leaves out is the default's.
+    /// options within it: what the channel states wins, and what it leaves out is the default's,
+    /// but for a group of options with a mandatory field, which the channel states whole.
     #[test]
     fn a_channel_document_is_merged_over_the_defaults() {
         let defaults = defaults(
@@ -1313,7 +1320,7 @@ mod tests {
     #[test]
     fn an_alternative_the_channel_states_replaces_the_defaults() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let settings = parse_over(defaults.as_ref(), br#"{"Transport":{"Proxy":"None"}}"#)
@@ -1326,7 +1333,7 @@ mod tests {
             proxy.source,
             armonik_transport::http2::ProxySource::Disabled
         );
-        assert_eq!(proxy.username, "");
+        assert!(proxy.credentials.is_none());
     }
 
     /// A channel's document is checked alone before it is merged: credentials in a `Url`
@@ -1334,7 +1341,7 @@ mod tests {
     #[test]
     fn a_channel_document_is_checked_before_it_is_merged() {
         let defaults = defaults(
-            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Username":"alice"}}}}"#,
+            br#"{"Transport":{"Proxy":{"Url":{"Address":"proxy.test:3128","Credentials":{"Username":"alice","Password":"s3cret"}}}}}"#,
         )
         .expect("valid defaults");
         let Err(refused) = parse_over(

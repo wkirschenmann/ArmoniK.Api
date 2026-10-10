@@ -6,7 +6,9 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::configuration::Configuration;
-use armonik_transport::options::ChannelOptions;
+use armonik_transport::options::{
+    ChannelOptions, ExponentialBackoffOptions, RetryOptions, Seconds, TcpKeepalive, TcpProbe,
+};
 use armonik_transport::settings::{ChannelSettings, SettingRefusal};
 use tracing::field::{Field, Visit};
 use tracing::Level;
@@ -144,21 +146,54 @@ fn what_a_merge_completes_is_coherent() {
 
 /// A value that is wrong by itself is refused, at the runtime's level too: an incoherence is the
 /// one thing a channel's own options can mend.
+///
+/// The loader refuses such a value as it reads it, so these options are built in code, as a Rust
+/// caller may build them.
 #[test]
 fn a_value_that_is_wrong_by_itself_is_refused_at_both_levels() {
+    let mut probe = TcpProbe::new(30);
+    probe.interval_seconds = Some(0);
+    let mut keepalive = ChannelOptions::default();
+    keepalive.transport.tcp_keepalive = Some(TcpKeepalive::Probe(probe));
+
+    let mut backoff = ExponentialBackoffOptions::default();
+    backoff.initial_backoff_seconds = Some(Seconds(0.0));
+    let mut retried = ChannelOptions::default();
+    retried.grpc.outbound_traffic.retry = Some(RetryOptions::ExponentialBackoff(backoff));
+
+    for (options, key) in [
+        (keepalive, "IntervalSeconds"),
+        (retried, "InitialBackoffSeconds"),
+    ] {
+        let refused = ChannelSettings::settle(options.clone())
+            .map(drop)
+            .expect_err(key);
+        assert!(matches!(refused, SettingRefusal::Option(_)), "{refused}");
+        assert!(refused.to_string().contains(key), "{refused}");
+        assert!(
+            ChannelSettings::settle_defaults(options).is_err(),
+            "{key} in the defaults"
+        );
+    }
+}
+
+/// And a document that states one is refused by the loader, by its path, before any level.
+#[test]
+fn a_document_that_states_a_value_wrong_by_itself_is_refused_by_the_loader() {
     for (json, key) in [
         (
             r#"{"Transport":{"TcpKeepalive":{"Probe":{"IdleSeconds":30,"IntervalSeconds":0}}}}"#,
-            "IntervalSeconds",
+            "Transport.TcpKeepalive.Probe.IntervalSeconds",
         ),
         (
             r#"{"Grpc":{"OutboundTraffic":{"Retry":{"ExponentialBackoff":{"InitialBackoffSeconds":0}}}}}"#,
-            "InitialBackoffSeconds",
+            "Grpc.OutboundTraffic.Retry.ExponentialBackoff.InitialBackoffSeconds",
         ),
     ] {
-        let refused = channel(json).expect_err(json);
-        assert!(matches!(refused, SettingRefusal::Option(_)), "{refused}");
-        assert!(refused.to_string().contains(key), "{refused}");
-        assert!(defaults(json).0.is_err(), "{json}");
+        let refused = Configuration::with_prefix("")
+            .document(json)
+            .load::<ChannelOptions>()
+            .expect_err(json);
+        assert_eq!(refused.key(), Some(key), "{refused}");
     }
 }

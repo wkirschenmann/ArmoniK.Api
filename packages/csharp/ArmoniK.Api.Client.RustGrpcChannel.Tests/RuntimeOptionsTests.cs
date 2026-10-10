@@ -136,7 +136,7 @@ public class RuntimeOptionsTests : RuntimeFixture
   [Test]
   public async Task ARuntimeStartedFromAConfigurationEnforcesItsCeiling()
   {
-    var configuration = new NativeConfiguration().LoadConfigFromCommandLine(new[]
+    var configuration = new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromCommandLine(new[]
                                                                             {
                                                                               "--ArmoniK:Client:Grpc:MemoryCeiling:SoftMiB=1",
                                                                               "--ArmoniK:Client:Grpc:MemoryCeiling:HardMiB=2",

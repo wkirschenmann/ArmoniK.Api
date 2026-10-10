@@ -534,7 +534,9 @@ has WRITE_DONE. `AK_STATUS_BUDGET_BUSY` has `AK_EVENT_BUDGET_WAKE`: a call refus
 ceiling has no send in flight, so nothing of that call frees room, and the event comes from the
 releases of others. The third refusal, `AK_STATUS_MESSAGE_TOO_LARGE`, needs no wake-up because
 waiting cannot help, and `AK_STATUS_INVALID_STATE` needs none either: it reports a guard, not a
-shortage.
+shortage. Neither WRITE_DONE nor BUDGET_WAKE is raised while a lend of the call is still being
+answered, so a refusal has given back everything it took before its wake-up arrives: the lend is
+one step, as the model has it (see the ABI's Calls).
 
 The wake-up fires where the count falls - a send buffer's release, at its WRITE_DONE or when it
 is given back unsent, a received message's at `ak_event_consumed`, and a compressed copy's when
@@ -1292,7 +1294,7 @@ ChannelOptions.g.cs      <- committed; the build compares it with what the schem
 UTF-8 JSON, ak_channel_create's config_json - the endpoint is its own argument,
     │ or, empty, the Endpoint of the runtime's options
     │ the configuration loader into ChannelOptions, a key no option declares
-    │ logged and ignored, a field of a variant's payload refused;
+    │ refused by its path, at the root as below it;
     │ ChannelSettings checks every bound again, and each
     │ unit's conversion, in armonik-transport, reads the certificate files it names
     ▼
@@ -1315,17 +1317,20 @@ the shape every option takes, and gives the reasons:
   is the reader's, and a test compares the two;
 - nothing is nullable: unset is absent;
 - `additionalProperties: false` everywhere, which tells whoever edits a document what the engine
-  does not declare; the engine ignores such a key rather than refusing it, and logs it with its
-  source and path, so that a misspelled key does not give the defaults unsaid, except a field of a
-  variant's payload, which it refuses (configuration-loading.md);
+  does not declare; the engine refuses such a key by its path, at the root of a document as
+  anywhere else, so that a misspelled key does not give the defaults unsaid
+  (configuration-loading.md);
 - options that exclude one another are one Rust enum, which the schema renders as a `oneOf`, and
   which serde writes in its externally tagged form: a variant that carries nothing is its name, a
   string, and one that carries something is an object of one key that holds it -
   `"ServerCertificates": {"CaPem": "ca.pem"}`, `"Proxy": "None"`. In C# a choice is an abstract record
   whose constructor is private, and its alternatives the sealed records nested in it, a
   variant that carries nothing included; the compiler does not know that they are all of them,
-  so a switch over them needs a default case. An enum whose variants all carry nothing is a
-  `oneOf` of names, and a C# enum;
+  so a switch over them needs a default case. A group of options with a mandatory one that an
+  alternative holds, a proxy's `Credentials` for instance, is stated whole and is a sealed
+  positional record of its own, holding values only, which an alternative holds as an immutable
+  value and a class does not. An enum whose variants
+  all carry nothing is a `oneOf` of names, and a C# enum;
 - nothing is required but a field an alternative cannot do without, and `{}` is a valid
   configuration;
 - an option belongs to the layer it acts on: `Transport` the dial and the socket, `Http2` the
@@ -1334,8 +1339,9 @@ the shape every option takes, and gives the reasons:
   what it receives under `Receive`.
 
 The binding takes no `IConfiguration`: the engine reads files and the environment itself, under the
-prefix `ArmoniK__Client__Grpc` by default, and the binding hands it a command line as pairs of a
-key's path and a text value, and an object set in code as a document, through
+prefix the host gives, `ArmoniK__Client__Grpc` for a host that keeps the engine's options beside its
+own, and the binding hands it a command line as pairs of a key's path and a text value, and an
+object set in code as a document, through
 `NativeConfiguration`'s loads (configuration-loading.md). The binding does not know the delivery
 window a channel ends up with when the runtime's sources state a default: it reads it back from the
 engine with `ak_channel_delivery_window` once the channel is created, and sizes its rings from that.
@@ -1385,7 +1391,7 @@ produce a `ChannelOptions`. The mapping is explicit and tested:
 | `AllowUnsafeConnection` | `Transport.Tls.ServerCertificates.None` |
 | `OverrideTargetName` | none: the certificate is verified against the host of the endpoint, which is also the name sent as SNI, and the translation warns that the option is not read |
 | `Proxy` | `Transport.Proxy.None`, `Transport.Proxy.System`, `Transport.Proxy.Url.Address`, or `Transport.Proxy.UrlWithCredentials` for a URL carrying `user:password@` |
-| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Username` / `Transport.Proxy.Url.Password` |
+| `ProxyUsername` / `ProxyPassword` | `Transport.Proxy.Url.Credentials.Username` / `Transport.Proxy.Url.Credentials.Password`, stated as a pair when either is set, the other being empty, which the engine reads literally |
 | `RequestTimeout` | `Grpc.Deadline.Default`; `Grpc.Deadline.None` when it is not positive |
 | `MaxAttempts` | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.MaxAttempts`, or `Grpc.OutboundTraffic.Retry.None` for 1, with nothing else of the retries |
 | `InitialBackOff` etc. | `Grpc.OutboundTraffic.Retry.ExponentialBackoff.*` |

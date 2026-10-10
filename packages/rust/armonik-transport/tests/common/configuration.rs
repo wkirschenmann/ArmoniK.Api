@@ -1,30 +1,33 @@
-//! The configuration fixtures, `tests/configuration.json`: sources in, the options they load or
-//! the refusal they earn out, and the keys logged as unknown.
+//! The configuration fixtures, `tests/configuration.json`: sources in, and the options they load or
+//! the refusal they earn out.
 
 use std::path::PathBuf;
 
-use serde_json::Value;
+use armonik_transport::configuration::DEFAULT_PREFIX;
+use serde_json::{json, Value};
 
 pub struct Fixture {
     pub name: String,
-    /// `None` for the default prefix, and `Some("")` for none.
-    pub prefix: Option<String>,
+    /// The prefix the fixture loads under, `ArmoniK__Client__Grpc` unless it names another, and
+    /// empty to take everything.
+    pub prefix: String,
     pub files: Vec<(String, String)>,
     pub environment: Vec<(String, String)>,
     pub sources: Vec<Source>,
     pub outcome: Outcome,
-    /// The keys the load logs as unknown, which only the loader's own tests read.
-    pub unknown: Vec<String>,
 }
 
 pub enum Source {
     File(String),
     OptionalFile(String),
     Environment,
-    /// Pairs as the typed API takes them, when the fixture writes an object of text.
+    /// Pairs as the typed API takes them, when the fixture writes an object of text: each name
+    /// is the key's path under the fixture's prefix.
     Pairs(Vec<(String, String)>),
     /// Pairs as a JSON text, when the fixture writes one that is not such an object.
     PairsJson(String),
+    /// A document, which the fixture writes as an object of the engine's options, put under the
+    /// fixture's prefix here, or as a text, which is taken as it is.
     Document(String),
 }
 
@@ -68,7 +71,37 @@ fn texts(value: Option<&Value>) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// The parts of a prefix, as the loader reads one: joined by `__`, or by `:`.
+fn parts(prefix: &str) -> Vec<String> {
+    if prefix.is_empty() {
+        return Vec::new();
+    }
+    prefix
+        .replace(':', "__")
+        .split("__")
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `options` as the section a prefix names, nested as a file nests it.
+fn nested(prefix: &str, options: Value) -> Value {
+    parts(prefix)
+        .into_iter()
+        .rev()
+        .fold(options, |inner, part| json!({ part: inner }))
+}
+
+/// A key's path under the prefix, as the name of a variable or of a pair.
+fn named(prefix: &str, path: &str) -> String {
+    let mut names = parts(prefix);
+    names.push(path.to_owned());
+    names.join("__")
+}
+
 fn fixture(value: &Value) -> Fixture {
+    let prefix = value
+        .get("prefix")
+        .map_or_else(|| DEFAULT_PREFIX.to_owned(), text);
     let sources = value["sources"]
         .as_array()
         .expect("sources are a list")
@@ -84,11 +117,16 @@ fn fixture(value: &Value) -> Fixture {
                 "environment" => Source::Environment,
                 "pairs" => match value {
                     Value::String(raw) => Source::PairsJson(raw.clone()),
-                    _ => Source::Pairs(texts(Some(value))),
+                    _ => Source::Pairs(
+                        texts(Some(value))
+                            .into_iter()
+                            .map(|(path, text)| (named(&prefix, &path), text))
+                            .collect(),
+                    ),
                 },
                 "document" => match value {
                     Value::String(raw) => Source::Document(raw.clone()),
-                    _ => Source::Document(value.to_string()),
+                    _ => Source::Document(nested(&prefix, value.clone()).to_string()),
                 },
                 other => panic!("`{other}` is no source"),
             }
@@ -106,16 +144,11 @@ fn fixture(value: &Value) -> Fixture {
     };
     Fixture {
         name: text(&value["name"]),
-        prefix: value.get("prefix").map(text),
+        prefix,
         files: texts(value.get("files")),
         environment: texts(value.get("environment")),
         sources,
         outcome,
-        unknown: value
-            .get("unknown")
-            .and_then(Value::as_array)
-            .map(|keys| keys.iter().map(text).collect())
-            .unwrap_or_default(),
     }
 }
 

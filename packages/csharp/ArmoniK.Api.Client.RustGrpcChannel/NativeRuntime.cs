@@ -210,7 +210,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="ArgumentNullException"><paramref name="configuration" /> is null.</exception>
   /// <exception cref="InvalidOperationException">
   ///   A source is refused - a file that does not exist or does not parse, a value that does not
-  ///   fit its key, the environment with no prefix - the message naming the source and the key's
+  ///   fit its key, the environment with an empty prefix - the message naming the source and the key's
   ///   path, or the engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
@@ -232,7 +232,7 @@ public sealed class NativeRuntime : IAsyncDisposable
   }
 
   /// <summary>Starts the engine from the sources it reads, in order, under <paramref name="prefix" />.</summary>
-  /// <param name="prefix">The sources' prefix, empty for none.</param>
+  /// <param name="prefix">The sources' prefix; empty takes everything.</param>
   /// <param name="sources">Each source's kind and value.</param>
   /// <param name="loggerFactory">Where the engine's logs go, or none.</param>
   private static unsafe NativeRuntime Create(string                                             prefix,
@@ -282,9 +282,6 @@ public sealed class NativeRuntime : IAsyncDisposable
                                  var config = new ak_config
                                               {
                                                 struct_size = (uint)Marshal.SizeOf<ak_config>(),
-                                                flags = named.Length == 0
-                                                          ? NativeMethods.AK_CONFIG_NO_PREFIX
-                                                          : 0,
                                                 source_count = (uint)listed.Length,
                                                 sources      = first,
                                                 prefix = ak_bytes_in.Borrow(pinned,
@@ -342,7 +339,7 @@ public sealed class NativeRuntime : IAsyncDisposable
 
     RefuseAWindowNoRingCanHold(options.ChannelDefaults?.Grpc?.Host?.Receive?.Window);
 
-    var configuration = new NativeConfiguration().LoadConfigFromObject(options);
+    var configuration = new NativeConfiguration(string.Empty).LoadConfigFromObject(options);
     return Create(configuration.Prefix,
                   configuration.Sources,
                   loggerFactory);

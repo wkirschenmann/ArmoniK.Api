@@ -38,7 +38,8 @@ pub enum ak_status {
     /// is none of this: it records no wait, and a host that waits lends again.
     AK_STATUS_BUDGET_BUSY = 5,
     /// A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
-    /// destroy before quiescence. A guard refused, which is not a fault.
+    /// destroy before quiescence, a lend while the call's one buffer is held. A guard refused,
+    /// which is not a fault.
     AK_STATUS_INVALID_STATE = 6,
     /// The length exceeds the ceiling itself, so no return by anyone will ever make room.
     /// Permanent; do not retry.
@@ -354,9 +355,10 @@ pub struct ak_runtime_config {
     pub memory_hard_ceiling: u64,
     /// A channel document, in the vocabulary of ak_channel_create's config_json, whose options
     /// every channel of the runtime takes where its own document states none: the two are merged
-    /// option by option, a struct's options within it, and the channel's win; an alternative - how
-    /// the server is verified, who the client is, which proxy - merges its fields over the same
-    /// alternative and is taken whole over another. Empty states none.
+    /// option by option, a struct's options within it, and the channel's win; a group of options
+    /// with a mandatory field is stated whole and replaces the default's, and an alternative - how
+    /// the server is verified, who the client is, which proxy - merges as its payload does over the
+    /// same alternative and is taken whole over another. Empty states none.
     /// Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
     pub channel_defaults_json: ak_bytes_in,
     /// Receives the engine's logs, filtered by `*=warn,armonik_transport*=info`: the runtime option
@@ -372,21 +374,25 @@ pub struct ak_runtime_config {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ak_source_kind {
     /// value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
-    /// .toml - its document the section the prefix names, or the whole file with
-    /// AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+    /// .toml. The section the prefix names is judged against the schema and nothing outside it is
+    /// looked at; with an empty prefix the whole file is. A file that does not exist is refused.
     AK_SOURCE_FILE = 1,
     /// value: the file's path, read as AK_SOURCE_FILE's, except that a file that does not exist
     /// contributes nothing.
     AK_SOURCE_OPTIONAL_FILE = 2,
     /// value: empty. The variables whose name starts with the prefix and `__`, the rest of the
     /// name the key's path, its parts joined by `__` and compared without case, and the value text
-    /// read by its key's type. Read once, by ak_runtime_create_from. Refused with
-    /// AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+    /// read by its key's type. The variables that do not have the prefix are never looked at. Read
+    /// once, by ak_runtime_create_from. Refused with an empty prefix: every variable of the process
+    /// would be a key.
     AK_SOURCE_ENVIRONMENT = 3,
-    /// value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+    /// value: a JSON document, read as AK_SOURCE_FILE's is: the section the prefix names is the
+    /// engine's, in the vocabulary of runtime.schema.json, and the whole document with an empty
+    /// prefix.
     AK_SOURCE_DOCUMENT = 4,
-    /// value: a JSON object whose names are keys' paths, their parts joined by `__` under no
-    /// prefix, and whose values are text, read as the environment's are.
+    /// value: a JSON object whose names are the prefix, `__` and a key's path, its parts joined by
+    /// `__`, and whose values are text, read as the environment's are. A name that does not have
+    /// the prefix is never looked at.
     AK_SOURCE_PAIRS = 5,
 }
 
@@ -402,13 +408,11 @@ pub struct ak_config_source {
     pub value: ak_bytes_in,
 }
 
-/// In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
-pub const AK_CONFIG_NO_PREFIX: u32 = 1;
-
 /// Where a runtime's configuration comes from: sources, read in order when the runtime is created,
-/// a later one over an earlier one option by option. A key the vocabulary does not declare is
-/// ignored rather than refused; a value that does not fit its key is refused, with its source and
-/// its path, and never quoted.
+/// a later one over an earlier one option by option. Every source is a document, judged whole
+/// against the schema: a key the vocabulary does not declare, the root's included, is refused by
+/// its path, and so is a value that does not fit its key or its bounds, with its source, never
+/// quoted.
 ///
 /// Versioned as the options structs are, but for its fourth field, which is source_count rather
 /// than reserved.
@@ -418,16 +422,18 @@ pub struct ak_config {
     pub struct_size: u32,
     /// Zero, the one revision of this record there is.
     pub version: u32,
-    /// AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+    /// None is defined: any flag is refused rather than ignored.
     pub flags: u32,
     /// How many sources `sources` points at.
     pub source_count: u32,
     /// The sources, in order, a later one over an earlier one. May be NULL when source_count is
     /// zero.
     pub sources: *const ak_config_source,
-    /// The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
-    /// the configuration is read from. Empty is `ArmoniK__Client__Grpc`; with AK_CONFIG_NO_PREFIX it
-    /// has to be empty.
+    /// The prefix, UTF-8, always the one given: the section of a file or of a document, and the
+    /// start of the name of an environment variable or of a pair, that is the engine's. A host that
+    /// keeps the engine's options beside its own gives `ArmoniK__Client__Grpc`. Empty takes
+    /// everything: the whole of a file or of a document is the engine's, and every key of it has to
+    /// be one the schema declares.
     pub prefix: ak_bytes_in,
     /// Receives the engine's logs, filtered by the runtime's option Logging.Filter; NULL for none.
     /// NULL when the host's struct_size ends before this field.
@@ -604,7 +610,7 @@ unsafe impl Record for ak_runtime_config {
 // zero length are an empty slice, and a callback whose null is none.
 unsafe impl Record for ak_config {
     const FIRST_SIZE: usize = std::mem::offset_of!(Self, log_callback);
-    const FLAGS: u32 = AK_CONFIG_NO_PREFIX;
+    const FLAGS: u32 = 0;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
     const RESERVED: bool = false;
 }

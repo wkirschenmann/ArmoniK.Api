@@ -217,8 +217,8 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 ### Acceptance Criteria
 
 1. The proxy can be explicitly disabled.
-2. An explicit proxy can be configured by URL, with username and password as separate fields.
-   If credentials are provided separately, the proxy URI must not contain userinfo
+2. An explicit proxy can be configured by URL, with its credentials, a username and a password, as a
+   separate group. If credentials are provided separately, the proxy URI must not contain userinfo
    (user:password in the URL) — this is a configuration error.
 3. The proxy can be read from environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`).
 4. On Windows, the system proxy (configured in network settings) is readable.
@@ -227,7 +227,7 @@ configuration, so that my gRPC calls can traverse enterprise network infrastruct
 
 **Status**: met. `Transport.Proxy` is `None`, `System`, its default, or `Url`, a proxy named by its
 `http://` `Address`, and authenticates to it by `Basic`, the credentials written in the URL or in
-`Username` and `Password` and refused in both. `System` reads `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and
+`Credentials`, a `Username` and a `Password` stated together, and refused in both. `System` reads `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and
 `NO_PROXY`, in either case, when the channel is created, and dials a loopback endpoint directly. On
 Windows, when the environment names no proxy, it reads the current user's network settings: a PAC
 script, which WinHTTP fetches and runs on a blocking thread, bounded by the connect timeout, else
@@ -337,9 +337,10 @@ reading the transport source code.
 ### Acceptance Criteria
 
 1. A configuration error (invalid endpoint, certificate not found) is reported immediately at
-   channel creation with an explicit message. An unknown option is not an error: it is logged,
-   with where it came from, and ignored (configuration-loading.md, decided 2026-10-07), except a
-   field inside a variant's payload, which is refused by its path (decided 2026-10-09).
+   channel creation with an explicit message. An unknown option is refused by its path, at the
+   root of a document as anywhere else, and so is a value of the wrong type or out of its bounds:
+   a source is a document judged whole against the schema (configuration-loading.md, decided
+   2026-10-09).
 2. A connection error (DNS, TCP, TLS handshake) is reported with the full cause (cause chain
    flattened into a single UTF-8 message).
 3. Error messages do not contain secrets (private key paths, passwords, certificate contents).
@@ -355,8 +356,7 @@ reading the transport source code.
    offers for observation; logs, metrics and traces are T10.1 to T10.3's (observability.md).
 
 **Status**: 6 and 7 are met; 1, 3, 4 and 5 are met for what the engine refuses today. 1's unknown
-option is ignored and logged through `tracing`, a field of a variant's payload excepted, the log
-reaching a host through its log callback (observability.md).
+option is refused by its path, at the root of a document as below it (configuration-loading.md).
 Every fallible entry point reports a family and a message through `out_error`. The .NET binding puts
 the message into its exceptions for channel and runtime creation, call start, runtime destruction
 and the half-close; the lend and the commit name their own constant refusals. A refused document or

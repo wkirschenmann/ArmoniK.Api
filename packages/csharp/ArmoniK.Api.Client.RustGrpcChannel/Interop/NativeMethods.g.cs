@@ -44,10 +44,6 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         internal const uint AK_LOG_DEBUG = 4;
         internal const uint AK_LOG_TRACE = 5;
         /// <summary>
-        ///  In ak_config.flags: the configuration has no prefix, so a file's document is the whole file.
-        /// </summary>
-        internal const uint AK_CONFIG_NO_PREFIX = 1;
-        /// <summary>
         ///  In ak_call_start_options.flags: timeout_ns states the call's deadline.
         /// </summary>
         internal const uint AK_CALL_HAS_DEADLINE = 1;
@@ -114,8 +110,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  merged over.
         ///
         ///  What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
-        ///  does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
-        ///  view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+        ///  does not know, a value on an environment source, a byte view that is null with a length or not
+        ///  UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
         ///  that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
         ///  never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
         ///  an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
@@ -191,9 +187,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  `{}` is a valid configuration.
         ///
         ///  The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-        ///  a number and not a string spelled like one. A key no option declares is ignored rather than
-        ///  refused. That schema, `options.schema.json`, names each option with its type and, where it has
-        ///  them, its range and default.
+        ///  a number and not a string spelled like one. A key no option declares is refused by its path,
+        ///  at the root of the document as below it. That schema, `options.schema.json`, names each option
+        ///  with its type and, where it has them, its range and default.
         ///
         ///  ak_channel_delivery_window reads back the delivery window the channel ended up with.
         ///
@@ -300,13 +296,18 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
         ///  the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
         ///  is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
-        ///  runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+        ///  runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE. On a live call
+        ///  neither wake-up comes before the refused lend has given back what it took, so a host woken
+        ///  may ask again at once.
         ///  AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
         ///  message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
-        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
-        ///  cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
-        ///  declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
-        ///  SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
+        ///  the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
+        ///  library contains, which can only come before the host holds the buffer: the lend is refused as
+        ///  any other, with nothing charged, no slot of the window spent, the call's one buffer free and no
+        ///  wait for room recorded, so the host may ask again. A call that is over, or whose cancellation
+        ///  has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that declared
+        ///  AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a SLOT_BUSY to wait
+        ///  on. On every refusal no buffer is lent and `*out` is untouched.
         ///
         ///  # Safety
         ///
@@ -341,6 +342,12 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  requested, after ak_call_end_send, and after a one-request call's commit. The buffer then stays
         ///  the host's, to give back with ak_return_call_buffer.
         ///
+        ///  A panic the library contains is answered by what the commit had done. Before the buffer is taken
+        ///  to be the message it is AK_STATUS_INTERNAL, a refusal like the others: the buffer stays lent and
+        ///  the host's, to commit again or give back. Once the message is queued it is AK_STATUS_OK. Between
+        ///  the two the buffer is gone and the answer is AK_STATUS_CORRUPTED: it is taken back and the
+        ///  runtime shuts down.
+        ///
         ///  # Safety
         ///
         ///  `buffer` must be one this call lent and the host has not given back, and the host must have
@@ -358,6 +365,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  leaves the buffer with the host, except for AK_STATUS_CORRUPTED, which takes it back. A buffer
         ///  given back with the bytes after its end changed is an overrun, as at the commit: it is taken
         ///  back without being freed and the runtime shuts down, with no status to say so but the shutdown.
+        ///  So is a buffer whose bytes after its end could not be read for a contained panic. Any other
+        ///  panic leaves the return made: the buffer is given back and its debt paid.
         ///
         ///  # Safety
         ///
@@ -387,10 +396,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
         ///  it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
         ///  `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
-        ///  allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made: it is
-        ///  a refusal like the others, with the old buffer lent and charged, so the host may retry or give
-        ///  it back. A panic after it, while the old memory is set aside, does not undo it: the answer is
-        ///  AK_STATUS_OK. A panic while taking back an overrun is AK_STATUS_CORRUPTED.
+        ///  allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made, the
+        ///  ceiling's charge included, which is made whole or not at all: it is a refusal like the others,
+        ///  with the old buffer lent and charged, so the host may retry or give it back. A panic after it,
+        ///  while the old memory is set aside, does not undo it: the answer is AK_STATUS_OK. A panic while
+        ///  taking back an overrun is AK_STATUS_CORRUPTED.
         ///
         ///  A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
         ///  after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back
@@ -656,9 +666,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// <summary>
         ///  A channel document, in the vocabulary of ak_channel_create's config_json, whose options
         ///  every channel of the runtime takes where its own document states none: the two are merged
-        ///  option by option, a struct's options within it, and the channel's win; an alternative - how
-        ///  the server is verified, who the client is, which proxy - merges its fields over the same
-        ///  alternative and is taken whole over another. Empty states none.
+        ///  option by option, a struct's options within it, and the channel's win; a group of options
+        ///  with a mandatory field is stated whole and replaces the default's, and an alternative - how
+        ///  the server is verified, who the client is, which proxy - merges as its payload does over the
+        ///  same alternative and is taken whole over another. Empty states none.
         ///  Refused with AK_STATUS_INVALID_ARG where ak_channel_create would refuse it.
         /// </summary>
         public ak_bytes_in channel_defaults_json;
@@ -696,9 +707,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
     /// <summary>
     ///  Where a runtime's configuration comes from: sources, read in order when the runtime is created,
-    ///  a later one over an earlier one option by option. A key the vocabulary does not declare is
-    ///  ignored rather than refused; a value that does not fit its key is refused, with its source and
-    ///  its path, and never quoted.
+    ///  a later one over an earlier one option by option. Every source is a document, judged whole
+    ///  against the schema: a key the vocabulary does not declare, the root's included, is refused by
+    ///  its path, and so is a value that does not fit its key or its bounds, with its source, never
+    ///  quoted.
     ///
     ///  Versioned as the options structs are, but for its fourth field, which is source_count rather
     ///  than reserved.
@@ -712,7 +724,7 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public uint version;
         /// <summary>
-        ///  AK_CONFIG_NO_PREFIX or none. Any other flag is refused rather than ignored.
+        ///  None is defined: any flag is refused rather than ignored.
         /// </summary>
         public uint flags;
         /// <summary>
@@ -725,9 +737,11 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// </summary>
         public ak_config_source* sources;
         /// <summary>
-        ///  The prefix, UTF-8: the section of a file, and the start of an environment variable's name,
-        ///  the configuration is read from. Empty is `ArmoniK__Client__Grpc`; with AK_CONFIG_NO_PREFIX it
-        ///  has to be empty.
+        ///  The prefix, UTF-8, always the one given: the section of a file or of a document, and the
+        ///  start of the name of an environment variable or of a pair, that is the engine's. A host that
+        ///  keeps the engine's options beside its own gives `ArmoniK__Client__Grpc`. Empty takes
+        ///  everything: the whole of a file or of a document is the engine's, and every key of it has to
+        ///  be one the schema declares.
         /// </summary>
         public ak_bytes_in prefix;
         /// <summary>
@@ -872,7 +886,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         AK_STATUS_BUDGET_BUSY = 5,
         /// <summary>
         ///  A valid handle at the wrong moment: a send after the terminal, a start while stopping, a
-        ///  destroy before quiescence. A guard refused, which is not a fault.
+        ///  destroy before quiescence, a lend while the call's one buffer is held. A guard refused,
+        ///  which is not a fault.
         /// </summary>
         AK_STATUS_INVALID_STATE = 6,
         /// <summary>
@@ -1009,8 +1024,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
     {
         /// <summary>
         ///  value: the file's path, UTF-8. JSON, YAML or TOML by its extension - .json, .yaml or .yml,
-        ///  .toml - its document the section the prefix names, or the whole file with
-        ///  AK_CONFIG_NO_PREFIX. A file that does not exist is refused.
+        ///  .toml. The section the prefix names is judged against the schema and nothing outside it is
+        ///  looked at; with an empty prefix the whole file is. A file that does not exist is refused.
         /// </summary>
         AK_SOURCE_FILE = 1,
         /// <summary>
@@ -1021,17 +1036,21 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         /// <summary>
         ///  value: empty. The variables whose name starts with the prefix and `__`, the rest of the
         ///  name the key's path, its parts joined by `__` and compared without case, and the value text
-        ///  read by its key's type. Read once, by ak_runtime_create_from. Refused with
-        ///  AK_CONFIG_NO_PREFIX: every variable of the process would be a key.
+        ///  read by its key's type. The variables that do not have the prefix are never looked at. Read
+        ///  once, by ak_runtime_create_from. Refused with an empty prefix: every variable of the process
+        ///  would be a key.
         /// </summary>
         AK_SOURCE_ENVIRONMENT = 3,
         /// <summary>
-        ///  value: a JSON document in the vocabulary of runtime.schema.json, with no prefix around it.
+        ///  value: a JSON document, read as AK_SOURCE_FILE's is: the section the prefix names is the
+        ///  engine's, in the vocabulary of runtime.schema.json, and the whole document with an empty
+        ///  prefix.
         /// </summary>
         AK_SOURCE_DOCUMENT = 4,
         /// <summary>
-        ///  value: a JSON object whose names are keys' paths, their parts joined by `__` under no
-        ///  prefix, and whose values are text, read as the environment's are.
+        ///  value: a JSON object whose names are the prefix, `__` and a key's path, its parts joined by
+        ///  `__`, and whose values are text, read as the environment's are. A name that does not have
+        ///  the prefix is never looked at.
         /// </summary>
         AK_SOURCE_PAIRS = 5,
     }

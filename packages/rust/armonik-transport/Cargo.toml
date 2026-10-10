@@ -156,6 +156,9 @@ serial_test.workspace = true
 # The server-streaming fixture answers a stream of messages, and tonic asks for a `Stream` to
 # build it from; the regular build never produces one.
 futures.workspace = true
+# Judges the fixtures of the configuration loader against the committed schemas, so that the loader
+# and the schemas are held to accept and refuse the same documents.
+jsonschema.workspace = true
 # What the configuration loader logs, read back by its tests.
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 # `io-util` for the tests that write HTTP/2 frames by hand.

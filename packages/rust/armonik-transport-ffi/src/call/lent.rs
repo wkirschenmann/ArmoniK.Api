@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::mem::ManuallyDrop;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -130,13 +131,50 @@ fn seal(data: &mut Vec<u8>, headroom: usize, len: usize, written: usize) -> Resu
     Ok(())
 }
 
-pub(crate) fn keep(lent: Box<Lent>, status: ak_status) -> ak_status {
-    let _ = Box::into_raw(lent);
-    status
+/// A lent buffer an entry point has taken from its owner pointer, and is the host's still until
+/// the entry point consumes it.
+///
+/// Dropped without being consumed, which is what an unwind does, it is leaked back at the same
+/// address instead of freed: the host that is told of a refusal holds a buffer that exists. It is
+/// consumed by `keep`, which answers a refusal, by `into_owner`, which hands out the owner pointer
+/// again, or by `into_box`, from which the buffer is the library's.
+#[must_use]
+pub(crate) struct Taken(ManuallyDrop<Box<Lent>>);
+
+impl Taken {
+    /// Leaves the buffer lent and the host's, and answers `status`.
+    pub(crate) fn keep(self, status: ak_status) -> ak_status {
+        let _ = self.into_owner();
+        status
+    }
+
+    /// The owner pointer the host holds, which names the buffer again.
+    pub(crate) fn into_owner(self) -> *mut c_void {
+        Box::into_raw(ManuallyDrop::into_inner(self.0)) as *mut c_void
+    }
+
+    /// The buffer as the library's: dropped from here on, as any box is.
+    pub(crate) fn into_box(self) -> Box<Lent> {
+        ManuallyDrop::into_inner(self.0)
+    }
 }
 
-pub(crate) unsafe fn take_lent(owner: *mut c_void) -> Option<Box<Lent>> {
-    unsafe { take_tagged(owner, LENT_TAG) }
+impl std::ops::Deref for Taken {
+    type Target = Lent;
+
+    fn deref(&self) -> &Lent {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Taken {
+    fn deref_mut(&mut self) -> &mut Lent {
+        &mut self.0
+    }
+}
+
+pub(crate) unsafe fn take_lent(owner: *mut c_void) -> Option<Taken> {
+    unsafe { take_tagged(owner, LENT_TAG) }.map(|lent| Taken(ManuallyDrop::new(lent)))
 }
 
 #[repr(C)]

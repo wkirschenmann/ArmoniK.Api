@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use armonik_transport::grpc::{Charge, CompressionBudget};
@@ -29,7 +30,11 @@ const LARGEST_LENDABLE: u64 = if (u32::MAX as u64) < (isize::MAX as u64) {
 pub(crate) struct Waiter {
     /// The length the send asked for, zero while none waits.
     len: AtomicUsize,
-    owed: AtomicBool,
+    /// The wait a release owes a wake-up, by its number plus one; zero while none is owed.
+    owed: AtomicU64,
+    /// How many waits have ended, which is the number of the one standing. Moved under the
+    /// ledger's lock, which `room_made` reads it under.
+    ended: AtomicU64,
     notify: Notify,
 }
 
@@ -39,8 +44,15 @@ impl Waiter {
         self.notify.notified().await;
     }
 
-    pub(crate) fn take_owed(&self) -> bool {
-        self.owed.swap(false, Ordering::AcqRel)
+    /// The wake-up owed, if one is, as the wait it is owed to.
+    pub(crate) fn take_owed(&self) -> Option<u64> {
+        self.owed.swap(0, Ordering::AcqRel).checked_sub(1)
+    }
+
+    /// Whether `wait` still stands. One that ended, its lend served or its call over, is owed
+    /// nothing, whatever wait stands since.
+    pub(crate) fn still_waits(&self, wait: u64) -> bool {
+        self.ended.load(Ordering::Acquire) == wait
     }
 
     pub(crate) fn is_waiting(&self) -> bool {
@@ -157,13 +169,31 @@ impl Ledger {
     /// `empty` is what decides whether the shutdown owes RESOURCES_RELEASED and whether it waits
     /// for the host to give anything back. Answered wrongly there, the runtime reports QUIESCENT
     /// with a buffer still lent, which is the one thing that state is promised not to mean.
+    ///
+    /// A panic leaves nothing charged and nothing counted: `add_bytes` charges nothing when it
+    /// panics, and the count goes back with the panic.
     pub(crate) fn hold_bytes(&self, len: usize) -> Result<(), ak_status> {
-        self.hold();
-        if self.add_bytes(len) {
+        if self.counted(|| self.add_bytes(len)) {
             Ok(())
         } else {
-            self.release();
             Err(ak_status::AK_STATUS_BUDGET_BUSY)
+        }
+    }
+
+    /// Counts a charge, then makes it with `charge`, which says whether it was made. A charge
+    /// refused, or one that panics before it moves the bytes, gives its count back.
+    fn counted(&self, charge: impl FnOnce() -> bool) -> bool {
+        self.hold();
+        match catch_unwind(AssertUnwindSafe(charge)) {
+            Ok(true) => true,
+            Ok(false) => {
+                self.release();
+                false
+            }
+            Err(panic) => {
+                self.release();
+                resume_unwind(panic)
+            }
         }
     }
 
@@ -201,26 +231,44 @@ impl Ledger {
     /// Charges a lend already counted `new` bytes where it was charged `old`, in one step: the
     /// count moves by the difference alone, so it is never both and never neither, and a growth
     /// is admitted against the first threshold as a lend of that difference is.
+    ///
+    /// A panic reaches the caller only before the charge moves, which leaves it `old`: what
+    /// follows the step is contained.
     pub(crate) fn recharge(&self, old: usize, new: usize) -> bool {
         if new > old {
             return self.add_bytes(new - old);
         }
         if new < old {
+            at!(at_charge_step, ChargeStep::Begun);
             self.bytes.fetch_sub((old - new) as u64, Ordering::AcqRel);
-            self.room_made();
+            crate::guard_void(|| {
+                at!(at_charge_step, ChargeStep::Moved);
+                self.room_made();
+            });
         }
         true
     }
 
-    // Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
-    // count and then reads the spares', a spare is kept and then the trim reads the charges, so
-    // the second of the two sees both and gives the spares up.
     fn add_bytes(&self, len: usize) -> bool {
+        self.add_bytes_up_to(len, self.limit())
+    }
+
+    /// Charges `len` unless that would pass `limit`: the first threshold for a lend, the second
+    /// for a received message.
+    ///
+    /// Sequentially consistent, as `keep_spare` and the trim after it are: a charge adds to its
+    /// count and then reads the spares', a spare is kept and then the trim reads the charges, so
+    /// the second of the two sees both and gives the spares up.
+    ///
+    /// A panic reaches the caller only before the count moves, which leaves nothing charged: what
+    /// follows the step is contained.
+    fn add_bytes_up_to(&self, len: usize, limit: u64) -> bool {
+        at!(at_charge_step, ChargeStep::Begun);
         let mut seen = self.bytes.load(Ordering::SeqCst);
         loop {
             let Some(wanted) = seen
                 .checked_add(len as u64)
-                .filter(|wanted| *wanted <= self.limit())
+                .filter(|wanted| *wanted <= limit)
             else {
                 return false;
             };
@@ -229,7 +277,10 @@ impl Ledger {
                 .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
             {
                 Ok(_) => {
-                    self.trim_spares();
+                    crate::guard_void(|| {
+                        at!(at_charge_step, ChargeStep::Moved);
+                        self.trim_spares();
+                    });
                     return true;
                 }
                 Err(current) => seen = current,
@@ -293,17 +344,19 @@ impl Ledger {
 
     pub(crate) fn release_bytes(&self, len: usize) {
         self.bytes.fetch_sub(len as u64, Ordering::AcqRel);
+        // The count before the wake-ups: a panic in them leaves what the shutdown waits on paid.
+        self.release();
         if len > 0 {
             self.room_made();
         }
-        self.release();
     }
 
     /// Owes every waiting send its wake-up, all of them: waking one would lose the wake-up when
     /// that one does not try again.
     fn room_made(&self) {
         for waiter in self.waiting().iter() {
-            waiter.owed.store(true, Ordering::Release);
+            let wait = waiter.ended.load(Ordering::Acquire);
+            waiter.owed.store(wait + 1, Ordering::Release);
             waiter.notify.notify_one();
         }
         self.room.send_modify(|version| *version += 1);
@@ -311,32 +364,15 @@ impl Ledger {
 
     /// Charges a decoded message, unless it would take the count past the second threshold.
     /// Counted like a lend, so a shutdown waits for it.
+    ///
+    /// A panic reaches the caller only before the charge moves, with nothing charged and nothing
+    /// counted: what follows the move is contained, and the message is held.
     pub(crate) fn hold_received(self: &Arc<Self>, len: usize) -> Option<Received> {
-        self.hold();
-
-        let mut seen = self.bytes.load(Ordering::SeqCst);
-        loop {
-            let Some(wanted) = seen
-                .checked_add(len as u64)
-                .filter(|wanted| *wanted <= self.hard_limit())
-            else {
-                self.release();
-                return None;
-            };
-            match self
-                .bytes
-                .compare_exchange_weak(seen, wanted, Ordering::SeqCst, Ordering::SeqCst)
-            {
-                Ok(_) => {
-                    self.trim_spares();
-                    return Some(Received {
-                        ledger: Arc::clone(self),
-                        len,
-                    });
-                }
-                Err(current) => seen = current,
-            }
-        }
+        self.counted(|| self.add_bytes_up_to(len, self.hard_limit()))
+            .then(|| Received {
+                ledger: Arc::clone(self),
+                len,
+            })
     }
 
     /// A send refused for room waits on `len`, which holds reads back until it is served.
@@ -358,8 +394,9 @@ impl Ledger {
                 return;
             }
             waiting.retain(|other| !std::ptr::eq(Arc::as_ptr(other), waiter));
+            waiter.ended.fetch_add(1, Ordering::Release);
         }
-        waiter.owed.store(false, Ordering::Release);
+        waiter.owed.store(0, Ordering::Release);
         self.room.send_modify(|version| *version += 1);
     }
 
@@ -524,7 +561,7 @@ mod tests {
         ledger.wait(&waiter, 30);
 
         assert!(ledger.recharge(60, 20));
-        assert!(waiter.take_owed());
+        assert!(waiter.take_owed().is_some());
         ledger.release_bytes(20);
     }
 
@@ -601,9 +638,33 @@ mod tests {
 
         drop(held);
 
-        assert!(one.take_owed());
-        assert!(other.take_owed());
-        assert!(!served.take_owed());
-        assert!(!one.take_owed(), "a wake-up is taken once");
+        assert!(one.take_owed().is_some());
+        assert!(other.take_owed().is_some());
+        assert!(served.take_owed().is_none());
+        assert!(one.take_owed().is_none(), "a wake-up is taken once");
+    }
+
+    /// A wake-up taken while its wait stands is owed to nobody once that wait ends, even when
+    /// another stands by the time it would be raised.
+    #[test]
+    fn a_wake_up_is_owed_to_its_wait_alone() {
+        let ledger = Arc::new(Ledger::new(64, 0).expect("a valid ledger"));
+        let waiter = Arc::new(Waiter::default());
+        let held = ledger.hold_received(60).expect("room");
+        ledger.wait(&waiter, 10);
+        drop(held);
+
+        let wait = waiter
+            .take_owed()
+            .expect("the release owes the wait a wake-up");
+        assert!(waiter.still_waits(wait));
+        ledger.stop_waiting(&waiter);
+        assert!(!waiter.still_waits(wait), "the wait was served");
+        ledger.wait(&waiter, 10);
+        assert!(
+            !waiter.still_waits(wait),
+            "another wait is not the one owed"
+        );
+        ledger.stop_waiting(&waiter);
     }
 }

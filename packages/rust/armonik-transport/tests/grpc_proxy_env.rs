@@ -1,5 +1,5 @@
 //! A call through the proxy the environment names: which variable is read, what `NO_PROXY` and a
-//! loopback endpoint go around, and how its credentials meet the dedicated ones.
+//! loopback endpoint go around, and how its credentials meet the ones stated beside it.
 //!
 //! The variables are the process's, so every test here is serialised and restores them.
 
@@ -12,7 +12,7 @@ use armonik_transport::grpc::{
     CallStartOptions, GrpcChannelConfig, GrpcChannelConfigError, GrpcStatus, GrpcStatusCode,
 };
 use armonik_transport::http2::{
-    ProxyConfig, ProxySource, TlsConfig, TransportConfig, TransportErrorKind,
+    BasicCredentials, ProxyConfig, ProxySource, TlsConfig, TransportConfig, TransportErrorKind,
 };
 use bytes::Bytes;
 use common::echo::{channel_with, closed_port, unary, TestServer, ECHO};
@@ -23,6 +23,12 @@ use serial_test::serial;
 
 /// `alice:s3cret`, as `Basic` writes it.
 const ALICE: &str = "YWxpY2U6czNjcmV0";
+/// `bob:`, a username and an empty password.
+const BOB_WITHOUT_PASSWORD: &str = "Ym9iOg==";
+/// `:s3cret`, an empty username and a password.
+const WITHOUT_USERNAME: &str = "OnMzY3JldA==";
+/// `:`, both halves empty.
+const EMPTY_PAIR: &str = "Og==";
 
 const PROXY_VARIABLES: [&str; 9] = [
     "ALL_PROXY",
@@ -67,13 +73,13 @@ impl Drop for Environment {
     }
 }
 
-fn from_environment(endpoint: &str, username: &str, password: &str) -> TransportConfig {
+fn from_environment(endpoint: &str, credentials: Option<(&str, &str)>) -> TransportConfig {
     let mut transport = TransportConfig::new(Uri::try_from(endpoint).expect("an endpoint"));
     transport.connect_timeout = Duration::from_secs(5);
     let mut proxy = ProxyConfig::default();
     proxy.source = ProxySource::System;
-    proxy.username = username.to_owned();
-    proxy.password = password.to_owned().into();
+    proxy.credentials =
+        credentials.map(|(username, password)| BasicCredentials::new(username, password));
     transport.proxy = proxy;
     transport
 }
@@ -104,7 +110,7 @@ async fn the_proxy_the_environment_names_is_tunnelled_through() {
 
     for variable in ["HTTP_PROXY", "http_proxy", "ALL_PROXY"] {
         let _environment = Environment::with(&[(variable, &proxy.uri)]);
-        let status = echo(from_environment(&endpoint, "", "")).await;
+        let status = echo(from_environment(&endpoint, None)).await;
         assert_eq!(status.code, GrpcStatusCode::Ok, "{variable}: {status}");
     }
     assert_eq!(proxy.tunnels(), 3);
@@ -123,7 +129,7 @@ async fn an_https_endpoint_goes_through_the_https_proxy() {
     let dead = closed_port().await;
     let _environment = Environment::with(&[("HTTPS_PROXY", &proxy.uri), ("HTTP_PROXY", &dead)]);
 
-    let mut transport = from_environment(&under_a_name(&server.endpoint), "", "");
+    let mut transport = from_environment(&under_a_name(&server.endpoint), None);
     let mut tls = TlsConfig::default();
     tls.roots = vec![pki.root()];
     transport.tls = tls;
@@ -140,7 +146,7 @@ async fn a_host_no_proxy_names_is_dialled_directly() {
         Environment::with(&[("HTTP_PROXY", &proxy.uri), ("NO_PROXY", "server.test")]);
 
     // Directly, the name resolves to nothing: the call fails, and never reaches the proxy.
-    let status = echo(from_environment("http://server.test:1", "", "")).await;
+    let status = echo(from_environment("http://server.test:1", None)).await;
     assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
     assert!(!status.message.contains("proxy"), "{status}");
     assert!(proxy.asked().is_empty(), "{:?}", proxy.asked());
@@ -159,7 +165,7 @@ async fn a_loopback_endpoint_is_never_proxied() {
         format!("http://localhost:{port}"),
         format!("http://LocalHost.:{port}"),
     ] {
-        let status = echo(from_environment(&endpoint, "", "")).await;
+        let status = echo(from_environment(&endpoint, None)).await;
         assert_eq!(status.code, GrpcStatusCode::Ok, "{endpoint}: {status}");
     }
     assert!(proxy.asked().is_empty(), "{:?}", proxy.asked());
@@ -171,7 +177,11 @@ async fn no_variable_is_a_direct_dial() {
     let server = TestServer::start().await;
     let _environment = Environment::with(&[]);
 
-    let status = echo(from_environment(&server.endpoint, "alice", "s3cret")).await;
+    let status = echo(from_environment(
+        &server.endpoint,
+        Some(("alice", "s3cret")),
+    ))
+    .await;
     assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
 }
 
@@ -185,8 +195,7 @@ async fn a_proxy_the_environment_names_by_another_scheme_is_refused_when_the_cha
         let _environment = Environment::with(&[("HTTP_PROXY", url)]);
         let refused = channel_with(GrpcChannelConfig::new(from_environment(
             "http://server.test:1",
-            "",
-            "",
+            None,
         )))
         .expect_err(url);
         let GrpcChannelConfigError::Transport { source } = &refused else {
@@ -199,31 +208,48 @@ async fn a_proxy_the_environment_names_by_another_scheme_is_refused_when_the_cha
     }
 }
 
+/// Credentials stated beside the proxy are the ones sent, whole: an empty half is sent empty and
+/// the URL's is not taken for it.
 #[tokio::test]
 #[serial]
-async fn the_dedicated_credentials_take_the_place_of_the_urls_half_by_half() {
+async fn credentials_stated_replace_the_urls_whole_an_empty_half_included() {
+    let server = TestServer::start().await;
+    let endpoint = under_a_name(&server.endpoint);
+
+    // What `Basic` writes for each pair stated beside a URL that carries `alice:s3cret`.
+    for (stated, expected) in [
+        (("bob", ""), BOB_WITHOUT_PASSWORD),
+        (("", "s3cret"), WITHOUT_USERNAME),
+        (("", ""), EMPTY_PAIR),
+        (("alice", "s3cret"), ALICE),
+    ] {
+        let proxy = TestProxy::reaching_test_names(Demands::Credentials(expected)).await;
+        let url = proxy.uri.replace("http://", "http://alice:s3cret@");
+        let _environment = Environment::with(&[("HTTP_PROXY", &url)]);
+        let status = echo(from_environment(&endpoint, Some(stated))).await;
+        assert_eq!(status.code, GrpcStatusCode::Ok, "{stated:?}: {status}");
+    }
+}
+
+/// With none stated, the URL's own credentials apply; stated beside a URL that carries none, they
+/// are the credentials.
+#[tokio::test]
+#[serial]
+async fn the_urls_own_credentials_apply_when_none_are_stated() {
     let server = TestServer::start().await;
     let proxy = TestProxy::reaching_test_names(Demands::Credentials(ALICE)).await;
     let endpoint = under_a_name(&server.endpoint);
-    let at = |userinfo: &str| proxy.uri.replace("http://", &format!("http://{userinfo}@"));
+    let carrying = proxy.uri.replace("http://", "http://alice:s3cret@");
 
-    for (url, username, password) in [
-        (at("alice:s3cret"), "", ""),
-        (at("alice:hunter2"), "", "s3cret"),
-        (at("bob:s3cret"), "alice", ""),
-        (proxy.uri.clone(), "alice", "s3cret"),
-    ] {
-        let _environment = Environment::with(&[("HTTP_PROXY", &url)]);
-        let status = echo(from_environment(&endpoint, username, password)).await;
-        assert_eq!(
-            status.code,
-            GrpcStatusCode::Ok,
-            "{url} {username}: {status}"
-        );
-    }
+    let _environment = Environment::with(&[("HTTP_PROXY", &carrying)]);
+    let status = echo(from_environment(&endpoint, None)).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
 
-    let _environment = Environment::with(&[("HTTP_PROXY", &at("alice:hunter2"))]);
-    let status = echo(from_environment(&endpoint, "", "")).await;
+    let _environment = Environment::with(&[("HTTP_PROXY", &proxy.uri)]);
+    let status = echo(from_environment(&endpoint, Some(("alice", "s3cret")))).await;
+    assert_eq!(status.code, GrpcStatusCode::Ok, "{status}");
+
+    let status = echo(from_environment(&endpoint, None)).await;
     assert!(status.message.contains("asks for credentials"), "{status}");
-    assert!(!status.message.contains("hunter2"), "{status}");
+    assert!(!status.message.contains("s3cret"), "{status}");
 }

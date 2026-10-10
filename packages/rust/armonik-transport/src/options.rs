@@ -6,10 +6,10 @@
 //! enforces it. What a type cannot say - that an endpoint names a scheme this engine speaks -
 //! the transport says, by option name.
 //!
-//! A key no type declares is read past rather than refused, so that the `configuration` loader logs
-//! it and goes on; the schema still states `additionalProperties: false`, which tells whoever edits
-//! a document what the engine will log. An alternative - how the server is verified, who the client
-//! is, which proxy - reads a key that names none of its variants the same way, as no alternative.
+//! The `configuration` loader refuses a key no type declares, at the root of a document as below
+//! it, naming its path, and so the schema states `additionalProperties: false` for every object. An
+//! alternative - how the server is verified, who the client is, which proxy - refuses a key that
+//! names none of its variants.
 
 use std::time::Duration;
 
@@ -20,8 +20,8 @@ use secrecy::ExposeSecret;
 
 use crate::grpc::{AdaptiveConfig, Cause, GrpcStatusCode, ReplayConfig, RetryConfig};
 use crate::http2::{
-    ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource, ReceiveWindows, TcpConfig,
-    TlsConfig, LARGEST_FRAMES_PER_WRITE,
+    BasicCredentials, ClientIdentity, FixedWindows, Http2Config, ProxyConfig, ProxySource,
+    ReceiveWindows, TcpConfig, TlsConfig, LARGEST_FRAMES_PER_WRITE,
 };
 
 /// The largest window either side of a call may be given.
@@ -45,7 +45,7 @@ pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
 /// and `Duration` holds `u64::MAX` seconds, so 2^64 is the first value none can be. Stated here
 /// rather than left to the conversion, which refuses correctly but names no option when it does -
 /// a caller then reads that their configuration was refused and not which line of it.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(
@@ -53,6 +53,21 @@ pub const LARGEST_STREAM_BUFFER_KIB: i32 = 4_194_303;
     schemars(extend("exclusiveMaximum" = 18446744073709551616.0))
 )]
 pub struct Seconds(pub f64);
+
+/// Refused at 2^64 and above, the ceiling the type states, and when it is not a number, which
+/// fails the comparison.
+impl<'de> serde::Deserialize<'de> for Seconds {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let seconds = f64::deserialize(deserializer)?;
+        if seconds < 18_446_744_073_709_551_616.0 {
+            Ok(Self(seconds))
+        } else {
+            Err(serde::de::Error::custom(
+                "it has to be less than 18446744073709551616 seconds",
+            ))
+        }
+    }
+}
 
 impl TryFrom<Seconds> for Duration {
     type Error = std::time::TryFromFloatSecsError;
@@ -85,6 +100,7 @@ pub struct TransportOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub connect_timeout_seconds: Option<Seconds>,
 
     /// How an `https://` endpoint is secured.
@@ -152,7 +168,7 @@ pub enum ProxyOptions {
     /// again for two minutes.
     ///
     /// The system's proxy is never used for a loopback endpoint.
-    System(ProxyCredentials),
+    System(SystemProxy),
 
     /// The proxy at an address that carries no credentials, with its own beside it, if any.
     Url(ProxyUrl),
@@ -164,43 +180,57 @@ pub enum ProxyOptions {
 
 impl Default for ProxyOptions {
     fn default() -> Self {
-        Self::System(ProxyCredentials::default())
+        Self::System(SystemProxy::default())
     }
 }
 
-/// The credentials the system's proxy is authenticated to with, by `Basic`.
+/// What the system's proxy is given beside the address the system names.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct SystemProxy {
+    /// What the proxy is authenticated to with, by `Basic`.
+    ///
+    /// Defaults to none. Ignored when the system names no proxy. Beside the environment's proxy,
+    /// they are sent whole in place of what its URL carries, and its URL's own apply only when none
+    /// are stated; beside the one Windows' settings name, they are the credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "ProxyCredentials"))]
+    pub credentials: Option<ProxyCredentials>,
+}
+
+/// The username and password a proxy is authenticated to with, by `Basic`. Both are stated, and
+/// together: a source that states a pair replaces the one an earlier source stated, and an empty
+/// half is an empty string, never an absent one.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct ProxyCredentials {
     /// The username, which `Basic` forbids a `:` in.
-    ///
-    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    /// of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// username. Taken from the runtime's channel defaults, with their `Password`, only when these
-    /// options state neither.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub username: Option<String>,
+    pub username: String,
 
-    /// The password that goes with `Username`.
-    ///
-    /// Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    /// of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    /// password. Taken from the runtime's channel defaults, with their `Username`, only when these
-    /// options state neither.
-    #[serde(default, skip_serializing)]
+    /// The password that goes with `Username`, empty when the proxy asks for none.
+    #[serde(skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub password: Option<Password>,
+    pub password: Password,
+}
+
+impl ProxyCredentials {
+    pub fn new(username: impl Into<String>, password: Password) -> Self {
+        Self {
+            username: username.into(),
+            password,
+        }
+    }
 }
 
 /// A proxy named by its address.
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -212,23 +242,15 @@ pub struct ProxyUrl {
         feature = "schema",
         schemars(length(min = 1), extend("writeOnly" = true))
     )]
+    #[serde(deserialize_with = "within::non_empty")]
     pub address: String,
 
-    /// The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.
+    /// What the proxy is authenticated to with, by `Basic`.
     ///
-    /// Taken from the runtime's channel defaults, with their `Password`, only when they name the
-    /// same `Address` and these options state neither.
+    /// Defaults to none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub username: Option<String>,
-
-    /// The password that goes with `Username`.
-    ///
-    /// Taken from the runtime's channel defaults, with their `Username`, only when they name the
-    /// same `Address` and these options state neither.
-    #[serde(default, skip_serializing)]
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub password: Option<Password>,
+    #[cfg_attr(feature = "schema", schemars(with = "ProxyCredentials"))]
+    pub credentials: Option<ProxyCredentials>,
 }
 
 /// A proxy's `http://` URL that carries its credentials, as `user:password@`, percent-encoded;
@@ -241,7 +263,11 @@ pub struct ProxyUrl {
     feature = "schema",
     schemars(transparent, extend("writeOnly" = true))
 )]
-pub struct CredentialedUrl(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] pub String);
+pub struct CredentialedUrl(
+    #[serde(deserialize_with = "within::non_empty")]
+    #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    pub String,
+);
 
 /// The address is printed elided, since it holds a password.
 impl std::fmt::Debug for CredentialedUrl {
@@ -256,8 +282,7 @@ impl ProxyUrl {
     pub fn new(address: impl Into<String>) -> Self {
         Self {
             address: address.into(),
-            username: None,
-            password: None,
+            credentials: None,
         }
     }
 }
@@ -297,8 +322,7 @@ impl std::fmt::Debug for ProxyUrl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProxyUrl")
             .field("address", &elided(&self.address))
-            .field("username", &self.username)
-            .field("password", &self.password)
+            .field("credentials", &self.credentials)
             .finish()
     }
 }
@@ -309,12 +333,8 @@ impl ProxyOptions {
     pub fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         match self {
             Self::None => Ok(ProxyConfig::default()),
-            Self::System(credentials) => authenticated(
-                ProxySource::System,
-                &credentials.username,
-                &credentials.password,
-            )
-            .map_err(|refused| refused.under("System")),
+            Self::System(system) => authenticated(ProxySource::System, &system.credentials)
+                .map_err(|refused| refused.under("System")),
             Self::Url(url) => url.to_config().map_err(|refused| refused.under("Url")),
             Self::UrlWithCredentials(url) => url.to_config(),
         }
@@ -324,14 +344,14 @@ impl ProxyOptions {
 impl ProxyUrl {
     fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         let (proxy, userinfo) = proxy_url("Address", &self.address)?;
-        if userinfo.is_some() {
+        if userinfo.is_some_and(|userinfo| !userinfo.is_empty()) {
             return Err(OptionRefusal::new(
                 "Address",
                 "it carries `user:password@`: a proxy whose URL carries its credentials is \
-                 UrlWithCredentials, and Url states them as Username and Password",
+                 UrlWithCredentials, and Url states them as Credentials",
             ));
         }
-        authenticated(ProxySource::Explicit(proxy), &self.username, &self.password)
+        authenticated(ProxySource::Explicit(proxy), &self.credentials)
     }
 }
 
@@ -339,7 +359,7 @@ impl CredentialedUrl {
     fn to_config(&self) -> Result<ProxyConfig, OptionRefusal> {
         const KEY: &str = "UrlWithCredentials";
         let (proxy, userinfo) = proxy_url(KEY, &self.0)?;
-        let Some(userinfo) = userinfo else {
+        let Some(userinfo) = userinfo.filter(|userinfo| !userinfo.is_empty()) else {
             return Err(OptionRefusal::new(
                 KEY,
                 "it carries no `user:password@`: a proxy whose URL carries no credentials is Url",
@@ -362,8 +382,7 @@ impl CredentialedUrl {
         }
         Ok(ProxyConfig {
             source: ProxySource::Explicit(proxy),
-            username,
-            password: password.into(),
+            credentials: Some(BasicCredentials::new(username, password)),
         })
     }
 }
@@ -424,24 +443,26 @@ fn proxy_url(key: &str, address: &str) -> Result<(Uri, Option<String>), OptionRe
     Ok((proxy, userinfo))
 }
 
-/// `source`, authenticated to with `username` and `password`, empty when unset.
+/// `source`, authenticated to with `credentials`, with none when unset.
 fn authenticated(
     source: ProxySource,
-    username: &Option<String>,
-    password: &Option<Password>,
+    credentials: &Option<ProxyCredentials>,
 ) -> Result<ProxyConfig, OptionRefusal> {
-    let username = username.clone().unwrap_or_default();
-    if username.contains(':') {
-        return Err(OptionRefusal::new("Username", NO_COLON));
+    let Some(credentials) = credentials else {
+        return Ok(ProxyConfig {
+            source,
+            credentials: None,
+        });
+    };
+    if credentials.username.contains(':') {
+        return Err(OptionRefusal::new("Credentials.Username", NO_COLON));
     }
-    let password = password
-        .as_ref()
-        .map(|password| password.0.expose_secret().to_owned())
-        .unwrap_or_default();
     Ok(ProxyConfig {
         source,
-        username,
-        password: password.into(),
+        credentials: Some(BasicCredentials::new(
+            credentials.username.clone(),
+            credentials.password.0.expose_secret(),
+        )),
     })
 }
 
@@ -491,7 +512,11 @@ pub enum ServerCertificates {
 
     /// Against the roots of a PEM file, named by its path, in place of the system's. Every
     /// certificate the file holds is a root.
-    CaPem(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    CaPem(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// Against a root from a Windows certificate store, `Root` unless `Name` says otherwise, in
     /// place of the system's.
@@ -528,17 +553,18 @@ pub enum ClientCertificate {
 /// A client certificate and its key, from PEM files.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct PemCertificate {
     /// Path to a PEM file of the client's certificate, then each issuer the server may not hold.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub certificate: String,
 
     /// Path to a PEM file of the certificate's key.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub key: String,
 }
 
@@ -565,19 +591,18 @@ impl PemCertificate {
 /// A client certificate and its key, from a PKCS#12 bundle.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
 pub struct P12Certificate {
     /// Path to a PKCS#12 bundle of the client's certificate, the issuers it carries and the key.
     #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub path: String,
 
     /// The password the bundle is protected by.
     ///
-    /// Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-    /// the same `Path`.
+    /// Defaults to the empty one.
     #[serde(default, skip_serializing)]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub password: Option<Password>,
@@ -595,7 +620,6 @@ impl P12Certificate {
 /// A certificate of a Windows certificate store.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -610,6 +634,7 @@ pub struct StoreCertificate {
     /// The store's name, such as `My`, `Root` or `CA`. Defaults to the one its option states.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub name: Option<String>,
 
     /// How the certificate is found in the store.
@@ -646,14 +671,26 @@ pub enum StoreLocation {
 pub enum StoreSearch {
     /// By its SHA-1 fingerprint, as 40 hexadecimal digits; spaces and colons between them are
     /// ignored.
-    Thumbprint(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    Thumbprint(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// By a text its subject contains, compared without case, as .NET's `FindBySubjectName`
     /// compares it.
-    SubjectName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    SubjectName(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 
     /// By its friendly name, exactly.
-    FriendlyName(#[cfg_attr(feature = "schema", schemars(length(min = 1)))] String),
+    FriendlyName(
+        #[serde(deserialize_with = "within::non_empty")]
+        #[cfg_attr(feature = "schema", schemars(length(min = 1)))]
+        String,
+    ),
 }
 
 /// A thumbprint as the 20 bytes it writes, with what a copy from a certificate dialog carries
@@ -880,7 +917,6 @@ pub enum TcpKeepalive {
 /// socket option holds.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -891,6 +927,7 @@ pub struct TcpProbe {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = 32767))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 32767>")]
     pub idle_seconds: i32,
 
     /// How many whole seconds between two probes, from 1 to 32767. Defaults to the operating
@@ -900,12 +937,14 @@ pub struct TcpProbe {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = 32767))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 32767>")]
     pub interval_seconds: Option<i32>,
 
     /// How many probes go unanswered before the connection is dropped, at most 127, the most
     /// Linux holds. Defaults to the operating system's, and is not applied on Windows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 127)))]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 127>")]
     pub retries: Option<i32>,
 }
 
@@ -998,7 +1037,6 @@ pub enum Http2KeepAlive {
 /// The PINGs of a session.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1008,6 +1046,7 @@ pub struct Http2Ping {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub interval_seconds: Seconds,
 
     /// How long a PING may go unanswered before the session and its calls are ended.
@@ -1018,6 +1057,7 @@ pub struct Http2Ping {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub timeout_seconds: Option<Seconds>,
 
     /// Whether a PING is also sent while no call is open.
@@ -1053,6 +1093,7 @@ pub enum Http2IdleTimeout {
             feature = "schema",
             schemars(with = "Seconds", extend("minimum" = 1e-9))
         )]
+        #[serde(deserialize_with = "within::nanosecond")]
         Seconds,
     ),
 }
@@ -1068,7 +1109,11 @@ pub enum CallsPerConnection {
     /// At most this many, and never more than the server allows. At 1, calls follow one another
     /// on a connection but never share it, so that a GOAWAY a server sends because of one call -
     /// nginx's ENHANCE_YOUR_CALM against too many resets, for one - ends that call alone.
-    Limit(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Limit(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// What an HTTP/2 session sends.
@@ -1086,6 +1131,7 @@ pub struct Http2SendOptions {
     /// Defaults to 16384, 16 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub coalescing_bytes: Option<i32>,
 
     /// How many KiB (1024 bytes) of one call's request may be queued in the session, waiting to be
@@ -1104,6 +1150,7 @@ pub struct Http2SendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_STREAM_BUFFER_KIB))
     )]
+    #[serde(deserialize_with = "within::stream_buffer_kib")]
     pub stream_buffer_kib: Option<i32>,
 
     /// How many DATA frames of the peer's largest size one queued part of a request may span,
@@ -1120,6 +1167,7 @@ pub struct Http2SendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_FRAMES_PER_WRITE))
     )]
+    #[serde(deserialize_with = "within::frames_per_write")]
     pub frames_per_write: Option<i32>,
 
     /// How many bytes the headers of one request may take. It bounds what is sent, never what is
@@ -1147,7 +1195,11 @@ pub enum HeaderListBytes {
     /// SETTINGS_MAX_HEADER_LIST_SIZE: each field's name and value, and 32 more, the pseudo-header
     /// fields among them. A call whose request goes past it ends RESOURCE_EXHAUSTED before
     /// anything is sent.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// What an HTTP/2 session lets its peer send ahead of what is read: windows of fixed sizes, or
@@ -1168,7 +1220,6 @@ pub enum Http2ReceiveOptions {
 /// HTTP/2 flow-control windows of fixed sizes.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1178,6 +1229,7 @@ pub struct Http2FixedWindows {
     /// Defaults to 2097152, 2 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub stream_window_bytes: Option<i32>,
 
     /// How many bytes the peer may send ahead of what is read, across every call of the channel.
@@ -1187,6 +1239,7 @@ pub struct Http2FixedWindows {
     /// Defaults to 5242880, 5 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 65535)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 65535>")]
     pub connection_window_bytes: Option<i32>,
 }
 
@@ -1295,7 +1348,6 @@ impl RetryOptions {
 /// What a failed call is sent again by.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1316,6 +1368,7 @@ pub struct ExponentialBackoffOptions {
     /// Defaults to 5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 2)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 2>")]
     pub max_attempts: Option<i32>,
 
     /// The bound of the first backoff.
@@ -1326,6 +1379,7 @@ pub struct ExponentialBackoffOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub initial_backoff_seconds: Option<Seconds>,
 
     /// What the bound grows to and no further. Incoherent below `InitialBackoffSeconds`.
@@ -1336,6 +1390,7 @@ pub struct ExponentialBackoffOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 1e-9))
     )]
+    #[serde(deserialize_with = "within::nanosecond")]
     pub max_backoff_seconds: Option<Seconds>,
 
     /// What each bound is multiplied by; 1 retries at a fixed bound.
@@ -1343,6 +1398,7 @@ pub struct ExponentialBackoffOptions {
     /// Defaults to 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "f64", extend("minimum" = 1.0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
     pub backoff_multiplier: Option<f64>,
 }
 
@@ -1483,7 +1539,6 @@ impl ThrottleOptions {
 /// The estimate of a server's health, and what it does.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[non_exhaustive]
@@ -1519,6 +1574,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 100>")]
     pub multiplier: Option<f64>,
 
     /// How many times what the server does not report as overloaded the channel may send, as the
@@ -1531,6 +1587,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("minimum" = 1.0, "maximum" = 100.0))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 100>")]
     pub throttle_multiplier: Option<f64>,
 
     /// The failures beyond the multiple of what the server accepts that are let go, so that a
@@ -1542,6 +1599,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 0, max = 1000000))
     )]
+    #[serde(deserialize_with = "within::between::<_, _, 0, 1000000>")]
     pub failure_allowance: Option<i32>,
 
     /// How far back the counts reach, from 0.012 to 600 seconds.
@@ -1552,6 +1610,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "Seconds", extend("minimum" = 0.012, "maximum" = 600.0))
     )]
+    #[serde(deserialize_with = "within::adaptive_window_seconds")]
     pub window_seconds: Option<Seconds>,
 
     /// The rate of first attempts, a second, that the cap never goes under, so that the channel goes
@@ -1563,6 +1622,7 @@ pub struct AdaptiveOptions {
         feature = "schema",
         schemars(with = "f64", extend("exclusiveMinimum" = 0.0, "maximum" = 1000000.0))
     )]
+    #[serde(deserialize_with = "within::floor_per_second")]
     pub floor_per_second: Option<f64>,
 }
 
@@ -1636,6 +1696,7 @@ pub struct ReplayOptions {
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub max_per_call_kib: Option<i32>,
 
     /// The KiB all of the channel's calls may keep together; a call whose message would pass it is
@@ -1648,6 +1709,7 @@ pub struct ReplayOptions {
         skip_serializing_if = "Option::is_none"
     )]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub max_per_channel_kib: Option<i32>,
 }
 
@@ -2169,6 +2231,7 @@ pub struct GrpcOptions {
     /// Defaults to `armonik-transport/` followed by the engine's version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub user_agent: Option<String>,
 
     /// The deadline of a call that states none.
@@ -2226,6 +2289,7 @@ pub enum Deadline {
             feature = "schema",
             schemars(with = "Seconds", extend("minimum" = 1e-9))
         )]
+        #[serde(deserialize_with = "within::nanosecond")]
         Seconds,
     ),
 }
@@ -2342,7 +2406,11 @@ pub enum SendMessageSizeKiB {
     Unbounded,
 
     /// At most this many KiB (1024 bytes), counted before the message is compressed.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 /// The largest message a call accepts.
@@ -2354,7 +2422,11 @@ pub enum ReceiveMessageSizeKiB {
     Unbounded,
 
     /// At most this many KiB (1024 bytes), counted once the message is decompressed.
-    Max(#[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))] i32),
+    Max(
+        #[serde(deserialize_with = "within::at_least::<_, _, 1>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1)))]
+        i32,
+    ),
 }
 
 impl SendMessageSizeKiB {
@@ -2444,6 +2516,7 @@ pub struct HostSendOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
+    #[serde(deserialize_with = "within::window")]
     pub window: Option<i32>,
 }
 
@@ -2463,6 +2536,7 @@ pub struct HostReceiveOptions {
         feature = "schema",
         schemars(with = "i32", range(min = 1, max = LARGEST_WINDOW))
     )]
+    #[serde(deserialize_with = "within::window")]
     pub window: Option<i32>,
 
     /// How many bytes of a response a delivery to the host may wait to gather, so that a unary
@@ -2471,18 +2545,31 @@ pub struct HostReceiveOptions {
     /// Defaults to 16384, 16 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 0)))]
+    #[serde(deserialize_with = "within::at_least::<_, _, 0>")]
     pub coalescing_bytes: Option<i32>,
 }
 
-/// Options stated over their defaults: a struct field by field, recursively, and an option is the
-/// default's where it is not stated. An alternative stated over the same one merges its fields
-/// the same way; over another, it is taken whole, so two alternatives are never combined into one
-/// neither stated.
+/// Options stated over their defaults, by the shape of the type alone. A struct with only optional
+/// fields merges field by field, recursively, and an option is the default's where it is not
+/// stated. A struct with a mandatory field is stated whole: it replaces the default's, its optional
+/// fields taking what it states or their default, so that no source leaves it half stated. An
+/// alternative stated over the same variant merges what the two carry by that rule, and over
+/// another variant is taken whole, so two alternatives are never combined into one neither stated.
 trait Over {
+    /// Whether a struct holding this as a field has it mandatory: so of a value and of a struct
+    /// with a mandatory field of its own, not of an `Option` or of a struct with none.
+    fn mandatory(&self) -> bool {
+        true
+    }
+
     fn over(self, defaults: &Self) -> Self;
 }
 
 impl<T: Over + Clone> Over for Option<T> {
+    fn mandatory(&self) -> bool {
+        false
+    }
+
     fn over(self, defaults: &Self) -> Self {
         match (self, defaults) {
             (Some(own), Some(default)) => Some(own.over(default)),
@@ -2547,21 +2634,238 @@ macro_rules! over_variants {
     };
 }
 
+/// The bounds the schema states, checked where a value is read: a document out of one is refused by
+/// its key's path, as one of the wrong type is, rather than when its options become a config. Each
+/// is a field's `deserialize_with`, so the field keeps the one type the schema is rendered from.
+mod within {
+    use serde::de::{Deserialize, Deserializer, Error};
+
+    use super::{Seconds, LARGEST_FRAMES_PER_WRITE, LARGEST_STREAM_BUFFER_KIB, LARGEST_WINDOW};
+
+    /// What a bound is held against: an integer, exactly, or a number.
+    pub(super) enum Measure {
+        Integer(i128),
+        Number(f64),
+    }
+
+    impl Measure {
+        fn at_least(&self, least: i64) -> bool {
+            match self {
+                Self::Integer(value) => *value >= i128::from(least),
+                Self::Number(value) => *value >= least as f64,
+            }
+        }
+
+        fn at_most(&self, most: i64) -> bool {
+            match self {
+                Self::Integer(value) => *value <= i128::from(most),
+                Self::Number(value) => *value <= most as f64,
+            }
+        }
+
+        fn number(&self) -> f64 {
+            match self {
+                Self::Integer(value) => *value as f64,
+                Self::Number(value) => *value,
+            }
+        }
+    }
+
+    /// A value a bound applies to, or none when an option is left out.
+    pub(super) trait Measured {
+        fn measured(&self) -> Option<Measure>;
+    }
+
+    macro_rules! integers {
+        ($($integer:ty),+) => {
+            $(
+                impl Measured for $integer {
+                    fn measured(&self) -> Option<Measure> {
+                        Some(Measure::Integer(i128::from(*self)))
+                    }
+                }
+            )+
+        };
+    }
+
+    integers!(i32, u64);
+
+    impl Measured for f64 {
+        fn measured(&self) -> Option<Measure> {
+            Some(Measure::Number(*self))
+        }
+    }
+
+    impl Measured for Seconds {
+        fn measured(&self) -> Option<Measure> {
+            Some(Measure::Number(self.0))
+        }
+    }
+
+    impl<T: Measured> Measured for Option<T> {
+        fn measured(&self) -> Option<Measure> {
+            self.as_ref().and_then(Measured::measured)
+        }
+    }
+
+    /// A text that can be empty, which a bound of one character refuses; an option left out is
+    /// not.
+    pub(super) trait Textual {
+        fn is_empty(&self) -> bool;
+    }
+
+    impl Textual for String {
+        fn is_empty(&self) -> bool {
+            self.as_str().is_empty()
+        }
+    }
+
+    impl<T: Textual> Textual for Option<T> {
+        fn is_empty(&self) -> bool {
+            self.as_ref().is_some_and(Textual::is_empty)
+        }
+    }
+
+    /// The value read as its type reads it, then held to `holds`, and refused with `says` - not
+    /// the value - when it does not. A number that is not finite is refused first, with a message
+    /// of its own, but for a `Seconds`, which its own reader has refused by then.
+    fn checked<'de, D, T>(
+        deserializer: D,
+        holds: impl Fn(&Measure) -> bool,
+        says: std::fmt::Arguments<'_>,
+    ) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        let value = T::deserialize(deserializer)?;
+        match value.measured() {
+            Some(Measure::Number(number)) if !number.is_finite() => {
+                Err(D::Error::custom("it has to be a finite number"))
+            }
+            Some(measure) if !holds(&measure) => Err(D::Error::custom(says)),
+            _ => Ok(value),
+        }
+    }
+
+    /// At least `MIN`.
+    pub(super) fn at_least<'de, D, T, const MIN: i64>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.at_least(MIN),
+            format_args!("it has to be at least {MIN}"),
+        )
+    }
+
+    /// From `MIN` to `MAX`.
+    pub(super) fn between<'de, D, T, const MIN: i64, const MAX: i64>(
+        deserializer: D,
+    ) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.at_least(MIN) && measure.at_most(MAX),
+            format_args!("it has to be between {MIN} and {MAX}"),
+        )
+    }
+
+    /// At least a nanosecond, the finest duration the engine holds.
+    pub(super) fn nanosecond<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.number() >= 1e-9,
+            format_args!("it has to be at least a nanosecond, 1e-9"),
+        )
+    }
+
+    /// From 0.012 to 600 seconds.
+    pub(super) fn adaptive_window_seconds<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| (0.012..=600.0).contains(&measure.number()),
+            format_args!("it has to be between 0.012 and 600"),
+        )
+    }
+
+    /// Above 0 and at most 1000000.
+    pub(super) fn floor_per_second<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Measured,
+    {
+        checked(
+            deserializer,
+            |measure| measure.number() > 0.0 && measure.number() <= 1_000_000.0,
+            format_args!("it has to be above 0 and at most 1000000"),
+        )
+    }
+
+    /// From 1 to the most KiB a stream's send buffer may hold.
+    pub(super) fn stream_buffer_kib<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_STREAM_BUFFER_KIB as i64 }>(deserializer)
+    }
+
+    /// From 1 to the most frames one write may span.
+    pub(super) fn frames_per_write<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_FRAMES_PER_WRITE as i64 }>(deserializer)
+    }
+
+    /// From 1 to the deepest window either side of a call may be given.
+    pub(super) fn window<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<i32>, D::Error> {
+        between::<D, Option<i32>, 1, { LARGEST_WINDOW as i64 }>(deserializer)
+    }
+
+    /// A text of at least one character.
+    pub(super) fn non_empty<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Textual,
+    {
+        let value = T::deserialize(deserializer)?;
+        if value.is_empty() {
+            Err(D::Error::custom(
+                "it has to be a text of at least one character",
+            ))
+        } else {
+            Ok(value)
+        }
+    }
+}
+
 /// How an alternative is read: by the name of a variant that carries nothing, or by an object whose
 /// one key names a variant and holds what it carries, as serde reads an externally tagged enum.
 ///
-/// By hand rather than by serde's derive, which refuses a key that names no variant. Such a key is
-/// read past instead, as a struct reads past a key it does not declare, so that the configuration
-/// loader logs it; the alternative is then none, and keeps what an earlier source gave it. A name
-/// that is no variant is refused: it is not a key, so nothing is read past.
+/// By hand rather than by serde's derive, which refuses an object of no key: that one is no
+/// alternative stated, and keeps what an earlier source gave it. A key that names no variant is
+/// refused, and so is a name that is none.
 mod alternative {
-    use std::cell::Cell;
     use std::marker::PhantomData;
 
-    use serde::de::value::{EnumAccessDeserializer, StringDeserializer};
+    use serde::de::value::EnumAccessDeserializer;
     use serde::de::{
-        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
-        IntoDeserializer, MapAccess, VariantAccess, Visitor,
+        self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IntoDeserializer,
+        MapAccess, VariantAccess, Visitor,
     };
 
     /// An enum read as an alternative, by the names of its variants.
@@ -2570,14 +2874,14 @@ mod alternative {
         const VARIANTS: &'static [&'static str];
     }
 
-    /// An alternative that may be left out, and is none when its key names no variant.
+    /// An alternative that may be left out, and is none when it is an object of no key.
     pub(super) fn optional<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<Option<T>, D::Error> {
         deserializer.deserialize_option(Optional(PhantomData))
     }
 
-    /// An alternative a document has to state, refused when its key names no variant.
+    /// An alternative a document has to state, refused when it is an object of no key.
     pub(super) fn required<'de, D: Deserializer<'de>, T: Alternative>(
         deserializer: D,
     ) -> Result<T, D::Error> {
@@ -2613,7 +2917,7 @@ mod alternative {
         }
     }
 
-    /// The variant a name or an object's keys give, if one does.
+    /// The variant a name or an object's key gives, if one does.
     struct Chosen<T>(PhantomData<T>);
 
     impl<'de, T: Alternative> Visitor<'de> for Chosen<T> {
@@ -2623,31 +2927,16 @@ mod alternative {
             write!(f, "one of {}", T::VARIANTS.join(", "))
         }
 
-        /// A name, or an object of one key: the enum's own reader takes the variant, once a name
-        /// that is no variant has been read past.
+        /// A name, or an object of one key.
         fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Option<T>, A::Error> {
-            let unknown = Cell::new(false);
-            let read = T::deserialize(EnumAccessDeserializer::new(Known::<T, A> {
-                data,
-                unknown: &unknown,
-                kind: PhantomData,
-            }));
-            match read {
-                Ok(read) => Ok(Some(read)),
-                Err(_) if unknown.get() => Ok(None),
-                Err(refused) => Err(refused),
-            }
+            T::deserialize(EnumAccessDeserializer::new(data)).map(Some)
         }
 
         /// An object of no key or of several, which a loader hands over as it reads it: the
-        /// variant its keys name, if one does; two are refused.
+        /// variant its key names, if it has one; two are refused.
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Option<T>, M::Error> {
             let mut chosen = None;
             while let Some(key) = map.next_key::<String>()? {
-                if !T::VARIANTS.contains(&key.as_str()) {
-                    map.next_value::<IgnoredAny>()?;
-                    continue;
-                }
                 if chosen.is_some() {
                     return Err(de::Error::custom(
                         "it names two alternatives, of which one is chosen at a time",
@@ -2659,38 +2948,6 @@ mod alternative {
                 })?);
             }
             Ok(chosen)
-        }
-    }
-
-    /// An enum access that reads past a variant `T` does not have, saying so in `unknown`.
-    struct Known<'a, T, A> {
-        data: A,
-        unknown: &'a Cell<bool>,
-        kind: PhantomData<T>,
-    }
-
-    impl<'de, 'a, T: Alternative, A: EnumAccess<'de>> EnumAccess<'de> for Known<'a, T, A> {
-        type Error = A::Error;
-        type Variant = A::Variant;
-
-        fn variant_seed<V: DeserializeSeed<'de>>(
-            self,
-            seed: V,
-        ) -> Result<(V::Value, A::Variant), A::Error> {
-            let (name, variant): (String, A::Variant) = self.data.variant()?;
-            if T::VARIANTS.contains(&name.as_str()) {
-                let name = seed.deserialize(StringDeserializer::<A::Error>::new(name))?;
-                return Ok((name, variant));
-            }
-            // A key's value is read past, so that a loader logs the key; a name has none to read,
-            // and is refused.
-            match variant.newtype_variant::<IgnoredAny>() {
-                Ok(_) => {
-                    self.unknown.set(true);
-                    Err(de::Error::custom("a variant this engine does not know"))
-                }
-                Err(_) => Err(de::Error::unknown_variant(&name, T::VARIANTS)),
-            }
         }
     }
 
@@ -2804,12 +3061,20 @@ over_variants!(StoreSearch {
     FriendlyName,
 });
 
-/// `Over` for a struct of options, every field merged. The fields are destructured without `..`,
-/// so a field the struct gains and this does not list fails to compile.
+/// `Over` for a struct of options: every field merged, or the struct stated whole when one field is
+/// mandatory. The fields are destructured without `..`, so a field the struct gains and this does
+/// not list fails to compile.
 macro_rules! over_fields {
     ($type:ident { $($field:ident),+ $(,)? }) => {
         impl Over for $type {
+            fn mandatory(&self) -> bool {
+                [$(self.$field.mandatory()),+].into_iter().any(|stated| stated)
+            }
+
             fn over(self, defaults: &Self) -> Self {
+                if self.mandatory() {
+                    return self;
+                }
                 let Self { $($field),+ } = self;
                 Self {
                     $($field: $field.over(&defaults.$field)),+
@@ -2955,58 +3220,13 @@ over_fields!(ReplayOptions {
 });
 over_fields!(PemCertificate { certificate, key });
 
-/// A username and its password are one credential: stating either states it, and nothing of the
-/// default's is paired with it.
-impl Over for ProxyCredentials {
-    fn over(self, defaults: &Self) -> Self {
-        let Self { username, password } = &self;
-        if username.is_some() || password.is_some() {
-            self
-        } else {
-            defaults.clone()
-        }
-    }
-}
-
-/// Credentials go with the proxy they were stated for: the default's are taken only for the same
-/// address, and whole, as `ProxyCredentials` takes them; another address is the channel's own,
-/// with its own credentials or none.
-impl Over for ProxyUrl {
-    fn over(self, defaults: &Self) -> Self {
-        let Self {
-            address,
-            username,
-            password,
-        } = self;
-        let stated = username.is_some() || password.is_some();
-        if address != defaults.address || stated {
-            return Self {
-                address,
-                username,
-                password,
-            };
-        }
-        Self {
-            address,
-            username: defaults.username.clone(),
-            password: defaults.password.clone(),
-        }
-    }
-}
-
-/// A password goes with the bundle it opens: the default's is taken only for the same path.
-impl Over for P12Certificate {
-    fn over(self, defaults: &Self) -> Self {
-        if self.path != defaults.path {
-            return self;
-        }
-        let Self { path, password } = self;
-        Self {
-            password: password.over(&defaults.password),
-            path,
-        }
-    }
-}
+over_fields!(SystemProxy { credentials });
+over_fields!(ProxyCredentials { username, password });
+over_fields!(ProxyUrl {
+    address,
+    credentials,
+});
+over_fields!(P12Certificate { path, password });
 over_fields!(StoreCertificate {
     location,
     name,
@@ -3028,11 +3248,12 @@ impl ChannelOptions {
     }
 
     /// These options over `defaults`: field by field, recursively, an option stated here winning
-    /// and one left out the default's. An alternative - how the server is verified, who the client
-    /// is, which proxy - stated over the same one merges its fields the same way, and over another
-    /// is taken whole. Options that only bound one another, such as the two backoff bounds, merge
-    /// as any option, and a merge where they disagree is refused as a document stating both would
-    /// be.
+    /// and one left out the default's, but for a group of options with a mandatory field, such as
+    /// a `Probe`, which is stated whole and replaces the default's. An alternative - how the server
+    /// is verified, who the client is, which proxy - stated over the same one merges as its
+    /// payload does, and over another is taken whole. Options that only bound one another, such as
+    /// the two backoff bounds, merge as any option, and a merge where they disagree is refused as a
+    /// document stating both would be.
     pub fn over(self, defaults: &Self) -> Self {
         Over::over(self, defaults)
     }
@@ -3052,6 +3273,7 @@ pub struct RuntimeOptions {
     /// Defaults to none: every channel then names its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "String", length(min = 1)))]
+    #[serde(deserialize_with = "within::non_empty")]
     pub endpoint: Option<String>,
 
     /// The memory the runtime holds, in two thresholds.
@@ -3061,9 +3283,10 @@ pub struct RuntimeOptions {
     pub memory_ceiling: MemoryCeilingOptions,
 
     /// Channel options every channel of the runtime takes where its own options state none: the
-    /// two are merged option by option, a struct's options within it, and the channel's win; an
-    /// alternative - how the server is verified, who the client is, which proxy - merges its fields
-    /// over the same alternative and is taken whole over another.
+    /// two are merged option by option, a struct's options within it, and the channel's win; a
+    /// group of options with a mandatory field, such as a `Probe`, is stated whole and replaces the
+    /// default's. An alternative - how the server is verified, who the client is, which proxy -
+    /// merges as its payload does over the same alternative and is taken whole over another.
     ///
     /// Defaults to none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3094,6 +3317,7 @@ pub struct MemoryCeilingOptions {
     /// value is that too.
     #[serde(default, rename = "SoftMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 9223372036854775807>")]
     pub soft_mib: Option<u64>,
 
     /// The MiB past which the runtime stops: a received message that would take the count past
@@ -3104,6 +3328,7 @@ pub struct MemoryCeilingOptions {
     /// Defaults to a quarter above `SoftMiB`.
     #[serde(default, rename = "HardMiB", skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "i64", range(min = 1)))]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 9223372036854775807>")]
     pub hard_mib: Option<u64>,
 }
 
@@ -3405,15 +3630,10 @@ mod tests {
             r#"{"Proxy":"Url"}"#,
             r#"{"Proxy":"Socks"}"#,
             r#"{"Proxy":"none"}"#,
+            r#"{"Proxy":{"Socks":{"Address":"x"}}}"#,
         ] {
             assert!(read(refused).is_err(), "{refused}");
         }
-        assert_eq!(
-            read(r#"{"Proxy":{"Socks":{"Address":"x"}}}"#)
-                .expect("a key that names none is read past")
-                .proxy,
-            None
-        );
     }
 
     /// Alternatives exclude one another by their shape: a document naming two is refused as it
@@ -3615,29 +3835,34 @@ mod tests {
         }
     }
 
-    fn url(address: &str, username: Option<&str>, password: Option<&str>) -> ProxyOptions {
+    fn credentials(pair: Option<(&str, &str)>) -> Option<ProxyCredentials> {
+        pair.map(|(username, password)| ProxyCredentials::new(username, Password::new(password)))
+    }
+
+    fn url(address: &str, pair: Option<(&str, &str)>) -> ProxyOptions {
         let mut url = ProxyUrl::new(address);
-        url.username = username.map(str::to_owned);
-        url.password = password.map(Password::new);
+        url.credentials = credentials(pair);
         ProxyOptions::Url(url)
     }
 
-    fn system(username: Option<&str>, password: Option<&str>) -> ProxyOptions {
-        ProxyOptions::System(ProxyCredentials {
-            username: username.map(str::to_owned),
-            password: password.map(Password::new),
+    fn system(pair: Option<(&str, &str)>) -> ProxyOptions {
+        ProxyOptions::System(SystemProxy {
+            credentials: credentials(pair),
         })
     }
 
     #[test]
     fn a_proxy_url_becomes_the_proxy_tunnelled_through_with_its_credentials() {
         let explicit = |config: ProxyConfig| match config.source {
-            ProxySource::Explicit(uri) => (uri.to_string(), config.username, config.password),
+            ProxySource::Explicit(uri) => {
+                let pair = config.credentials.expect("stated credentials");
+                (uri.to_string(), pair.username, pair.password)
+            }
             other => panic!("{other:?}"),
         };
 
         let (uri, username, password) = explicit(
-            url("proxy.test:3128", Some("alice"), Some("s3cret"))
+            url("proxy.test:3128", Some(("alice", "s3cret")))
                 .to_config()
                 .expect("a proxy"),
         );
@@ -3666,49 +3891,105 @@ mod tests {
         let config = ProxyOptions::None.to_config().expect("no proxy");
         assert_eq!(config.source, ProxySource::Disabled);
 
-        let (uri, _, _) = explicit(
-            url("http://[::1]:3128", None, None)
-                .to_config()
-                .expect("a bracketed IPv6 proxy"),
-        );
-        assert_eq!(uri, "http://[::1]:3128/");
+        let config = url("http://@proxy.test:3128", None)
+            .to_config()
+            .expect("an empty userinfo carries nothing");
+        assert!(config.credentials.is_none(), "none stated is none");
 
-        let refused = url("proxy.test:3128", Some("corp:alice"), Some("s3cret"))
+        let config = url("http://[::1]:3128", None)
+            .to_config()
+            .expect("a bracketed IPv6 proxy");
+        let ProxySource::Explicit(uri) = &config.source else {
+            panic!("{:?}", config.source);
+        };
+        assert_eq!(uri.to_string(), "http://[::1]:3128/");
+        assert!(config.credentials.is_none(), "none stated is none");
+
+        let refused = url("proxy.test:3128", Some(("corp:alice", "s3cret")))
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "Url.Username");
+        assert_eq!(refused.key(), "Url.Credentials.Username");
     }
 
     #[test]
     fn the_system_proxy_is_the_default_and_takes_the_dedicated_credentials() {
-        assert_eq!(ProxyOptions::default(), system(None, None));
-        let config = system(Some("alice"), None)
+        assert_eq!(ProxyOptions::default(), system(None));
+        let config = system(Some(("alice", "")))
             .to_config()
             .expect("the environment's proxy");
         assert_eq!(config.source, ProxySource::System);
-        assert_eq!(config.username, "alice");
-        assert_eq!(config.password.expose_secret(), "");
-        let refused = system(Some("corp:alice"), None)
+        let pair = config.credentials.expect("stated credentials");
+        assert_eq!(pair.username, "alice");
+        assert_eq!(
+            pair.password.expose_secret(),
+            "",
+            "an empty password is stated"
+        );
+        let none = system(None).to_config().expect("the environment's proxy");
+        assert!(none.credentials.is_none(), "none stated is none");
+        let empty = system(Some(("", "")))
+            .to_config()
+            .expect("the environment's proxy");
+        assert!(empty.credentials.is_some(), "an empty pair is stated");
+        let refused = system(Some(("corp:alice", "s3cret")))
             .to_config()
             .expect_err("a `:` in the username");
-        assert_eq!(refused.key(), "System.Username");
+        assert_eq!(refused.key(), "System.Credentials.Username");
     }
 
-    /// The system proxy's credentials are one credential over the defaults too: taken whole when
-    /// the channel states none, and not at all when it states either.
+    /// A pair of credentials has two mandatory fields, so it is stated whole: a username stated
+    /// over the default's is never paired with the default's password. The system proxy has only
+    /// optional fields, so it merges, and one that states no credentials keeps the earlier ones.
     #[test]
-    fn the_system_proxys_credentials_merge_whole() {
-        let defaults = system(Some("alice"), Some("s3cret"));
-        assert_eq!(system(None, None).over(&defaults), defaults);
+    fn the_system_proxys_credentials_are_stated_as_a_pair() {
+        let defaults = system(Some(("alice", "s3cret")));
+        assert_eq!(system(None).over(&defaults), defaults);
         assert_eq!(
-            system(Some("bob"), None).over(&defaults),
-            system(Some("bob"), None),
-            "another username takes none of the default's password"
+            system(Some(("bob", "x"))).over(&defaults),
+            system(Some(("bob", "x")))
         );
         assert_eq!(
-            system(None, Some("other")).over(&defaults),
-            system(None, Some("other"))
+            system(Some(("bob", ""))).over(&defaults),
+            system(Some(("bob", ""))),
+            "an empty password is a password"
         );
+        assert_eq!(
+            system(Some(("bob", "x"))).over(&system(None)),
+            system(Some(("bob", "x")))
+        );
+        assert_eq!(
+            ProxyOptions::None.over(&defaults),
+            ProxyOptions::None,
+            "another alternative replaces the system's"
+        );
+    }
+
+    /// Credentials stated over credentials replace them whole: a half left empty is empty, and the
+    /// earlier source's is not taken for it.
+    #[test]
+    fn credentials_over_credentials_are_the_ones_stated() {
+        let defaults = credentials(Some(("alice", "s3cret")));
+        for stated in [("bob", "x"), ("bob", ""), ("", "x"), ("", "")] {
+            assert_eq!(
+                credentials(Some(stated)).over(&defaults),
+                credentials(Some(stated)),
+                "{stated:?}"
+            );
+        }
+        assert_eq!(credentials(None).over(&defaults), defaults);
+    }
+
+    /// A pair is read whole or refused, naming what it lacks, and never quoting a password.
+    #[test]
+    fn credentials_missing_a_half_are_refused_naming_it() {
+        let read = |text: &str| serde_json::from_str::<ProxyCredentials>(text);
+        let pair = read(r#"{"Username":"bob","Password":"x"}"#).expect("a pair");
+        assert_eq!(Some(pair), credentials(Some(("bob", "x"))));
+        let refused = read(r#"{"Username":"bob"}"#).expect_err("no password");
+        assert!(refused.to_string().contains("Password"), "{refused}");
+        let refused = read(r#"{"Password":"s3cret"}"#).expect_err("no username");
+        assert!(refused.to_string().contains("Username"), "{refused}");
+        assert!(!refused.to_string().contains("s3cret"), "{refused}");
     }
 
     #[test]
@@ -3723,7 +4004,7 @@ mod tests {
             ("http://[::1]:s3cret", "http://[::1]:***"),
             ("proxy.test:3128", "proxy.test:3128"),
         ] {
-            let printed = format!("{:?}", url(address, None, None));
+            let printed = format!("{:?}", url(address, None));
             assert!(printed.contains(shown), "{address}: {printed}");
             assert!(!printed.contains("s3cret"), "{printed}");
         }
@@ -3732,17 +4013,16 @@ mod tests {
     #[test]
     fn a_proxy_refusal_names_the_address_and_quotes_neither_it_nor_a_password() {
         for options in [
-            url("https://proxy.test:443", None, None),
-            url("http://alice:s3cret@proxy.test", Some("bob"), None),
-            url("http://alice:s3cret@proxy.test", None, Some("other")),
-            url("http://proxy.test:99999", None, None),
-            url("http://proxy.test:s3cret", None, None),
-            url("http://:3128", None, None),
-            url("not a url", None, None),
-            url("http://proxy.test:3128/pac.js", None, None),
-            url("http://proxy.test:3128/?s3cret", None, None),
-            url("http://proxy.test:3128#s3cret", None, None),
-            url("http://alice@proxy.test:3128", None, None),
+            url("https://proxy.test:443", None),
+            url("http://alice:s3cret@proxy.test", Some(("bob", "other"))),
+            url("http://proxy.test:99999", None),
+            url("http://proxy.test:s3cret", None),
+            url("http://:3128", None),
+            url("not a url", None),
+            url("http://proxy.test:3128/pac.js", None),
+            url("http://proxy.test:3128/?s3cret", None),
+            url("http://proxy.test:3128#s3cret", None),
+            url("http://alice@proxy.test:3128", None),
         ] {
             let refused = options.to_config().expect_err("refused");
             assert_eq!(refused.key(), "Url.Address", "{options:?}: {refused}");
@@ -3762,6 +4042,7 @@ mod tests {
             |address: &str| ProxyOptions::UrlWithCredentials(CredentialedUrl(address.to_owned()));
         for options in [
             credentialed("http://proxy.test:3128"),
+            credentialed("http://@proxy.test:3128"),
             credentialed("https://alice:s3cret@proxy.test:443"),
             credentialed("http://alice:%FF@proxy.test:3128"),
             credentialed("http://corp%3Aalice:s3cret@proxy.test:3128"),
@@ -3782,7 +4063,7 @@ mod tests {
     fn a_document_is_checked_alone_by_its_own_paths() {
         let options = ChannelOptions {
             transport: TransportOptions {
-                proxy: Some(url("http://alice:s3cret@proxy.test:3128", None, None)),
+                proxy: Some(url("http://alice:s3cret@proxy.test:3128", None)),
                 ..TransportOptions::default()
             },
             ..ChannelOptions::default()
@@ -4514,11 +4795,9 @@ mod tests {
                 ..AdaptiveOptions::default()
             }))
         );
-        assert_eq!(
-            read(r#"{"Throttle":{"Elsewhere":true}}"#)
-                .expect("a key that names none is read past")
-                .throttle,
-            None
+        assert!(
+            read(r#"{"Throttle":{"Elsewhere":true}}"#).is_err(),
+            "a key that names none of the variants is refused"
         );
 
         let over = |own: ThrottleOptions, default: ThrottleOptions| {
@@ -4768,11 +5047,8 @@ mod tests {
         assert_eq!(merged.grpc.host.receive.window, Some(3));
         assert_eq!(
             merged.http2.keep_alive,
-            Some(Http2KeepAlive::Ping(Http2Ping {
-                while_idle: Some(true),
-                ..Http2Ping::new(Seconds(5.0))
-            })),
-            "a ping over a ping merges its fields"
+            Some(Http2KeepAlive::Ping(Http2Ping::new(Seconds(5.0)))),
+            "a ping, which has a mandatory interval, replaces the default's whole"
         );
         assert_eq!(
             merged.http2.receive,
@@ -4784,8 +5060,8 @@ mod tests {
     }
 
     /// A size in KiB, a bound in bytes and a deadline are read under the names the schema spells,
-    /// the acronym's capital included, and a state is a variant: a key spelled otherwise would be
-    /// read past, and the value never taken.
+    /// the acronym's capital included, and a state is a variant: a key spelled otherwise is
+    /// refused, and the value never taken.
     #[test]
     fn the_sizes_and_the_deadline_are_read_under_their_names_and_merged_as_variants() {
         let options: ChannelOptions = crate::configuration::Configuration::with_prefix("")
@@ -4906,12 +5182,25 @@ mod tests {
             "{refused}"
         );
 
-        for zero in [
-            r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
-            r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+        for (zero, key) in [
+            (
+                r#"{"MemoryCeiling":{"SoftMiB":0}}"#,
+                "MemoryCeiling.SoftMiB",
+            ),
+            (
+                r#"{"MemoryCeiling":{"HardMiB":0}}"#,
+                "MemoryCeiling.HardMiB",
+            ),
         ] {
-            let refused = read(zero).memory_ceiling.check().expect_err(zero);
-            assert!(refused.to_string().contains("at least 1"), "{refused}");
+            let refused = crate::configuration::Configuration::with_prefix("")
+                .document(zero)
+                .load::<RuntimeOptions>()
+                .expect_err("a ceiling of zero is out of the schema's bounds");
+            assert_eq!(refused.key(), Some(key), "{refused}");
+            assert!(
+                refused.to_string().contains("it has to be between 1 and"),
+                "{refused}"
+            );
         }
         let number = crate::configuration::Configuration::with_prefix("")
             .document(r#"{"MemoryCeiling":1048576}"#)
@@ -4920,12 +5209,11 @@ mod tests {
             number.is_err(),
             "a number where a pair is expected is refused"
         );
-        let unknown = read(r#"{"MemoryHardCeiling":1048576}"#);
-        assert_eq!(
-            unknown,
-            RuntimeOptions::default(),
-            "a key the schema does not know is ignored"
-        );
+        let unknown = crate::configuration::Configuration::with_prefix("")
+            .document(r#"{"MemoryHardCeiling":1048576}"#)
+            .load::<RuntimeOptions>()
+            .expect_err("a key the schema does not know is refused");
+        assert_eq!(unknown.key(), Some("MemoryHardCeiling"));
     }
 
     /// The two directions are stated apart, an encoding that is not named is refused, and a
@@ -5081,7 +5369,7 @@ mod tests {
     #[test]
     fn a_stated_alternative_replaces_the_default_whole() {
         let mut url = ProxyUrl::new("http://proxy.test:3128");
-        url.username = Some("someone".to_owned());
+        url.credentials = credentials(Some(("someone", "s3cret")));
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
@@ -5148,13 +5436,13 @@ mod tests {
         assert_eq!(retry.max_backoff_seconds, Some(Seconds(5.0)));
     }
 
-    /// An alternative stated over the same one merges its fields as a struct does, down to the
-    /// alternative a field of it holds - but for credentials, which another target leaves behind.
+    /// An alternative stated over the same one merges as its payload does: a payload with a
+    /// mandatory field, which each one stated here has, replaces the default's whole, an optional
+    /// field it leaves out included.
     #[test]
-    fn a_stated_alternative_over_the_same_one_merges_its_fields() {
+    fn a_stated_alternative_over_the_same_one_replaces_a_payload_with_a_mandatory_field() {
         let mut default_url = ProxyUrl::new("http://default.test:3128");
-        default_url.username = Some("alice".to_owned());
-        default_url.password = Some(Password::new("s3cret"));
+        default_url.credentials = credentials(Some(("alice", "s3cret")));
         let mut store = StoreCertificate::new(StoreSearch::FriendlyName("root".to_owned()));
         store.location = Some(StoreLocation::LocalMachine);
         let defaults = ChannelOptions {
@@ -5173,7 +5461,7 @@ mod tests {
             ..ChannelOptions::default()
         };
         let mut own_url = ProxyUrl::new("http://own.test:3128");
-        own_url.username = Some("bob".to_owned());
+        own_url.credentials = credentials(Some(("bob", "x")));
         let mut own_store = StoreCertificate::new(StoreSearch::Thumbprint("ab".to_owned()));
         own_store.name = Some("Pinned".to_owned());
         let merged = ChannelOptions {
@@ -5196,32 +5484,30 @@ mod tests {
             panic!("{:?}", merged.transport.proxy);
         };
         assert_eq!(url.address, "http://own.test:3128");
-        assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "the default's password is for another proxy"
-        );
+        assert_eq!(url.credentials, credentials(Some(("bob", "x"))));
         let Some(ServerCertificates::CaStore(store)) = &merged.transport.tls.server_certificates
         else {
             panic!("{:?}", merged.transport.tls.server_certificates);
         };
         assert_eq!(store.find, StoreSearch::Thumbprint("ab".to_owned()));
         assert_eq!(store.name.as_deref(), Some("Pinned"));
-        assert_eq!(store.location, Some(StoreLocation::LocalMachine));
+        assert_eq!(
+            store.location, None,
+            "the default's location is not combined with the store stated"
+        );
         assert_eq!(
             merged.transport.tls.client_certificate,
             Some(ClientCertificate::P12(P12Certificate::new("own.p12", None))),
-            "the default's password is for another bundle"
+            "the default's password is not paired"
         );
     }
 
-    /// Credentials stated for a target are taken for the same target: a proxy's for the same
-    /// address, and only whole, a bundle's password for the same path.
+    /// A proxy URL and a bundle have a mandatory field, so each is stated whole: nothing of the
+    /// default's credentials is taken, the same address or path included.
     #[test]
-    fn credentials_are_taken_for_the_target_they_were_stated_for() {
+    fn a_proxy_url_and_a_bundle_are_stated_whole() {
         let mut default_url = ProxyUrl::new("http://proxy.test:3128");
-        default_url.username = Some("alice".to_owned());
-        default_url.password = Some(Password::new("s3cret"));
+        default_url.credentials = credentials(Some(("alice", "s3cret")));
         let defaults = ChannelOptions {
             transport: TransportOptions {
                 tls: TlsOptions {
@@ -5236,9 +5522,9 @@ mod tests {
             },
             ..ChannelOptions::default()
         };
-        let merged_with = |username: Option<&str>| {
+        let merged_with = |pair: Option<(&str, &str)>| {
             let mut own_url = ProxyUrl::new("http://proxy.test:3128");
-            own_url.username = username.map(str::to_owned);
+            own_url.credentials = credentials(pair);
             ChannelOptions {
                 transport: TransportOptions {
                     tls: TlsOptions {
@@ -5259,23 +5545,63 @@ mod tests {
         let Some(ProxyOptions::Url(url)) = &merged.transport.proxy else {
             panic!("{:?}", merged.transport.proxy);
         };
-        assert_eq!(url.username.as_deref(), Some("alice"));
-        assert_eq!(url.password, Some(Password::new("s3cret")));
+        assert_eq!(url.credentials, None, "the default's pair is not taken");
 
-        let Some(ProxyOptions::Url(url)) = merged_with(Some("bob")).transport.proxy else {
+        let Some(ProxyOptions::Url(url)) = merged_with(Some(("bob", "x"))).transport.proxy else {
             panic!("a Url is merged into a Url");
         };
-        assert_eq!(url.username.as_deref(), Some("bob"));
-        assert_eq!(
-            url.password, None,
-            "another username takes none of the default's password"
-        );
+        assert_eq!(url.credentials, credentials(Some(("bob", "x"))));
         assert_eq!(
             merged.transport.tls.client_certificate,
-            Some(ClientCertificate::P12(P12Certificate::new(
-                "me.p12",
-                Some(Password::new("bundle"))
-            )))
+            Some(ClientCertificate::P12(P12Certificate::new("me.p12", None)))
+        );
+    }
+
+    /// A group with a mandatory field is stated whole, over the same variant or not, and one with
+    /// only optional fields merges field by field.
+    #[test]
+    fn a_group_with_a_mandatory_field_is_stated_whole() {
+        let probe = |own: TcpProbe| TransportOptions {
+            tcp_keepalive: Some(TcpKeepalive::Probe(own)),
+            ..TransportOptions::default()
+        };
+        let earlier = probe(TcpProbe {
+            interval_seconds: Some(10),
+            retries: Some(3),
+            ..TcpProbe::new(60)
+        });
+        assert_eq!(
+            probe(TcpProbe::new(30)).over(&earlier),
+            probe(TcpProbe::new(30)),
+            "the interval and the count of the earlier probe are not kept"
+        );
+        assert_eq!(
+            TransportOptions {
+                tcp_keepalive: Some(TcpKeepalive::None),
+                ..TransportOptions::default()
+            }
+            .over(&earlier)
+            .tcp_keepalive,
+            Some(TcpKeepalive::None),
+            "another variant is taken whole"
+        );
+        assert_eq!(
+            TransportOptions::default().over(&earlier),
+            earlier,
+            "a probe left out is the earlier one"
+        );
+
+        let windows = |stream: Option<i32>, connection: Option<i32>| Http2Options {
+            receive: Some(Http2ReceiveOptions::Fixed(Http2FixedWindows {
+                stream_window_bytes: stream,
+                connection_window_bytes: connection,
+            })),
+            ..Http2Options::default()
+        };
+        assert_eq!(
+            windows(Some(80_000), None).over(&windows(Some(70_000), Some(90_000))),
+            windows(Some(80_000), Some(90_000)),
+            "windows have no mandatory field"
         );
     }
 
@@ -5320,8 +5646,8 @@ mod tests {
     /// The two derives are separate readings of the same fields, and this crate makes them differ
     /// on purpose - `schemars(with = "i32")` states a schema the field's own type would not. A
     /// name they stopped agreeing on would be an option the generated C# sets and the schema
-    /// admits, which the loader reads past: nothing would refuse it, so what this asserts is that
-    /// nothing is logged as unknown.
+    /// admits, which the loader would refuse by its path: what this asserts is that the document
+    /// is read.
     #[cfg(feature = "schema")]
     #[test]
     fn every_option_the_schema_declares_is_one_serde_reads() {
@@ -5331,27 +5657,14 @@ mod tests {
 
             for alternative in 0..9 {
                 let document = a_value_for(&schema, &schema, alternative);
-                let logged = Logged::default();
-                let subscriber = tracing_subscriber::fmt()
-                    .with_writer(logged.clone())
-                    .with_ansi(false)
-                    .finish();
-
-                let read = tracing::subscriber::with_default(subscriber, || {
-                    crate::configuration::Configuration::with_prefix("")
-                        .document(document.to_string())
-                        .load::<D>()
-                });
+                let read = crate::configuration::Configuration::with_prefix("")
+                    .document(document.to_string())
+                    .load::<D>();
 
                 assert!(
                     read.is_ok(),
                     "the schema declares {document}, which the loader refuses: {}",
                     read.unwrap_err()
-                );
-                let said = logged.said();
-                assert!(
-                    said.is_empty(),
-                    "the schema declares {document}, which serde reads past: {said}"
                 );
             }
         }
@@ -5360,49 +5673,11 @@ mod tests {
         read_all::<RuntimeOptions>(&runtime_schema());
     }
 
-    /// What a subscriber writes, kept to be read back.
-    #[cfg(feature = "schema")]
-    #[derive(Clone, Default)]
-    struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-    #[cfg(feature = "schema")]
-    impl Logged {
-        fn said(&self) -> String {
-            let written = self.0.lock().unwrap_or_else(|held| held.into_inner());
-            String::from_utf8_lossy(&written).into_owned()
-        }
-    }
-
-    #[cfg(feature = "schema")]
-    impl std::io::Write for Logged {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(|held| held.into_inner())
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[cfg(feature = "schema")]
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self {
-            self.clone()
-        }
-    }
-
     /// A value each property of `node` admits, as one document naming all of them. A `oneOf`
     /// takes the alternative `alternative` picks in the base of its alternatives' count, and hands
     /// what is left of the index to the choices that alternative holds.
     ///
-    /// Values rather than a name list, because an unknown name is logged and a value of the wrong
-    /// type refused, and only a document carrying both exercises the two.
+    /// Values rather than a name list, so that the document is read as well as named.
     #[cfg(feature = "schema")]
     fn a_value_for(
         node: &serde_json::Value,
@@ -5448,9 +5723,10 @@ mod tests {
                         .collect(),
                 )
             }
-            // A value every bound in this schema admits: an integer's `minimum` is 1 where it is
-            // stated, and the timeout's is a nanosecond.
-            Some("integer") => json!(1),
+            // A value every bound in this schema admits: an integer's own `minimum` where it
+            // states one, which is below its `maximum`, and a number of 1, which the nanosecond
+            // and the multipliers' bounds admit.
+            Some("integer") => json!(node.get("minimum").and_then(Value::as_i64).unwrap_or(1)),
             Some("number") => json!(1.0),
             Some("string") => json!("x"),
             Some("boolean") => json!(true),

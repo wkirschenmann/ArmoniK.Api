@@ -1,5 +1,14 @@
 #![allow(non_camel_case_types)]
 
+// A point a test hooks to make the code panic there: nothing without the test hooks. Defined before
+// the modules, which is what makes it visible in them.
+macro_rules! at {
+    ($hook:ident, $($step:tt)+) => {
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::$hook(crate::hooks::$($step)+);
+    };
+}
+
 mod abi;
 mod blob;
 mod call;
@@ -164,8 +173,8 @@ const NULL_ARGUMENT: Refusal = Refusal::fixed(
 /// merged over.
 ///
 /// What is malformed in `config` itself - a kind it does not name, a reserved field or a flag it
-/// does not know, a value on an environment source, a prefix beside AK_CONFIG_NO_PREFIX, a byte
-/// view that is null or not UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
+/// does not know, a value on an environment source, a byte view that is null with a length or not
+/// UTF-8 - is AK_STATUS_INVALID_ARG before any source is read. A source
 /// that is refused is AK_STATUS_INVALID_ARG too, its message naming the source and the key's path,
 /// never the value; so is a loaded option the runtime cannot be created with: a ceiling of zero,
 /// an Endpoint that is not a URI, or channel defaults a channel's own document would be refused
@@ -294,9 +303,9 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
 /// `{}` is a valid configuration.
 ///
 /// The document is structured and typed, and a JSON schema states it: objects nest, and a number is
-/// a number and not a string spelled like one. A key no option declares is ignored rather than
-/// refused. That schema, `options.schema.json`, names each option with its type and, where it has
-/// them, its range and default.
+/// a number and not a string spelled like one. A key no option declares is refused by its path,
+/// at the root of the document as below it. That schema, `options.schema.json`, names each option
+/// with its type and, where it has them, its range and default.
 ///
 /// ak_channel_delivery_window reads back the delivery window the channel ended up with.
 ///
@@ -516,13 +525,18 @@ const METADATA_UNREADABLE: Refusal = Refusal::fixed(
 /// counts those being filled and those committed and awaiting their WRITE_DONE; when it is full
 /// the refusal is AK_STATUS_SLOT_BUSY, whose wake-up is this call's next WRITE_DONE. That wake-up
 /// is only meaningful because a host eligible to ask holds nothing. AK_STATUS_BUDGET_BUSY is the
-/// runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE.
+/// runtime-wide ceiling, whose wake-up is the call's next AK_EVENT_BUDGET_WAKE. On a live call
+/// neither wake-up comes before the refused lend has given back what it took, so a host woken
+/// may ask again at once.
 /// AK_STATUS_MESSAGE_TOO_LARGE is permanent. A length of zero is AK_STATUS_INVALID_ARG: an empty
 /// message needs no buffer, and ak_call_send_message sends one with none. An allocator failure for
-/// the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. A call that is over, or whose
-/// cancellation has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that
-/// declared AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a
-/// SLOT_BUSY to wait on. On every refusal no buffer is lent and `*out` is untouched.
+/// the buffer is AK_STATUS_INTERNAL: that lend is refused, and nothing else fails. So is a panic the
+/// library contains, which can only come before the host holds the buffer: the lend is refused as
+/// any other, with nothing charged, no slot of the window spent, the call's one buffer free and no
+/// wait for room recorded, so the host may ask again. A call that is over, or whose cancellation
+/// has been requested, lends nothing: AK_STATUS_INVALID_STATE; nor does a call that declared
+/// AK_CALL_ONE_REQUEST once its request is committed, no WRITE_DONE coming for a SLOT_BUSY to wait
+/// on. On every refusal no buffer is lent and `*out` is untouched.
 ///
 /// # Safety
 ///
@@ -574,6 +588,12 @@ const EMPTY_LEND: Refusal = Refusal::fixed(
 /// requested, after ak_call_end_send, and after a one-request call's commit. The buffer then stays
 /// the host's, to give back with ak_return_call_buffer.
 ///
+/// A panic the library contains is answered by what the commit had done. Before the buffer is taken
+/// to be the message it is AK_STATUS_INTERNAL, a refusal like the others: the buffer stays lent and
+/// the host's, to commit again or give back. Once the message is queued it is AK_STATUS_OK. Between
+/// the two the buffer is gone and the answer is AK_STATUS_CORRUPTED: it is taken back and the
+/// runtime shuts down.
+///
 /// # Safety
 ///
 /// `buffer` must be one this call lent and the host has not given back, and the host must have
@@ -594,21 +614,27 @@ pub unsafe extern "C" fn ak_call_send_message(
             return done(found.commit_empty());
         }
         let mut lent = (unsafe { call::take_lent(buffer.owner) }).ok_or(NOT_LENT)?;
+        at!(at_send_step, SendStep::Taken);
         // Before anything else: past an overrun, nothing the host passes alongside can be trusted.
         if lent.seal(written).is_err() {
-            Arc::clone(lent.call()).overrun(lent);
+            Arc::clone(lent.call()).overrun(lent.into_box());
             return Err(OVERRUN);
         }
+        at!(at_send_step, SendStep::Sealed);
         let Some(found) = tables::calls().get(call) else {
-            return done(call::keep(lent, ak_status::AK_STATUS_HANDLE_STALE));
+            return done(lent.keep(ak_status::AK_STATUS_HANDLE_STALE));
         };
         // The buffer names its own call, so a handle that names another one is the host's
         // mistake and not this library's to resolve.
         if !Arc::ptr_eq(lent.call(), &found) {
-            call::keep(lent, ak_status::AK_STATUS_INVALID_ARG);
+            lent.keep(ak_status::AK_STATUS_INVALID_ARG);
             return Err(ANOTHER_CALLS_BUFFER);
         }
-        done(found.commit(lent))
+        at!(at_send_step, SendStep::Resolved);
+        match found.commit(lent) {
+            ak_status::AK_STATUS_CORRUPTED => Err(LOST_TO_A_PANIC),
+            status => done(status),
+        }
     });
     unsafe { refusal::answer(out_error, answered) }
 }
@@ -624,6 +650,12 @@ const OVERRUN: Refusal = Refusal::fixed(
     "the buffer was written past its end, or committed longer than it was lent: memory may be \
      corrupted, and the runtime is shutting down",
 );
+const LOST_TO_A_PANIC: Refusal = Refusal::fixed(
+    ak_status::AK_STATUS_CORRUPTED,
+    ak_error_kind::AK_ERROR_NONE,
+    "this library panicked after it took the buffer for the message: the buffer is gone, and the \
+     runtime is shutting down",
+);
 const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
     ak_status::AK_STATUS_INVALID_ARG,
     ak_error_kind::AK_ERROR_USAGE,
@@ -637,6 +669,8 @@ const ANOTHER_CALLS_BUFFER: Refusal = Refusal::fixed(
 /// leaves the buffer with the host, except for AK_STATUS_CORRUPTED, which takes it back. A buffer
 /// given back with the bytes after its end changed is an overrun, as at the commit: it is taken
 /// back without being freed and the runtime shuts down, with no status to say so but the shutdown.
+/// So is a buffer whose bytes after its end could not be read for a contained panic. Any other
+/// panic leaves the return made: the buffer is given back and its debt paid.
 ///
 /// # Safety
 ///
@@ -647,11 +681,7 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
         let Some(lent) = (unsafe { call::take_lent(buffer.owner) }) else {
             return;
         };
-        if lent.intact() {
-            Arc::clone(lent.call()).give_back(lent);
-        } else {
-            Arc::clone(lent.call()).overrun(lent);
-        }
+        Arc::clone(lent.call()).return_buffer(lent);
     });
 }
 
@@ -675,10 +705,11 @@ pub unsafe extern "C" fn ak_return_call_buffer(buffer: ak_buffer) {
 /// requested, resizes nothing, nor does one that declared AK_CALL_ONE_REQUEST and has committed
 /// it: AK_STATUS_INVALID_STATE. A `new_len` of zero, a `keep` past
 /// `new_len`, a null `out` and a `buffer` that is not lent are AK_STATUS_INVALID_ARG. An
-/// allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made: it is
-/// a refusal like the others, with the old buffer lent and charged, so the host may retry or give
-/// it back. A panic after it, while the old memory is set aside, does not undo it: the answer is
-/// AK_STATUS_OK. A panic while taking back an overrun is AK_STATUS_CORRUPTED.
+/// allocator failure is AK_STATUS_INTERNAL, and so is a panic before the exchange is made, the
+/// ceiling's charge included, which is made whole or not at all: it is a refusal like the others,
+/// with the old buffer lent and charged, so the host may retry or give it back. A panic after it,
+/// while the old memory is set aside, does not undo it: the answer is AK_STATUS_OK. A panic while
+/// taking back an overrun is AK_STATUS_CORRUPTED.
 ///
 /// A `keep` past the length the buffer was lent at, or a write past its end that changed the bytes
 /// after it, is an overrun, as it is at the commit: AK_STATUS_CORRUPTED, the buffer taken back

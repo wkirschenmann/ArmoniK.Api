@@ -118,9 +118,15 @@ pub struct Http2Config {
 
 pub struct ProxyConfig {
     pub source: ProxySource,
-    /// `Basic` credentials, empty when unset. Beside the environment's proxy,
-    /// each half set here takes the place of the one its URL carries; beside
+    /// The `Basic` credentials stated for the proxy, or none. Beside the
+    /// environment's proxy they are sent whole in place of what its URL
+    /// carries, and its URL's own apply only when none are stated; beside
     /// the one Windows' settings name, they are its credentials.
+    pub credentials: Option<BasicCredentials>,
+}
+
+/// One pair: an empty half is an empty string, sent as such.
+pub struct BasicCredentials {
     pub username: String,
     pub password: SecretString,
 }
@@ -132,7 +138,7 @@ pub enum ProxySource {
     /// mean "no proxy" sometimes yields to configuration.
     Disabled,
     /// An `http://` URI without userinfo: the options move credentials written
-    /// in the URL into the fields above.
+    /// in the URL into `credentials`.
     Explicit(Uri),
     /// ALL_PROXY, HTTPS_PROXY, HTTP_PROXY and NO_PROXY, read when the channel
     /// is created; a loopback endpoint is dialled directly. On Windows, the

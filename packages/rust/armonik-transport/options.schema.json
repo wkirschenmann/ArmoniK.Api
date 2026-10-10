@@ -275,7 +275,7 @@
           "minLength": 1
         },
         "Password": {
-          "description": "The password the bundle is protected by.\n\nDefaults to the empty one. Taken from the runtime's channel defaults only when they name\nthe same `Path`.",
+          "description": "The password the bundle is protected by.\n\nDefaults to the empty one.",
           "type": "string",
           "writeOnly": true
         }
@@ -352,7 +352,7 @@
           "type": "object",
           "properties": {
             "System": {
-              "$ref": "#/$defs/ProxyCredentials"
+              "$ref": "#/$defs/SystemProxy"
             }
           },
           "required": [
@@ -388,21 +388,36 @@
         }
       ]
     },
+    "SystemProxy": {
+      "description": "What the system's proxy is given beside the address the system names.",
+      "type": "object",
+      "properties": {
+        "Credentials": {
+          "description": "What the proxy is authenticated to with, by `Basic`.\n\nDefaults to none. Ignored when the system names no proxy. Beside the environment's proxy,\nthey are sent whole in place of what its URL carries, and its URL's own apply only when none\nare stated; beside the one Windows' settings name, they are the credentials.",
+          "$ref": "#/$defs/ProxyCredentials"
+        }
+      },
+      "additionalProperties": false
+    },
     "ProxyCredentials": {
-      "description": "The credentials the system's proxy is authenticated to with, by `Basic`.",
+      "description": "The username and password a proxy is authenticated to with, by `Basic`. Both are stated, and\ntogether: a source that states a pair replaces the one an earlier source stated, and an empty\nhalf is an empty string, never an absent one.",
       "type": "object",
       "properties": {
         "Username": {
-          "description": "The username, which `Basic` forbids a `:` in.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the username that proxy's URL carries; beside the one Windows' settings name, it is the\nusername. Taken from the runtime's channel defaults, with their `Password`, only when these\noptions state neither.",
+          "description": "The username, which `Basic` forbids a `:` in.",
           "type": "string"
         },
         "Password": {
-          "description": "The password that goes with `Username`.\n\nIgnored when the system names no proxy. Beside the environment's proxy, it takes the place\nof the password that proxy's URL carries; beside the one Windows' settings name, it is the\npassword. Taken from the runtime's channel defaults, with their `Username`, only when these\noptions state neither.",
+          "description": "The password that goes with `Username`, empty when the proxy asks for none.",
           "type": "string",
           "writeOnly": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": [
+        "Username",
+        "Password"
+      ]
     },
     "ProxyUrl": {
       "description": "A proxy named by its address.",
@@ -414,14 +429,9 @@
           "minLength": 1,
           "writeOnly": true
         },
-        "Username": {
-          "description": "The username the proxy is authenticated to with, by `Basic`, which forbids a `:` in it.\n\nTaken from the runtime's channel defaults, with their `Password`, only when they name the\nsame `Address` and these options state neither.",
-          "type": "string"
-        },
-        "Password": {
-          "description": "The password that goes with `Username`.\n\nTaken from the runtime's channel defaults, with their `Username`, only when they name the\nsame `Address` and these options state neither.",
-          "type": "string",
-          "writeOnly": true
+        "Credentials": {
+          "description": "What the proxy is authenticated to with, by `Basic`.\n\nDefaults to none.",
+          "$ref": "#/$defs/ProxyCredentials"
         }
       },
       "additionalProperties": false,

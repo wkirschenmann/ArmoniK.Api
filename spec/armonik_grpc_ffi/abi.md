@@ -77,16 +77,21 @@ environment, pairs and documents, a later one over an earlier one (configuration
 the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
 as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
 its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
-from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A key no option
-declares is ignored rather than refused, in every source and in a channel's own document, except a field
-inside a variant's payload, which is refused; the ignored key is logged
-by the engine through `tracing`, at info, which reaches the host's log callback (observability.md).
+from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A source is a
+document judged whole against the schema: a key no option declares, the root's included, a value of
+the wrong type or out of the bounds the schema states and a missing mandatory field are refused by
+their path, in every source and in a channel's own document. A file or a document is judged on the
+section the `ak_config`'s prefix names, and the names of the environment and of pairs that start
+with it; everything else is never looked at. The prefix is always the one given: an empty one takes
+everything, so that the whole file is the engine's. `ak_config` defines no flag, so any bit is
+refused, and it has no default prefix.
 
 `ChannelDefaults` is a channel document every channel of the runtime is merged over, option by
 option and the channel's winning, which `ak_runtime_config` carries as `channel_defaults_json`. A
-struct merges field by field; an alternative - how the server is verified, who the client is, which
-proxy - is an enum, whose fields merge the same way over the same alternative, and which is taken
-whole over another, so no merge combines two alternatives into one neither stated. Options that only
+struct merges field by field, but for one with a mandatory field, which is stated whole; an
+alternative - how the server is verified, who the client is, which proxy - is an enum, which merges
+as its payload does over the same alternative, and which is taken whole over another, so no
+merge combines two alternatives into one neither stated. Options that only
 bound one another, such as the two backoff bounds, merge as any option, and a merge where they
 disagree is refused as a document stating both would be. Its schema is the channel's, so the
 generator renders `RuntimeOptions.g.cs` with `--reuse` of the channel schema and refers to the
@@ -118,9 +123,9 @@ hold it too. `AK_STATUS_MESSAGE_TOO_LARGE` asks the same ceiling for more than i
 permanent where `AK_STATUS_BUDGET_BUSY` is transient. Only a lend refused with it is woken
 by `AK_EVENT_BUDGET_WAKE`; a resize's refusal is not (see Calls). `AK_STATUS_INVALID_STATE` is a guard that
 refused - a destroy before quiescence, a start while stopping, a lend or a send on a call that
-is over or cancelled, a second end of sending - which is not a fault, and calling it `AK_STATUS_INTERNAL` would blame the
-runtime. `AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure
-included.
+is over or cancelled, a second lend while the call's one buffer is held (see Calls), a second end
+of sending - which is not a fault, and calling it `AK_STATUS_INTERNAL` would blame the runtime.
+`AK_STATUS_INTERNAL` is the fault the ABI cannot attribute, a genuine allocator failure included.
 
 #### Errors
 
@@ -329,6 +334,14 @@ and not an error, and the same race exists on `ak_call_send_message`. Lending on
 is also what makes destruction sound: a released runtime has no live call, so nothing can hand
 its memory back out.
 
+`AK_STATUS_INVALID_STATE` answers a second lend as well: a call has one buffer, and a lend is
+refused while the host holds it. That is a host bug and not backpressure, and so is a lend from
+another thread while a lend or a resize of the same call has not returned. A host woken by
+`AK_EVENT_WRITE_DONE` or `AK_EVENT_BUDGET_WAKE` is not lending beside another: on a live call
+neither event reaches it while a lend of the call is still being answered, so a refused lend
+has given back everything it took, the call's one buffer included, and the host may ask again
+at once.
+
 A length of zero is refused with `AK_STATUS_INVALID_ARG`: an empty message needs no buffer, and
 `ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. That send takes
 a slot of the window and gets its `AK_EVENT_WRITE_DONE` like any other.
@@ -350,20 +363,41 @@ A refusal leaves `buffer` lent, charged and the host's, and `*out` as it was:
 when `new_len` is past the ceiling, `AK_STATUS_INVALID_STATE` on a call that is over or cancelled,
 or one-request and committed, `AK_STATUS_INVALID_ARG` for a `new_len` of zero, a `keep` past it, a
 null `out` or a buffer that is not lent, and `AK_STATUS_INTERNAL` for an allocator failure or for a
-panic the library contains before the exchange is made, and such a panic leaves the buffer lent
-and charged and `*out` as it was, so a host may retry and then give the buffer back. A panic after
-the exchange is made is answered `AK_STATUS_OK`, and one while an overrun is taken back is
-`AK_STATUS_CORRUPTED`, the runtime shutting down. A
-`keep` past what was lent, or a write past the end of the buffer that changed the bytes the
-library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`, the buffer taken back
-unfreed, nothing carried over, the runtime shutting down. `AK_STATUS_BUDGET_BUSY` here records no
-wait and owes no `AK_EVENT_BUDGET_WAKE`: a wait is the lend's, made by a host that holds nothing,
-and one that holds a buffer while it waits is room the others wait for. A host that waits gives
-the buffer back and lends the new length. `ak_call_debt_of` counts one buffer lent before, during
-and after an exchange.
+contained panic (below). A `keep` past what was lent, or a write past the end of the buffer that
+changed the bytes the library put after it, is the overrun of a commit: `AK_STATUS_CORRUPTED`,
+the buffer taken back unfreed, nothing carried over, the runtime shutting down.
+`AK_STATUS_BUDGET_BUSY` here records no wait and owes no `AK_EVENT_BUDGET_WAKE`: a wait is the
+lend's, made by a host that holds nothing, and one that holds a buffer while it waits is room the
+others wait for. A host that waits gives the buffer back and lends the new length.
+`ak_call_debt_of` counts one buffer lent before, during and after an exchange.
+
+A panic the library contains in `ak_get_call_buffer`, `ak_call_send_message` or
+`ak_resize_call_buffer` is answered by what the operation had done when it happened, and the
+buffer is as that answer says:
+
+- Before the buffer is used up - for a lend, before the host holds it; for a commit, before its
+  arena is taken to be the message; for a resize, before the exchange is made, which includes the
+  ceiling's charge, moved in one step or not at all - the answer is `AK_STATUS_INTERNAL`, a
+  refusal like an allocator failure. A buffer the host held stays lent, charged and the host's,
+  and `*out` as it was, so the host may retry or give the buffer back. A lend refused by a
+  contained panic holds nothing: nothing is charged, no slot of the window is spent, the call's one
+  buffer is free, no wait for room is recorded and `*out` is untouched, so the host may ask again.
+- Once the operation is made - the message queued, or on a one-request call given; the exchange
+  made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
+- Between the two, where the buffer is gone and the operation was not made - a commit whose arena
+  was taken to be the message and is not queued, or an overrun being taken back - the answer is
+  `AK_STATUS_CORRUPTED`: the buffer is taken back and the runtime shuts down.
+
+A buffer that is gone has its debt paid, which is what lets that shutdown complete.
+`ak_return_call_buffer` has no answer: its debt is paid whatever a panic meets, and a panic while
+it reads the bytes after the end of the buffer treats the buffer as an overrun, taken back without
+being freed, with the runtime shutting down.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
-refused as the others are - nothing charged, no slot spent - while the runtime carries on.
+refused as the others are - nothing charged, no slot spent - while the runtime carries on. A
+refused lend, whether for an allocator failure or a panic, pays what it took part by part,
+whatever a panic in one part does to the others, so a runtime whose lend was refused still reaches
+`QUIESCENT` with nothing owed and no byte charged.
 
 A lend refused with `AK_STATUS_BUDGET_BUSY` leaves the call waiting on that length until a lend
 of it succeeds or the call ends, and every release that gives bytes back meanwhile owes the call

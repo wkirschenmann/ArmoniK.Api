@@ -97,21 +97,34 @@ pub(super) fn spawn(state: &Arc<CallState>, task: CallTask) {
 async fn budget_wakes(state: Arc<CallState>, done: oneshot::Sender<()>) {
     let mut over = state.over.subscribe();
     loop {
+        // The wake-up is raised once the select is done with the borrow `wait_for` returns, which
+        // is not `Send` and must not be held across an await.
         tokio::select! {
             biased;
             _ = over.wait_for(|over| *over) => break,
-            () = state.waiter.notified() => {
-                if state.waiter.take_owed() && state.accepts_work() {
-                    state.in_callback(|| {
-                        state
-                            .host
-                            .signal(state.ctx, ak_event_kind::AK_EVENT_BUDGET_WAKE)
-                    });
-                }
-            }
+            () = state.waiter.notified() => {}
         }
+        wake_for_budget(&state).await;
     }
     let _ = done.send(());
+}
+
+/// Raises the wake-up a release owes the call, once no lend of it is still answering: a lend
+/// refused for the budget has then given back what it took, and the host may ask again from
+/// inside the callback. A lend served meanwhile, on the second try of its charge, has ended
+/// the wait the wake-up was owed to, and the host that holds its buffer is owed none.
+async fn wake_for_budget(state: &CallState) {
+    let Some(wait) = state.waiter.take_owed() else {
+        return;
+    };
+    state.lend_answered().await;
+    if state.accepts_work() && state.waiter.still_waits(wait) {
+        state.in_callback(|| {
+            state
+                .host
+                .signal(state.ctx, ak_event_kind::AK_EVENT_BUDGET_WAKE)
+        });
+    }
 }
 
 async fn writer(
@@ -143,27 +156,24 @@ async fn write_until_closed(
         let command = if draining {
             commands.recv().await
         } else {
-            tokio::select! {
+            let next = tokio::select! {
                 biased;
                 _ = over.wait_for(|over| *over) => {
                     commands.close();
                     draining = true;
                     continue;
                 }
-                // Raised here, by the writer the end waits for before the terminal, so the
-                // terminal stays the call's last callback.
-                () = state.waiter.notified() => {
-                    if state.waiter.take_owed() && state.accepts_work() {
-                        state.in_callback(|| {
-                            state
-                                .host
-                                .signal(state.ctx, ak_event_kind::AK_EVENT_BUDGET_WAKE)
-                        });
-                    }
-                    continue;
-                }
-                command = commands.recv() => command,
-            }
+                () = state.waiter.notified() => None,
+                command = commands.recv() => Some(command),
+            };
+            // Raised here, by the writer the end waits for before the terminal, so the terminal
+            // stays the call's last callback; and outside the select, which holds the borrow
+            // `wait_for` returns, not `Send`, while its arms run.
+            let Some(command) = next else {
+                wake_for_budget(state).await;
+                continue;
+            };
+            command
         };
 
         let Some(command) = command else { break };
@@ -194,11 +204,14 @@ async fn write_until_closed(
                         "a send accepted at the lend was refused by the transport: {sent:?}"
                     );
                 }
-                // Given back inside the callback, so a host that lends again on WRITE_DONE finds
-                // the room the message it just sent freed rather than a refusal it cannot explain.
+                // Given back before the WRITE_DONE, so a host that lends again on it finds the
+                // room the message it just sent freed rather than a refusal it cannot explain. And
+                // raised once no lend is answering: one refused for the slot has given its claim
+                // back by then.
+                state.window.add_permits(1);
+                state.ledger.release_bytes(charged);
+                state.lend_answered().await;
                 state.in_callback(|| {
-                    state.window.add_permits(1);
-                    state.ledger.release_bytes(charged);
                     state
                         .host
                         .signal(state.ctx, ak_event_kind::AK_EVENT_WRITE_DONE)

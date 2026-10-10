@@ -179,7 +179,7 @@ namespace ArmoniK.Api.Client.Submitter
                                        ILogger?        logger,
                                        ILoggerFactory? loggerFactory)
     {
-      var configuration = new NativeConfiguration().LoadConfigFromObject(new RuntimeOptions
+      var configuration = new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(new RuntimeOptions
                                                                          {
                                                                            ChannelDefaults = NativeClientOptions.Translate(new GrpcClient(),
                                                                                                                            false),

@@ -53,10 +53,7 @@ struct Both {
 }
 
 fn both(fixture: &Fixture, staged: &Staged) -> Both {
-    let mut configuration = match &fixture.prefix {
-        None => Configuration::new(),
-        Some(prefix) => Configuration::with_prefix(prefix),
-    };
+    let mut configuration = Configuration::with_prefix(&fixture.prefix);
     let mut values = Vec::new();
     for source in &fixture.sources {
         let (kind, value) = match source {
@@ -123,13 +120,8 @@ fn every_fixture_creates_the_runtime_or_earns_the_refusal_the_loader_gives() {
             .iter()
             .map(|(kind, value)| source(*kind, value))
             .collect();
-        let (prefix, flags) = match fixture.prefix.as_deref() {
-            None => ("", 0),
-            Some("") => ("", AK_CONFIG_NO_PREFIX),
-            Some(prefix) => (prefix, 0),
-        };
         let loaded = configuration.load::<RuntimeOptions>();
-        let created = Host::from_config(&config(&sources, prefix.as_bytes(), flags));
+        let created = Host::from_config(&config(&sources, fixture.prefix.as_bytes(), 0));
         let name = &fixture.name;
 
         match (&fixture.outcome, loaded, created) {
@@ -200,13 +192,13 @@ fn a_malformed_structure_is_refused_before_any_source_is_read() {
         ),
         ("a value that is not UTF-8", vec![absent, not_utf8], b"", 0),
         ("a null view with a length", vec![absent, null_view], b"", 0),
-        (
-            "a prefix beside AK_CONFIG_NO_PREFIX",
-            vec![absent],
-            b"ArmoniK__Client__Grpc",
-            AK_CONFIG_NO_PREFIX,
-        ),
         ("a flag no one defines", vec![absent], b"", 2),
+        (
+            "a flag of one, which no one defines either",
+            vec![absent],
+            b"",
+            1,
+        ),
         ("a prefix that is not UTF-8", vec![absent], &[0xff], 0),
     ];
     for (what, sources, prefix, flags) in malformed {

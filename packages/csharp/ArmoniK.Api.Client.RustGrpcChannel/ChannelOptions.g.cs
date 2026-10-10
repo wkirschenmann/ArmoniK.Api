@@ -639,10 +639,7 @@ public abstract record ClientCertificate
     public string Path { get; init; } = Path ?? throw new ArgumentNullException(nameof(Path));
 
     /// <summary>The password the bundle is protected by.</summary>
-    /// <remarks>
-    ///   Defaults to the empty one. Taken from the runtime's channel defaults only when they name
-    ///   the same <c>Path</c>.
-    /// </remarks>
+    /// <remarks>Defaults to the empty one.</remarks>
     public string? Password { get; init; }
 
     /// <inheritdoc />
@@ -966,39 +963,18 @@ public abstract record ProxyOptions
   /// </remarks>
   public sealed record System : ProxyOptions
   {
-    /// <summary>The username, which <c>Basic</c> forbids a <c>:</c> in.</summary>
+    /// <summary>What the proxy is authenticated to with, by <c>Basic</c>.</summary>
     /// <remarks>
-    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    ///   of the username that proxy's URL carries; beside the one Windows' settings name, it is the
-    ///   username. Taken from the runtime's channel defaults, with their <c>Password</c>, only when these
-    ///   options state neither.
+    ///   Defaults to none. Ignored when the system names no proxy. Beside the environment's proxy,
+    ///   they are sent whole in place of what its URL carries, and its URL's own apply only when none
+    ///   are stated; beside the one Windows' settings name, they are the credentials.
     /// </remarks>
-    public string? Username { get; init; }
-
-    /// <summary>The password that goes with <c>Username</c>.</summary>
-    /// <remarks>
-    ///   Ignored when the system names no proxy. Beside the environment's proxy, it takes the place
-    ///   of the password that proxy's URL carries; beside the one Windows' settings name, it is the
-    ///   password. Taken from the runtime's channel defaults, with their <c>Username</c>, only when these
-    ///   options state neither.
-    /// </remarks>
-    public string? Password { get; init; }
+    public ProxyCredentials? Credentials { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
     {
-      // The schema bounds nothing here.
-    }
-
-    /// <summary>The fields, a secret one elided.</summary>
-    protected override bool PrintMembers(global::System.Text.StringBuilder builder)
-    {
-      builder.Append("Username = ");
-      builder.Append((object?)Username);
-      builder.Append(", Password = ");
-      builder.Append(Password is null ? "null" : "***");
-
-      return true;
+      Credentials?.Validate();
     }
   }
 
@@ -1015,19 +991,9 @@ public abstract record ProxyOptions
     /// </summary>
     public string Address { get; init; } = Address ?? throw new ArgumentNullException(nameof(Address));
 
-    /// <summary>The username the proxy is authenticated to with, by <c>Basic</c>, which forbids a <c>:</c> in it.</summary>
-    /// <remarks>
-    ///   Taken from the runtime's channel defaults, with their <c>Password</c>, only when they name the
-    ///   same <c>Address</c> and these options state neither.
-    /// </remarks>
-    public string? Username { get; init; }
-
-    /// <summary>The password that goes with <c>Username</c>.</summary>
-    /// <remarks>
-    ///   Taken from the runtime's channel defaults, with their <c>Username</c>, only when they name the
-    ///   same <c>Address</c> and these options state neither.
-    /// </remarks>
-    public string? Password { get; init; }
+    /// <summary>What the proxy is authenticated to with, by <c>Basic</c>.</summary>
+    /// <remarks>Defaults to none.</remarks>
+    public ProxyCredentials? Credentials { get; init; }
 
     /// <inheritdoc />
     public override void Validate()
@@ -1037,6 +1003,8 @@ public abstract record ProxyOptions
         throw new ArgumentOutOfRangeException(nameof(Address),
                                               "Address has to be at least 1 character long.");
       }
+
+      Credentials?.Validate();
     }
 
     /// <summary>The fields, a secret one elided.</summary>
@@ -1044,10 +1012,8 @@ public abstract record ProxyOptions
     {
       builder.Append("Address = ");
       builder.Append(Address is null ? "null" : "***");
-      builder.Append(", Username = ");
-      builder.Append((object?)Username);
-      builder.Append(", Password = ");
-      builder.Append(Password is null ? "null" : "***");
+      builder.Append(", Credentials = ");
+      builder.Append((object?)Credentials);
 
       return true;
     }
@@ -1130,16 +1096,14 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         writer.WriteStartObject();
         writer.WriteStartObject("System");
 
-        if (system.Username is string username)
+        if (system.Credentials is ProxyCredentials credentials)
         {
+          writer.WriteStartObject("Credentials");
           writer.WriteString("Username",
-                             username);
-        }
-
-        if (system.Password is string password)
-        {
+                             credentials.Username);
           writer.WriteString("Password",
-                             password);
+                             credentials.Password);
+          writer.WriteEndObject();
         }
 
         writer.WriteEndObject();
@@ -1154,16 +1118,14 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         writer.WriteString("Address",
                            url.Address);
 
-        if (url.Username is string username)
+        if (url.Credentials is ProxyCredentials credentials)
         {
+          writer.WriteStartObject("Credentials");
           writer.WriteString("Username",
-                             username);
-        }
-
-        if (url.Password is string password)
-        {
+                             credentials.Username);
           writer.WriteString("Password",
-                             password);
+                             credentials.Password);
+          writer.WriteEndObject();
         }
 
         writer.WriteEndObject();
@@ -1180,6 +1142,41 @@ internal sealed class ProxyOptionsJsonConverter : JsonConverter<ProxyOptions>
         break;
       }
     }
+  }
+}
+
+/// <summary>
+///   The username and password a proxy is authenticated to with, by <c>Basic</c>. Both are stated, and
+///   together: a source that states a pair replaces the one an earlier source stated, and an empty
+///   half is an empty string, never an absent one.
+/// </summary>
+/// <param name="Username">The username, which <c>Basic</c> forbids a <c>:</c> in.</param>
+/// <param name="Password">The password that goes with <c>Username</c>, empty when the proxy asks for none.</param>
+public sealed record ProxyCredentials(string Username,
+                                      string Password)
+{
+  /// <summary>The username, which <c>Basic</c> forbids a <c>:</c> in.</summary>
+  public string Username { get; init; } = Username ?? throw new ArgumentNullException(nameof(Username));
+
+  /// <summary>The password that goes with <c>Username</c>, empty when the proxy asks for none.</summary>
+  public string Password { get; init; } = Password ?? throw new ArgumentNullException(nameof(Password));
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public void Validate()
+  {
+    // The schema bounds nothing here.
+  }
+
+  /// <summary>The fields, a secret one elided.</summary>
+  private bool PrintMembers(global::System.Text.StringBuilder builder)
+  {
+    builder.Append("Username = ");
+    builder.Append((object?)Username);
+    builder.Append(", Password = ");
+    builder.Append(Password is null ? "null" : "***");
+
+    return true;
   }
 }
 

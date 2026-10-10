@@ -147,33 +147,33 @@ public class EngineLogTests
   }
 
   [Test]
-  public async Task AnUnknownKeyIsLoggedAtInformationByTheEngineWithItsSourceAndPath()
+  public async Task ADirectiveTheFilterDoesNotUnderstandIsLoggedAtWarningByTheEngineWithItsText()
   {
     var factory = new CollectingFactory();
-    await Run(logs => NativeRuntime.Create(new NativeConfiguration("").LoadConfigFromCommandLine(new[]
-                                                                                                 {
-                                                                                                   "--Misspelled=1",
-                                                                                                 }),
+    await Run(logs => NativeRuntime.Create(new RuntimeOptions
+                                           {
+                                             Logging = new LoggingOptions
+                                                       {
+                                                         Filter = "h2=loud",
+                                                       },
+                                           },
                                            logs),
               factory,
               async _ =>
               {
-                var seen = await factory.WaitFor(entry => entry.Text.Contains("does not know"))
+                var seen = await factory.WaitFor(entry => entry.Text.Contains("not understood"))
                                         .ConfigureAwait(false);
                 Assert.Multiple(() =>
                                 {
                                   Assert.That(seen.Level,
-                                              Is.EqualTo(LogLevel.Information));
+                                              Is.EqualTo(LogLevel.Warning));
                                   Assert.That(seen.Category,
-                                              Is.EqualTo("armonik_transport::configuration"));
-                                  Assert.That(seen.State!.Any(pair => pair.Key == "key" && (string?)pair.Value == "Misspelled"),
-                                              Is.True,
-                                              seen.Text);
-                                  Assert.That(seen.State!.Any(pair => pair.Key == "source" && (string?)pair.Value == "pairs"),
+                                              Is.EqualTo("armonik_transport_ffi::log"));
+                                  Assert.That(seen.State!.Any(pair => pair.Key == "directive" && (string?)pair.Value == "h2=loud"),
                                               Is.True,
                                               seen.Text);
                                   Assert.That(seen.Text,
-                                              Does.Contain("key=Misspelled"));
+                                              Does.Contain("directive=h2=loud"));
                                   Assert.That(seen.Thread,
                                               Is.Not.EqualTo(Environment.CurrentManagedThreadId),
                                               "written from a thread of the binding's, never the engine's or the caller's");
@@ -307,12 +307,11 @@ public class EngineLogTests
   }
 
   [Test]
-  public void ACreationTheEngineRefusesStillWritesWhatItsLoadLogged()
+  public void ACreationTheEngineRefusesRoutesNothingToTheFactory()
   {
     var factory = new CollectingFactory();
     var configuration = new NativeConfiguration("").LoadConfigFromCommandLine(new[]
                                                                                {
-                                                                                 "--Aaa=1",
                                                                                  "--MemoryCeiling:SoftMiB=many",
                                                                                });
 
@@ -320,8 +319,8 @@ public class EngineLogTests
                                            factory),
                 Throws.InvalidOperationException);
 
-    Assert.That(factory.All.Select(seen => seen.Text),
-                Has.Some.Contains("does not know"));
+    Assert.That(factory.All,
+                Is.Empty);
     Assert.That(EngineLog.Current,
                 Is.Null);
   }
