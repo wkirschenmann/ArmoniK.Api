@@ -46,6 +46,14 @@ impl Panicking {
         Self
     }
 
+    /// Makes every give of a call's one request panic once the request is given.
+    fn after_the_request_is_given() -> Self {
+        armonik_transport::hooks::after_request_given(Some(Arc::new(|| {
+            panic!("injected once the request is given")
+        })));
+        Self
+    }
+
     /// Makes the payment of every buffer that is over for the host panic on reaching `step`.
     fn in_repay_at(step: RepayStep) -> Self {
         hooks::at_each_repay_step(Some(Arc::new(move |reached| {
@@ -62,6 +70,7 @@ impl Drop for Panicking {
         hooks::at_each_send_step(None);
         hooks::at_each_return_step(None);
         hooks::at_each_repay_step(None);
+        armonik_transport::hooks::after_request_given(None);
     }
 }
 
@@ -322,6 +331,43 @@ fn a_panic_in_a_part_of_the_accounting_of_a_given_request_does_not_refuse_it() {
             ak_runtime_state::AK_RUNTIME_RUNNING,
             "{context}"
         );
+        fixture.close();
+    }
+}
+
+/// A panic once the request is given, where its driver is woken, does not unmake it: the answer is
+/// OK, the debt is paid once and the call goes on, for a request in a buffer and for the empty one.
+#[test]
+fn a_panic_once_the_request_is_given_does_not_refuse_it() {
+    let _turn = take_turn();
+    for empty in [false, true] {
+        let context = if empty {
+            "the empty request"
+        } else {
+            "a request in a buffer"
+        };
+        let fixture = Host::connected();
+        let (host, channel) = (&fixture.host, fixture.channel);
+        let call = Shape::OneRequest.start(channel);
+        let (buffer, written, received) = if empty {
+            (support::empty_buffer(), 0, vec![Vec::new()])
+        } else {
+            (lent_with_hello(call), 5, Shape::OneRequest.received())
+        };
+
+        let panicking = Panicking::after_the_request_is_given();
+        let status = send(call, buffer, written);
+        drop(panicking);
+
+        assert_eq!(status, ak_status::AK_STATUS_OK, "{context}");
+        assert_eq!(debt_of(call).buffers_lent, 0, "{context}");
+        assert_eq!(
+            ak_runtime_status(host.runtime),
+            ak_runtime_state::AK_RUNTIME_RUNNING,
+            "{context}"
+        );
+        assert_eq!(Shape::OneRequest.finish(host, call), received, "{context}");
+        assert_eq!(memory_usage(host.runtime).bytes_used, 0, "{context}");
         fixture.close();
     }
 }

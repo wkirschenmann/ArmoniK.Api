@@ -117,6 +117,7 @@ impl CountingBench {
 pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 
 static IN_DRIVER: Mutex<Option<Hook>> = Mutex::new(None);
+static AFTER_REQUEST_GIVEN: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
@@ -183,8 +184,18 @@ pub(crate) fn attempt_ended(origin: &Origin, code: GrpcStatusCode, pushback: Pus
     }
 }
 
+/// Runs `hook` in every give of a call's one request, once the request is given and its driver
+/// woken. `None` removes it.
+pub fn after_request_given(hook: Option<Hook>) {
+    set(&AFTER_REQUEST_GIVEN, hook);
+}
+
 pub(crate) fn run_in_driver() {
     run(&IN_DRIVER);
+}
+
+pub(crate) fn run_after_request_given() {
+    run(&AFTER_REQUEST_GIVEN);
 }
 
 pub(crate) fn run_in_dial() {

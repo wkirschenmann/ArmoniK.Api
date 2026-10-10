@@ -671,7 +671,7 @@ impl CallState {
     ///
     /// The point of no return is as the stream's commit has it: the buffer is the host's until the
     /// arena is taken to be the message, and the request, once given, is made whatever a panic in
-    /// its accounting does.
+    /// waking its driver or in its accounting does.
     fn commit_one(self: &Arc<Self>, request: &OneRequest, lent: Option<Taken>) -> ak_status {
         let refused = |lent: Option<Taken>| match lent {
             Some(lent) => lent.keep(ak_status::AK_STATUS_INVALID_STATE),
@@ -691,15 +691,23 @@ impl CallState {
 
         let charged = lent.as_ref().map(|lent| lent.charged);
         let mut lent = lent;
+        // Set when the message is made: `give` stores it with nothing that can panic in between.
+        let mut made = false;
         let given = catch_unwind(AssertUnwindSafe(|| {
             at!(at_send_step, SendStep::Ending);
-            request.give(|| match lent.take() {
-                Some(lent) => self.frame(lent),
-                None => FramedMessage::empty(),
+            request.give(|| {
+                let message = match lent.take() {
+                    Some(lent) => self.frame(lent),
+                    None => FramedMessage::empty(),
+                };
+                made = true;
+                message
             })
         }));
         let given = match given {
             Ok(given) => given,
+            // The request is given, and what panicked is the wake-up of its driver.
+            Err(_) if made => true,
             Err(panic) => {
                 // The arena was taken and the request is not given: the buffer is gone.
                 if let (Some(charged), None) = (charged, &lent) {

@@ -157,6 +157,9 @@ pub struct OneRequest(Arc<Slot>);
 impl OneRequest {
     /// Gives the call its request, which `make` builds only if the call takes it: false, with
     /// `make` not called, once the call was given one or has ended.
+    ///
+    /// The request is given as soon as `make` returns: nothing between the two can panic, so a
+    /// panic that follows, in waking the call's driver, leaves it given.
     pub fn give(&self, make: impl FnOnce() -> FramedMessage) -> bool {
         let mut given = self.0.given();
         if !matches!(*given, Given::Waiting) {
@@ -165,6 +168,8 @@ impl OneRequest {
         *given = Given::Request(make());
         drop(given);
         self.0.arrived.notify_one();
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::run_after_request_given();
         true
     }
 }
