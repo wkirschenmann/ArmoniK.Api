@@ -185,6 +185,38 @@ pub(crate) fn retried(
     }
 }
 
+/// The slot of [`crate::metrics::Stats::retries`] a retry of the failure that ended an attempt
+/// counts in, `list` being the failures the policy retries.
+pub(crate) fn retry_slot(list: &[Cause], origin: &Origin, code: GrpcStatusCode) -> usize {
+    use crate::metrics::{
+        reset_slot, RETRY_CONNECTION, RETRY_DIAL, RETRY_HTTP_AT, RETRY_HTTP_SLOTS,
+        RETRY_HTTP_STATUSES, RETRY_PUSHBACK, RETRY_RESET_AT,
+    };
+
+    // The policy reads a GOAWAY and a request never sent as the connection's end.
+    if matches!(origin, Origin::GoAway | Origin::Unsent) {
+        return RETRY_CONNECTION;
+    }
+    match Cause::of(origin, code) {
+        Some(cause) if list.contains(&cause) => match cause {
+            Cause::Status(code) => (code as usize).saturating_sub(1).min(15),
+            Cause::Http(status) => {
+                RETRY_HTTP_AT
+                    + RETRY_HTTP_STATUSES
+                        .iter()
+                        .position(|listed| *listed == status)
+                        .unwrap_or(RETRY_HTTP_SLOTS - 1)
+            }
+            Cause::Reset(reason) => RETRY_RESET_AT + reset_slot(reason),
+            Cause::Pushback => RETRY_PUSHBACK,
+            Cause::Dial => RETRY_DIAL,
+            Cause::Connection => RETRY_CONNECTION,
+        },
+        // Named by the pushback alone.
+        _ => RETRY_PUSHBACK,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

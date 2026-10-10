@@ -37,21 +37,13 @@ internal static unsafe partial class NativeMethods
                     RuntimeInformation.ProcessArchitecture.ToString()
                                       .ToLowerInvariant());
 
+  // Runs before the first call into the engine, and settles which build of it that call loads.
   static NativeMethods()
-  {
-    try
-    {
-      var beside = Path.Combine(EngineDirectory,
-                                Library + ".dll");
-      if (File.Exists(beside))
-      {
-        LoadLibrary(beside);
-      }
-    }
-    catch
-    {
-    }
-  }
+    => NativeLibrarySelection.Commit();
+
+  /// <summary>Raises why the build asked for is missing, once the declarations' static constructor has run.</summary>
+  internal static void Prepare()
+    => NativeLibrarySelection.ThrowIfNotFound();
 
   /// <summary>The engine's log callback, which the generated declarations carry as a plain pointer.</summary>
   [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -59,7 +51,7 @@ internal static unsafe partial class NativeMethods
                                      ak_log_record* record);
 
   [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-  private static extern IntPtr LoadLibrary(string path);
+  internal static extern IntPtr LoadLibrary(string path);
 }
 
 internal unsafe partial struct ak_error

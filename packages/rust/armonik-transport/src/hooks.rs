@@ -63,6 +63,56 @@ impl EstimateBench {
     }
 }
 
+/// The counting points of the engine, alone, for the benchmark of what they cost.
+pub struct CountingBench {
+    metrics: crate::metrics::Metrics,
+    call: crate::metrics::CallCounters,
+    conn: crate::metrics::ConnCounters,
+    sniffer: crate::metrics::Sniffer,
+    frame: Vec<u8>,
+}
+
+impl CountingBench {
+    /// Counts into `metrics`, as the channels that share a registry do; the counters of a call
+    /// and of a connection are this value's own, as each task's are.
+    pub fn new(metrics: crate::metrics::Metrics) -> Self {
+        // A DATA frame of 16 KiB: nine bytes of header and its payload.
+        let mut frame = vec![0, 0x40, 0, 0, 0, 0, 0, 0, 1];
+        frame.resize(9 + 0x4000, 0);
+        Self {
+            metrics,
+            call: crate::metrics::CallCounters::new(),
+            conn: crate::metrics::ConnCounters::new(),
+            sniffer: crate::metrics::Sniffer::new(),
+            frame,
+        }
+    }
+
+    /// A message sent and a message received: what a unary call counts per message.
+    pub fn messages(&self) {
+        self.call.message_sent(100, 90);
+        self.call.message_received();
+    }
+
+    /// A read of a connection of one DATA frame of 16 KiB: its bytes counted and its frame read.
+    pub fn read(&mut self) {
+        self.conn.bytes_read(self.frame.len());
+        self.sniffer.feed(&self.frame, &self.conn);
+    }
+
+    /// A call's whole life in the registry: its counters made, registered, ended and let go.
+    pub fn call_lifecycle(&self) {
+        let counters = crate::metrics::CallCounters::new();
+        let guard = self.metrics.start_call(&counters);
+        guard.end(crate::grpc::GrpcStatusCode::Ok);
+    }
+
+    /// A retry, which is added under a shard's lock.
+    pub fn retry(&self) {
+        self.metrics.retry(|| 13);
+    }
+}
+
 /// What a hook runs on the thread that ends an attempt.
 pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 

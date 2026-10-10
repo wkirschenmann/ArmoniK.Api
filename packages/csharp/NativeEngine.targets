@@ -17,6 +17,11 @@
   <Import Project="$(MSBuildThisFileDirectory)RustTargets.props" />
 
   <PropertyGroup>
+    <!-- The engine is built twice: as it is, and with its `metrics` feature, the second in a target
+         directory of its own (where cargo puts both under one file name) so that neither build
+         replaces the other and a change to one does not rebuild the other. NativeEngineMetrics
+         `false` builds the first alone. -->
+    <NativeEngineMetrics Condition="'$(NativeEngineMetrics)' == ''">true</NativeEngineMetrics>
     <!-- NativeEngineH2Batch `true` builds the engine against h2-batch's patch of h2, through its
          recipe, which needs bash: packages/rust/patches/h2-batch/README.md. -->
     <NativeEngineCargo>cargo</NativeEngineCargo>
@@ -86,6 +91,16 @@
          fails here rather than in anything a reader would connect to the C toolchain. -->
     <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
            Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
+
+    <!-- The build with the counters, which lands in target/metrics/[triple]/. -->
+    <Exec Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true'"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics $(RustProfileFlag)"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="CargoMetricsExitCode" />
+    </Exec>
+    <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true' AND '$(CargoMetricsExitCode)' != '0'"
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoMetricsExitCode)). It needs the environment the build without the feature does.$(_NativeEngineCargoNeeds)" />
   </Target>
 
 </Project>

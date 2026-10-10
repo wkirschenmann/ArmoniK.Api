@@ -20,6 +20,7 @@ use tokio::net::TcpStream;
 use tower_service::Service;
 
 use crate::coalesce::Coalescing;
+use crate::metrics::ConnCounters;
 use crate::proxy::ProxyConnector;
 use crate::proxy::ProxyError;
 pub use crate::proxy::{BasicCredentials, ProxyConfig, ProxySource};
@@ -603,6 +604,7 @@ pub(crate) async fn open<E, B>(
     connector: &TransportConnector,
     endpoint: &Uri,
     executor: E,
+    conn: ConnCounters,
 ) -> Result<
     (
         SendRequest<B>,
@@ -640,7 +642,7 @@ where
                 builder.adaptive_window(true);
             }
         }
-        let handshake = builder.handshake(Coalescing::new(io, http2.write_coalescing));
+        let handshake = builder.handshake(Coalescing::new(io, http2.write_coalescing, conn));
         // The patched h2 takes the connection's frames per write from the poll that makes its
         // codec, which is one of this handshake's.
         #[cfg(h2_batch)]
