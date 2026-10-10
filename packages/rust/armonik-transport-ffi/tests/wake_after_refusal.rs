@@ -230,6 +230,87 @@ fn asked_at_the_write_done(step: RepayStep) {
     host.stop();
 }
 
+/// The most times a WRITE_DONE may read the claim while it waits for a lend that answers late: the
+/// read that finds the lend and the one that records the wait. A wait that polled would read it
+/// for as long as the lend takes.
+const READS_WHILE_WAITING: usize = 2;
+
+/// A WRITE_DONE held back for a lend answering waits to be told the lend has answered: the
+/// channel's thread does nothing meanwhile, however long the lend takes.
+#[test]
+fn a_write_done_waits_for_a_lend_answering_without_polling() {
+    let _turn = take_turn();
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel_with(&server.endpoint, ONE_SLOT);
+    let call = start_call(channel, COLLECT, &[]);
+
+    let gate = Arc::new(Gate::default());
+    let _unhook = Unhook {
+        recorder: &host.recorder,
+        gate: Arc::clone(&gate),
+    };
+    let reaction_gate = Arc::clone(&gate);
+    host.recorder.react(Some(Arc::new(move |kind| {
+        if kind == ak_event_kind::AK_EVENT_INITIAL_METADATA {
+            reaction_gate.hold()
+        }
+    })));
+
+    let holder = start_call_flagged(channel, ECHO, &[], AK_CALL_ONE_REQUEST);
+    let (status, request) = lend(holder, 4);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_send_message(holder, request, 4, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+    poll_until(
+        || gate.holding.load(Ordering::SeqCst),
+        || "the gate never held the channel's thread".to_owned(),
+    );
+    let (status, first) = lend(call, ASKED);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    assert_eq!(
+        unsafe { ak_call_send_message(call, first, ASKED, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+
+    // The refused lend is held before it pays anything back, its claim still taken, while the
+    // writer sends the first message and comes to its WRITE_DONE.
+    let lender = std::thread::current().id();
+    let read = Arc::new(Mutex::new(None));
+    let (opener, reads) = (Arc::clone(&gate), Arc::clone(&read));
+    hooks::at_each_repay_step(Some(Arc::new(move |reached| {
+        if reached != RepayStep::Begun || std::thread::current().id() != lender {
+            return;
+        }
+        let before = hooks::claim_reads();
+        opener.open();
+        std::thread::sleep(HOLD);
+        *reads.lock().unwrap_or_else(PoisonError::into_inner) = Some(hooks::claim_reads() - before);
+    })));
+    let (status, _) = lend(call, ASKED);
+    hooks::at_each_repay_step(None);
+    assert_eq!(status, ak_status::AK_STATUS_SLOT_BUSY);
+
+    let reads = read
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .expect("the refused lend was held");
+    assert!(
+        (1..=READS_WHILE_WAITING).contains(&reads),
+        "the WRITE_DONE read the claim {reads} times while the lend was held"
+    );
+    host.recorder.await_write_done();
+    assert_eq!(
+        unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+    host.recorder.await_terminals(2);
+    ak_channel_release(channel);
+    host.stop();
+}
+
 /// A ceiling that another call's lend of `HELD` leaves too little of for a lend of `ASKED`.
 const SMALL_CEILING: u64 = 64;
 const HELD: usize = 60;

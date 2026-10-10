@@ -143,6 +143,18 @@ pub(crate) fn count_new_arena() {
     NEW_ARENAS.fetch_add(1, Ordering::SeqCst);
 }
 
+static CLAIM_READS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many times a WRITE_DONE or a BUDGET_WAKE about to be raised has read whether a lend of its
+/// call is answering.
+pub fn claim_reads() -> usize {
+    CLAIM_READS.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_claim_read() {
+    CLAIM_READS.fetch_add(1, Ordering::SeqCst);
+}
+
 static SPARES_KEPT: AtomicUsize = AtomicUsize::new(0);
 
 /// How many arenas channels have kept as spares.

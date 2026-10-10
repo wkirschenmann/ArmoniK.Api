@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use armonik_transport::grpc::{CallControl, CallDriver, FramedMessage, OneRequest, SendHalf};
-use tokio::sync::{mpsc, watch, Semaphore};
+use tokio::sync::{mpsc, watch, Notify, Semaphore};
 
 use crate::abi::{ak_buffer, ak_call_debt, ak_handle, ak_status};
 use crate::channel::AkChannel;
@@ -56,7 +56,7 @@ pub(crate) enum Command {
 struct Debt {
     payloads: AtomicU32,
     /// The call's one buffer: 0 when free, `HELD` while the host holds it, `LENDING` while a lend
-    /// that claimed it has not answered.
+    /// that claimed it has not answered, with `WAITED` once a wake-up waits for that answer.
     buffers: AtomicU32,
     callbacks: AtomicU32,
     terminal: AtomicBool,
@@ -64,6 +64,7 @@ struct Debt {
 
 const HELD: u32 = 1;
 const LENDING: u32 = 2;
+const WAITED: u32 = 4;
 
 impl Debt {
     fn quiet(&self) -> bool {
@@ -123,6 +124,8 @@ pub(crate) struct CallState {
     sending: AtomicU32,
     /// The send this call has refused for room, and the wake-up a release owes it.
     waiter: Arc<Waiter>,
+    /// Told when a lend answers that a wake-up waits for.
+    answered: Notify,
     turn: Arc<ReadTurn>,
     handle: ak_handle,
     // The channel itself, not its name: leaving it is not optional, and a name would make it
@@ -273,7 +276,7 @@ impl CallState {
     /// The claim reads `LENDING` until the lend answers, and no WRITE_DONE or BUDGET_WAKE is
     /// raised while it does (`lend_answered`): a refused lend has paid everything back, its claim
     /// included, before the wake-up it waits for reaches a host that may ask again from inside
-    /// the callback. What it costs a lend served is the store that hands the claim to the host.
+    /// the callback. What it costs a lend served is the exchange that hands the claim to the host.
     pub(crate) fn lend(self: &Arc<Self>, len: usize) -> Result<ak_buffer, ak_status> {
         if self
             .debt
@@ -299,7 +302,7 @@ impl CallState {
         };
 
         if lent.is_ok() {
-            self.debt.buffers.store(HELD, Ordering::Release);
+            self.answer_claim(HELD);
             std::mem::forget(lending);
         }
         lent
@@ -311,9 +314,55 @@ impl CallState {
     /// A read-modify-write rather than a load, for the WRITE_DONE, whose slot is given back before
     /// this: a lend that claims after it reads from it, and so sees that slot. One that claimed
     /// before it is what it waits for, and that lend waits on nothing of the channel's.
+    ///
+    /// The wait is told when the lend answers, and the channel's thread does nothing meanwhile: a
+    /// lend runs on a host thread, which the system may hold back for as long as it likes.
     pub(super) async fn lend_answered(&self) {
-        while self.debt.buffers.fetch_or(0, Ordering::SeqCst) == LENDING && self.live() {
-            tokio::task::yield_now().await;
+        if !self.lend_answering() {
+            return;
+        }
+        let mut over = self.over.subscribe();
+        loop {
+            let answered = self.answered.notified();
+            tokio::pin!(answered);
+            // Waiting before the claim is read again, so the answer that follows the read wakes it.
+            answered.as_mut().enable();
+            if !self.lend_answering() {
+                return;
+            }
+            // The lend tells only a wait it sees recorded on the claim.
+            if self
+                .debt
+                .buffers
+                .compare_exchange(
+                    LENDING,
+                    LENDING | WAITED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_err_and(|claim| claim & WAITED == 0)
+            {
+                continue;
+            }
+            tokio::select! {
+                biased;
+                () = &mut answered => {}
+                _ = over.wait_for(|over| *over) => return,
+            }
+        }
+    }
+
+    /// Whether a lend of this call that claimed its one buffer has not answered, on a live call.
+    fn lend_answering(&self) -> bool {
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::count_claim_read();
+        self.debt.buffers.fetch_or(0, Ordering::SeqCst) & LENDING != 0 && self.live()
+    }
+
+    /// Hands the claim on from a lend answering, and tells a wake-up that waits for that answer.
+    fn answer_claim(&self, to: u32) {
+        if self.debt.buffers.swap(to, Ordering::SeqCst) & WAITED != 0 {
+            self.answered.notify_waiters();
         }
     }
 
@@ -754,7 +803,7 @@ impl CallState {
         });
         guard_void(|| {
             // The claim is this payment's alone, whether a lend made it or the host holds it.
-            self.debt.buffers.store(0, Ordering::SeqCst);
+            self.answer_claim(0);
             at!(at_repay_step, RepayStep::Counted);
         });
         guard_void(|| self.moved_on());

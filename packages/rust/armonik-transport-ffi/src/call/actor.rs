@@ -6,7 +6,7 @@ use armonik_transport::grpc::{
     SendHalf,
 };
 use bytes::Bytes;
-use tokio::sync::{mpsc, oneshot, watch, Semaphore};
+use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
 use super::lent::lend_payload;
 use super::{CallServices, CallState, CallTask, Command, Debt, ReadTurn, Requests};
@@ -41,6 +41,7 @@ pub(super) fn create(
         over: watch::channel(false).0,
         sending: AtomicU32::new(0),
         waiter: Arc::new(Waiter::default()),
+        answered: Notify::new(),
         turn,
         channel,
         handle,
