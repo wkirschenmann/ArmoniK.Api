@@ -309,12 +309,15 @@ numbers, and the calls whose send waits are owed their wake-up, as after any rel
 lend's room check and both ceiling invariants read `memory_used`, so they see these bytes: a
 lend can be refused because the engine holds part of the budget, which a model without the term
 would have admitted. `RuntimeCreate` waits for the engine to hold nothing, as it waits for the
-predecessor to be destroyed, because the count is one for all runtimes.
+predecessor to be destroyed: a restriction of the model, which keeps one counter where the code
+keeps a ledger per runtime.
 
 The fairness is on one instance, `EngineGivesBackAllBytes`, which gives back everything the
 engine holds. Giving back some would not serve: takes are unbounded in the model, and an
 engine that gave a byte back and took a byte would keep the count up for ever. The code makes
-one copy per message, so its count reaches zero once its messages stop. The model has no copy to
+one copy per message, so its count reaches zero once its messages stop: the conjunct is the
+runtime's step and an assumption on the application, that its compressed sending stops, and
+the fairness table lists it apart from what the runtime owes. The model has no copy to
 count, so the fairness says the engine's holdings drain, and `EngineBytesEventuallyGivenBack`
 is what it buys. The takes carry none, nor does a partial give-back. The weak form is enough:
 whenever the engine holds something the step is enabled, and it stays enabled until it is taken.
@@ -556,9 +559,10 @@ New liveness guarantees:
 
 - **EngineBytesEventuallyGivenBack**: the bytes the engine holds for itself are given back -
   `HasEngineHeldBytes ~> ~HasEngineHeldBytes`. A copy goes with the message that holds it, so
-  what the engine keeps is dropped, and this is what the fairness on `EngineGivesBackAllBytes`
-  buys: without it the engine's share of the counter could stand for ever and no send refused
-  for room would be promised room. It says nothing about what the engine takes meanwhile
+  what the engine keeps is dropped once the application's compressed sending stops, and this is
+  what the fairness on `EngineGivesBackAllBytes`, an assumption on the application, buys:
+  without it the engine's share of the counter could stand for ever and no send refused for
+  room would be promised room. It says nothing about what the engine takes meanwhile
 
 - **RefusedSendEventuallyHasRoom**: a send refused for room eventually has room while it
   waits - or stops waiting, its call having ended, or the runtime failed. The room is in the
@@ -571,7 +575,8 @@ New liveness guarantees:
   received, every call then drains - its metadata and each message it holds delivered and
   given back, on a ladder its delivery window bounds - every buffer out is freed, the
   accounting leaves on the counter what the engine holds, and room is seen at a state where
-  the engine holds nothing, which `EngineBytesEventuallyGivenBack` brings about: there the
+  the engine holds nothing, which `EngineBytesEventuallyGivenBack` brings about under the same
+  assumption on the application's compressed sending: there the
   counter is zero and the request is its own witness. The engine may take bytes again at once,
   so what the property gives is a state with room and not a room that stays. Without the
   hold, received bytes would keep the counter up under steady traffic and nothing would fall.
@@ -589,7 +594,8 @@ host owes are exactly the obligations a level-2 binding has to discharge.
 
 | Owed by | Conjuncts | What it means |
 | --- | --- | --- |
-| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle`, `EngineGivesBackAllBytes` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
+| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
+| Rust runtime, assumed of the application | `EngineGivesBackAllBytes` | An assumption that the application's compressed sending stops, not something the library guarantees |
 | FFI layer | `DeliverInitialMetadata`, `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
 | Host (binding + application) | `DeliveryCallbackReturns`, `WriteDoneReturns`, `ShutdownCallbackReturns`, `ResourcesReleasedCallbackReturns`, `HostConsumesEvent`, `HostReturnsBuffer` | Six hypotheses the ABI imposes and cannot enforce |
 
@@ -834,7 +840,9 @@ rather than restated.
   per level-1 family the runtime and the FFI dispatch owe - `PassNetworkSend`,
   `PassDeliverStatus`, `PassEmitWriteDone`, `PassEmitBudgetWake` and the rest, each of
   them the level-1 action beside a managed stutter - and `PassWriteDoneReturns`, the
-  engine's return of a one-request call's acquittal.  The transfer is one for one: a
+  engine's return of a one-request call's acquittal.  One is the exception to the tier's
+  name: `PassEngineGivesBackAllBytes` is the runtime's step but carries level 1's assumption
+  that the application's compressed sending stops.  The transfer is one for one: a
   projection lemma says the level-2 step is the level-1 step, and PTL turns the pair into
   the level-1 weak fairness.  Two wait while a one-request commit seals, the status's and
   the acquittal's, so their transfer goes through `SealingPasses`: a call seals once at
@@ -1436,9 +1444,9 @@ the artefact rather than left to rot:
 | Element | Status |
 |---------|--------|
 | Specification described in this document | Current |
-| Model-checking configurations | Ten configurations exist - six at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
+| Model-checking configurations | At levels 1 and 0, twelve configurations exist - eight at level 1, four at level 0 - and running them is not part of this gate: every property they would check is proved by tlapm, over unbounded constants where the configurations would fix `Ceiling = 3` and unit messages. They are kept for exploration and debugging - a checker that prints a counterexample trace is the fastest way to understand a broken draft - not as evidence |
 | Level 1, by windows at `--stretch 1` | **13803 obligations, all proved, at `--threads 2` with the cache enabled**, summed over three windows, plus **23 obligations** for `FfiGrpcEnabledTheorems_proofs` - the three conditional-enabledness theorems, which live in their own pair for the reason given below, so the level's total is 13826. A single pass with the cache disabled is the stronger verification: with the optimized tlapm build (`qdelamea-aneo/tlapm`, `/root/tlapm-opt-wil`) it is fast enough to iterate on, and it is the only count free of the obligations two adjacent windows would both cover |
-| Level 0, one pass at `--stretch 1` | **1805 obligations, all proved, 2m13s at `--threads 12`**, this revision - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
+| Level 0, one pass at `--stretch 1` | **1809 obligations, all proved, at `--threads 8` with the cache disabled** - the event-trace conjuncts `EventStreamShape` and `MessageEventsMatchDelivered` joined `SafetyCore`, so the level-0 module changed and was re-proved in full |
 | A scatter of failures clustered by *backend* is a resource signature | At `--threads 4` on a machine where other provers were running, the same module returned 12 failures and **every one of them named `Isa`** - including steps untouched for weeks and unrelated to each other. Isabelle is the first backend to exhaust its budget under contention. Read the failing lines before theorizing about the goals they carry: the cluster was diagnosed twice as a property of `Fairness` before anyone looked at the method column. Every Isabelle call in the module carries `IsaT(600)` - a ceiling and not a cost, so a step needing two seconds still takes two, and an Isabelle failure now means a proof defect rather than contention |
 | Where Isabelle is irreducible | Extracting one weak-fairness conjunct at a fixed identifier needs a backend that can instantiate a lemma whose conclusion is a conjunction of `WF_` atoms. `PTL` cannot instantiate; **Zenon cannot read `WF_` at all**. Four `QED` steps that were only doing modus ponens on a quantifier-free antecedent moved to `PTL`; the seven citations of `FairnessAtCall` and its siblings cannot move, and the three `QED`s whose antecedent crosses a bounded quantifier cannot either |
 | `ExpandENABLED` and `TypeOK` | Never expand `TypeOK` in the `BY` of an `ExpandENABLED` call. `FreeBufferEnabled` resisted every backend, budgets to 300s and `--stretch 5` while its DEF list carried `TypeOK`: the expansion piles one membership conjunct per variable onto a goal that is already an existential over every primed variable, and the solver stops finding the witness. Use `TypeOK` only in the step that establishes `vars' # vars` beforehand - here a prime-free disequality on the `EXCEPT` - and cite it as an opaque fact in the `ExpandENABLED` step. The same proof then closes at `--stretch 1`. It surfaced when the free began writing a variable of its own, because while a variable is unconstrained the solver refutes "nothing changed" by varying it and never walks the long path |
@@ -1559,7 +1567,7 @@ refinement.
 | `AdmitRead` | the call's read loop, before it asks for its next message, finds the count below the first threshold lowered by the largest length a refused send waits on. Held back, it waits for a release or for that send to be served |
 | `NetworkReceive` | the read loop has the next message decoded and charges its length, the count staying at or below the second threshold |
 | `EndCallPastHardCeiling` | the decoded message would take the count past the second threshold: the call ends with `RESOURCE_EXHAUSTED` and the message is dropped, never charged |
-| `engine_held`, `EngineTakesBytes`, `EngineGivesBackBytes` | `CopyBudget` in `armonik-transport-ffi/src/ledger.rs`. The term is the bytes the ledger holds for compressed copies. `EngineTakesBytes` is `Ledger::hold_copy`, called by `CopyBudget::charge` once the copy is made: the bounded CAS on the byte count against the first threshold. A refusal returns no charge, the copy is dropped and the message goes out uncompressed, so it is no step of the model. `EngineGivesBackBytes` is `Ledger::release_copy`, run when the charge goes with the message that holds the copy, written or not: the bytes come off the count and the sends that wait are owed their wake-up. The count a shutdown waits on does not move for either, which is why no quiescence condition reads the term. The fairness instance, `EngineGivesBackAllBytes`, is every message that holds a copy being dropped |
+| `engine_held`, `EngineTakesBytes`, `EngineGivesBackBytes` | `CopyBudget` in `armonik-transport-ffi/src/ledger.rs`. The term is the bytes the ledger holds for compressed copies. `EngineTakesBytes` is `Ledger::hold_copy`, called by `CopyBudget::charge` once the copy is made: the bounded CAS on the byte count against the first threshold. A refusal returns no charge, the copy is dropped and the message goes out uncompressed, so it is no step of the model. `EngineGivesBackBytes` is `Ledger::release_copy`, run when the charge goes with the message that holds the copy, written or not: the bytes come off the count and the sends that wait are owed their wake-up. The count a shutdown waits on does not move for either, which is why no quiescence condition reads the term. The fairness instance, `EngineGivesBackAllBytes`, is every message that holds a copy being dropped, which holds once the application's compressed sending stops: an assumption on the application |
 | `EmitBudgetWake` | the call's task invokes the callback with `AK_EVENT_BUDGET_WAKE`, after a release that gave bytes back while the call's send waited |
 | `NetworkSend` / `ReceiveStatus` | internal to the `grpc` module, not observable at the ABI |
 | `RuntimeFail` | any unrecoverable runtime fault - but not reaching the configured ceiling, which is a refusal, nor a genuine allocator failure inside `ak_get_call_buffer`, which refuses that lend with `AK_STATUS_INTERNAL` and changes nothing level 1 carries; the model leaves the state that follows unconstrained |

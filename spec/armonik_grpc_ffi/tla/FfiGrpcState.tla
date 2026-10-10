@@ -139,9 +139,10 @@ VARIABLES
 \* refusal: a message is admitted to be read below the first threshold, and the
 \* second decides whether it is kept, so the count is what the ABI publishes
 \* whichever side moved it.
-\* Global rather than per runtime: RuntimeCreate requires every other runtime
-\* destroyed and the engine to hold nothing, so the bytes of at most one
-\* runtime are ever counted.
+\* Global rather than per runtime, a restriction of the model: the code keeps
+\* a ledger per runtime, the model one counter.  RuntimeCreate requires every
+\* other runtime destroyed and the engine to hold nothing, so the counter
+\* holds the bytes of one runtime at most.
     last_lend_status,            \* per call: the last lend's answer
     buffer_charge,               \* per call, per buffer: the bytes allocated
     buffer_length,               \* per call, per buffer: the bytes exposed

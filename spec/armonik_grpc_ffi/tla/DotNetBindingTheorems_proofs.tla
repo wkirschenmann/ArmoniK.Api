@@ -2636,7 +2636,7 @@ LEMMA FinishedOnlyByTerminal ==
 (*                                                                         *)
 (* Both follow from the inductive core rather than joining it: the core is  *)
 (* already proved inductive and carries them, so each costs one step here   *)
-(* instead of a conjunct in thirty-nine machine lemmas.                     *)
+(* instead of a conjunct in forty-five machine lemmas.                     *)
 (***************************************************************************)
 
 LEMMA PrologueTailPreserved ==
@@ -19990,8 +19990,8 @@ LEMMA PassesRequestCallCancellation ==
 (* THE MANAGED LAYER IS PRESERVED BY EVERY STEP                            *)
 (*                                                                         *)
 (* One citation per disjunct of Next and nothing else: the work is in the   *)
-(* sixty lemmas above - thirty-nine for this level's own actions and        *)
-(* twenty-one for the steps the runtime takes underneath it.                *)
+(* sixty-eight lemmas above - forty-five for this level's own actions and  *)
+(* twenty-three for the steps the runtime takes underneath it.             *)
 (***************************************************************************)
 
 LEMMA ManagedLayerPreserved ==
@@ -25997,8 +25997,8 @@ LEMMA AcquittalStaysComing ==
 (*                                                                         *)
 (* Facts about level-1 and level-0 variables alone, proved over those      *)
 (* levels' own Next and reached through the refinement of the step: their  *)
-(* forty-one and nineteen disjuncts are cheaper than this level's sixty,   *)
-(* every one of which rides on one of theirs.                              *)
+(* forty-two and nineteen disjuncts are cheaper than this level's          *)
+(* sixty-eight, every one of which rides on one of theirs.                 *)
 (***************************************************************************)
 
 LEMMA StepIsALevelOneStep ==

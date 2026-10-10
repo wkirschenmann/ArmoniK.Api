@@ -9,8 +9,9 @@
 (*     and 1 is inherited through it; L0!Spec follows by transitivity      *)
 (*     from level 1's RefinesSpec, never re-proved here.                   *)
 (*  2. The six host fairness conjuncts of L1!Fairness become theorems.     *)
-(*     The other fifteen - the runtime's and the FFI dispatch's - are      *)
-(*     taken verbatim into Fairness below.                                 *)
+(*     The other fifteen - the runtime's and the FFI dispatch's, one of    *)
+(*     them an assumption on the application - are taken verbatim into     *)
+(*     Fairness below.                                                     *)
 (*  3. The managed-side contract: the caller-owned runtime and its         *)
 (*     generations, the single reader, the single writer completing at     *)
 (*     WRITE_DONE, the managed completions, the roots, and the dispose     *)
@@ -964,7 +965,8 @@ Next ==
 (* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)
 (* A conjunct names a step of this module and promises it eventually       *)
 (* fires, so what each tier owes is legible from what it names: the        *)
-(* runtime's fifteen families, the binding's own machinery, and four       *)
+(* runtime's fifteen families, one of them an assumption on the            *)
+(* application's compressed sending, the binding's own machinery, and four *)
 (* hypotheses about application code.  Nothing is assumed in level 1's     *)
 (* tuple - level 1's fairness is a conclusion here, derived from these     *)
 (* conjuncts and from nothing else, which is what makes this level a       *)
@@ -973,14 +975,17 @@ Next ==
 (* The tier a conjunct sits in is a claim about who guarantees it, so a    *)
 (* step that waits on user code belongs to the application however much    *)
 (* binding code surrounds it: the two marshaller returns are there, not    *)
-(* here.  Serialization settling is disjunction fairness - which branch    *)
-(* fires is the allocator's or the marshaller's business, that one fires   *)
-(* is what is promised.  The budget wait is not a disjunction:             *)
-(* CancelWriterWait is one action whose guard names several causes, and    *)
-(* nothing promises a successful retry, so no fairness here implies the    *)
-(* budget ever becomes available.  No slot wait exists at all: a write     *)
-(* completes at its WRITE_DONE, so the next lend always finds the window   *)
-(* open, which ManagedWriterNeverObservesSlotBusy states.                  *)
+(* here.  One conjunct of the runtime's tier is the exception, and says so *)
+(* where it is stated: PassEngineGivesBackAllBytes is the runtime's step,  *)
+(* and it holds only once the application's compressed sending stops.      *)
+(* Serialization settling is disjunction fairness - which branch fires is  *)
+(* the allocator's or the marshaller's business, that one fires is what is *)
+(* promised.  The budget wait is not a disjunction: CancelWriterWait is    *)
+(* one action whose guard names several causes, and nothing promises a     *)
+(* successful retry, so no fairness here implies the budget ever becomes   *)
+(* available.  No slot wait exists at all: a write completes at its        *)
+(* WRITE_DONE, so the next lend always finds the window open, which        *)
+(* ManagedWriterNeverObservesSlotBusy states.                              *)
 (**************************************************************************)
 
 \* The runtime's own steps, named one at a time.  Passthrough takes them
@@ -1047,7 +1052,10 @@ SerializationSettles(cId) ==
 
 \* What the runtime owes, one conjunct per level-1 family, each carried by
 \* the passthrough that is that family and nothing more.  The transfer to
-\* level 1 is one for one.
+\* level 1 is one for one.  PassEngineGivesBackAllBytes is the runtime's
+\* step but holds only once the application's compressed sending stops:
+\* an assumption on the application, here because its step is the
+\* runtime's.
 RuntimeOwedFairness ==
     \* accepted sends reach the wire, so a committed write can be acquitted
     /\ \A cId \in CallIds : WF_vars(PassNetworkSend(cId))
@@ -1082,7 +1090,8 @@ RuntimeOwedFairness ==
     \* a closing channel closes, so its calls end and its handle can go
     /\ \A chId \in ChannelIds : WF_vars(PassChannelFinishClosing(chId))
     \* the copies the engine holds are dropped with their messages, so the
-    \* byte budget is not held for ever by what only the engine keeps
+    \* byte budget is not held for ever by what only the engine keeps: level
+    \* 1's assumption that the application's compressed sending stops
     /\ WF_vars(PassEngineGivesBackAllBytes)
 
 \* What the binding owes: steps whose only wait is on the binding's own

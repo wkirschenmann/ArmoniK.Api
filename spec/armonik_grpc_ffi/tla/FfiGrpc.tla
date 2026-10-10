@@ -617,8 +617,8 @@ NoOtherRuntimeOutstanding(rtId) ==
 RuntimeCreate(rtId) ==
     /\ L0!RuntimeCreate(rtId)
     /\ NoOtherRuntimeOutstanding(rtId)
-    \* The counter is one for all runtimes, so the copies of a destroyed one
-    \* are gone before its successor starts.
+    \* A restriction of the model, which keeps one counter where the code keeps
+    \* a ledger per runtime: a successor starts once the engine holds nothing.
     /\ ~HasEngineHeldBytes
     /\ UNCHANGED ffi_vars
 
@@ -1736,23 +1736,26 @@ LivenessProperties ==
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
 (* Twenty-one action families under WF, all individual, and which side     *)
-(* owes each one is what the three groups below record.                    *)
+(* owes each one, or what it rests on, is what the four groups below       *)
+(* record.                                                                 *)
 (*                                                                         *)
-(* The Rust runtime owes eleven: NetworkSend, ReceiveStatus,               *)
-(* EmitWriteDone, EmitBudgetWake, RuntimeRelease, EmitShutdownComplete,    *)
-(* EmitResourcesReleased, ChannelFinishClosing, FreeReturnedBuffer,        *)
-(* ReleaseCallHandle and EngineGivesBackAllBytes.  These are its own       *)
-(* threads and its own allocator, and its own code inside a downcall -     *)
-(* ReleaseCallHandle is taken where the last debt clears, on the host's    *)
-(* thread too - so nothing outside the library can stall them.             *)
+(* The Rust runtime owes ten: NetworkSend, ReceiveStatus, EmitWriteDone,   *)
+(* EmitBudgetWake, RuntimeRelease, EmitShutdownComplete,                   *)
+(* EmitResourcesReleased, ChannelFinishClosing, FreeReturnedBuffer and     *)
+(* ReleaseCallHandle.  These are its own threads and its own allocator,    *)
+(* and its own code inside a downcall - ReleaseCallHandle is taken where   *)
+(* the last debt clears, on the host's thread too - so nothing outside the *)
+(* library can stall them.                                                 *)
 (*                                                                         *)
-(* The last one says that what the engine holds drains: a copy goes with   *)
-(* the message that holds it, written or not, and a message ends with its  *)
-(* call, so every copy is dropped.  The model has no copy to name, so the  *)
-(* fairness is on the whole of what is held.  Giving back some would not   *)
-(* do: the engine takes without bound here, and one that gave a byte back  *)
-(* and took a byte would keep the count up for ever.  The code makes one   *)
-(* copy per message, so its count reaches zero once its messages stop.     *)
+(* One more, EngineGivesBackAllBytes, is the runtime's step and an         *)
+(* assumption on the application: that its compressed sending stops.  A    *)
+(* copy goes with the message that holds it, written or not, so the code's *)
+(* count reaches zero once the messages that make copies stop; under       *)
+(* compressed sending that never stops the engine may hold some copy at    *)
+(* every instant, and the conjunct does not hold.  The model has no copy   *)
+(* to name, so the fairness is on the whole of what is held.  Giving back  *)
+(* some would not do: the engine takes without bound here, and one that    *)
+(* gave a byte back and took a byte would keep the count up for ever.      *)
 (* Taking and giving back some carry none: neither is owed, and the        *)
 (* counter falling is all that a waiting send needs.                       *)
 (*                                                                         *)
@@ -1807,7 +1810,8 @@ Fairness ==
     \* Reclaiming a call is the runtime's own step, not a downcall, so the
     \* runtime is the side that owes it.
     /\ \A cId \in CallIds : WF_vars(ReleaseCallHandle(cId))
-    \* The copies the engine holds go with their messages.
+    \* The runtime's step, assumed of the application: its compressed sending
+    \* stops, so the copies, which go with their messages, all go.
     /\ WF_vars(EngineGivesBackAllBytes)
 
 Spec == Init /\ [][Next]_vars /\ Fairness

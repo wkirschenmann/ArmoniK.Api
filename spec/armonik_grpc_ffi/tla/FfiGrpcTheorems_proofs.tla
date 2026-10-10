@@ -1445,8 +1445,8 @@ LEMMA NextPreservesAccounting ==
     DEF MemoryAccountingExact, BytesHeldByEngine
 <1>8. QED BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>9, <1>10, <1>11
 
-\* The counter never passes the second threshold.  The two steps that add are
-\* guarded under it - a lend under the first, which is lower - and the three
+\* The counter never passes the second threshold.  The four steps that add are
+\* guarded under it - three under the first, which is lower - and the steps
 \* that subtract give back naturals.
 LEMMA NextPreservesCeiling ==
     ASSUME TypeOK, MemoryWithinHardCeiling, [Next]_vars
