@@ -75,6 +75,23 @@
     <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- The build with the counters, where NativeLibrarySelection looks for it: runtimes/[rid]/metrics,
+       and [architecture]/metrics on .NET Framework. The native-metrics transport selects it. -->
+  <Target Name="CopyNativeMetricsEngineForBenchmarks" AfterTargets="CopyNativeEngineForBenchmarks"
+          Condition="'$(SkipNativeEngine)' != 'true' AND '$(NativeEngineMetrics)' != 'false'">
+    <PropertyGroup>
+      <BenchEngineRid>@(HostRustTarget)</BenchEngineRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltMetricsEngine Include="$(RustWorkspace)target\metrics\$(BenchEngineTriple)\$(RustProfile)\$(BenchEngineLibrary)" />
+    </ItemGroup>
+    <Error Condition="'@(BuiltMetricsEngine)' == '' OR !Exists('%(BuiltMetricsEngine.FullPath)')"
+           Text="no metrics build of $(BenchEngineLibrary) in $(RustWorkspace)target\metrics\$(BenchEngineTriple)\$(RustProfile); build the binding with -p:NativeEngineRids for this architecture" />
+    <Copy SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)runtimes\$(BenchEngineRid)\metrics\" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
+          SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\metrics\" SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- And beside a published benchmark, which loads nothing from the output directory. -->
   <Target Name="CopyNativeEngineToPublishDirectory" AfterTargets="Publish"
           DependsOnTargets="CopyNativeEngineForBenchmarks"
