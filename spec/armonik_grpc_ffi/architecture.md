@@ -421,9 +421,10 @@ overshoot the second threshold bounds.
 reads stop is lowered by the largest length waiting, and goes back once that send is served or
 its call ends. Without it, received bytes would keep the count from falling under steady
 traffic, and a refused send could wait forever - level 1's `RefusedSendEventuallyHasRoom` is
-proved from that hold. The length and not the charge: a refused charge may exceed the first
-threshold, while a length past it is `MESSAGE_TOO_LARGE`, so the lowered threshold is never below
-zero.
+proved from that hold and from an assumption on the application, that its compressed sending
+stops, under which the engine gives back the copies it holds. The length and not the charge: a
+refused charge may exceed the first threshold, while a length past it is `MESSAGE_TOO_LARGE`, so
+the lowered threshold is never below zero.
 
 **Sends in flight hold reads back too.** The count holds a committed message until its WRITE_DONE,
 and HTTP/2 flow control can hold that send until the peer reads, which on a bidirectional call may

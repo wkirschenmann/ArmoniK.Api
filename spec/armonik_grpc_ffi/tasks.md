@@ -1383,10 +1383,11 @@ Settled (2026-10-02, `decisions.md`):
   the first threshold and a length cannot - and goes back once that send is served or its call
   ends. Without it, received bytes would keep the count from falling under steady traffic, and
   level 1's promise that a refused send eventually has room, `RefusedSendEventuallyHasRoom`,
-  would not hold once they are counted. A host woken
-  after such a refusal is obliged to try the send again or to cancel the call, a fairness
-  obligation on the host as giving back a payload is; the .NET binding's send loop tries again at
-  every wake-up, and a cancellation ends the call;
+  would not hold once they are counted. With it, the promise is proved from the hold and from an
+  assumption on the application, that its compressed sending stops, under which the engine gives
+  back the copies it holds. A host woken after such a refusal is obliged to try the send again or
+  to cancel the call, a fairness obligation on the host as giving back a payload is; the .NET
+  binding's send loop tries again at every wake-up, and a cancellation ends the call;
 - level 1 splits a read in two steps, as the engine does: the call is admitted to read its next
   message against the first threshold, lowered as above, and the decision is taken there; the
   message is charged when it arrives decoded, which is where the second threshold applies.
