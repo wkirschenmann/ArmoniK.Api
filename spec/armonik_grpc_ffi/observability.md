@@ -511,6 +511,11 @@ their median: the difference is not visible. Other builds ran on the machine dur
 that says that the counting is lost in the noise of a call, which is about a hundred microseconds,
 and not that it costs nothing.
 
+Measured from .NET through the binding, over TLS on loopback, the metrics build and the default
+one differ by no more than the spread of seven passes on .NET 8 and .NET 10: P50, P99, CPU per
+call and the managed bytes allocated per call, as benchmarks.md gives them. That is the same
+statement, at the level of a call that takes four hundred microseconds.
+
 ## The engine's events
 
 A target is the module that emits it. A host selects by target and level (`Logging.Filter`).
