@@ -130,9 +130,28 @@ public sealed class NativeRuntime : IAsyncDisposable
       throw new InvalidOperationException($"the native runtime could not be created ({status}): {refusal}");
     }
 
-    metrics_ = EngineMetrics.TryCreate(handle_,
-                                       OpenChannels,
-                                       log_);
+    try
+    {
+      metrics_ = EngineMetrics.TryCreate(handle_,
+                                         OpenChannels,
+                                         log_);
+    }
+    catch (Exception raised)
+    {
+      // The engine runs, nothing can dispose a runtime whose creation threw, and the engine admits
+      // one per process: it is taken down here.
+      try
+      {
+        TakeDown();
+      }
+      catch (Exception failure)
+      {
+        throw new AggregateException(raised,
+                                     failure);
+      }
+
+      throw;
+    }
   }
 
   /// <summary>Lets go of what a creation that failed held.</summary>
@@ -142,6 +161,19 @@ public sealed class NativeRuntime : IAsyncDisposable
   {
     self_.Free();
     log_?.Close();
+  }
+
+  /// <summary>Stops and destroys an engine that started and has no channel, then abandons the creation.</summary>
+  /// <remarks>Waited for on this thread: a constructor cannot be awaited, and an engine with no channel
+  /// has nothing to drain.</remarks>
+  private void TakeDown()
+  {
+    BeginShutdown();
+    QuiescentAsync()
+      .GetAwaiter()
+      .GetResult();
+    Destroy();
+    Abandon();
   }
 
   internal ulong Handle
@@ -176,6 +208,10 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="InvalidOperationException">
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
+  /// </exception>
+  /// <exception cref="Exception">
+  ///   What a <see cref="System.Diagnostics.Metrics.MeterListener" /> throws as the runtime's instruments are
+  ///   published, once the engine it started is stopped and destroyed again.
   /// </exception>
   public static unsafe NativeRuntime Create(ulong           memoryCeiling     = 0,
                                             ulong           memoryHardCeiling = 0,
@@ -221,6 +257,10 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   path, or the engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="Exception">
+  ///   What a <see cref="System.Diagnostics.Metrics.MeterListener" /> throws as the runtime's instruments are
+  ///   published, once the engine it started is stopped and destroyed again.
+  /// </exception>
   /// <remarks>
   ///   The sources are read by the engine alone, so a channel reads back from the engine the delivery
   ///   window its options and the sources settle between them, and sizes its rings from that.
@@ -338,6 +378,10 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.</exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="Exception">
+  ///   What a <see cref="System.Diagnostics.Metrics.MeterListener" /> throws as the runtime's instruments are
+  ///   published, once the engine it started is stopped and destroyed again.
+  /// </exception>
   public static NativeRuntime Create(RuntimeOptions   options,
                                      ILoggerFactory? loggerFactory = null)
   {

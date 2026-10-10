@@ -443,6 +443,69 @@ public class EngineMetricsTests : EchoServerFixture
                     });
   }
 
+  /// <summary>A creation whose instruments throw once the engine has started leaves nothing behind: no
+  /// engine, which would refuse every later creation, no instrument and no log.</summary>
+  /// <remarks>A listener that throws where an instrument is published is one way: the meter calls it
+  /// from the instrument's creation. A log makes the binding's own instrument exist whichever build
+  /// is loaded.</remarks>
+  [Test]
+  public async Task ACreationWhoseInstrumentsThrowTakesTheEngineDown()
+  {
+    using (var throwing = new MeterListener())
+    {
+      // Armed once started: the fixture's own runtime publishes its instruments to a listener that starts.
+      var armed = false;
+      throwing.InstrumentPublished = (instrument,
+                                      _) =>
+                                     {
+                                       if (armed && instrument.Meter.Name.StartsWith(EngineMetrics.Prefix,
+                                                                                     StringComparison.Ordinal))
+                                       {
+                                         throw new InvalidOperationException("a listener that throws");
+                                       }
+                                     };
+      throwing.Start();
+      armed = true;
+
+      Assert.That(async () => await RestartAsync(() => NativeRuntime.Create(0,
+                                                                            0,
+                                                                            NullLoggerFactory.Instance))
+                                .ConfigureAwait(false),
+                  Throws.InvalidOperationException.With.Message.EqualTo("a listener that throws"));
+    }
+
+    string[] left;
+    using (var collector = new Collector())
+    {
+      left = collector.Instruments.ToArray();
+    }
+
+    var log = EngineLog.Current;
+    Exception? refused = null;
+    try
+    {
+      await RestartAsync(() => NativeRuntime.Create())
+        .ConfigureAwait(false);
+    }
+    catch (InvalidOperationException raised)
+    {
+      refused = raised;
+    }
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(left,
+                                  Is.Empty,
+                                  "no instrument of the creation that threw is registered");
+                      Assert.That(log,
+                                  Is.Null,
+                                  "its log is closed");
+                      Assert.That(refused,
+                                  Is.Null,
+                                  "no engine of the creation that threw lives on");
+                    });
+  }
+
   /// <summary>The dropped logs are the binding's, so they are registered whichever build is loaded.</summary>
   [Test]
   public async Task TheLogsTheBindingDroppedAreCountedWhateverTheBuild()

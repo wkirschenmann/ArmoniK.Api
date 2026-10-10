@@ -141,6 +141,37 @@ fn a_lend_refused_at_the_ceiling_is_counted() {
     fixture.close();
 }
 
+/// A resize the ceiling has no room for is counted as a lend refused there is, and records no
+/// wait: the host holds a buffer, and a wait is a lend's.
+#[test]
+fn a_resize_refused_at_the_ceiling_is_counted() {
+    let fixture = Connected::with_ceiling(1024);
+    let (host, channel) = (&fixture.host, fixture.channel);
+    let call = start_call(channel, ECHO, &blob(&[]));
+    let other = start_call(channel, ECHO, &blob(&[]));
+    let (status, small) = lend(call, 100);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    let (status, large) = lend(other, 900);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+
+    let (status, small) = resize(small, 200, 0);
+    assert_eq!(status, ak_status::AK_STATUS_BUDGET_BUSY);
+
+    let stats = read(host.runtime);
+    assert_eq!(stats.host_memory_refusals, u64::from(COUNTING));
+    assert_eq!(stats.host_memory_waits, 0);
+
+    for buffer in [small, large] {
+        unsafe { ak_return_call_buffer(buffer) };
+    }
+    for call in [call, other] {
+        let _ = unsafe { ak_call_cancel(call, std::ptr::null_mut()) };
+    }
+    host.recorder.await_terminals(2);
+    host.recorder.consume_all();
+    fixture.close();
+}
+
 #[test]
 fn a_record_of_the_head_alone_learns_whether_the_library_counts() {
     let host = Host::start();

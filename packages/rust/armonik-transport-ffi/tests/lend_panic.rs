@@ -9,7 +9,7 @@ mod support;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use armonik_transport_ffi::hooks::{self, ChargeStep, LendStep, RepayStep};
+use armonik_transport_ffi::hooks::{self, ChargeStep, LendStep, RepayStep, ResizeStep};
 use armonik_transport_ffi::*;
 use support::host::*;
 use support::{TestServer, COLLECT, ECHO};
@@ -66,6 +66,16 @@ impl Panicking {
         Self
     }
 
+    /// Makes every resize panic on reaching `step`.
+    fn in_resize_at(step: ResizeStep) -> Self {
+        hooks::at_each_resize_step(Some(Arc::new(move |reached| {
+            if reached == step {
+                panic!("injected at {reached:?}");
+            }
+        })));
+        Self
+    }
+
     /// Makes the payment of every buffer that is over for the host panic on reaching `step`.
     fn in_repay_at(self, step: RepayStep) -> Self {
         hooks::at_each_repay_step(Some(Arc::new(move |reached| {
@@ -82,6 +92,7 @@ impl Drop for Panicking {
         hooks::at_each_lend_step(None);
         hooks::at_each_charge_step(None);
         hooks::at_each_repay_step(None);
+        hooks::at_each_resize_step(None);
         hooks::before_charge(None);
     }
 }
@@ -578,5 +589,97 @@ fn a_panic_in_the_arena_taken_for_want_of_room_gives_back_the_bytes_asked_for() 
             ak_status::AK_STATUS_OK
         );
     }
+    fixture.close();
+}
+
+/// Whether the library under test was built to count.
+const COUNTING: bool = cfg!(feature = "metrics");
+
+/// The sends and the received messages the ceiling has refused, as the runtime counts them.
+fn refusals(runtime: ak_handle) -> u64 {
+    // SAFETY: integers and floats, for which all-zero bytes are zero.
+    let mut stats: ak_stats = unsafe { std::mem::zeroed() };
+    stats.struct_size = std::mem::size_of::<ak_stats>() as u32;
+    assert_eq!(
+        unsafe { ak_runtime_stats(runtime, &mut stats, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+    stats.host_memory_refusals
+}
+
+/// A panic is a refusal for the host, not one the ceiling made, so a panic in a lend, in a resize
+/// or its recharge, or in a return counts none, even where the ceiling would refuse: only the lend
+/// it refuses at the end is counted.
+#[test]
+fn a_panic_in_a_lend_a_resize_or_a_return_counts_no_refusal() {
+    let _turn = take_turn();
+    let fixture = OneSlot::with_ceiling(SMALL_CEILING);
+    let runtime = fixture.host.runtime;
+    let [holder, resizer, asker] = [(); 3].map(|()| start_call(fixture.channel, COLLECT, &[]));
+    let (status, held) = lend(holder, 48);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    let (status, small) = lend(resizer, 8);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+
+    // 56 of 64 are charged: a lend of 16 would be refused for room.
+    for step in [LendStep::Claimed, LendStep::Admitted, LendStep::Windowed] {
+        let panicking = Panicking::in_lend_at(step);
+        assert_eq!(lend(asker, 16).0, ak_status::AK_STATUS_INTERNAL, "{step:?}");
+        drop(panicking);
+    }
+    let lender = std::thread::current().id();
+    let charges = AtomicUsize::new(0);
+    hooks::at_each_charge_step(Some(Arc::new(move |reached| {
+        if reached == ChargeStep::Begun
+            && std::thread::current().id() == lender
+            && charges.fetch_add(1, Ordering::SeqCst) == 1
+        {
+            panic!("injected in the second charge");
+        }
+    })));
+    let panicking = Panicking;
+    assert_eq!(
+        lend(asker, 16).0,
+        ak_status::AK_STATUS_INTERNAL,
+        "the second charge"
+    );
+    drop(panicking);
+
+    // A growth by 16 would be refused for room; one by 8 fits and panics in its recharge.
+    for step in [ResizeStep::Taken, ResizeStep::Admitted] {
+        let panicking = Panicking::in_resize_at(step);
+        assert_eq!(
+            resize(small, 24, 0).0,
+            ak_status::AK_STATUS_INTERNAL,
+            "{step:?}"
+        );
+        drop(panicking);
+    }
+    let panicking = Panicking::in_charge_at(ChargeStep::Begun);
+    assert_eq!(
+        resize(small, 16, 0).0,
+        ak_status::AK_STATUS_INTERNAL,
+        "the recharge"
+    );
+    drop(panicking);
+
+    let panicking = Panicking.in_repay_at(RepayStep::Begun);
+    unsafe { ak_return_call_buffer(small) };
+    drop(panicking);
+    assert_eq!(refusals(runtime), 0, "no panic is a refusal");
+
+    // A lend of 17 is refused for room.
+    assert_eq!(memory_usage(runtime).bytes_used, 48);
+    assert_eq!(lend(asker, 17).0, ak_status::AK_STATUS_BUDGET_BUSY);
+    assert_eq!(refusals(runtime), u64::from(COUNTING));
+
+    unsafe { ak_return_call_buffer(held) };
+    for call in [holder, resizer, asker] {
+        assert_eq!(
+            unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+            ak_status::AK_STATUS_OK
+        );
+    }
+    fixture.host.recorder.await_terminals(3);
     fixture.close();
 }

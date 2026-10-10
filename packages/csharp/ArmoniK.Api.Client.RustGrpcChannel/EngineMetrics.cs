@@ -141,31 +141,54 @@ internal sealed class EngineMetrics : IDisposable
     var version = typeof(EngineMetrics).Assembly.GetName()
                                        .Version?.ToString();
 
-    if (counting)
+    // A meter registers each instrument as it is made and calls the listeners from there, so a
+    // listener that throws leaves the meters made so far registered: they are disposed here, each
+    // whatever the others do, and the listener's exception is the one that goes on.
+    try
     {
-      Calls(Make("Calls",
-                 version));
-      Throttle(Make("Throttle",
-                    version));
-      Connections(Make("Connections",
-                       version));
-      Bytes(Make("Bytes",
-                 version));
-    }
+      if (counting)
+      {
+        Calls(Make("Calls",
+                   version));
+        Throttle(Make("Throttle",
+                      version));
+        Connections(Make("Connections",
+                         version));
+        Bytes(Make("Bytes",
+                   version));
+      }
 
-    var host = Make("Host",
-                    version);
-    if (counting)
-    {
-      Host(host);
-    }
+      var host = Make("Host",
+                      version);
+      if (counting)
+      {
+        Host(host);
+      }
 
-    if (log is not null)
+      if (log is not null)
+      {
+        host.CreateObservableCounter("armonik.client.logs.dropped",
+                                     () => log.Dropped,
+                                     "{record}",
+                                     "Log records that the bounded queue of the binding dropped because the logger could not keep up");
+      }
+    }
+    catch
     {
-      host.CreateObservableCounter("armonik.client.logs.dropped",
-                                   () => log.Dropped,
-                                   "{record}",
-                                   "Log records that the bounded queue of the binding dropped because the logger could not keep up");
+      foreach (var meter in meters_)
+      {
+        try
+        {
+          meter.Dispose();
+        }
+        catch
+        {
+          // A listener told of the end of its measurements may throw as well.
+        }
+      }
+
+      meters_.Clear();
+      throw;
     }
   }
 
