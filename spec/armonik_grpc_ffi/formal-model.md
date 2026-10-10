@@ -1522,6 +1522,7 @@ refinement.
 | `RuntimeFail` | any unrecoverable runtime fault - but not reaching the configured ceiling, which is a refusal, nor a genuine allocator failure inside `ak_get_call_buffer`, which refuses that lend with `AK_STATUS_INTERNAL` and changes nothing level 1 carries; the model leaves the state that follows unconstrained |
 | `RemainFailed` / `RemainReleased` | explicit stutter, so a terminal runtime state has a step and the temporal proofs need no special case |
 | none: outside the model | `ak_channel_delivery_window` writes the delivery window the channel ended up with. The constant `DeliveryCredits` stands for any one channel's window, and that the value read equals it is an assumption of how the model is instantiated. The window is fixed for the life of the channel and the read changes no state, so it takes no step and has no linearization point |
+| none: outside the model | `ak_runtime_stats` and `ak_channel_stats` write the counters and gauges the engine keeps of its channels' calls, connections and waits, over the runtime and over one channel's endpoint, and `ak_channel_endpoint` writes the endpoint a channel is on. They are observational: they change no state the model carries and take no step, so they have no linearization point. Whether the library counts at all is a property of how it was built, which the record's flags report |
 
 #### Which ABI argument becomes what
 
@@ -1546,6 +1547,7 @@ drops is a decision rather than an omission. This table is the record, and
 | `ak_channel_create`'s `endpoint` | **not modelled.** The model's channels are identifiers, and what one connects to changes nothing it guarantees. An argument, or, empty, the `Endpoint` of the runtime's options; `TransportOptions` carries none |
 | `config`, `config_json`, `options` | **not modelled**, `ak_runtime_create_from`'s configuration struct and the sources it lists included. Configuration reaches the model as the constants `MaxSendsInFlight`, `DeliveryCredits`, `Ceiling` and `MessageLength`; the rest does not change what the ABI guarantees |
 | `callback`, `runtime_ctx`, `call_ctx` | **not modelled at level 1.** They are identity plumbing, and what must hold of them is level 2: `TokenPublishedBeforeStart` and `RootSurvivesCallbacks` |
+| `ak_channel_endpoint`'s `buffer`, `capacity` and `length` | **not modelled.** The host's buffer for the endpoint's text, its size, and where the whole length is written: the endpoint is no state of the model, which keeps channels as identifiers, and the call is observational |
 | every other `*out` | **not modelled.** A returned handle is the identifier the action already quantifies over |
 | every `out_error` | **not modelled.** It is written only on a refusal, and a refusal takes no step: the model says why a downcall is refused by the guard that does not hold, and what `out_error` adds is the message for a human |
 

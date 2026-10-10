@@ -424,6 +424,7 @@ impl CallState {
         match self.ledger.hold_bytes(len) {
             Ok(()) => Ok(()),
             Err(refused) => {
+                self.ledger.refused();
                 self.spawn_task();
                 std::mem::forget(waiting);
                 Err(refused)
@@ -465,6 +466,9 @@ impl CallState {
             self.exchange(&mut lent, new_len, carried)
         });
         if let Err(status) = outcome {
+            if status == ak_status::AK_STATUS_BUDGET_BUSY {
+                self.ledger.refused();
+            }
             return Err(lent.keep(status));
         }
         let ptr = lent.lent_ptr();

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use armonik_transport::grpc::{Charge, CompressionBudget};
+use armonik_transport::metrics::{HostEvent, Metrics};
 use tokio::sync::{watch, Notify};
 
 use crate::abi::{ak_memory_usage, ak_status};
@@ -82,11 +83,22 @@ pub(crate) struct Ledger {
     spare: AtomicU64,
     /// The channels' spares, which a charge that needs their room empties.
     spares: Mutex<Vec<Weak<Spares>>>,
+    /// Where the ceiling's waits and refusals are counted.
+    metrics: Metrics,
 }
 
 impl Ledger {
-    /// A second threshold below the first is refused: it would end calls the first lets read.
+    #[cfg(test)]
     pub(crate) fn new(ceiling: u64, hard_ceiling: u64) -> Result<Self, ak_status> {
+        Self::counting_in(ceiling, hard_ceiling, Metrics::new())
+    }
+
+    /// A second threshold below the first is refused: it would end calls the first lets read.
+    pub(crate) fn counting_in(
+        ceiling: u64,
+        hard_ceiling: u64,
+        metrics: Metrics,
+    ) -> Result<Self, ak_status> {
         let ledger = Self {
             outstanding: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
@@ -97,6 +109,7 @@ impl Ledger {
             waiting: Mutex::new(Vec::new()),
             spare: AtomicU64::new(0),
             spares: Mutex::new(Vec::new()),
+            metrics,
         };
         if hard_ceiling != 0 && hard_ceiling < ledger.limit() {
             return Err(ak_status::AK_STATUS_INVALID_ARG);
@@ -380,6 +393,7 @@ impl Ledger {
         let mut waiting = self.waiting();
         if waiter.len.swap(len, Ordering::AcqRel) == 0 {
             waiting.push(Arc::clone(waiter));
+            self.metrics.count_host(HostEvent::MemoryWait);
         }
     }
 
@@ -415,7 +429,24 @@ impl Ledger {
 
     /// The first step of a read, where the decision is taken: completes once a read is admitted.
     pub(crate) async fn read_admitted(&self) {
-        let _ = self.room.subscribe().wait_for(|_| self.admits_read()).await;
+        let mut counted = false;
+        let _ = self
+            .room
+            .subscribe()
+            .wait_for(|_| {
+                let admitted = self.admits_read();
+                if !admitted && !counted {
+                    counted = true;
+                    self.metrics.count_host(HostEvent::MemoryWait);
+                }
+                admitted
+            })
+            .await;
+    }
+
+    /// Counts a send the ceiling refused, or a received message it dropped.
+    pub(crate) fn refused(&self) {
+        self.metrics.count_host(HostEvent::MemoryRefusal);
     }
 
     pub(crate) fn empty(&self) -> bool {

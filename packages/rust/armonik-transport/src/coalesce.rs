@@ -5,7 +5,9 @@ use std::io;
 use std::pin::{pin, Pin};
 use std::task::{Context, Poll};
 
-use hyper::rt::{Read, ReadBufCursor, Write};
+use hyper::rt::{Read, ReadBuf, ReadBufCursor, Write};
+
+use crate::metrics::{ConnCounters, Sniffer};
 
 /// Holds each write for as long as a scheduler round adds bytes to it, up to `limit` bytes.
 ///
@@ -18,6 +20,10 @@ pub(crate) struct Coalescing<T> {
     io: T,
     limit: usize,
     state: State,
+    /// What the connection moves and reads, counted here because this is the one place that sees
+    /// every byte of it.
+    conn: ConnCounters,
+    sniffer: Sniffer,
 }
 
 enum State {
@@ -30,11 +36,13 @@ enum State {
 }
 
 impl<T> Coalescing<T> {
-    pub(crate) fn new(io: T, limit: usize) -> Self {
+    pub(crate) fn new(io: T, limit: usize, conn: ConnCounters) -> Self {
         Self {
             io,
             limit,
             state: State::Open,
+            conn,
+            sniffer: Sniffer::new(),
         }
     }
 
@@ -66,8 +74,9 @@ impl<T> Coalescing<T> {
             Poll::Ready(_) => self.state = State::Open,
             Poll::Pending => {}
         }
-        #[cfg(feature = "test-hooks")]
-        if let Poll::Ready(Ok(_)) = written {
+        if let Poll::Ready(Ok(bytes)) = written {
+            self.conn.bytes_written(bytes);
+            #[cfg(feature = "test-hooks")]
             crate::hooks::count_write();
         }
         written
@@ -78,9 +87,34 @@ impl<T: Read + Unpin> Read for Coalescing<T> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: ReadBufCursor<'_>,
+        mut buf: ReadBufCursor<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().io).poll_read(cx, buf)
+        let this = self.get_mut();
+        if !ConnCounters::OBSERVES {
+            return Pin::new(&mut this.io).poll_read(cx, buf);
+        }
+
+        // The cursor lends no view of what a read filled, so the read goes into a buffer over
+        // the cursor's own memory, whose filled part is read back and then advanced past.
+        let room = buf.remaining() > 0;
+        // SAFETY: the slice goes only into a `ReadBuf`, which tracks what of it is initialized.
+        let mut read = ReadBuf::uninit(unsafe { buf.as_mut() });
+        match Pin::new(&mut this.io).poll_read(cx, read.unfilled()) {
+            Poll::Ready(Ok(())) => {
+                let filled = read.filled();
+                let bytes = filled.len();
+                if bytes > 0 {
+                    this.conn.bytes_read(bytes);
+                    this.sniffer.feed(filled, &this.conn);
+                } else if room {
+                    this.conn.eof();
+                }
+                // SAFETY: the read initialized the first `bytes` bytes of the cursor's memory.
+                unsafe { buf.advance(bytes) };
+                Poll::Ready(Ok(()))
+            }
+            other => other,
+        }
     }
 }
 
@@ -214,7 +248,8 @@ mod tests {
             .build()
             .expect("a runtime");
         let polls = runtime.block_on(async {
-            let mut coalescing = Coalescing::new(connection.clone(), limit);
+            let mut coalescing =
+                Coalescing::new(connection.clone(), limit, ConnCounters::default());
             let buffer = Arc::clone(&pending);
             let writing = tokio::spawn(async move {
                 let mut polls = 0;

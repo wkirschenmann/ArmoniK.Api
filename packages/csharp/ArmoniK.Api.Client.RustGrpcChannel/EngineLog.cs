@@ -71,6 +71,8 @@ internal sealed unsafe class EngineLog
 
   private long dropped_;
 
+  private long totalDropped_;
+
   internal EngineLog(ILoggerFactory factory)
   {
     factory_ = factory;
@@ -155,6 +157,10 @@ internal sealed unsafe class EngineLog
     }
   }
 
+  /// <summary>How many records the full queue has dropped in all.</summary>
+  internal long Dropped
+    => Interlocked.Read(ref totalDropped_);
+
   private void Enqueue(Entry entry)
   {
     try
@@ -162,6 +168,7 @@ internal sealed unsafe class EngineLog
       if (!queue_.TryAdd(entry))
       {
         Interlocked.Increment(ref dropped_);
+        Interlocked.Increment(ref totalDropped_);
       }
     }
     catch

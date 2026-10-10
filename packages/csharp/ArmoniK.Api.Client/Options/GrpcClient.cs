@@ -310,6 +310,16 @@ namespace ArmoniK.Api.Client.Options
     public ClientTransport Transport { get; set; } = ClientTransport.Managed;
 
     /// <summary>
+    ///   True loads the build of the native engine that counts what it does, for the instruments of the
+    ///   <c>ArmoniK.Api.Client.RustGrpcChannel.*</c> meters to read. False, the default, asks for nothing.
+    ///   It is read when the process's native engine starts, with the first channel, and a process that has
+    ///   loaded the other build refuses it. The netstandard2.0 build of the binding selects it on .NET Framework
+    ///   alone, and on another runtime refuses it with a <see cref="PlatformNotSupportedException" />. It is never
+    ///   sent to the engine.
+    /// </summary>
+    public bool NativeMetrics { get; set; }
+
+    /// <summary>
     ///   Which HttpMessageHandler to use.
     ///   Valid options:
     ///   - `HttpClientHandler`

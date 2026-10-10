@@ -23,6 +23,7 @@ use super::cause::{self, Cause};
 use super::error::GrpcChannelConfigError;
 use super::origin::{Origin, Pushback};
 use super::status::GrpcStatusCode;
+use crate::metrics::ChannelGauges;
 
 /// How a channel judges the health of its server, and what it does about it.
 #[derive(Clone, Debug, PartialEq)]
@@ -371,6 +372,14 @@ pub(crate) struct Reading {
     pub(crate) cap: Option<f64>,
 }
 
+impl Reading {
+    /// Whether a failed call may be tried again: the retry reading is at or under the slack, and
+    /// the rate is not capped, since a retry is never sent above the cap.
+    pub(crate) fn allows_retries(&self) -> bool {
+        self.retries_open && self.cap.is_none()
+    }
+}
+
 impl Adaptive {
     pub(crate) fn new(config: AdaptiveConfig) -> Self {
         Self {
@@ -439,8 +448,7 @@ impl Adaptive {
     /// Whether a failed call may be tried again: the retry reading is at or under the slack, and the
     /// rate is not capped, since a retry is never sent above the cap.
     pub(crate) fn retries_open(&self) -> bool {
-        let reading = self.reading_at(self.now());
-        reading.retries_open && reading.cap.is_none()
+        self.reading_at(self.now()).allows_retries()
     }
 
     /// The cell of the cap, read at the rate `cap`: `T = 1 / cap`, and a depth of one second of
@@ -514,8 +522,7 @@ impl Adaptive {
         }
     }
 
-    /// Where the estimate stands, for a test.
-    #[cfg(feature = "test-hooks")]
+    /// Where the estimate stands.
     pub(crate) fn state(&self) -> Reading {
         self.reading_at(self.now())
     }
@@ -568,6 +575,23 @@ impl Admission {
     #[cfg(feature = "test-hooks")]
     pub(crate) fn state(&self) -> Option<Reading> {
         self.adaptive.as_ref().map(Adaptive::state)
+    }
+
+    /// What the channel reports of its estimate when its stats are read.
+    pub(crate) fn gauges(&self) -> ChannelGauges {
+        let Some(adaptive) = &self.adaptive else {
+            return ChannelGauges {
+                cap: None,
+                retries_open: true,
+                waiting_at_cap: 0,
+            };
+        };
+        let reading = adaptive.state();
+        ChannelGauges {
+            cap: reading.cap,
+            retries_open: reading.allows_retries(),
+            waiting_at_cap: adaptive.waiting.0.load(Ordering::Relaxed) as u64,
+        }
     }
 }
 

@@ -190,9 +190,15 @@ public class UnaryTests : EchoServerFixture
   [Test]
   public void TheEngineBesideThisHostMatchesItsWordSize()
   {
-    var engine = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                              NativeMethods.Library + ".dll");
-    if (!File.Exists(engine))
+    // Beside the assembly, or in the folder .NET Framework's package layout names for the architecture.
+    var engine = new[]
+                 {
+                   Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                                NativeMethods.Library + ".dll"),
+                   Path.Combine(NativeMethods.EngineDirectory,
+                                NativeMethods.Library + ".dll"),
+                 }.FirstOrDefault(File.Exists);
+    if (engine is null)
     {
       Assert.Ignore("not a Windows build; the engine is an .so or a .dylib");
     }

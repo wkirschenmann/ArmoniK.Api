@@ -55,6 +55,14 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   internal int DeliveryCredits
     => deliveryCredits_;
 
+  /// <summary>The channel's handle in the engine.</summary>
+  internal ulong Handle
+    => handle_;
+
+  /// <summary>Where the channel is, as the engine names it: host and port, and nothing else.</summary>
+  /// <remarks>The key its counters are kept under, which the runtime's instruments tag with.</remarks>
+  internal string ServerEndpoint { get; } = string.Empty;
+
   internal NativeChannel(NativeRuntime runtime,
                          string endpoint,
                          ChannelOptions options)
@@ -130,6 +138,7 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
           NativeRuntime.RefuseAWindowNoRingCanHold((int)Math.Min(window,
                                                                  int.MaxValue));
           deliveryCredits_ = (int)window;
+          ServerEndpoint   = ReadServerEndpoint(handle_);
         }
         catch
         {
@@ -137,6 +146,40 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
           throw;
         }
       }
+    }
+  }
+
+  /// <summary>Asks the engine where a channel is, with a buffer that grows to the answer.</summary>
+  private static unsafe string ReadServerEndpoint(ulong channel)
+  {
+    var buffer = new byte[128];
+    while (true)
+    {
+      nuint     length;
+      ak_status status;
+      ak_error  error = default;
+      fixed (byte* pinned = buffer)
+      {
+        status = NativeMethods.ak_channel_endpoint(channel,
+                                                   pinned,
+                                                   (nuint)buffer.Length,
+                                                   &length,
+                                                   &error);
+      }
+
+      if (status != ak_status.AK_STATUS_OK)
+      {
+        throw new InvalidOperationException($"the endpoint of a channel could not be read ({status}): {error.Take()}");
+      }
+
+      if (length <= (nuint)buffer.Length)
+      {
+        return Encoding.UTF8.GetString(buffer,
+                                       0,
+                                       (int)length);
+      }
+
+      buffer = new byte[(int)length];
     }
   }
 

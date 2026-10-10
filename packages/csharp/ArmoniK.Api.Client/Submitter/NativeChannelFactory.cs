@@ -90,9 +90,14 @@ namespace ArmoniK.Api.Client.Submitter
     /// <exception cref="ArgumentOutOfRangeException">An option is outside the bounds the engine admits</exception>
     /// <exception cref="InvalidOperationException">
     ///   The engine could not start: another runtime lives in this process, or a source is refused; or it is shutting
-    ///   down
+    ///   down; or <see cref="GrpcClient.NativeMetrics" /> asks for the build with the counters in a process that has
+    ///   loaded the other
     /// </exception>
     /// <exception cref="RustEngineMissingException">The engine could not be loaded</exception>
+    /// <exception cref="PlatformNotSupportedException">
+    ///   <see cref="GrpcClient.NativeMetrics" /> asks for the build with the counters from the netstandard2.0 build of
+    ///   the binding on a runtime other than .NET Framework, which cannot select it
+    /// </exception>
     /// <remarks>
     ///   An empty <see cref="GrpcClient.Endpoint" /> is the <c>Endpoint</c> of the engine's options.
     /// </remarks>
@@ -134,11 +139,20 @@ namespace ArmoniK.Api.Client.Submitter
         {
           runtime_ = Start(commandLine,
                            logger,
-                           loggerFactory);
+                           loggerFactory,
+                           options.NativeMetrics);
         }
-        else if (commandLine is not null)
+        else
         {
-          logger?.LogWarning("The command line is read when the native engine starts, and it is running");
+          if (commandLine is not null)
+          {
+            logger?.LogWarning("The command line is read when the native engine starts, and it is running");
+          }
+
+          if (options.NativeMetrics && NativeLibrarySelection.Loaded != NativeEngineBuild.Metrics)
+          {
+            logger?.LogWarning("NativeMetrics is read when the native engine starts, and it is running without the counters");
+          }
         }
 
         return runtime_.Channel(options.Endpoint ?? string.Empty,
@@ -177,7 +191,8 @@ namespace ArmoniK.Api.Client.Submitter
     // transport would use.
     private static NativeRuntime Start(string[]?       commandLine,
                                        ILogger?        logger,
-                                       ILoggerFactory? loggerFactory)
+                                       ILoggerFactory? loggerFactory,
+                                       bool            nativeMetrics)
     {
       var configuration = new NativeConfiguration(NativeConfiguration.DefaultPrefix).LoadConfigFromObject(new RuntimeOptions
                                                                          {
@@ -203,6 +218,12 @@ namespace ArmoniK.Api.Client.Submitter
           logger?.LogWarning(error,
                              "The command line of the process is not read for the native transport");
         }
+      }
+
+      // Last, so that a configuration that is refused leaves the choice of the build to whoever comes next.
+      if (nativeMetrics)
+      {
+        NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
       }
 
       return NativeRuntime.Create(configuration,

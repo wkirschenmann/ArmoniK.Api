@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, PoisonError, TryLockError};
+use std::sync::{Arc, PoisonError, TryLockError, Weak};
 use std::task::{ready, Context, Poll};
 use std::time::Duration;
 
@@ -19,6 +19,9 @@ use tower_service::Service;
 
 use super::error::GrpcChannelConfigError;
 use crate::http2::{TransportConfig, TransportConnector};
+use crate::metrics::{
+    CallCounters, ChannelGauges, CloseReason, ConnCounters, GaugeSource, Metrics, Stats,
+};
 use crate::options::LARGEST_WINDOW;
 
 use super::admission::{AdaptiveConfig, Admission};
@@ -74,6 +77,9 @@ pub struct GrpcChannelConfig {
     /// How the channel judges the health of its server, and caps the rate of first attempts and stops
     /// retries by it. None judges nothing: every retry the policy chooses is sent. On by default.
     pub adaptive: Option<AdaptiveConfig>,
+    /// The registry the channel counts into, which several channels may share so that their stats
+    /// are read as one. None gives the channel a registry of its own.
+    pub metrics: Option<Metrics>,
 }
 
 impl GrpcChannelConfig {
@@ -91,6 +97,7 @@ impl GrpcChannelConfig {
             send_encoding: None,
             accept_encodings: Vec::new(),
             adaptive: Some(AdaptiveConfig::default()),
+            metrics: None,
         }
     }
 }
@@ -102,7 +109,7 @@ pub struct GrpcChannel {
 
 impl GrpcChannel {
     pub fn new(
-        config: GrpcChannelConfig,
+        mut config: GrpcChannelConfig,
         spawner: tokio::runtime::Handle,
     ) -> Result<Self, GrpcChannelConfigError> {
         if config.max_sends_in_flight == 0 {
@@ -132,7 +139,11 @@ impl GrpcChannel {
         if let Some(adaptive) = &config.adaptive {
             adaptive.admissible()?;
         }
-        let replay = Arc::new(ChannelReplay::new(config.replay.channel_bytes));
+        let metrics = config.metrics.take().unwrap_or_default();
+        let replay = Arc::new(ChannelReplay::counting_in(
+            config.replay.channel_bytes,
+            metrics.clone(),
+        ));
 
         let user_agent = match &config.user_agent {
             None => HeaderValue::from_static(DEFAULT_USER_AGENT),
@@ -155,32 +166,40 @@ impl GrpcChannel {
         let connector = TransportConnector::new(config.transport)?;
         tracing::debug!(endpoint = %safe_endpoint(&endpoint), "channel created");
 
-        Ok(Self {
-            inner: Arc::new(Inner {
-                endpoint,
-                connector,
-                spawner,
-                user_agent,
-                max_sends_in_flight: config.max_sends_in_flight,
-                max_send_message_size: config.max_send_message_size,
-                max_recv_message_size: config.max_recv_message_size,
-                delivery_coalescing: config.delivery_coalescing,
-                default_deadline: config.default_deadline,
-                retry: config.retry,
-                call_replay_bytes: config.replay.call_bytes,
-                send: SendEncoding::new(config.send_encoding),
-                accept_header: accept_header(&accept_encodings),
-                accept_encodings,
-                admission: Admission::new(config.adaptive),
-                replay,
-                idle_timeout,
-                max_header_list_size,
-                calls_per_session,
-                sessions: std::sync::Mutex::new(Sessions::default()),
-                opened: watch::channel(0).0,
-                closed: watch::channel(false).0,
-            }),
-        })
+        let inner = Arc::new(Inner {
+            metrics: metrics.clone(),
+            endpoint,
+            connector,
+            spawner,
+            user_agent,
+            max_sends_in_flight: config.max_sends_in_flight,
+            max_send_message_size: config.max_send_message_size,
+            max_recv_message_size: config.max_recv_message_size,
+            delivery_coalescing: config.delivery_coalescing,
+            default_deadline: config.default_deadline,
+            retry: config.retry,
+            call_replay_bytes: config.replay.call_bytes,
+            send: SendEncoding::new(config.send_encoding),
+            accept_header: accept_header(&accept_encodings),
+            accept_encodings,
+            admission: Admission::new(config.adaptive),
+            replay,
+            idle_timeout,
+            max_header_list_size,
+            calls_per_session,
+            sessions: std::sync::Mutex::new(Sessions::default()),
+            opened: watch::channel(0).0,
+            closed: watch::channel(false).0,
+        });
+        let source: Weak<Inner> = Arc::downgrade(&inner);
+        metrics.watch(source);
+        Ok(Self { inner })
+    }
+
+    /// The counters and gauges of the registry this channel counts into: its own, or the one it
+    /// shares. Empty when the engine is built without the `metrics` feature.
+    pub fn stats(&self) -> Stats {
+        self.inner.metrics.stats()
     }
 
     /// Where the channel's estimate of its server stands, or none when it keeps none.
@@ -199,7 +218,10 @@ impl GrpcChannel {
     }
 
     pub async fn connect(&self) -> Result<(), ChannelError> {
-        self.inner.sender(false).await.map(|_| ())
+        self.inner
+            .sender(false, &CallCounters::new())
+            .await
+            .map(|_| ())
     }
 
     pub fn start_call(&self, options: CallStartOptions) -> Result<GrpcCall, ChannelError> {
@@ -218,6 +240,7 @@ impl GrpcChannel {
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
+            guard: Some(self.inner.metrics.start_call(&driving.counters())),
         };
         self.inner
             .spawner
@@ -247,6 +270,7 @@ impl GrpcChannel {
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
+            guard: Some(self.inner.metrics.start_call(&driving.counters())),
         };
         Ok((
             send,
@@ -277,6 +301,7 @@ impl GrpcChannel {
             one_response: options.one_response,
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
+            guard: Some(self.inner.metrics.start_call(&driving.counters())),
         };
         Ok((
             request,
@@ -326,7 +351,11 @@ impl GrpcChannel {
         tracing::debug!(endpoint = %safe_endpoint(&self.inner.endpoint), "channel closed");
 
         // Each call holds a sender of its own, so a session closes once its calls are done.
-        self.inner.sessions().open.clear();
+        let mut sessions = self.inner.sessions();
+        for session in &sessions.open {
+            session.conn.mark(CloseReason::LocalClose);
+        }
+        sessions.open.clear();
     }
 }
 
@@ -383,6 +412,8 @@ fn engine_headers(
 }
 
 pub(crate) struct Inner {
+    /// Where the channel counts: its own registry, or one it shares.
+    pub(crate) metrics: Metrics,
     endpoint: Uri,
     connector: TransportConnector,
     spawner: tokio::runtime::Handle,
@@ -440,6 +471,8 @@ struct Session {
     idle_since: tokio::time::Instant,
     /// Whether its idle timer is running.
     timing: bool,
+    /// What it counts, and where the engine records why it ends the session.
+    conn: ConnCounters,
 }
 
 /// What a caller looking for a session waits on.
@@ -521,6 +554,7 @@ async fn close_when_idle(
             // A sleep tokio cut short of a deadline years away.
             _ if deadline.is_some_and(|deadline| tokio::time::Instant::now() < deadline) => {}
             _ => {
+                sessions.open[at].conn.mark(CloseReason::IdleTimeout);
                 sessions.open.swap_remove(at);
                 return;
             }
@@ -539,6 +573,7 @@ impl Inner {
         wait_for_ready: bool,
         body: RequestBody,
         send: Option<Encoding>,
+        counters: CallCounters,
     ) -> tonic::client::Grpc<Http2> {
         let mut client = tonic::client::Grpc::with_origin(
             Http2 {
@@ -548,6 +583,7 @@ impl Inner {
                 wait_for_ready,
                 body: Some(body),
                 send,
+                counters,
             },
             self.endpoint.clone(),
         )
@@ -565,8 +601,8 @@ impl Inner {
 
     /// Completes when a call that waits for the channel to be ready has a connection to go out on,
     /// holding none: a connection that fails after that is the call's request unsent.
-    pub(crate) async fn connected(self: &Arc<Self>) {
-        let _ = self.sender(true).await;
+    pub(crate) async fn connected(self: &Arc<Self>, counters: &CallCounters) {
+        let _ = self.sender(true, counters).await;
     }
 
     /// A session with room for one more call, and the call's claim on it, dialling one if none
@@ -593,6 +629,7 @@ impl Inner {
     async fn sender(
         self: &Arc<Self>,
         wait_for_ready: bool,
+        counters: &CallCounters,
     ) -> Result<(SendRequest<tonic::body::Body>, Lease), ChannelError> {
         loop {
             let waiting = {
@@ -662,6 +699,7 @@ impl Inner {
 
             // The lock is released, so the dial is free to take it when it is done. A caller
             // dropped here drops only its receiver.
+            let _waiting_for_a_stream = counters.wait_for_stream();
             match waiting {
                 Waiting::Dial(mut outcome) => match outcome.recv().await {
                     Ok(Ok(())) => {}
@@ -688,6 +726,8 @@ impl Inner {
     /// the session rather than a dial that is no longer running. The session starts idle, its
     /// timer running, so that one whose callers all went away is closed too.
     async fn dial(self: Arc<Self>, id: u64) {
+        self.metrics.dial_tried();
+        let conn = ConnCounters::new();
         // Contained, because a panic here would leave the dial listed with no task behind it, and
         // every caller waiting on it would wait for good.
         let dialled = contained(async {
@@ -699,6 +739,7 @@ impl Inner {
                 &self.connector,
                 &self.endpoint,
                 Spawner(self.spawner.clone()),
+                conn.clone(),
             )
             .await
         })
@@ -708,15 +749,21 @@ impl Inner {
         // inside the emitting call.
         match &dialled {
             Some(Ok(_)) => {}
-            Some(Err(error)) => tracing::warn!(
-                endpoint = %safe_endpoint(&self.endpoint),
-                %error,
-                "the dial failed"
-            ),
-            None => tracing::error!(
-                endpoint = %safe_endpoint(&self.endpoint),
-                "the engine panicked while dialling"
-            ),
+            Some(Err(error)) => {
+                tracing::warn!(
+                    endpoint = %safe_endpoint(&self.endpoint),
+                    %error,
+                    "the dial failed"
+                );
+                self.metrics.dial_failed(&conn);
+            }
+            None => {
+                tracing::error!(
+                    endpoint = %safe_endpoint(&self.endpoint),
+                    "the engine panicked while dialling"
+                );
+                self.metrics.dial_failed(&conn);
+            }
         }
 
         let mut sessions = self.sessions();
@@ -745,9 +792,13 @@ impl Inner {
         };
 
         if *self.closed.borrow() {
+            // A connection dropped unused is a dial that failed to give the channel one.
+            self.metrics.dial_failed(&conn);
             return told(Err(ChannelError::Closed));
         }
 
+        let opened = self.metrics.connection_open(&conn);
+        let observed = conn.clone();
         let endpoint = safe_endpoint(&self.endpoint);
         let last = AtomicUsize::new(connection.current_max_send_streams());
         let connection = Arc::new(std::sync::Mutex::new(Some(Box::pin(connection))));
@@ -765,6 +816,7 @@ impl Inner {
                 }
             })
             .await;
+            opened.end(observed.classify(&ended));
             match ended {
                 Ok(()) => tracing::debug!(%endpoint, "the HTTP/2 session closed"),
                 Err(error) => tracing::debug!(%endpoint, %error, "the HTTP/2 session ended"),
@@ -791,6 +843,7 @@ impl Inner {
             calls: 0,
             idle_since: since,
             timing: self.idle_timeout.is_some(),
+            conn,
         });
         sessions.backoff.succeeded();
         self.opened.send_modify(|opened| *opened += 1);
@@ -837,6 +890,12 @@ impl Inner {
     }
 }
 
+impl GaugeSource for Inner {
+    fn gauges(&self) -> ChannelGauges {
+        self.admission.gauges()
+    }
+}
+
 /// A session's connection as the task that drives it holds it, shared with the session that asks
 /// it how many streams its server allows.
 ///
@@ -867,6 +926,7 @@ pub(crate) struct Http2 {
     /// What the call's messages are compressed with, decided when its first attempt took its turn:
     /// the header has to say what its messages are, whatever the channel has learned since.
     send: Option<Encoding>,
+    counters: CallCounters,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -899,6 +959,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let one_response = self.one_response;
         let wait_for_ready = self.wait_for_ready;
         let send = self.send;
+        let counters = self.counters.clone();
         match self.body.take() {
             Some(RequestBody::Framed(body)) => {
                 *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body));
@@ -932,7 +993,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
 
             let (mut sender, lease) =
                 inner
-                    .sender(wait_for_ready)
+                    .sender(wait_for_ready, &counters)
                     .await
                     .map_err(|error| match error {
                         ChannelError::Closed => worded(GrpcStatus::cancelled()),

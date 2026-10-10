@@ -10,6 +10,7 @@
 use std::ffi::c_void;
 
 use armonik_transport::grpc::HeadOrigin;
+use armonik_transport::metrics::Stats;
 
 use crate::refusal::Refusal;
 
@@ -471,6 +472,133 @@ pub struct ak_memory_usage {
     pub ceiling: u64,
 }
 
+/// In ak_stats.flags, written by the library: it keeps counters. Clear, the structure is empty and
+/// every field past the first four is zero.
+pub const AK_STATS_COUNTING: u32 = 1;
+
+/// What the engine counts and reads of its own state, over every channel of a runtime, as
+/// ak_runtime_stats writes it. Counters only grow; a gauge is the state at the call.
+///
+/// A third kind of record, beside the options a host fills and the records this library fills
+/// whole. It starts with struct_size, version, flags and reserved, and every field after them is
+/// a `uint64_t`, a `double` or an array of `uint64_t`, so that its layout is the same on every
+/// target whatever alignment an eight-byte integer has. The host sets struct_size to the size of
+/// its definition, at least those four fields, and the rest of the head to zero; the library
+/// writes the eight-byte words that lie within that size, and sets struct_size to the number of
+/// bytes it wrote. A field past it reads as zero in a host that zeroed its record first. A host
+/// that passes the four fields alone learns whether the library counts, from flags.
+///
+/// A library built without its `metrics` feature answers AK_STATUS_OK with flags clear and every
+/// counter zero: one ABI serves both builds. The structure's size and the lengths of its arrays
+/// are fixed; a slot added to an array is a new array or a new ABI version, and a field is
+/// appended.
+///
+/// An array is indexed by its slots: calls_ended by the gRPC status number, 0 to 16, and
+/// streams_reset by the HTTP/2 error code of RFC 9113, 0 to 13, the last slot being any other.
+/// retries is indexed by what failed and was retried: slots 0 to 15 the gRPC statuses 1 to 16 as
+/// the server stated them, 16 to 22 an HTTP status that stated none of them (408, 429, 500, 502,
+/// 503, 504, then any other), 23 to 37 a reset by the slots of streams_reset, 38 a pushback, 39 a
+/// dial, 40 a connection (which a GOAWAY that left a call unprocessed counts as). A retry is
+/// counted when it is sent. connections_closed is indexed by the reason a session ended: 0 the
+/// peer's GOAWAY, 1 a keepalive that timed out, 2 the engine's idle timeout, 3 an I/O error, 4
+/// the engine closing its channel, 5 the peer closing the stream of bytes with no GOAWAY, 6 an
+/// HTTP/2 protocol error, 7 something else.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ak_stats {
+    /// In: sizeof the record the host was built with, at least 16. Out: the bytes written.
+    pub struct_size: u32,
+    /// Zero, the one revision of this record there is.
+    pub version: u32,
+    /// In: zero. Out: AK_STATS_COUNTING or none.
+    pub flags: u32,
+    /// Zero.
+    pub reserved: u32,
+    /// Calls started.
+    pub calls_started: u64,
+    /// Calls ended, by the status they ended with.
+    pub calls_ended: [u64; 17],
+    /// Messages taken from the calls' request streams, once whatever the attempts that send them,
+    /// and read off their responses.
+    pub messages_sent: u64,
+    pub messages_received: u64,
+    /// Retries, by what was retried; see the slots above.
+    pub retries: [u64; 41],
+    /// Retries the adaptive estimate of a channel stopped.
+    pub retries_refused: u64,
+    /// Calls whose messages outgrew a replay ceiling, so that they are never tried again.
+    pub calls_not_replayable: u64,
+    /// Requests the peer's application never processed, sent again at once.
+    pub resends: u64,
+    pub dials_tried: u64,
+    pub dials_succeeded: u64,
+    pub dials_failed: u64,
+    /// Sessions that ended, by reason; see the slots above.
+    pub connections_closed: [u64; 8],
+    /// Streams the peer reset, by HTTP/2 error code, whether or not a call was on them.
+    pub streams_reset: [u64; 15],
+    /// The HTTP/2 bytes the connections wrote and read, above TLS.
+    pub wire_bytes_sent: u64,
+    pub wire_bytes_received: u64,
+    /// The bytes of the messages as their callers wrote them, and as the engine sent them, the
+    /// gRPC prefix of each left out: a message once, whatever the attempts that send it.
+    pub message_bytes_raw: u64,
+    pub message_bytes_sent: u64,
+    /// Deliveries that found every credit of Grpc.Host.Receive.Window spent.
+    pub host_window_waits: u64,
+    /// Reads held back, and sends made to wait, by the memory ceiling.
+    pub host_memory_waits: u64,
+    /// Sends refused with AK_STATUS_BUDGET_BUSY, and received messages dropped, by the ceiling.
+    pub host_memory_refusals: u64,
+    /// Gauge: the rate of first attempts, a second, that the channels whose estimate caps them
+    /// allow together; zero when none does.
+    pub throttle_cap_per_second: f64,
+    /// Gauge: channels whose first attempts are capped.
+    pub channels_capped: u64,
+    /// Gauge: channels whose estimate has stopped retries.
+    pub channels_retries_closed: u64,
+    /// Gauge: calls waiting for their turn at a cap.
+    pub calls_waiting_at_cap: u64,
+    /// Gauge: calls waiting for a session to open or to have room for them.
+    pub calls_waiting_for_stream: u64,
+}
+
+impl From<&Stats> for ak_stats {
+    fn from(stats: &Stats) -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            version: 0,
+            flags: if stats.counting { AK_STATS_COUNTING } else { 0 },
+            reserved: 0,
+            calls_started: stats.calls_started,
+            calls_ended: stats.calls_ended,
+            messages_sent: stats.messages_sent,
+            messages_received: stats.messages_received,
+            retries: stats.retries,
+            retries_refused: stats.retries_refused,
+            calls_not_replayable: stats.calls_not_replayable,
+            resends: stats.resends,
+            dials_tried: stats.dials_tried,
+            dials_succeeded: stats.dials_succeeded,
+            dials_failed: stats.dials_failed,
+            connections_closed: stats.connections_closed,
+            streams_reset: stats.streams_reset,
+            wire_bytes_sent: stats.wire_bytes_sent,
+            wire_bytes_received: stats.wire_bytes_received,
+            message_bytes_raw: stats.message_bytes_raw,
+            message_bytes_sent: stats.message_bytes_sent,
+            host_window_waits: stats.host_window_waits,
+            host_memory_waits: stats.host_memory_waits,
+            host_memory_refusals: stats.host_memory_refusals,
+            throttle_cap_per_second: stats.throttle_cap_per_second,
+            channels_capped: stats.channels_capped,
+            channels_retries_closed: stats.channels_retries_closed,
+            calls_waiting_at_cap: stats.calls_waiting_at_cap,
+            calls_waiting_for_stream: stats.calls_waiting_for_stream,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ak_call_start_options {
@@ -613,6 +741,13 @@ unsafe impl Record for ak_config {
     const FLAGS: u32 = 0;
     const FLAG_FIELDS: &'static [(u32, usize)] = &[];
     const RESERVED: bool = false;
+}
+
+// SAFETY: integers and floating-point numbers, for which all-zero bytes are zero.
+unsafe impl Record for ak_stats {
+    const FIRST_SIZE: usize = std::mem::offset_of!(Self, calls_started);
+    const FLAGS: u32 = 0;
+    const FLAG_FIELDS: &'static [(u32, usize)] = &[];
 }
 
 // SAFETY: integers, and views whose null pointer and zero length are an empty slice.

@@ -14,6 +14,7 @@ pub mod grpc;
 #[cfg(feature = "test-hooks")]
 pub mod hooks;
 pub mod http2;
+pub mod metrics;
 pub mod options;
 mod proxy;
 pub mod settings;

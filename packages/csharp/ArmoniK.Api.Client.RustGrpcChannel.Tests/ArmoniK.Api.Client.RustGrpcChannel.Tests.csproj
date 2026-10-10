@@ -133,7 +133,45 @@
     </ItemGroup>
     <Error Condition="'@(BuiltEngine)' == ''"
            Text="no $(TestEngineLibrary) in $(BuiltEngineDir); build the binding with -p:NativeEngineRids for this architecture" />
-    <Copy SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <!-- .NET Framework as its package lays it out: in a folder named for the architecture, which the
+         binding loads by its path. A copy beside the assembly would be what the loader finds first,
+         whichever build the binding was told to load. -->
+    <Copy Condition="'$(TargetFrameworkIdentifier)' != '.NETFramework'"
+          SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
+          SourceFiles="@(BuiltEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- The netstandard2.0 build of the binding, beside a .NET host that references the build for its
+       own framework, so that a test can load the one a .NET Framework consumer gets and run it on a
+       .NET runtime. -->
+  <Target Name="CopyNetStandardBindingForTests" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp'">
+    <MSBuild Projects="..\ArmoniK.Api.Client.RustGrpcChannel\ArmoniK.Api.Client.RustGrpcChannel.csproj"
+             Properties="TargetFramework=netstandard2.0"
+             RemoveProperties="PlatformTarget;Prefer32Bit"
+             Targets="Build">
+      <Output TaskParameter="TargetOutputs" ItemName="NetStandardBinding" />
+    </MSBuild>
+    <Copy SourceFiles="@(NetStandardBinding)" DestinationFolder="$(OutDir)netstandard2.0\" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- The build with the counters, where the package puts it: runtimes/[rid]/metrics for .NET, and
+       [architecture]/metrics for .NET Framework. A run selects one of the two builds with
+       ARMONIK_TEST_NATIVE=metrics, since a process loads a library once. -->
+  <Target Name="CopyNativeMetricsEngineForTests" AfterTargets="CopyNativeEngineForTests"
+          Condition="'$(SkipNativeEngine)' != 'true' AND '$(NativeEngineMetrics)' != 'false'">
+    <PropertyGroup>
+      <TestEngineRid>@(HostRustTarget)</TestEngineRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltMetricsEngine Include="$(RustWorkspace)target\metrics\$(TestEngineTriple)\$(RustProfile)\$(TestEngineLibrary)" />
+    </ItemGroup>
+    <Error Condition="'@(BuiltMetricsEngine)' == '' OR !Exists('%(BuiltMetricsEngine.FullPath)')"
+           Text="no metrics build of $(TestEngineLibrary) in $(RustWorkspace)target\metrics\$(TestEngineTriple)\$(RustProfile); build the binding with -p:NativeEngineRids for this architecture" />
+    <Copy SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)runtimes\$(TestEngineRid)\metrics\" SkipUnchangedFiles="true" />
+    <Copy Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'"
+          SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\metrics\" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

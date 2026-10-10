@@ -17,6 +17,7 @@ use super::error::CallError;
 use super::metadata::Metadata;
 use super::request::{self, FramedMessage, OneRequest, RequestSlot};
 use super::status::{GrpcStatus, GrpcStatusCode};
+use crate::metrics::CallCounters;
 
 /// Where a call's response head came from. The head's metadata is empty unless it is `Wire`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -353,9 +354,18 @@ pub struct CallControl {
     /// Why the call stopped when it is this side that refused what it was given, which is the
     /// status it ends with rather than `CANCELLED`.
     refused: Arc<OnceLock<GrpcStatus>>,
+    /// What the call counts, for the stats of its channel.
+    pub(crate) counters: CallCounters,
 }
 
 impl CallControl {
+    /// Counts a delivery that found every credit of its window spent, which the call's own task
+    /// reports, one at a time. The other events of the embedding crate are counted by the
+    /// registry, [`crate::metrics::Metrics::count_host`].
+    pub fn count_window_wait(&self) {
+        self.counters.window_wait();
+    }
+
     /// Ends the call with `status`; the first refusal is the one that stands.
     pub(crate) fn refuse(&self, status: GrpcStatus) {
         let _ = self.refused.set(status);
@@ -416,6 +426,9 @@ pub(crate) struct RequestMessages {
     budget: Option<Arc<dyn CompressionBudget>>,
     /// The compression of the message taken last, while it is not done.
     compressing: Option<Pin<Box<dyn Future<Output = FramedMessage> + Send>>>,
+    /// The length of the message being compressed, as the caller wrote it.
+    compressing_raw: usize,
+    counters: CallCounters,
 }
 
 impl RequestMessages {
@@ -463,7 +476,9 @@ impl Stream for RequestMessages {
 
         if let Some(work) = this.compressing.as_mut() {
             let done = work.as_mut().poll(cx);
-            if done.is_ready() {
+            if let Poll::Ready(message) = &done {
+                this.counters
+                    .message_sent(this.compressing_raw, message.len());
                 this.compressing = None;
             }
             return done.map(Some);
@@ -473,21 +488,29 @@ impl Stream for RequestMessages {
             Poll::Ready(Some(message)) => message,
             other => return other,
         };
+        let raw = message.len();
         let Some(encoding) = this.encoding else {
+            this.counters.message_sent(raw, raw);
             return Poll::Ready(Some(message));
         };
         // A small message is compressed where it is; a large one on a blocking thread, which this
         // waits for.
         if compresses_in_place(&message) {
             let budget = this.budget.as_deref();
-            return Poll::Ready(Some(compressed_in_place(encoding, message, budget)));
+            let message = compressed_in_place(encoding, message, budget);
+            this.counters.message_sent(raw, message.len());
+            return Poll::Ready(Some(message));
         }
         let budget = this.budget.clone();
         let mut work: Pin<Box<dyn Future<Output = FramedMessage> + Send>> =
             Box::pin(async move { compressed(encoding, message, budget.as_ref()).await });
         let done = work.as_mut().poll(cx);
-        if done.is_pending() {
-            this.compressing = Some(work);
+        match &done {
+            Poll::Ready(message) => this.counters.message_sent(raw, message.len()),
+            Poll::Pending => {
+                this.compressing = Some(work);
+                this.compressing_raw = raw;
+            }
         }
         done.map(Some)
     }
@@ -509,6 +532,7 @@ pub(crate) fn create_with(
         body_over: Arc::new(Mutex::new(Some(body_over_tx))),
         refused: Arc::default(),
         cut: Arc::default(),
+        counters: CallCounters::new(),
     };
     let send = SendHalf {
         messages: message_tx,
@@ -525,6 +549,8 @@ pub(crate) fn create_with(
         encoding: None,
         budget: None,
         compressing: None,
+        compressing_raw: 0,
+        counters: control.counters.clone(),
     };
 
     (send, control, messages, driving)
@@ -542,6 +568,7 @@ pub(crate) fn create_one(
         body_over: Arc::new(Mutex::new(None)),
         refused: Arc::default(),
         cut: Arc::default(),
+        counters: CallCounters::new(),
     };
     let driving = Driving::new(over_rx, channel_closed, control.clone());
     (request, control, slot, driving)

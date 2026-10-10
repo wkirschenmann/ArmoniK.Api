@@ -256,6 +256,11 @@ jobs:
             cargo clippy -p armonik --no-default-features --features "$feature" --no-deps -- -Dwarnings -Dunused-crate-dependencies
           done
           cargo clippy -p armonik --no-default-features --no-deps -- -Dwarnings -Dunused-crate-dependencies
+      # The build most hosts ship: without the `metrics` feature, which `--all-features` turns on.
+      - name: Clippy without metrics
+        run: |
+          cargo clippy -p armonik-transport -p armonik-transport-ffi --no-deps -- -Dwarnings -Dunused-crate-dependencies
+          cargo clippy --workspace --no-deps --features armonik/serde,armonik/server,armonik/agent,armonik/worker,armonik-transport/schema,armonik-transport/test-hooks,armonik-transport-ffi/test-hooks -- -Dwarnings -Dunused-crate-dependencies
 
   lint-js:
     name: Lint JS

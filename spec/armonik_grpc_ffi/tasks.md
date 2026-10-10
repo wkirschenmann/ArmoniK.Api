@@ -1485,6 +1485,12 @@ package no job publishes, and a consumer restoring one fails:
 - the engine: a Rust toolchain with the target of every runtime identifier, each cross toolchain
   `ring` needs, and `-p:NativeEngineRids` naming them, since the build builds the host's engine
   alone by default and a package packs only the engines that were built;
+- the second engine: T10.2 makes the engine twice, once with its `metrics` feature and once
+  without, the same file name in two folders, `runtimes/<rid>/native/` and
+  `runtimes/<rid>/metrics/`. The local build produces both for the host's identifier
+  (`NativeEngine.targets`, the second under `target/metrics`); CI builds, lints and tests both for
+  every identifier, passes both to the pack, and checks that the package lists the second folder
+  for each identifier it lists the first for;
 - the package: `ArmoniK.Api.Client.RustGrpcChannel.csproj` is not in the job's matrix, and the
   `ArmoniK.Api.Client` package depends on it at the same version, so it has to be pushed first or
   the restore of a consumer fails until the index has it; the matrix legs run in parallel, and a
@@ -1874,13 +1880,30 @@ to 138 ns for one delivered.
 
 ### T10.2: The engine's metrics
 
-**Prerequisite**: T10.1, whose instrumentation counts what this reads
+**Prerequisite**: T10.1, whose logs the engine's counting points sit beside
 **Commit**: as `observability.md` decides: one structure of counters and gauges, read on demand
-per channel by `GrpcChannel::stats()` and per runtime by `ak_runtime_stats`, behind the .NET
-binding's `Meter`'s observable instruments. Histograms are set aside.
+per channel by `GrpcChannel::stats()`, per endpoint by `ak_channel_stats` and per runtime by
+`ak_runtime_stats`, behind the .NET
+binding's `Meter`s' observable instruments; counted by single-writer counters behind a Cargo
+feature, `metrics`, that is off by default and compiles the counting to nothing; the library built
+twice, and the binding told which to load before the first runtime (`NativeLibrarySelection`,
+`GrpcClient.NativeMetrics`). Histograms are set aside.
 
-**Deliverable**: a host's metrics pipeline sees the engine's counters and gauges with no polling
-code of its own.
+**Status**: done. Delivered in `observability.md`'s terms: the engine counts behind its `metrics`
+feature, off by default, with single-writer counters, a registry of shards and live calls and
+connections, and a reader of the HTTP/2 frames in the connection wrapper; `ak_runtime_stats` and
+its record `ak_stats` are in the header for both builds; the binding registers five meters' observable
+instruments only when the library counts; the library is built twice and selected by
+`NativeLibrarySelection` or `GrpcClient.NativeMetrics`. The costs measured are in
+`observability.md`. Not built: CI for the .NET suites against both builds, which is T6.12's. A
+process loads one build.
+
+**Deliverable**: a host that asks for the library built with the metrics - `GrpcClient.NativeMetrics`,
+or `NativeLibrarySelection` before its first runtime - sees the engine's counters and gauges in
+its metrics pipeline with no polling code of its own, and one that does not pays for none of them.
+The .NET suites run once against each build, in a process of their own, since a library cannot be
+swapped once it is loaded. CI runs the Rust tests and the lints with the feature and without it, so that the build most hosts
+ship is the one it checks too.
 
 ### T10.3: Traces
 

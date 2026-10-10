@@ -19,6 +19,7 @@ use super::call::RequestMessages;
 use super::cause::Cause;
 use super::error::GrpcChannelConfigError;
 use super::status::GrpcStatusCode;
+use crate::metrics::Metrics;
 
 /// When a failed call is sent again.
 #[derive(Clone, Debug, PartialEq)]
@@ -128,13 +129,21 @@ pub(crate) fn jittered(bound: Duration) -> Duration {
 pub(crate) struct ChannelReplay {
     used: AtomicUsize,
     limit: usize,
+    /// Where a call that outgrows a ceiling is counted.
+    metrics: Metrics,
 }
 
 impl ChannelReplay {
+    #[cfg(test)]
     pub(crate) fn new(limit: usize) -> Self {
+        Self::counting_in(limit, Metrics::new())
+    }
+
+    pub(crate) fn counting_in(limit: usize, metrics: Metrics) -> Self {
         Self {
             used: AtomicUsize::new(0),
             limit,
+            metrics,
         }
     }
 
@@ -328,6 +337,9 @@ impl OneReplay {
     pub(crate) fn new(request: Bytes, call_limit: usize, channel: Arc<ChannelReplay>) -> Self {
         let len = request.len();
         let kept = len <= call_limit && channel.reserve(len);
+        if !kept {
+            channel.metrics.not_replayable();
+        }
         Self {
             request,
             channel,
@@ -419,7 +431,8 @@ impl Stream for AttemptMessages {
             Poll::Ready(Some(message)) => {
                 let len = message.len();
                 let message = message.into_body();
-                let fits = !kept.committed
+                let open = !kept.committed;
+                let fits = open
                     && kept
                         .bytes
                         .checked_add(len)
@@ -431,6 +444,10 @@ impl Stream for AttemptMessages {
                     kept.bytes += len;
                     kept.replayed += 1;
                 } else {
+                    // Counted once: a call committed by a head or by this is not open again.
+                    if open {
+                        kept.channel.metrics.not_replayable();
+                    }
                     kept.commit();
                     kept.lost = true;
                 }

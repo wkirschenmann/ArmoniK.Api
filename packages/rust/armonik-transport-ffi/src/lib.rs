@@ -290,6 +290,161 @@ pub unsafe extern "C" fn ak_runtime_memory_usage(
     unsafe { refusal::answer(out_error, answered) }
 }
 
+/// What the engine counts and reads of its own state, over every channel of the runtime: the
+/// calls, retries, connections, bytes and waits, and the gauges of the throttle, and what the
+/// runtime counts that belongs to no channel, the waits and refusals of its memory ceiling.
+/// Synchronous, non-blocking and observational: it changes nothing.
+///
+/// `out` is a record the host sizes and this library fills, which ak_stats describes: the host
+/// sets `struct_size` to the size of its own definition, at least the first four fields, and zero
+/// to the others of the head. The library writes the eight-byte words that lie within that size and
+/// sets `struct_size` to what it wrote. A library built without its `metrics` feature answers
+/// AK_STATUS_OK with `flags` clear and every counter zero, never a status that says it is not
+/// supported, so that one host serves either build.
+///
+/// An `out` whose `struct_size` is below sixteen, or whose version, flags or reserved is not zero,
+/// is AK_STATUS_INVALID_ARG, as is a null `out`; a runtime handle that names nothing is
+/// AK_STATUS_HANDLE_STALE.
+///
+/// # Safety
+///
+/// `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_runtime_stats(
+    runtime: ak_handle,
+    out: *mut ak_stats,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        write_stats(out, || {
+            let found = tables::runtimes()
+                .get(runtime)
+                .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+            Ok(found.metrics().stats())
+        })
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
+/// What the engine counts and reads of the endpoint a channel is on: the calls, retries,
+/// connections, bytes and waits of every channel of the runtime to that endpoint, this one and
+/// those that closed before it, and the gauges of the channels of it that are open. Two channels
+/// to one endpoint read the same numbers, and ak_channel_endpoint names what they share. What
+/// belongs to no endpoint is not here and is in ak_runtime_stats: the waits and refusals of the
+/// memory ceiling, which are zero in this record. Synchronous, non-blocking and observational.
+///
+/// `out` is the record of ak_runtime_stats, sized and filled as it is; a library built without its
+/// `metrics` feature answers AK_STATUS_OK with `flags` clear and every counter zero.
+///
+/// A handle that names no channel, a released channel once its last call has ended included, is
+/// AK_STATUS_HANDLE_STALE. A null `out`, or one whose head is wrong, is AK_STATUS_INVALID_ARG.
+///
+/// # Safety
+///
+/// `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+/// `out_error` must be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_channel_stats(
+    channel: ak_handle,
+    out: *mut ak_stats,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        write_stats(out, || {
+            let found = tables::channels()
+                .get(channel)
+                .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+            Ok(found.grpc.stats())
+        })
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
+/// Reads the head of the host's `out`, then fills it from the stats `read` answers.
+///
+/// # Safety
+///
+/// `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+unsafe fn write_stats(
+    out: *mut ak_stats,
+    read: impl FnOnce() -> Result<armonik_transport::metrics::Stats, Refusal>,
+) -> Result<(), Refusal> {
+    if out.is_null() {
+        return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+    }
+    // The head alone is read: the rest of the host's record is for the library to write, and
+    // may be uninitialized.
+    let declared = unsafe { out.cast::<u32>().read_unaligned() } as usize;
+    if declared < std::mem::offset_of!(ak_stats, calls_started) {
+        return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+    }
+    let mut head = std::mem::MaybeUninit::<ak_stats>::zeroed();
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            out.cast::<u8>(),
+            head.as_mut_ptr().cast::<u8>(),
+            std::mem::offset_of!(ak_stats, calls_started),
+        );
+    }
+    let asked = read_versioned(head.as_ptr())?;
+    let value = ak_stats::from(&read()?);
+    // Whole words only: the head is 16 bytes and every field after it a multiple of eight.
+    let size = std::mem::size_of::<ak_stats>();
+    let written = (asked.struct_size as usize).min(size) & !7;
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            std::ptr::from_ref(&value).cast::<u8>(),
+            out.cast::<u8>(),
+            written,
+        );
+        out.cast::<u32>().write_unaligned(written as u32);
+    }
+    Ok(())
+}
+
+/// The endpoint a channel is on, as its host and port and nothing else, in UTF-8: the key its
+/// counters are kept under, which ak_channel_stats reads. The scheme is not in it, nor a user name
+/// or a password, nor the port when the endpoint states none.
+///
+/// The host supplies a buffer of `capacity` bytes. The library writes as much of the endpoint as
+/// fits and sets `*length` to its whole length, which a host that finds it above `capacity` asks
+/// again with a larger buffer for. A `capacity` of zero with a null `buffer` only asks the length.
+///
+/// A handle that names no channel is AK_STATUS_HANDLE_STALE. A null `length`, or a null `buffer`
+/// with a capacity above zero, is AK_STATUS_INVALID_ARG.
+///
+/// # Safety
+///
+/// `buffer` must be writable for `capacity` bytes, `length` must be writable, and `out_error` must
+/// be null or writable for an `ak_error`.
+#[no_mangle]
+pub unsafe extern "C" fn ak_channel_endpoint(
+    channel: ak_handle,
+    buffer: *mut u8,
+    capacity: usize,
+    length: *mut usize,
+    out_error: *mut ak_error,
+) -> ak_status {
+    let answered = guard(|| unsafe {
+        if length.is_null() || (buffer.is_null() && capacity > 0) {
+            return Err(ak_status::AK_STATUS_INVALID_ARG.into());
+        }
+        let found = tables::channels()
+            .get(channel)
+            .ok_or(ak_status::AK_STATUS_HANDLE_STALE)?;
+        let endpoint = found.endpoint.as_bytes();
+        // Not for a length of zero, which a null `buffer` may be given with.
+        let fits = endpoint.len().min(capacity);
+        if fits > 0 {
+            std::ptr::copy_nonoverlapping(endpoint.as_ptr(), buffer, fits);
+        }
+        length.write(endpoint.len());
+        Ok(())
+    });
+    unsafe { refusal::answer(out_error, answered) }
+}
+
 /// Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the
 /// certificate files the document names, and resolves no name and opens no socket until the
 /// channel's first call. A bad endpoint or a bad document is AK_STATUS_INVALID_ARG, a file that

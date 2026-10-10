@@ -73,6 +73,12 @@
 #define AK_LOG_TRACE 5
 
 /**
+ * In ak_stats.flags, written by the library: it keeps counters. Clear, the structure is empty and
+ * every field past the first four is zero.
+ */
+#define AK_STATS_COUNTING 1
+
+/**
  * In ak_call_start_options.flags: timeout_ns states the call's deadline.
  */
 #define AK_CALL_HAS_DEADLINE 1
@@ -746,6 +752,139 @@ typedef struct {
     uint64_t ceiling;
 } ak_memory_usage;
 
+/**
+ * What the engine counts and reads of its own state, over every channel of a runtime, as
+ * ak_runtime_stats writes it. Counters only grow; a gauge is the state at the call.
+ *
+ * A third kind of record, beside the options a host fills and the records this library fills
+ * whole. It starts with struct_size, version, flags and reserved, and every field after them is
+ * a `uint64_t`, a `double` or an array of `uint64_t`, so that its layout is the same on every
+ * target whatever alignment an eight-byte integer has. The host sets struct_size to the size of
+ * its definition, at least those four fields, and the rest of the head to zero; the library
+ * writes the eight-byte words that lie within that size, and sets struct_size to the number of
+ * bytes it wrote. A field past it reads as zero in a host that zeroed its record first. A host
+ * that passes the four fields alone learns whether the library counts, from flags.
+ *
+ * A library built without its `metrics` feature answers AK_STATUS_OK with flags clear and every
+ * counter zero: one ABI serves both builds. The structure's size and the lengths of its arrays
+ * are fixed; a slot added to an array is a new array or a new ABI version, and a field is
+ * appended.
+ *
+ * An array is indexed by its slots: calls_ended by the gRPC status number, 0 to 16, and
+ * streams_reset by the HTTP/2 error code of RFC 9113, 0 to 13, the last slot being any other.
+ * retries is indexed by what failed and was retried: slots 0 to 15 the gRPC statuses 1 to 16 as
+ * the server stated them, 16 to 22 an HTTP status that stated none of them (408, 429, 500, 502,
+ * 503, 504, then any other), 23 to 37 a reset by the slots of streams_reset, 38 a pushback, 39 a
+ * dial, 40 a connection (which a GOAWAY that left a call unprocessed counts as). A retry is
+ * counted when it is sent. connections_closed is indexed by the reason a session ended: 0 the
+ * peer's GOAWAY, 1 a keepalive that timed out, 2 the engine's idle timeout, 3 an I/O error, 4
+ * the engine closing its channel, 5 the peer closing the stream of bytes with no GOAWAY, 6 an
+ * HTTP/2 protocol error, 7 something else.
+ */
+typedef struct {
+    /**
+     * In: sizeof the record the host was built with, at least 16. Out: the bytes written.
+     */
+    uint32_t struct_size;
+    /**
+     * Zero, the one revision of this record there is.
+     */
+    uint32_t version;
+    /**
+     * In: zero. Out: AK_STATS_COUNTING or none.
+     */
+    uint32_t flags;
+    /**
+     * Zero.
+     */
+    uint32_t reserved;
+    /**
+     * Calls started.
+     */
+    uint64_t calls_started;
+    /**
+     * Calls ended, by the status they ended with.
+     */
+    uint64_t calls_ended[17];
+    /**
+     * Messages taken from the calls' request streams, once whatever the attempts that send them,
+     * and read off their responses.
+     */
+    uint64_t messages_sent;
+    uint64_t messages_received;
+    /**
+     * Retries, by what was retried; see the slots above.
+     */
+    uint64_t retries[41];
+    /**
+     * Retries the adaptive estimate of a channel stopped.
+     */
+    uint64_t retries_refused;
+    /**
+     * Calls whose messages outgrew a replay ceiling, so that they are never tried again.
+     */
+    uint64_t calls_not_replayable;
+    /**
+     * Requests the peer's application never processed, sent again at once.
+     */
+    uint64_t resends;
+    uint64_t dials_tried;
+    uint64_t dials_succeeded;
+    uint64_t dials_failed;
+    /**
+     * Sessions that ended, by reason; see the slots above.
+     */
+    uint64_t connections_closed[8];
+    /**
+     * Streams the peer reset, by HTTP/2 error code, whether or not a call was on them.
+     */
+    uint64_t streams_reset[15];
+    /**
+     * The HTTP/2 bytes the connections wrote and read, above TLS.
+     */
+    uint64_t wire_bytes_sent;
+    uint64_t wire_bytes_received;
+    /**
+     * The bytes of the messages as their callers wrote them, and as the engine sent them, the
+     * gRPC prefix of each left out: a message once, whatever the attempts that send it.
+     */
+    uint64_t message_bytes_raw;
+    uint64_t message_bytes_sent;
+    /**
+     * Deliveries that found every credit of Grpc.Host.Receive.Window spent.
+     */
+    uint64_t host_window_waits;
+    /**
+     * Reads held back, and sends made to wait, by the memory ceiling.
+     */
+    uint64_t host_memory_waits;
+    /**
+     * Sends refused with AK_STATUS_BUDGET_BUSY, and received messages dropped, by the ceiling.
+     */
+    uint64_t host_memory_refusals;
+    /**
+     * Gauge: the rate of first attempts, a second, that the channels whose estimate caps them
+     * allow together; zero when none does.
+     */
+    double throttle_cap_per_second;
+    /**
+     * Gauge: channels whose first attempts are capped.
+     */
+    uint64_t channels_capped;
+    /**
+     * Gauge: channels whose estimate has stopped retries.
+     */
+    uint64_t channels_retries_closed;
+    /**
+     * Gauge: calls waiting for their turn at a cap.
+     */
+    uint64_t calls_waiting_at_cap;
+    /**
+     * Gauge: calls waiting for a session to open or to have room for them.
+     */
+    uint64_t calls_waiting_for_stream;
+} ak_stats;
+
 typedef struct {
     /**
      * At least the offset of timeout_ns: a host built before that field passes no deadline.
@@ -909,6 +1048,74 @@ ak_status ak_runtime_destroy(ak_handle runtime, ak_error *out_error);
  * `out_error` must be null or writable for an `ak_error`.
  */
 ak_status ak_runtime_memory_usage(ak_handle runtime, ak_memory_usage *out, ak_error *out_error);
+
+/**
+ * What the engine counts and reads of its own state, over every channel of the runtime: the
+ * calls, retries, connections, bytes and waits, and the gauges of the throttle, and what the
+ * runtime counts that belongs to no channel, the waits and refusals of its memory ceiling.
+ * Synchronous, non-blocking and observational: it changes nothing.
+ *
+ * `out` is a record the host sizes and this library fills, which ak_stats describes: the host
+ * sets `struct_size` to the size of its own definition, at least the first four fields, and zero
+ * to the others of the head. The library writes the eight-byte words that lie within that size and
+ * sets `struct_size` to what it wrote. A library built without its `metrics` feature answers
+ * AK_STATUS_OK with `flags` clear and every counter zero, never a status that says it is not
+ * supported, so that one host serves either build.
+ *
+ * An `out` whose `struct_size` is below sixteen, or whose version, flags or reserved is not zero,
+ * is AK_STATUS_INVALID_ARG, as is a null `out`; a runtime handle that names nothing is
+ * AK_STATUS_HANDLE_STALE.
+ *
+ * # Safety
+ *
+ * `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+ * `out_error` must be null or writable for an `ak_error`.
+ */
+ak_status ak_runtime_stats(ak_handle runtime, ak_stats *out, ak_error *out_error);
+
+/**
+ * What the engine counts and reads of the endpoint a channel is on: the calls, retries,
+ * connections, bytes and waits of every channel of the runtime to that endpoint, this one and
+ * those that closed before it, and the gauges of the channels of it that are open. Two channels
+ * to one endpoint read the same numbers, and ak_channel_endpoint names what they share. What
+ * belongs to no endpoint is not here and is in ak_runtime_stats: the waits and refusals of the
+ * memory ceiling, which are zero in this record. Synchronous, non-blocking and observational.
+ *
+ * `out` is the record of ak_runtime_stats, sized and filled as it is; a library built without its
+ * `metrics` feature answers AK_STATUS_OK with `flags` clear and every counter zero.
+ *
+ * A handle that names no channel, a released channel once its last call has ended included, is
+ * AK_STATUS_HANDLE_STALE. A null `out`, or one whose head is wrong, is AK_STATUS_INVALID_ARG.
+ *
+ * # Safety
+ *
+ * `out` must be writable for the `struct_size` it states, and its first sixteen bytes initialized.
+ * `out_error` must be null or writable for an `ak_error`.
+ */
+ak_status ak_channel_stats(ak_handle channel, ak_stats *out, ak_error *out_error);
+
+/**
+ * The endpoint a channel is on, as its host and port and nothing else, in UTF-8: the key its
+ * counters are kept under, which ak_channel_stats reads. The scheme is not in it, nor a user name
+ * or a password, nor the port when the endpoint states none.
+ *
+ * The host supplies a buffer of `capacity` bytes. The library writes as much of the endpoint as
+ * fits and sets `*length` to its whole length, which a host that finds it above `capacity` asks
+ * again with a larger buffer for. A `capacity` of zero with a null `buffer` only asks the length.
+ *
+ * A handle that names no channel is AK_STATUS_HANDLE_STALE. A null `length`, or a null `buffer`
+ * with a capacity above zero, is AK_STATUS_INVALID_ARG.
+ *
+ * # Safety
+ *
+ * `buffer` must be writable for `capacity` bytes, `length` must be writable, and `out_error` must
+ * be null or writable for an `ak_error`.
+ */
+ak_status ak_channel_endpoint(ak_handle channel,
+                              uint8_t *buffer,
+                              size_t capacity,
+                              size_t *length,
+                              ak_error *out_error);
 
 /**
  * Creates a channel on an endpoint, configured by a JSON document. Synchronous: it reads the

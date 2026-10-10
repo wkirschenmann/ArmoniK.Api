@@ -42,6 +42,9 @@
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <!-- The Meter, for .NET Framework. The observable up-down counter needs 7.0 or later, and 8.0.1
+         is the version ArmoniK.Api.Common takes. -->
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
@@ -129,6 +132,15 @@
             Condition="Exists('%(NativeEngineAsset.Identity)')"
             Pack="true"
             PackagePath="runtimes\%(NativeEngineAsset.Rid)\native\"
+            Visible="false" />
+      <!-- The build with the counters, beside the first and outside the folders a package manager
+           reads native assets from, which would make two files of one name collide. -->
+      <NativeEngineMetricsAsset Include="@(RustTarget->'$(RustWorkspace)target\metrics\%(Triple)\$(RustProfile)\%(Library)')"
+                                Rid="%(RustTarget.Identity)" />
+      <None Include="@(NativeEngineMetricsAsset)"
+            Condition="'$(NativeEngineMetrics)' != 'false' AND Exists('%(NativeEngineMetricsAsset.Identity)')"
+            Pack="true"
+            PackagePath="runtimes\%(NativeEngineMetricsAsset.Rid)\metrics\"
             Visible="false" />
       <None Include="build\ArmoniK.Api.Client.RustGrpcChannel.targets"
             Pack="true"
