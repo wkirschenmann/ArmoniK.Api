@@ -9,6 +9,28 @@ TLA2TOOLS="${TLA2TOOLS:-tla2tools.jar}"
 [ -r "$TLA2TOOLS" ] || { echo "no tla2tools.jar at $TLA2TOOLS"; exit 1; }
 mkdir -p out
 base="$(basename "$cfg" .cfg)"
+# A witness configuration states its target negatively, so the violation
+# trace is the result and "no error" is the failure: reaching the end of
+# the state space without it means the behaviour it claims is unreachable,
+# and a proof about that branch would be a proof about a step that never
+# fires.  Its verdict is therefore the other way round.  The target is the
+# one name the configuration lists under INVARIANT or PROPERTY, and only
+# its violation counts: any other violation is a regression, not the
+# witness reached.  Read before TLC runs, so a malformed witness costs no
+# run.
+target=""
+case "$base" in
+  *witness*)
+    target=$(tr -d '\r' < "$cfg" | awk '
+      /^(INVARIANT|INVARIANTS|PROPERTY|PROPERTIES)[[:space:]]*$/ { f = 1; next }
+      /^[A-Z_]+([[:space:]]|$)/ { f = 0 }
+      f && NF { print $1 }')
+    if [ "$(echo "$target" | grep -c .)" -ne 1 ]; then
+      echo "TLC WITNESS FAILED: $cfg must list exactly one target, lists:" $target
+      exit 1
+    fi
+    ;;
+esac
 # A configuration runs against the module of its own name when there is
 # one, and against the shared <Module>_MC.tla otherwise.  Both shapes are
 # in use: levels 0 and 1 put several configurations on one module, level 2
@@ -22,23 +44,16 @@ java -XX:+UseParallelGC -jar "$TLA2TOOLS" \
      -gzip -deadlock "$mod" > "$log" 2>&1
 rc=$?
 rm -rf "out/$base"
-# A witness configuration states its target negatively, so the violation
-# trace is the result and "no error" is the failure: reaching the end of
-# the state space without it means the behaviour it claims is unreachable,
-# and a proof about that branch would be a proof about a step that never
-# fires.  Its verdict is therefore the other way round.
-case "$base" in
-  *witness*)
-    if grep -qE "Error: (Invariant|Action property) .* is violated" "$log"; then
-      grep -E "Error: (Invariant|Action property)|The depth" "$log" | tail -2
-      echo "TLC witness ok: $cfg reached its target"
-      exit 0
-    fi
-    echo "TLC WITNESS FAILED: $cfg never reached its target"
-    tail -40 "$log"
-    exit 1
-    ;;
-esac
+if [ -n "$target" ]; then
+  if grep -qE "Error: (Invariant|Action property) $target is violated" "$log"; then
+    grep -E "Error: (Invariant|Action property)|The depth" "$log" | tail -2
+    echo "TLC witness ok: $cfg reached its target $target"
+    exit 0
+  fi
+  echo "TLC WITNESS FAILED: $cfg never reached its target $target"
+  tail -40 "$log"
+  exit 1
+fi
 if grep -q "Model checking completed. No error has been found." "$log"; then
   grep -E "distinct states|Finished in" "$log" | tail -2
   echo "TLC ok: $cfg"
