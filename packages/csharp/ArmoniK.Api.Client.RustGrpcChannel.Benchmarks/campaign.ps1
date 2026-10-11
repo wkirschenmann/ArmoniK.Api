@@ -121,7 +121,7 @@ function Median([double[]] $values) {
   return [math]::Round(($sorted[$middle - 1] + $sorted[$middle]) / 2)
 }
 $columns = "p50_us", "p95_us", "p99_us", "stream_mib_s", "upload_stream_mib_s", "upload_unary_mib_s", "alloc_b_call", "cpu_us_call",
-           "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib"
+           "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib", "calib_us", "calib_end_us"
 ""
 "| Variant | Scenario | Transport | " + ($columns -join " | ") + " |"
 "|---|---|---|" + (($columns | ForEach-Object { "---:" }) -join "|") + "|"

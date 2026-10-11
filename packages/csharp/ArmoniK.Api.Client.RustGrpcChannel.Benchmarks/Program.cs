@@ -53,6 +53,12 @@ public static class Program
   private const int UploadSize    = 150 * 1024 * 1024;
   private const int BusyWorkers   = 2;
 
+  private const int CalibrationTries = 5;
+  private const int CalibrationSteps = 4_000_000;
+
+  /// <summary>What the calibration computes, kept so that the compiler keeps the computation.</summary>
+  private static ulong calibrated_;
+
   public static async Task<int> Main(string[] args)
   {
     if (args.Length is < 1 or > 2 || (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "managed") ||
@@ -69,10 +75,13 @@ public static class Program
     Placement.Apply(Process.GetCurrentProcess());
     var transport = args[0];
     var busy      = args.Length == 2;
+    // Before the server and the load exist, so that nothing competes with it.
+    var calibration = Calibration();
     using var server = Server.Start();
 
     using var occupied = new CancellationTokenSource();
     var load = Array.Empty<Task>();
+    string line;
     try
     {
       if (busy)
@@ -80,7 +89,7 @@ public static class Program
         load = Occupy(occupied.Token);
       }
 
-      return await Measure(transport,
+      line = await Measure(transport,
                            server,
                            busy)
                .ConfigureAwait(false);
@@ -91,11 +100,19 @@ public static class Program
       await Task.WhenAll(load)
                 .ConfigureAwait(false);
     }
+
+    // Once the load has stopped, so that a busy run's calibration times the processor alone.
+    Console.WriteLine(line + string.Format(CultureInfo.InvariantCulture,
+                                           " calib_us={0:F0} calib_end_us={1:F0}",
+                                           calibration,
+                                           Calibration()));
+    return 0;
   }
 
-  private static async Task<int> Measure(string transport,
-                                         Server server,
-                                         bool   busy)
+  /// <summary>The line of results, without the calibrations.</summary>
+  private static async Task<string> Measure(string transport,
+                                            Server server,
+                                            bool   busy)
   {
     var before = Footprint.Read();
     var (channel, release) = Open(transport,
@@ -198,8 +215,7 @@ public static class Program
                               uploads.WholeCpu);
       }
 
-      Console.WriteLine(line);
-      return 0;
+      return line;
     }
     finally
     {
@@ -343,6 +359,31 @@ public static class Program
     var used = (now - since).TotalMilliseconds * 1000 / (StreamRuns * (double)UploadSize / (1024 * 1024));
     since = now;
     return used;
+  }
+
+  /// <summary>The fewest microseconds a fixed computation takes, out of a few tries: the speed the
+  /// processor runs at, which follows a power and thermal state no setting here holds.</summary>
+  private static double Calibration()
+  {
+    var clock = new Stopwatch();
+    var best  = double.MaxValue;
+    for (var tried = 0; tried < CalibrationTries; tried++)
+    {
+      clock.Restart();
+      var state = calibrated_ | 1;
+      for (var step = 0; step < CalibrationSteps; step++)
+      {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+      }
+
+      best        = Math.Min(best,
+                             clock.Elapsed.TotalMilliseconds * 1000);
+      calibrated_ = state;
+    }
+
+    return best;
   }
 
   /// <summary>The MiB per second of an upload, from the bytes the server says it read.</summary>

@@ -27,6 +27,11 @@ loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only
   managed heap. Read with the channel still open, so each stack's one-time costs - loading,
   compiling - are in it. The private bytes are read again after the uploads, the 150 MiB message
   unreachable by then.
+- **Calibration**: the fewest microseconds of five tries of a fixed computation, before the server
+  starts and again once the rest is measured and a busy run's load has stopped (`calib_us`,
+  `calib_end_us`). It measures the processor, whose speed follows a power and thermal state that
+  neither the affinity nor the priority holds: runs whose calibrations differ ran on processors
+  of different speeds. Comparable only between runs of one framework and one build.
 
 Every transport option is left at its default, the runtime's ceilings included.
 
@@ -382,4 +387,5 @@ It prints one line: the latencies, the download and the two uploads, the allocat
 on .NET the thread pool work items, and for an idle run the CPU per call and per MiB uploaded and
 the memory before and after the uploads. `ARMONIK_BENCH_AFFINITY` and `ARMONIK_BENCH_PRIORITY` set
 where it and its server run. The benchmark starts its test server, a `net8.0` program, with the
-`dotnet` the system finds first, which has to be an install with a .NET 8 runtime.
+`dotnet` the system finds first, which has to be an install with a .NET 8 runtime. Every run's
+line ends with the two calibrations.
