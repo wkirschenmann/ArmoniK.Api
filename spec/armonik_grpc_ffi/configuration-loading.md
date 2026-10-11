@@ -51,8 +51,10 @@ well as from JSON, so every host language gets the same result from the same sou
   a path: its parts, joined by `__` (a `:`, as a .NET section's path is written, is read as `__`),
   are the nested sections of a file or of a document, each key compared as written
   (`{"ArmoniK": {"Client": {"Grpc": {...}}}}`), and the start of a variable's name. An empty prefix
-  is a prefix like another, and takes everything: the whole file is the engine's. Read once, when
-  the runtime is created, and only if the host lists it among the sources.
+  is a prefix like another, and takes everything: the whole file is the engine's. The environment
+  is read once, when the runtime is created, and only if the host lists it among the sources. A
+  load has one prefix, every source being read under it: a prefix per source would add a field to
+  `ak_config_source`, and is not offered.
 - **No aliases**: the keys under the prefix are the schema's. The engine maps none of the names
   `ArmoniK.Api.Client`'s managed transport reads under its `GrpcClient` section: a channel's option
   is under `ChannelDefaults`, the endpoint is `Endpoint`.
