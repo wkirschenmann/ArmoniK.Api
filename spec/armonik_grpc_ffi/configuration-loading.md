@@ -98,10 +98,11 @@ well as from JSON, so every host language gets the same result from the same sou
   would leave an option at what an earlier source or the default gave it, and a line in the log is
   too little to say so. A configuration written for a later engine is not a reason to load it: it
   is written for that engine, and an older one that drops what it does not know runs something else
-  than the file states. With an empty prefix the whole file is the engine's and is judged whole,
-  so a host's own `Logging` section is refused at `Logging.LogLevel`, where the runtime's `Logging`
-  group meets it; a host reads its file with `ArmoniK:Client:Grpc` and the two never meet.
-  decisions.md has the reasons.
+  than the file states. A file or a document with no such section contributes nothing and is
+  logged, not refused (see "A file" below). With an empty prefix the whole file is the engine's and
+  is judged whole, so a host's own `Logging` section is refused at `Logging.LogLevel`, where the
+  runtime's `Logging` group meets it; a host reads its file with `ArmoniK:Client:Grpc` and the two
+  never meet. decisions.md has the reasons.
 - **The endpoint is a key of the runtime's document**, `Endpoint` (2026-10-07): the one the
   `armonik` client reaches, and the one a channel reaches when `ak_channel_create` is given none.
 - **Both hosts read the runtime's document**, which follows from the endpoint's being one of its
@@ -168,7 +169,14 @@ file or one environment configures every host alike; a document with no `Endpoin
   sections as written (a section that is missing contributes nothing, one that is not an object is
   refused), and it is judged whole against the schema. The host's own `appsettings.json` can carry
   it beside sections the host reads itself, `Logging` and `Serilog` among them: they lie outside the
-  section, and are never looked at. A file with no such section contributes nothing. With an empty
+  section, and are never looked at. A file with no such section contributes nothing, and the
+  engine logs a warning under the `armonik_transport` target, so that it reaches the host's log
+  callback. It names the file's path and the prefix it looked for, and, when the file has a section
+  whose name differs from the prefix only by case (`armonik__client__grpc` for
+  `ArmoniK__Client__Grpc`), that section too, the likely typo. It is no refusal, a host's file with
+  no engine section being the normal case, but a misspelled prefix looks the same: the options are
+  then the defaults, or what an earlier source states. The environment and pairs log nothing of
+  the kind: a prefix that matches no variable or no pair is their normal case. With an empty
   prefix, the document is the whole file, and the file belongs to the engine alone: every key of it
   has to be one the schema declares, so that the sections of a host are refused, `Logging.LogLevel`
   being the first a host's file usually holds (observability.md). A missing file is refused, unless
@@ -197,8 +205,9 @@ file or one environment configures every host alike; a document with no `Endpoin
   is what a binding sends for a command line it has parsed, every argument of it. Pairs state no
   list, and neither does a command line: a key that holds a list is refused, by its path.
 - **A document**: JSON, of which the section the prefix names is the engine's, in the schema's
-  vocabulary, as a file's is; with an empty prefix the whole document is. It is what a binding sends
-  for an object set in code, which it nests under the prefix.
+  vocabulary, as a file's is, and logged as a file's is when the section is absent; with an empty
+  prefix the whole document is. It is what a binding sends for an object set in code, which it
+  nests under the prefix.
 - **A variant that carries nothing**: in the environment and in pairs, the key's value is its name,
   matched without case - `ArmoniK__Client__Grpc__ChannelDefaults__Transport__Proxy=None`. A variant
   that carries something is its keys under the alternative's - `...__Proxy__Url__Address=...`, and

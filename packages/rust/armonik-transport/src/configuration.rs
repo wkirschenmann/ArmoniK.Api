@@ -11,8 +11,10 @@
 //! The prefix names the section of the document that is the engine's: a file or a document is
 //! judged on that section alone, and what lies outside it, a host's `Logging` or `Serilog`, is
 //! never looked at; a variable or a pair whose name does not start with the prefix is never looked
-//! at either. With an empty prefix the whole file is the engine's, and every key of it has to be
-//! one the schema declares.
+//! at either. A file or a document with no such section contributes nothing and is logged at warn:
+//! a host's file may hold none, so it is no refusal, but a misspelled prefix looks the same. With an
+//! empty prefix the whole file is the engine's, and every key of it has to be one the schema
+//! declares.
 //!
 //! A key a struct does not declare, such as `Endpiont` at the root, `IntervalSecond` in
 //! `Http2.KeepAlive.Ping` or `Windw` in `Grpc.Host.Receive`, is refused by its path, and so is a key
@@ -186,9 +188,7 @@ impl Configuration {
                 if !matches!(root, Node::Map(_)) {
                     return Err(refused("the file holds no object".to_owned()));
                 }
-                let section = section(root, &self.prefix)
-                    .map_err(|at| refused(format!("its section {at} is not an object")))?;
-                Ok(section.map(Tree::typed))
+                self.engine_section(root, named)
             }
             Source::Environment => {
                 if self.prefix.is_empty() {
@@ -248,11 +248,44 @@ impl Configuration {
                 if !matches!(parsed, Node::Map(_)) {
                     return Err(refused("it is not a JSON object".to_owned()));
                 }
-                let section = section(parsed, &self.prefix)
-                    .map_err(|at| refused(format!("its section {at} is not an object")))?;
-                Ok(section.map(Tree::typed))
+                self.engine_section(parsed, named)
             }
         }
+    }
+
+    /// The tree of the section the prefix names in a file's or a document's root. A section that is
+    /// absent is no refusal, a host's file may hold none, but it is logged: a misspelled prefix
+    /// looks the same, and it would leave every option at its default.
+    fn engine_section(
+        &self,
+        mut root: Node,
+        named: &SourceName,
+    ) -> Result<Option<Tree>, ConfigRefusal> {
+        let found = section(&mut root, &self.prefix).map_err(|at| {
+            ConfigRefusal::new(
+                named.clone(),
+                None,
+                format!("its section {at} is not an object"),
+            )
+        })?;
+        let Some(found) = found else {
+            match near_section(&root, &self.prefix) {
+                Some(near) => tracing::warn!(
+                    source = %named,
+                    prefix = %self.prefix,
+                    section = %near,
+                    "the source has no section under the prefix, only one that differs by case: \
+                     it contributes no option"
+                ),
+                None => tracing::warn!(
+                    source = %named,
+                    prefix = %self.prefix,
+                    "the source has no section under the prefix: it contributes no option"
+                ),
+            }
+            return Ok(None);
+        };
+        Ok(Some(Tree::typed(found)))
     }
 
     /// The pairs whose name starts with the prefix, each by the rest of its name.
@@ -269,13 +302,14 @@ impl Configuration {
     }
 }
 
-/// The section a prefix names in a file's tree: its parts, joined by `__`, walk down the nested
-/// sections, each key compared as written, so that `A__B` is the section `B` of the section `A`.
-/// Nothing when a section is missing; an error, the path to the section at fault, when a section
-/// is not an object. The whole tree when the prefix is empty.
-fn section(root: Node, prefix: &str) -> Result<Option<Node>, String> {
+/// The section a prefix names in a file's tree, taken out of it: its parts, joined by `__`, walk
+/// down the nested sections, each key compared as written, so that `A__B` is the section `B` of
+/// the section `A`. Nothing when a section is missing, the tree left as it was; an error, the path
+/// to the section at fault, when a section is not an object. The whole tree when the prefix is
+/// empty.
+fn section(root: &mut Node, prefix: &str) -> Result<Option<Node>, String> {
     if prefix.is_empty() {
-        return Ok(Some(root));
+        return Ok(Some(std::mem::replace(root, Node::Null)));
     }
     let mut current = root;
     let mut walked = 0;
@@ -283,16 +317,43 @@ fn section(root: Node, prefix: &str) -> Result<Option<Node>, String> {
         let Node::Map(entries) = current else {
             return Err(prefix[..walked].trim_end_matches(SEPARATOR).to_owned());
         };
-        match entries.into_iter().find(|(key, _)| key == part) {
+        match entries.iter_mut().find(|(key, _)| key == part) {
             Some((_, found)) => current = found,
             None => return Ok(None),
         }
         walked += part.len() + SEPARATOR.len();
     }
     match current {
-        Node::Map(_) => Ok(Some(current)),
+        Node::Map(_) => Ok(Some(std::mem::replace(current, Node::Null))),
         _ => Err(prefix.to_owned()),
     }
+}
+
+/// The path, joined by `__`, of an object that the prefix names but for the case of some of its
+/// parts, as the file writes it: the likely typo of a prefix that finds nothing.
+fn near_section(root: &Node, prefix: &str) -> Option<String> {
+    fn walk<'a>(node: &'a Node, parts: &[&str], path: &mut Vec<&'a str>) -> bool {
+        let Some((first, rest)) = parts.split_first() else {
+            return matches!(node, Node::Map(_));
+        };
+        let Node::Map(entries) = node else {
+            return false;
+        };
+        for (key, child) in entries {
+            if key.eq_ignore_ascii_case(first) {
+                path.push(key);
+                if walk(child, rest, path) {
+                    return true;
+                }
+                path.pop();
+            }
+        }
+        false
+    }
+
+    let parts: Vec<&str> = prefix.split(SEPARATOR).collect();
+    let mut path = Vec::new();
+    walk(root, &parts, &mut path).then(|| path.join(SEPARATOR))
 }
 
 /// The rest of a variable's name past `prefix` and the separator, compared without case, as the

@@ -523,6 +523,7 @@ A target is the module that emits it. A host selects by target and level (`Loggi
 | Target | Level | Message | Fields |
 |--------|-------|---------|--------|
 | `armonik_transport::configuration` | warn | the configuration gives a key twice, which is taken from the later | `source`, `key` |
+| `armonik_transport::configuration` | warn | the source has no section under the prefix: it contributes no option (or, with a section that differs by case, "only one that differs by case") | `source`, `prefix`, and `section` when one differs by case |
 | `armonik_transport_ffi::config` | info | the runtime's effective configuration | `endpoint`, `memory_ceiling`, `memory_hard_ceiling`, `channel_defaults`, `log_filter` |
 | `armonik_transport_ffi::config` | info | the channel's effective configuration | `endpoint`, `options` |
 | `armonik_transport_ffi::log` | warn | the log filter holds a directive that is not understood, which is ignored | `directive` |

@@ -113,6 +113,11 @@ fn create(document: &str) -> Result<Host, Refused> {
 
 /// A runtime created from sources, an empty prefix taking every key of each as the engine's.
 fn create_from(values: &[(ak_source_kind, &str)]) -> Result<Host, Refused> {
+    create_under("", values)
+}
+
+/// A runtime created from sources, each read under `prefix`.
+fn create_under(prefix: &str, values: &[(ak_source_kind, &str)]) -> Result<Host, Refused> {
     let sources: Vec<ak_config_source> = values
         .iter()
         .map(|(kind, value)| ak_config_source {
@@ -127,7 +132,7 @@ fn create_from(values: &[(ak_source_kind, &str)]) -> Result<Host, Refused> {
         flags: 0,
         source_count: sources.len() as u32,
         sources: sources.as_ptr(),
-        prefix: bytes(""),
+        prefix: bytes(prefix),
         log_callback: Some(collect),
         log_ctx: context(),
     })
@@ -165,6 +170,33 @@ fn a_key_given_twice_is_logged_at_warn_on_the_thread_that_creates_the_runtime() 
     assert_eq!(twice[0].field("key"), Some("endpoint"));
     // The key is named and its value is not.
     assert!(!twice[0].text().contains("second.test"));
+    drop(host);
+}
+
+#[test]
+fn a_document_without_the_prefixs_section_is_logged_at_warn_naming_the_prefix() {
+    let _turn = turn();
+    let host = create_under(
+        "ArmoniK:Client:Grpc",
+        &[(
+            ak_source_kind::AK_SOURCE_DOCUMENT,
+            r#"{"armonik":{"client":{"grpc":{"Endpoint":"http://case.test:1"}}}}"#,
+        )],
+    )
+    .expect("a runtime: an absent section is no refusal");
+
+    let records = logged();
+    let absent: Vec<_> = records
+        .iter()
+        .filter(|record| record.message.contains("no section under the prefix"))
+        .collect();
+    assert_eq!(absent.len(), 1, "{records:#?}");
+    assert_eq!(absent[0].level, AK_LOG_WARN);
+    assert!(absent[0].target.starts_with("armonik_transport"));
+    assert_eq!(absent[0].thread, std::thread::current().id());
+    assert_eq!(absent[0].field("source"), Some("a document"));
+    assert_eq!(absent[0].field("prefix"), Some("ArmoniK__Client__Grpc"));
+    assert_eq!(absent[0].field("section"), Some("armonik__client__grpc"));
     drop(host);
 }
 

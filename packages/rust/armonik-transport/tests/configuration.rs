@@ -13,39 +13,63 @@ use tracing::field::{Field, Visit};
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::Layer;
 
-/// The `key` of every event the load logs.
+/// Every event the load logs, with its level and fields.
 #[derive(Clone, Default)]
-struct Logged(Arc<Mutex<Vec<String>>>);
+struct Logged(Arc<Mutex<Vec<Event>>>);
+
+#[derive(Clone, Debug)]
+struct Event {
+    level: tracing::Level,
+    target: String,
+    fields: Vec<(String, String)>,
+}
+
+impl Event {
+    fn field(&self, name: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(field, _)| field == name)
+            .map(|(_, value)| value.as_str())
+    }
+}
 
 impl Logged {
-    fn keys(&self) -> Vec<String> {
+    fn events(&self) -> Vec<Event> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+
+    /// The `key` of every event that has one.
+    fn keys(&self) -> Vec<String> {
+        self.events()
+            .iter()
+            .filter_map(|event| event.field("key").map(str::to_owned))
+            .collect()
+    }
 }
 
 impl<S: tracing::Subscriber> Layer<S> for Logged {
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-        struct Key(Option<String>);
+        struct Fields(Vec<(String, String)>);
 
-        impl Visit for Key {
+        impl Visit for Fields {
             fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-                if field.name() == "key" {
-                    self.0 = Some(format!("{value:?}"));
-                }
+                self.0.push((field.name().to_owned(), format!("{value:?}")));
             }
         }
 
-        let mut key = Key(None);
-        event.record(&mut key);
-        if let Some(key) = key.0 {
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(key);
-        }
+        let mut fields = Fields(Vec::new());
+        event.record(&mut fields);
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Event {
+                level: *event.metadata().level(),
+                target: event.metadata().target().to_owned(),
+                fields: fields.0,
+            });
     }
 }
 
@@ -199,4 +223,140 @@ fn a_hosts_appsettings_loads_under_the_prefix_and_is_refused_without_it() {
         .load::<RuntimeOptions>()
         .expect_err("the whole file is the engine's, and Logging.LogLevel is no option");
     assert_eq!(refused.key(), Some("Logging.LogLevel"));
+}
+
+/// What a load of `configuration` gives and logs.
+fn load_logged(configuration: &Configuration) -> (RuntimeOptions, Vec<Event>) {
+    let logged = Logged::default();
+    let subscriber = tracing_subscriber::registry().with(logged.clone());
+    let loaded = tracing::subscriber::with_default(subscriber, || {
+        configuration.load().expect("a source that loads")
+    });
+    (loaded, logged.events())
+}
+
+/// A scratch directory, removed when it goes, a failed test included.
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    fn new(name: &str) -> Self {
+        let directory = std::env::temp_dir().join(format!(
+            "armonik-configuration-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("a scratch directory");
+        Self(directory)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+const PREFIX: &str = "ArmoniK:Client:Grpc";
+
+/// The prefix as the warning writes it: its parts joined by `__`.
+const STORED: &str = "ArmoniK__Client__Grpc";
+
+/// A document with no section under the prefix loads as the defaults do, and says so.
+#[test]
+fn a_document_without_the_prefixs_section_loads_the_defaults_and_warns() {
+    let (loaded, logged) = load_logged(
+        &Configuration::with_prefix(PREFIX)
+            .document(r#"{"Logging":{"LogLevel":{"Default":"Information"}}}"#),
+    );
+
+    assert_eq!(loaded, RuntimeOptions::default());
+    assert_eq!(logged.len(), 1, "{logged:#?}");
+    assert_eq!(logged[0].level, tracing::Level::WARN);
+    assert!(logged[0].target.starts_with("armonik_transport"));
+    assert_eq!(logged[0].field("source"), Some("a document"));
+    assert_eq!(logged[0].field("prefix"), Some(STORED));
+    assert_eq!(logged[0].field("section"), None);
+}
+
+/// A file with no section under the prefix warns by its path, and a source after it still applies.
+#[test]
+fn a_file_without_the_prefixs_section_warns_by_its_path_and_the_next_source_applies() {
+    let scratch = Scratch::new("absent-section");
+    let path = scratch.0.join("appsettings.json");
+    std::fs::write(
+        &path,
+        r#"{"ArmoniK":{"Client":{"Grcp":{"Endpoint":"http://typo.test:1"}}}}"#,
+    )
+    .expect("a file");
+
+    let (loaded, logged) = load_logged(
+        &Configuration::with_prefix(PREFIX)
+            .file(&path)
+            .document(r#"{"ArmoniK":{"Client":{"Grpc":{"Endpoint":"http://later.test:2"}}}}"#),
+    );
+
+    assert_eq!(loaded.endpoint.as_deref(), Some("http://later.test:2"));
+    assert_eq!(logged.len(), 1, "{logged:#?}");
+    assert_eq!(logged[0].level, tracing::Level::WARN);
+    assert_eq!(
+        logged[0].field("source"),
+        Some(path.display().to_string().as_str())
+    );
+    assert_eq!(logged[0].field("prefix"), Some(STORED));
+    assert_eq!(logged[0].field("section"), None);
+}
+
+/// A section that differs from the prefix only by case is not read, and the warning names it.
+#[test]
+fn a_section_that_differs_by_case_is_named_by_the_warning_and_not_read() {
+    for (written, document) in [
+        (
+            "armonik__client__grpc",
+            r#"{"armonik":{"client":{"grpc":{"Endpoint":"http://case.test:1"}}}}"#,
+        ),
+        (
+            "ArmoniK__client__Grpc",
+            r#"{"ArmoniK":{"client":{"Grpc":{"Endpoint":"http://case.test:1"}}}}"#,
+        ),
+        (
+            "armonik__Client__Grpc",
+            r#"{"ArmoniK":{"Other":{}},"armonik":{"Client":{"Grpc":{"Endpoint":"http://case.test:1"}}}}"#,
+        ),
+    ] {
+        let (loaded, logged) = load_logged(&Configuration::with_prefix(PREFIX).document(document));
+
+        assert_eq!(loaded, RuntimeOptions::default(), "{written}");
+        assert_eq!(logged.len(), 1, "{written}: {logged:#?}");
+        assert_eq!(logged[0].level, tracing::Level::WARN);
+        assert_eq!(logged[0].field("source"), Some("a document"));
+        assert_eq!(logged[0].field("prefix"), Some(STORED));
+        assert_eq!(logged[0].field("section"), Some(written), "{written}");
+    }
+}
+
+/// A section the prefix names logs nothing, and nor does an empty prefix, a missing optional file
+/// or a prefix that matches no pair.
+#[test]
+fn a_load_that_finds_its_section_or_reads_names_logs_no_warning() {
+    let (loaded, logged) = load_logged(
+        &Configuration::with_prefix(PREFIX)
+            .document(r#"{"ArmoniK":{"Client":{"Grpc":{"Endpoint":"http://host.test:1"}}}}"#),
+    );
+    assert_eq!(loaded.endpoint.as_deref(), Some("http://host.test:1"));
+    assert!(logged.is_empty(), "{logged:#?}");
+
+    let (_, logged) = load_logged(&Configuration::with_prefix("").document("{}"));
+    assert!(logged.is_empty(), "{logged:#?}");
+
+    let scratch = Scratch::new("optional-file");
+    let (loaded, logged) = load_logged(
+        &Configuration::with_prefix(PREFIX).optional_file(scratch.0.join("missing.json")),
+    );
+    assert_eq!(loaded, RuntimeOptions::default());
+    assert!(logged.is_empty(), "{logged:#?}");
+
+    let (loaded, logged) = load_logged(
+        &Configuration::with_prefix(PREFIX).pairs([("Other__Endpoint".to_owned(), "x".to_owned())]),
+    );
+    assert_eq!(loaded, RuntimeOptions::default());
+    assert!(logged.is_empty(), "{logged:#?}");
 }
