@@ -10,7 +10,8 @@ compare the next measurement with.
 
 `ArmoniK.Api.Client.RustGrpcChannel.Benchmarks` measures one transport per process, so that what
 one leaves allocated is not counted against the other, against the test server over TLS on
-loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over it.
+loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over it; the
+`-h2c` transports, which run in the clear, are named where their figures are given.
 
 - **Unary latency**: 1 000 warm-up calls, then 10 000 sequential `Say` calls of a one-character
   message, each timed alone. P50, P95 and P99 in microseconds.
@@ -372,7 +373,11 @@ h2-batch's patch and takes Git Bash first on the PATH, and a build without it re
 option. `native-metrics` loads the engine's build with its counters, which the benchmark's build
 copies beside it unless `-p:NativeEngineMetrics=false`, and which it selects with
 `NativeLibrarySelection` before the first runtime exists; the published ahead-of-time
-benchmarks do not carry that build, so it does not run there. The h2-batch run builds the engine
+benchmarks do not carry that build, so it does not run there. `native-nospin` runs the engine
+with `BeforeSleep` `"None"`, a channel's thread sleeping as soon as it runs out of work.
+`native-h2c` and `managed-h2c` speak HTTP/2 in the clear, prior knowledge, to the test server
+started without TLS, which tells what TLS costs from the rest; `managed-h2c` does not run on
+.NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS. The h2-batch run builds the engine
 over the one the other transports use, so a run of both builds takes a copy of the output
 directory before the second build. A run that fails is reported and left out, and a cell left
 with fewer passes says so.

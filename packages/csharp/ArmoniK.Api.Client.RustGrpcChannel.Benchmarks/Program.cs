@@ -35,13 +35,16 @@ using Grpc.Core;
 namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 
 /// <summary>
-///   One transport, measured against the test server over TLS: unary latency, server-streaming
-///   throughput, the throughput of sending 150 MiB as one message and as a stream of chunks, and
-///   what the process holds once they have run. Prints one line of results.
+///   One transport, measured against the test server, over TLS unless its name ends in -h2c:
+///   unary latency, server-streaming throughput, the throughput of sending 150 MiB as one message
+///   and as a stream of chunks, and what the process holds once they have run. Prints one line of
+///   results.
 /// </summary>
 /// <remarks>
 ///   One transport per process, so that what one leaves allocated is not counted against the
-///   other. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over it.
+///   other. TLS by default for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over
+///   it. The -h2c transports speak HTTP/2 in the clear, which tells TLS's share of a call from the
+///   rest; grpc-dotnet speaks it in the clear only on .NET.
 /// </remarks>
 public static class Program
 {
@@ -62,14 +65,20 @@ public static class Program
   public static async Task<int> Main(string[] args)
   {
     if (args.Length is < 1 or > 2 ||
-        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-nospin" && args[0] != "managed") ||
-        (args.Length == 2 && args[1] != "busy"))
+        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-nospin" && args[0] != "native-h2c" &&
+         args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy"))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-nospin|managed [busy]");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-nospin|native-h2c|managed|managed-h2c [busy]");
       return 2;
     }
 
 #if NETFRAMEWORK
+    if (args[0] == "managed-h2c")
+    {
+      Console.Error.WriteLine("managed-h2c: WinHttpHandler speaks HTTP/2 only over TLS");
+      return 2;
+    }
+
     // What allocation counts on .NET Framework, which has no GC.GetTotalAllocatedBytes.
     AppDomain.MonitoringIsEnabled = true;
 #endif
@@ -78,7 +87,8 @@ public static class Program
     var busy      = args.Length == 2;
     // Before the server and the load exist, so that nothing competes with it.
     var calibration = Calibration();
-    using var server = Server.Start();
+    using var server = Server.Start(!transport.EndsWith("-h2c",
+                                                        StringComparison.Ordinal));
 
     using var occupied = new CancellationTokenSource();
     var load = Array.Empty<Task>();
@@ -247,12 +257,13 @@ public static class Program
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
                                                                Server server)
   {
-    if (transport is "native" or "native-batch" or "native-metrics" or "native-nospin")
+    if (transport is "native" or "native-batch" or "native-metrics" or "native-nospin" or "native-h2c")
     {
       // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
       // by any other. native-metrics loads the build with the engine's counters, which is
       // selected before the first runtime exists. native-nospin has the channel's thread sleep
-      // as soon as it runs out of work.
+      // as soon as it runs out of work. native-h2c reaches a server with no authority, so its
+      // channel states no Tls.
       if (transport == "native-metrics")
       {
         NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
@@ -267,13 +278,15 @@ public static class Program
       var channel = runtime.Channel(server.Endpoint,
                                     new ChannelOptions
                                     {
-                                      Transport = new TransportOptions
-                                                  {
-                                                    Tls = new TlsOptions
-                                                          {
-                                                            ServerCertificates = new ServerCertificates.CaPem(server.Authority),
-                                                          },
-                                                  },
+                                      Transport = server.Authority is null
+                                                    ? null
+                                                    : new TransportOptions
+                                                      {
+                                                        Tls = new TlsOptions
+                                                              {
+                                                                ServerCertificates = new ServerCertificates.CaPem(server.Authority),
+                                                              },
+                                                      },
                                       Http2 = transport == "native-batch"
                                                 ? new Http2Options
                                                   {
@@ -296,7 +309,7 @@ public static class Program
     var managed = GrpcChannelFactory.CreateChannel(new GrpcClient
                                                    {
                                                      Endpoint = server.Endpoint,
-                                                     CaCert   = server.Authority,
+                                                     CaCert   = server.Authority ?? "",
                                                    });
     return (managed, () =>
                      {
@@ -514,7 +527,7 @@ public static class Program
     }
   }
 
-  /// <summary>The test server, started over TLS for the length of one measurement.</summary>
+  /// <summary>The test server, started over TLS, or in the clear, for the length of one measurement.</summary>
   private sealed class Server : IDisposable
   {
     // What the test server prints, which this host cannot take from it: the server is a net8.0
@@ -526,19 +539,30 @@ public static class Program
 
     private Server(Process process,
                    string  endpoint,
-                   string  authority)
+                   string? authority)
     {
       process_  = process;
       Endpoint  = endpoint;
       Authority = authority;
     }
 
-    internal string Endpoint  { get; }
-    internal string Authority { get; }
+    internal string Endpoint { get; }
 
-    /// <summary>Closes the server's stdin, which stops it and has it remove what it made.</summary>
+    /// <summary>The authority's file, or none for a server in the clear.</summary>
+    internal string? Authority { get; }
+
+    /// <summary>Closes the server's stdin, which stops a TLS server and has it remove what it made;
+    /// one in the clear made nothing, and is killed.</summary>
     public void Dispose()
     {
+      if (Authority is null)
+      {
+        Kill(process_);
+        process_.WaitForExit(10_000);
+        process_.Dispose();
+        return;
+      }
+
       process_.StandardInput.Close();
       if (!process_.WaitForExit(10_000))
       {
@@ -549,13 +573,15 @@ public static class Program
       File.Delete(Authority);
     }
 
-    internal static Server Start()
+    internal static Server Start(bool tls)
     {
       var assembly = Path.GetFullPath(typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
                                                      .Single(metadata => metadata.Key == "TestServerAssembly")
                                                      .Value!);
       var process = Process.Start(new ProcessStartInfo("dotnet",
-                                                       $"\"{assembly}\" --tls")
+                                                       tls
+                                                         ? $"\"{assembly}\" --tls"
+                                                         : $"\"{assembly}\"")
                                   {
                                     RedirectStandardInput  = true,
                                     RedirectStandardOutput = true,
@@ -585,7 +611,9 @@ public static class Program
             // Kestrel names the address it bound, which the certificate names too.
             return new Server(process,
                               line.Substring(EndpointPrefix.Length),
-                              authority ?? throw new InvalidOperationException("the server named no authority"));
+                              tls
+                                ? authority ?? throw new InvalidOperationException("the server named no authority")
+                                : null);
           }
         }
 
