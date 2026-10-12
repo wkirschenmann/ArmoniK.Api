@@ -833,8 +833,8 @@ fn past_the_limit(status: tonic::Status) -> tonic::Status {
     }
 }
 
-/// Room for a small message and its prefix; a larger one has the buffer grown to fit it. Not 0: tonic
-/// divides by it when it decompresses.
+/// The decoder's room for a small message and its prefix; a larger one has the buffer grown to fit
+/// it. Not 0: tonic divides by it when it decompresses.
 const CODEC_BUFFER: usize = 1024;
 
 /// Unused: `BufferSettings` asks for an encoder's threshold, and the engine encodes nothing.
@@ -869,8 +869,11 @@ impl Encoder for BytesCodec {
         Ok(())
     }
 
+    /// 0: tonic allocates a buffer of this size for every request it builds, and the engine
+    /// replaces that body before anything is written to it. Safe while the client sets no send
+    /// compression, the one encoding path that divides by it.
     fn buffer_settings(&self) -> BufferSettings {
-        BufferSettings::new(CODEC_BUFFER, YIELD_THRESHOLD)
+        BufferSettings::new(0, YIELD_THRESHOLD)
     }
 }
 

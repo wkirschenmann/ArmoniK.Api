@@ -390,13 +390,14 @@ impl std::fmt::Debug for GrpcChannel {
     }
 }
 
-/// What the engine adds to every request, beside the `te` and `content-type` tonic's client writes.
-fn engine_headers(
+/// What the engine adds to every request, beside the `te` and `content-type` tonic's client writes,
+/// written into the request's own headers, each replacing any value already under its name.
+fn add_engine_headers(
+    headers: &mut HeaderMap,
     user_agent: &HeaderValue,
     send: Option<Encoding>,
     accept: &HeaderValue,
-) -> HeaderMap {
-    let mut headers = HeaderMap::with_capacity(3);
+) {
     headers.insert(USER_AGENT, user_agent.clone());
     headers.insert(
         HeaderName::from_static("grpc-accept-encoding"),
@@ -408,7 +409,6 @@ fn engine_headers(
             HeaderValue::from_static(encoding.name()),
         );
     }
-    headers
 }
 
 pub(crate) struct Inner {
@@ -970,11 +970,12 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
             None => {}
         }
         Box::pin(async move {
-            request.headers_mut().extend(engine_headers(
+            add_engine_headers(
+                request.headers_mut(),
                 &inner.user_agent,
                 send,
                 &inner.accept_header,
-            ));
+            );
 
             // Before a connection is taken or dialled: the server's own refusal of a header list
             // can end every call on its connection, where this one ends this call alone.
@@ -1596,7 +1597,9 @@ mod tests {
     fn every_header_on_the_wire_that_the_caller_did_not_write_is_one_it_may_not_set() {
         use http::header::{CONTENT_TYPE, TE};
 
-        let engine = engine_headers(
+        let mut engine = HeaderMap::new();
+        add_engine_headers(
+            &mut engine,
             &HeaderValue::from_static("test"),
             Some(Encoding::Gzip),
             &HeaderValue::from_static("gzip,identity"),
