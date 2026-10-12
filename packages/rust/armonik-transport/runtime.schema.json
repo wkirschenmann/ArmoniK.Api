@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, and what the engine logs.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, what the engine logs, and whether a channel's thread\nspins before it sleeps.",
   "type": "object",
   "properties": {
     "Endpoint": {
@@ -20,6 +20,10 @@
     "Logging": {
       "description": "What the engine reports of itself to the host.\n\nDefaults to `{}`, which leaves each of its options at its own default.",
       "$ref": "#/$defs/LoggingOptions"
+    },
+    "BeforeSleep": {
+      "description": "What a channel's thread does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `{\"Spin\": {}}`: it polls for new work for 100 microseconds after it last called\nthe host.",
+      "$ref": "#/$defs/BeforeSleep"
     }
   },
   "additionalProperties": false,
@@ -1124,6 +1128,43 @@
         "Filter": {
           "description": "Which events are reported: comma-separated directives, each a level for every target\n(`warn`, or `*=warn`), a target and its level (`h2=debug`), or a target alone, which is all\nits levels. A target covers itself and the modules below it - `h2` covers `h2::proto`, not\n`h2x` - and `target*` covers every target that starts with the text: `hyper*` covers\n`hyper` and `hyper_util`. The most specific directive that covers an event decides: the\nlongest target, and at the same length the one without `*`. A filter replaces the default\nwhole, and a target none of its directives covers is off: `armonik_transport=debug` alone\nreports that target and nothing else, `*=off` alone reports nothing, and a word that is no\nlevel is a target nothing emits. A level for every target, as `*=warn` states it, covers\nthe rest. A directive that is not understood is ignored with a warning, and a filter with\nnone that is understood, an empty one included, is the default. Read when the runtime is\ncreated.\n\nDefaults to `*=warn,armonik_transport*=info`: warnings from every target, and the engine's\nown events - the targets that start with `armonik_transport` - at information.",
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BeforeSleep": {
+      "description": "What a channel's thread does once it has run out of work, before it sleeps.",
+      "oneOf": [
+        {
+          "description": "Nothing: the thread sleeps at once, and the operating system wakes it when a socket is\nready, a timer is due or the host hands it work.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "The thread goes on polling for that work, without blocking, until `WindowMicroseconds`\nhave passed since it last called the host, and then sleeps. What the host sends within the\nwindow finds the thread awake, which saves a wake-up's latency for the polls' CPU time.",
+          "type": "object",
+          "properties": {
+            "Spin": {
+              "$ref": "#/$defs/SpinOptions"
+            }
+          },
+          "required": [
+            "Spin"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SpinOptions": {
+      "description": "How long a channel's thread polls for work before it sleeps.",
+      "type": "object",
+      "properties": {
+        "WindowMicroseconds": {
+          "description": "The microseconds the thread polls for after it last called the host, from 1 to 1000000.\n\nDefaults to 100.",
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 1000000
         }
       },
       "additionalProperties": false

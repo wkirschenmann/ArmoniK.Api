@@ -3260,7 +3260,8 @@ impl ChannelOptions {
 }
 
 /// What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
-/// channel takes where its own state none, and what the engine logs.
+/// channel takes where its own state none, what the engine logs, and whether a channel's thread
+/// spins before it sleeps.
 #[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -3298,6 +3299,95 @@ pub struct RuntimeOptions {
     /// Defaults to `{}`, which leaves each of its options at its own default.
     #[serde(default)]
     pub logging: LoggingOptions,
+
+    /// What a channel's thread does once it has run out of work, before it sleeps until more
+    /// comes. Ignored by a Rust host, whose channels run on its own runtime.
+    ///
+    /// Defaults to `{"Spin": {}}`: it polls for new work for 100 microseconds after it last called
+    /// the host.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "BeforeSleep"))]
+    pub before_sleep: Option<BeforeSleep>,
+}
+
+impl RuntimeOptions {
+    /// How long a channel's thread polls before it sleeps, `BeforeSleep`'s default when it is
+    /// left out, none when the thread sleeps at once.
+    pub fn spin_window(&self) -> Option<Duration> {
+        match &self.before_sleep {
+            Some(before_sleep) => before_sleep.spin_window(),
+            None => BeforeSleep::default().spin_window(),
+        }
+    }
+}
+
+/// What a channel's thread does once it has run out of work, before it sleeps.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum BeforeSleep {
+    /// Nothing: the thread sleeps at once, and the operating system wakes it when a socket is
+    /// ready, a timer is due or the host hands it work.
+    None,
+
+    /// The thread goes on polling for that work, without blocking, until `WindowMicroseconds`
+    /// have passed since it last called the host, and then sleeps. What the host sends within the
+    /// window finds the thread awake, which saves a wake-up's latency for the polls' CPU time.
+    Spin(SpinOptions),
+}
+
+impl Default for BeforeSleep {
+    fn default() -> Self {
+        Self::Spin(SpinOptions::default())
+    }
+}
+
+impl BeforeSleep {
+    /// How long a channel's thread polls before it sleeps, none when it sleeps at once.
+    pub fn spin_window(&self) -> Option<Duration> {
+        match self {
+            Self::None => None,
+            Self::Spin(spin) => Some(spin.window()),
+        }
+    }
+}
+
+/// How long a channel's thread polls for work before it sleeps.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[non_exhaustive]
+pub struct SpinOptions {
+    /// The microseconds the thread polls for after it last called the host, from 1 to 1000000.
+    ///
+    /// Defaults to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "i32", range(min = 1, max = 1000000))
+    )]
+    #[serde(deserialize_with = "within::between::<_, _, 1, 1000000>")]
+    pub window_microseconds: Option<i32>,
+}
+
+impl SpinOptions {
+    /// The default of `WindowMicroseconds`.
+    pub const DEFAULT_WINDOW_MICROSECONDS: i32 = 100;
+
+    /// The window, its default when it is left out, and a value out of its bounds, which only a
+    /// Rust caller can state, held within them.
+    pub fn window(&self) -> Duration {
+        let microseconds = self
+            .window_microseconds
+            .unwrap_or(Self::DEFAULT_WINDOW_MICROSECONDS)
+            .clamp(1, 1_000_000);
+        Duration::from_micros(microseconds as u64)
+    }
 }
 
 /// The memory the runtime holds: the bytes counting the buffers lent to send, the messages
@@ -3405,6 +3495,7 @@ impl std::fmt::Debug for RuntimeOptions {
             .field("memory_ceiling", &self.memory_ceiling)
             .field("channel_defaults", &self.channel_defaults)
             .field("logging", &self.logging)
+            .field("before_sleep", &self.before_sleep)
             .finish()
     }
 }
@@ -3415,8 +3506,16 @@ over_fields!(RuntimeOptions {
     memory_ceiling,
     channel_defaults,
     logging,
+    before_sleep,
 });
 over_fields!(LoggingOptions { filter });
+over_variants!(BeforeSleep {
+    None;
+    Spin,
+});
+over_fields!(SpinOptions {
+    window_microseconds,
+});
 
 impl crate::configuration::Document for ChannelOptions {
     fn over(self, earlier: Self) -> Self {
@@ -5620,6 +5719,26 @@ mod tests {
              cargo run -p armonik-transport --features schema --example schema -- \
              packages/rust/armonik-transport/options.schema.json"
         );
+    }
+
+    #[test]
+    fn a_channel_thread_spins_for_a_hundred_microseconds_unless_told_otherwise() {
+        let window = |document: &str| {
+            serde_json::from_str::<RuntimeOptions>(document)
+                .expect("valid options")
+                .spin_window()
+        };
+
+        assert_eq!(window("{}"), Some(Duration::from_micros(100)));
+        assert_eq!(
+            window(r#"{"BeforeSleep":{"Spin":{}}}"#),
+            Some(Duration::from_micros(100))
+        );
+        assert_eq!(
+            window(r#"{"BeforeSleep":{"Spin":{"WindowMicroseconds":20}}}"#),
+            Some(Duration::from_micros(20))
+        );
+        assert_eq!(window(r#"{"BeforeSleep":"None"}"#), None);
     }
 
     /// The runtime's schema is what generates its C# class, kept as the channel's is.

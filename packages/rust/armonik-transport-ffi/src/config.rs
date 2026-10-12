@@ -218,6 +218,10 @@ pub(crate) fn log_runtime(options: &RuntimeOptions, ceilings: (u64, u64)) {
             .filter
             .as_deref()
             .unwrap_or(crate::log::DEFAULT_FILTER),
+        // 0 when a channel's thread sleeps at once.
+        spin_window_us = options
+            .spin_window()
+            .map_or(0, |window| window.as_micros() as u64),
         "the runtime's effective configuration"
     );
 }
@@ -295,12 +299,13 @@ mod tests {
         settings.into_channel_config("http://127.0.0.1:5000".parse().expect("an endpoint"))
     }
 
-    /// Every option of the runtime's schema but the endpoint and the logging filter is a field of
-    /// `ak_runtime_config`, so that `ak_runtime_create` takes what `ak_runtime_create_from` loads,
-    /// the memory ceiling being its two fields, in bytes; the endpoint is what a channel names
-    /// itself there, and the filter is given through the loader's options alone.
+    /// Every option of the runtime's schema but the endpoint, the logging filter and the channel
+    /// threads' spin is a field of `ak_runtime_config`, so that `ak_runtime_create` takes what
+    /// `ak_runtime_create_from` loads, the memory ceiling being its two fields, in bytes; the
+    /// endpoint is what a channel names itself there, and the filter and the spin are given
+    /// through the loader's options alone, `ak_runtime_create` taking their defaults.
     #[test]
-    fn every_runtime_option_but_the_endpoint_and_the_filter_is_a_field_of_the_config() {
+    fn every_runtime_option_but_the_endpoint_the_filter_and_the_spin_is_a_field_of_the_config() {
         let schema: serde_json::Value =
             serde_json::from_str(&armonik_transport::options::runtime_schema())
                 .expect("the schema is a document");
@@ -326,8 +331,8 @@ mod tests {
             log_callback: None,
             log_ctx: std::ptr::null_mut(),
         };
-        // Logging.Filter is no field: a filter other than the default is only loaded, and
-        // ak_runtime_create has no sources to load it from.
+        // Logging.Filter and BeforeSleep are no fields: a value other than the default is only
+        // loaded, and ak_runtime_create has no sources to load it from.
         let _ = (
             config.memory_ceiling,
             config.memory_hard_ceiling,
@@ -335,7 +340,13 @@ mod tests {
         );
         assert_eq!(
             names,
-            ["ChannelDefaults", "Endpoint", "Logging", "MemoryCeiling"]
+            [
+                "BeforeSleep",
+                "ChannelDefaults",
+                "Endpoint",
+                "Logging",
+                "MemoryCeiling"
+            ]
         );
     }
 

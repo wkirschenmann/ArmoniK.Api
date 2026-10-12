@@ -25,6 +25,7 @@ mod refusal;
 mod registry;
 mod runtime;
 mod spares;
+mod spin;
 mod tables;
 mod tagged;
 

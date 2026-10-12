@@ -159,7 +159,8 @@ impl AkRuntime {
     }
 
     /// Starts a channel's thread: a current-thread runtime that runs until the channel drops the
-    /// `stop` it is handed, or the teardown stops every channel.
+    /// `stop` it is handed, or the teardown stops every channel. With the runtime's `BeforeSleep`
+    /// a spin, it polls for work for the spin's window before it sleeps (`crate::spin`).
     ///
     /// Stopped either way, the thread first gives what the channel left running - the close of
     /// its connection, a cancelled call's cleanup - up to `CHANNEL_WIND_DOWN` to finish, so that
@@ -168,6 +169,7 @@ impl AkRuntime {
     pub(crate) fn start_channel_thread(&self) -> Result<ChannelThread, Refusal> {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let mut all_stop = self.stop_channels.subscribe();
+        let spin = self.options.spin_window().map(crate::spin::Spin::new);
         let thread = std::thread::Builder::new()
             .name(format!(
                 "armonik-channel-{}",
@@ -176,10 +178,12 @@ impl AkRuntime {
             .spawn(move || {
                 #[cfg(feature = "test-hooks")]
                 let _alive = crate::hooks::ChannelThreadAlive::new();
-                let tokio = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
+                let mut builder = tokio::runtime::Builder::new_current_thread();
+                builder.enable_all();
+                if let Some(spin) = spin.clone() {
+                    builder.on_thread_park(move || spin.before_park());
+                }
+                let tokio = match builder.build() {
                     Ok(tokio) => tokio,
                     Err(_) => return,
                 };
@@ -187,10 +191,15 @@ impl AkRuntime {
                 if ready_tx.send((tokio.handle().clone(), stop)).is_err() {
                     return;
                 }
+                let poller = spin.map(|spin| tokio.spawn(spin.poller()));
                 tokio.block_on(async move {
                     tokio::select! {
                         _ = stopped => {}
                         _ = all_stop.wait_for(|stopping| *stopping) => {}
+                    }
+                    // Before the wind-down, which waits for every task to end.
+                    if let Some(poller) = poller {
+                        poller.abort();
                     }
                     // Polled, because tokio offers no wait on a runtime's tasks.
                     let left = tokio::runtime::Handle::current();
@@ -419,6 +428,82 @@ mod tests {
             format!("{refused:?}").contains("memory_hard_ceiling is below"),
             "{refused:?}"
         );
+    }
+
+    /// The poller is a task of the channel's runtime, aborted before the wind-down, which waits up
+    /// to `CHANNEL_WIND_DOWN` for every task to end.
+    #[test]
+    fn a_spinning_channel_thread_stops_without_waiting_out_its_wind_down() {
+        let runtime = AkRuntime::new(
+            RuntimeOptions::default(),
+            (0, 0),
+            Host::new(never_called, std::ptr::null_mut()),
+        )
+        .unwrap_or_else(|_| panic!("a runtime"));
+        assert!(
+            runtime.options().spin_window().is_some(),
+            "the default spins"
+        );
+        let thread = runtime
+            .start_channel_thread()
+            .unwrap_or_else(|_| panic!("a channel thread"));
+
+        let stopped = std::time::Instant::now();
+        drop(thread.stop);
+        let finished = || {
+            runtime
+                .channel_threads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .all(std::thread::JoinHandle::is_finished)
+        };
+        while !finished() && stopped.elapsed() < CHANNEL_WIND_DOWN {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(
+            stopped.elapsed() < CHANNEL_WIND_DOWN / 2,
+            "the thread took {:?} to stop",
+            stopped.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_channel_thread_that_sleeps_at_once_runs_its_work_and_stops() {
+        let options: RuntimeOptions =
+            serde_json::from_str(r#"{"BeforeSleep":"None"}"#).expect("valid options");
+        let runtime = AkRuntime::new(
+            options,
+            (0, 0),
+            Host::new(never_called, std::ptr::null_mut()),
+        )
+        .unwrap_or_else(|_| panic!("a runtime"));
+        let thread = runtime
+            .start_channel_thread()
+            .unwrap_or_else(|_| panic!("a channel thread"));
+
+        let (ran, done) = std::sync::mpsc::channel();
+        thread.spawner.spawn(async move {
+            let _ = ran.send(());
+        });
+        done.recv_timeout(Duration::from_secs(10))
+            .expect("the thread runs what it is given");
+
+        drop(thread.stop);
+        let stopped = std::time::Instant::now();
+        let finished = || {
+            runtime
+                .channel_threads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .all(std::thread::JoinHandle::is_finished)
+        };
+        while !finished() && stopped.elapsed() < 2 * CHANNEL_WIND_DOWN {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(finished(), "the thread stops with its channel");
     }
 
     /// The refusal happens before a runtime exists, so nothing ever emits through this.

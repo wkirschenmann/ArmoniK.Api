@@ -227,6 +227,21 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
         record.field("log_filter"),
         Some("*=warn,armonik_transport*=info")
     );
+    assert_eq!(record.field("spin_window_us"), Some("100"));
+    drop(host);
+}
+
+#[test]
+fn a_runtime_whose_channel_threads_sleep_at_once_says_so() {
+    let _turn = turn();
+    let host = create(r#"{"BeforeSleep":"None"}"#).expect("a runtime");
+
+    let records = logged();
+    let record = records
+        .iter()
+        .find(|record| record.message.contains("runtime's effective configuration"))
+        .expect("the configuration is logged");
+    assert_eq!(record.field("spin_window_us"), Some("0"));
     drop(host);
 }
 

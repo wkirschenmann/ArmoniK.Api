@@ -238,6 +238,18 @@ waits for every channel's thread before it finishes - so QUIESCENT still means t
 of the runtime is left, and may come up to that second later. What a callback costs is its
 channel's to pay: one that blocks stops that channel's connection and every call on it.
 
+**A channel's thread polls before it sleeps.** With the runtime's `BeforeSleep` a spin, the
+default, a channel's thread that runs out of work within `Spin.WindowMicroseconds` (100) of its
+last callback into the host does not sleep: it polls its I/O driver without blocking, which sees
+a socket that is ready, a timer that is due and work the host hands over, until the window has
+passed. What the host does with an event - its next call, a buffer given back, its next message
+once the last is written - then finds the thread awake rather than paying the operating
+system's wake-up of it. Tokio offers no hook into its driver's park; the thread's
+`on_thread_park` callback wakes a task kept for the purpose, which yields, and a runtime with a
+yielded task polls its driver with a timeout of zero instead of parking. The task is aborted
+when the channel stops, before the wind-down waits for the channel's tasks. `"None"` sleeps at
+once.
+
 **Writes gather what is ready.** The connection writes once the work already ready on the
 channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while

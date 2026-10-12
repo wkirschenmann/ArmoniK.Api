@@ -37,7 +37,8 @@ internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
 
 /// <summary>
 ///   What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
-///   channel takes where its own state none, and what the engine logs.
+///   channel takes where its own state none, what the engine logs, and whether a channel's thread
+///   spins before it sleeps.
 /// </summary>
 public sealed class RuntimeOptions
 {
@@ -66,6 +67,7 @@ public sealed class RuntimeOptions
     Logging = other.Logging is null
                 ? null
                 : new LoggingOptions(other.Logging);
+    BeforeSleep = other.BeforeSleep;
   }
 
   /// <summary>
@@ -101,6 +103,18 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public LoggingOptions? Logging { get; set; }
 
+  /// <summary>
+  ///   What a channel's thread does once it has run out of work, before it sleeps until more
+  ///   comes. Ignored by a Rust host, whose channels run on its own runtime.
+  /// </summary>
+  /// <remarks>
+  ///   Defaults to <c>{"Spin": {}}</c>: it polls for new work for 100 microseconds after it last called
+  ///   the host.
+  /// </remarks>
+  [JsonPropertyName("BeforeSleep")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public BeforeSleep? BeforeSleep { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -115,6 +129,7 @@ public sealed class RuntimeOptions
     MemoryCeiling?.Validate();
     ChannelDefaults?.Validate();
     Logging?.Validate();
+    BeforeSleep?.Validate();
   }
 
   /// <summary>The document the engine reads, as UTF-8.</summary>
@@ -252,5 +267,104 @@ public sealed class LoggingOptions
   public void Validate()
   {
     // The schema bounds nothing here.
+  }
+}
+
+/// <summary>What a channel's thread does once it has run out of work, before it sleeps.</summary>
+[JsonConverter(typeof(BeforeSleepJsonConverter))]
+public abstract record BeforeSleep
+{
+  private BeforeSleep()
+  {
+  }
+
+  /// <summary>
+  ///   Nothing: the thread sleeps at once, and the operating system wakes it when a socket is
+  ///   ready, a timer is due or the host hands it work.
+  /// </summary>
+  public sealed record None : BeforeSleep
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>
+  ///   The thread goes on polling for that work, without blocking, until <c>WindowMicroseconds</c>
+  ///   have passed since it last called the host, and then sleeps. What the host sends within the
+  ///   window finds the thread awake, which saves a wake-up's latency for the polls' CPU time.
+  /// </summary>
+  public sealed record Spin : BeforeSleep
+  {
+    /// <summary>The microseconds the thread polls for after it last called the host, from 1 to 1000000.</summary>
+    /// <remarks>Defaults to 100.</remarks>
+    public int? WindowMicroseconds { get; init; }
+
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (WindowMicroseconds is int windowMicroseconds && (windowMicroseconds < 1 || windowMicroseconds > 1000000))
+      {
+        throw new ArgumentOutOfRangeException(nameof(WindowMicroseconds),
+                                              windowMicroseconds,
+                                              "WindowMicroseconds has to be at least 1 and at most 1000000.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="BeforeSleep" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class BeforeSleepJsonConverter : JsonConverter<BeforeSleep>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override BeforeSleep? Read(ref Utf8JsonReader reader,
+                                    Type typeToConvert,
+                                    JsonSerializerOptions options)
+    => throw new NotSupportedException("BeforeSleep is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             BeforeSleep value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  BeforeSleep written)
+  {
+    switch (written)
+    {
+      case BeforeSleep.None:
+      {
+        writer.WriteStringValue("None");
+        break;
+      }
+
+      case BeforeSleep.Spin spin:
+      {
+        writer.WriteStartObject();
+        writer.WriteStartObject("Spin");
+
+        if (spin.WindowMicroseconds is int windowMicroseconds)
+        {
+          writer.WriteNumber("WindowMicroseconds",
+                             windowMicroseconds);
+        }
+
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        break;
+      }
+    }
   }
 }

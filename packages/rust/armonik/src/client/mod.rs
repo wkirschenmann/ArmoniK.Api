@@ -121,7 +121,8 @@ impl Client {
     /// Create a new client to the options' `Endpoint`, its channel configured by their
     /// `ChannelDefaults`, connected once it returns whatever `Transport.ConnectEagerly` says. The
     /// memory ceilings and `Grpc.Host.Receive.Window`, which bound what a host binding holds, have
-    /// no effect here; the window is still refused outside the bounds the schema gives it.
+    /// no effect here, nor has `BeforeSleep`, which shapes the threads a host binding's engine
+    /// starts; the window is still refused outside the bounds the schema gives it.
     ///
     /// The client's connections run on the tokio runtime current here, which must outlive it.
     pub async fn with_options(options: RuntimeOptions) -> Result<Self, ConnectionError> {

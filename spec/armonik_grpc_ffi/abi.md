@@ -70,12 +70,14 @@ The schema is the source of truth for:
 
 The runtime's options have a schema of their own, `runtime.schema.json`, generated from
 `armonik-transport`'s `options::RuntimeOptions` under its `schema` feature: `Endpoint`, the server a
-channel created with an empty endpoint reaches, the two memory ceilings, `ChannelDefaults`, and
-`Logging`, whose `Filter` selects the engine's logs. It
+channel created with an empty endpoint reaches, the two memory ceilings, `ChannelDefaults`,
+`Logging`, whose `Filter` selects the engine's logs, and `BeforeSleep`, whether a channel's thread
+spins before it sleeps. It
 is the document `ak_runtime_create_from` loads from the sources an `ak_config` lists - files, the
 environment, pairs and documents, a later one over an earlier one (configuration-loading.md) - and
 the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
-as the fields of `ak_runtime_config`, the cases of one document with no endpoint and no filter, and
+as the fields of `ak_runtime_config`, the cases of one document with no endpoint, no filter and no
+`BeforeSleep`, so that the channels of a runtime it creates spin with the default window; and
 its zero ceiling is the default where a loaded document refuses a zero. `RuntimeOptions.g.cs` is generated
 from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A source is a
 document judged whole against the schema: a key no option declares, the root's included, a value of

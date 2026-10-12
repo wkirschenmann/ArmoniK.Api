@@ -61,10 +61,11 @@ public static class Program
 
   public static async Task<int> Main(string[] args)
   {
-    if (args.Length is < 1 or > 2 || (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "managed") ||
+    if (args.Length is < 1 or > 2 ||
+        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-nospin" && args[0] != "managed") ||
         (args.Length == 2 && args[1] != "busy"))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|managed [busy]");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-nospin|managed [busy]");
       return 2;
     }
 
@@ -246,17 +247,23 @@ public static class Program
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
                                                                Server server)
   {
-    if (transport is "native" or "native-batch" or "native-metrics")
+    if (transport is "native" or "native-batch" or "native-metrics" or "native-nospin")
     {
       // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
       // by any other. native-metrics loads the build with the engine's counters, which is
-      // selected before the first runtime exists.
+      // selected before the first runtime exists. native-nospin has the channel's thread sleep
+      // as soon as it runs out of work.
       if (transport == "native-metrics")
       {
         NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
       }
 
-      var runtime = NativeRuntime.Create();
+      var runtime = transport == "native-nospin"
+                      ? NativeRuntime.Create(new RuntimeOptions
+                                             {
+                                               BeforeSleep = new BeforeSleep.None(),
+                                             })
+                      : NativeRuntime.Create();
       var channel = runtime.Channel(server.Endpoint,
                                     new ChannelOptions
                                     {

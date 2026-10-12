@@ -201,6 +201,43 @@ public class RuntimeOptionsTests : RuntimeFixture
                                               }),
                    Throws.InstanceOf<ArgumentOutOfRangeException>());
 
+  /// <summary>A spin's window of no time is refused before the engine is asked: sleeping at once is
+  /// <see cref="BeforeSleep.None" />.</summary>
+  [Test]
+  public void ASpinOfNoTimeIsRefusedBeforeTheEngineIsAsked()
+    => Assert.That(() => NativeRuntime.Create(new RuntimeOptions
+                                              {
+                                                BeforeSleep = new BeforeSleep.Spin
+                                                              {
+                                                                WindowMicroseconds = 0,
+                                                              },
+                                              }),
+                   Throws.InstanceOf<ArgumentOutOfRangeException>());
+
+  /// <summary>Either alternative reaches the engine, which starts with it.</summary>
+  [Test]
+  public async Task ARuntimeStartsWithItsChannelThreadsSleepingAtOnceOrSpinning()
+  {
+    foreach (var beforeSleep in new BeforeSleep[]
+                                {
+                                  new BeforeSleep.None(),
+                                  new BeforeSleep.Spin
+                                  {
+                                    WindowMicroseconds = 20,
+                                  },
+                                })
+    {
+      var runtime = await RestartAsync(() => NativeRuntime.Create(new RuntimeOptions
+                                                                  {
+                                                                    BeforeSleep = beforeSleep,
+                                                                  }))
+                      .ConfigureAwait(false);
+      var channel = runtime.Channel("http://127.0.0.1:1");
+      await channel.DisposeAsync()
+                   .ConfigureAwait(false);
+    }
+  }
+
   /// <summary>Refused by the engine, not by the binding: the order of the two is the engine's rule, checked once the
   /// sources are merged. Which is also what shows the second threshold reaching the engine.</summary>
   [Test]

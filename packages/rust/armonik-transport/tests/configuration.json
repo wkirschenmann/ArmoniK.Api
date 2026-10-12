@@ -56,7 +56,7 @@
     "sources": [
       { "file": "whole.json" }
     ],
-    "refused": { "source": "whole.json", "key": "Serilog", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+    "refused": { "source": "whole.json", "key": "Serilog", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging, BeforeSleep" }
   },
   {
     "name": "with an empty prefix a file that holds only the engine's options is read whole",
@@ -98,7 +98,7 @@
     "sources": [
       { "file": "typo.json" }
     ],
-    "refused": { "source": "typo.json", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging" }
+    "refused": { "source": "typo.json", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging, BeforeSleep" }
   },
   {
     "name": "a document is judged on the section its prefix names and not outside it",
@@ -264,7 +264,7 @@
     "sources": [
       { "environment": true }
     ],
-    "refused": { "source": "the environment", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+    "refused": { "source": "the environment", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging, BeforeSleep", "never": "typo.test" }
   },
   {
     "name": "an environment variable under the default prefix that names no key is refused, and the others are never looked at",
@@ -823,7 +823,7 @@
     "sources": [
       { "document": { "Endpoint": "http://unknown.test:9", "Endpiont": "http://typo.test:9" } }
     ],
-    "refused": { "source": "a document", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging", "never": "typo.test" }
+    "refused": { "source": "a document", "key": "Endpiont", "says": "it is none of Endpoint, MemoryCeiling, ChannelDefaults, Logging, BeforeSleep", "never": "typo.test" }
   },
   {
     "name": "a key no option declares is refused by a later document although an earlier one is valid",
@@ -1175,6 +1175,37 @@
       { "document": { "ChannelDefaults": { "Http2": { "KeepAlive": { "Ping": { "TimeoutSeconds": 5 } } } } } }
     ],
     "refused": { "source": "a document", "key": "ChannelDefaults.Http2.KeepAlive.Ping", "says": "it lacks IntervalSeconds" }
+  },
+  {
+    "name": "a spin's window merges into the spin of an earlier source",
+    "sources": [
+      { "document": { "BeforeSleep": { "Spin": { "WindowMicroseconds": 20 } } } },
+      { "pairs": { "BeforeSleep__Spin__WindowMicroseconds": "200" } }
+    ],
+    "options": { "BeforeSleep": { "Spin": { "WindowMicroseconds": 200 } } }
+  },
+  {
+    "name": "a spin turned off by a later source is off",
+    "sources": [
+      { "document": { "BeforeSleep": { "Spin": { "WindowMicroseconds": 20 } } } },
+      { "document": { "BeforeSleep": "None" } }
+    ],
+    "options": { "BeforeSleep": "None" }
+  },
+  {
+    "name": "a spin stated over an earlier None is the spin",
+    "sources": [
+      { "document": { "BeforeSleep": "None" } },
+      { "document": { "BeforeSleep": { "Spin": {} } } }
+    ],
+    "options": { "BeforeSleep": { "Spin": {} } }
+  },
+  {
+    "name": "a spin's window of zero is refused by its path",
+    "sources": [
+      { "document": { "BeforeSleep": { "Spin": { "WindowMicroseconds": 0 } } } }
+    ],
+    "refused": { "source": "a document", "key": "BeforeSleep.Spin.WindowMicroseconds" }
   },
   {
     "name": "the first refusal ends the load",

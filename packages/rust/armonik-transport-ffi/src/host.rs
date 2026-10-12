@@ -45,7 +45,8 @@ impl Host {
                 events.as_ptr(),
                 events.len(),
             )
-        }
+        };
+        crate::spin::host_called();
     }
 
     /// One call's events, in delivery order, in one callback.
