@@ -75,6 +75,11 @@ required-features = ["test-hooks"]
 name = "h2_batch"
 required-features = ["test-hooks"]
 
+# A cancel's late DATA, found on the wire with the test hooks, and a PING's wait, in both builds.
+[[test]]
+name = "h2_batch_costs"
+required-features = ["test-hooks"]
+
 [dependencies]
 # `codegen` for tonic's client, which carries the engine's gRPC framing, and for the
 # `http`/`tokio_stream` re-exports a dependent reaches through this crate. `gzip`, `deflate` and
