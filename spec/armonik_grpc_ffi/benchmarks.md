@@ -491,18 +491,18 @@ queued; and above one frame per write, a reset call sends DATA after its reset. 
 here: stock h2, which takes one frame per write; the build against the
 patch at one (`patched, 1`); and that build at 16 (`patched, 16`, `native-batch`). The engine is
 that of `e24169ad3`, the benchmark that of `b38f87e34`, the Rust test `h2_batch_costs` of
-`36364eacf`.
+`36364eacf`; the last subsection measures the engine once its queue is bounded.
 
 One campaign on 2026-10-15, 16:48 to 17:08: five passes, the eight runs of a pass interleaved and
 their order rotated from one pass to the next, on the performance cores at AboveNormal priority.
-Each run started once no build, test or prover of another session ran, and a sample of the
-processes every 3 s saw none during any run, but for the first, which began before the sampling;
-the System log (Id 42, 107 and 1) shows no sleep, wake or clock change from 14:55 to the end. The
-processor was 9 to 71 % busy one second before the runs kept, the desktop's applications open. Four
-benchmark runs whose first calibration is above 8 000 us, a processor slower than the campaign's,
-are left out: 12 982, 9 283, 9 554 and 8 127 us; the calibrations of the runs kept read 7 528 to
-7 756 us at their start. The Rust test has no calibration; its runs are interleaved with the
-benchmark's.
+Each run started once no build, test or prover of another session ran, and a sample of the processes
+every 3 s saw none during any run, but for the first, which began before the sampling; the System
+log (Id 42, 107 and 1, and the Modern Standby events 506 and 507) shows no sleep, standby, wake or
+clock change from 14:55 to the end. The processor was 9 to 71 % busy one second before the runs
+kept, the desktop's applications open. Four benchmark runs whose first calibration is above 8 000
+us, a processor slower than the campaign's, are left out: 12 982, 9 283, 9 554 and 8 127 us; the
+calibrations of the runs kept read 7 528 to 7 756 us at their start. The Rust test has no
+calibration; its runs are interleaved with the benchmark's.
 
 ### A neighbouring call
 
@@ -512,8 +512,8 @@ connection (`Http2.SimultaneousCallsPerConnection` `{"Limit": 16}`), alone on it
 streamed upload of 64 KiB chunks that starts a second before the measured calls and stops after
 them. A run of `shared` with stock h2 showed one established connection in 12 samples over 24 s.
 The last column is what the upload hands to the channel during the measured calls. The test
-server is Kestrel, with its default windows: 768 KiB per stream, 1 MiB for the connection. Each
-cell is the median of the passes kept, the range in brackets.
+server's windows are 768 KiB per stream and 1 MiB for the connection. Each cell is the median of
+the passes kept, the range in brackets.
 
 | Engine | Upload beside | n | P50 (us) | P95 (us) | P99 (us) | Upload beside (MiB/s) |
 |--------|---------------|--:|---------:|---------:|---------:|----------------------:|
@@ -532,19 +532,20 @@ measures the other direction: a server that sends a PING, waits for its acknowle
 and the next, 500 times or for 20 s, over a call that sent one byte (idle) and over a streamed
 upload of 64 KiB chunks for as long as the PINGs last. The wait runs from the PING's write to the
 server's read of the acknowledgement, behind whatever the client sent before it; the server reads
-every frame and gives back half a window at a time. Under two sets of windows: Kestrel's defaults,
-and the largest HTTP/2 allows (2^31 - 1 for each stream and the connection). The release build
-of the test, its threads on the performance cores at AboveNormal priority. Each cell is the median
-of five passes, the range in brackets; every PING of every pass was acknowledged.
+every frame and gives back half a window at a time. Under two sets of windows: the benchmark's test
+server's, 768 KiB a stream and 1 MiB for the connection, and the largest HTTP/2 allows (2^31 - 1
+for each stream and the connection). The release build of the test, its threads on the
+performance cores at AboveNormal priority. Each cell is the median of five passes, the range in
+brackets; every PING of every pass was acknowledged.
 
 | Windows | Engine | Upload | P50 (us) | P99 (us) | Most (us) | PINGs |
 |---------|--------|--------|---------:|---------:|----------:|------:|
-| Kestrel's | stock | none | 207 (184-265) | 419 (321-753) | 493 (351-1889) | 500 |
-| Kestrel's | stock | 64 KiB chunks | 397 (350-471) | 1199 (1034-1723) | 6672 (2390-12255) | 500 |
-| Kestrel's | patched, 1 | none | 238 (158-285) | 515 (436-775) | 742 (555-1576) | 500 |
-| Kestrel's | patched, 1 | 64 KiB chunks | 553 (354-885) | 2217 (1540-3243) | 9236 (2454-20806) | 500 |
-| Kestrel's | patched, 16 | none | 245 (196-264) | 523 (359-623) | 1012 (471-1687) | 500 |
-| Kestrel's | patched, 16 | 64 KiB chunks | 388 (190-476) | 16426 (1224-19420) | 18845 (16166-29539) | 500 |
+| 768 KiB | stock | none | 207 (184-265) | 419 (321-753) | 493 (351-1889) | 500 |
+| 768 KiB | stock | 64 KiB chunks | 397 (350-471) | 1199 (1034-1723) | 6672 (2390-12255) | 500 |
+| 768 KiB | patched, 1 | none | 238 (158-285) | 515 (436-775) | 742 (555-1576) | 500 |
+| 768 KiB | patched, 1 | 64 KiB chunks | 553 (354-885) | 2217 (1540-3243) | 9236 (2454-20806) | 500 |
+| 768 KiB | patched, 16 | none | 245 (196-264) | 523 (359-623) | 1012 (471-1687) | 500 |
+| 768 KiB | patched, 16 | 64 KiB chunks | 388 (190-476) | 16426 (1224-19420) | 18845 (16166-29539) | 500 |
 | largest | stock | none | 214 (165-221) | 378 (328-850) | 1211 (465-1464) | 500 |
 | largest | stock | 64 KiB chunks | 1442 (1066-1657) | 4715 (3779-11990) | 15798 (12926-26698) | 500 |
 | largest | patched, 1 | none | 203 (174-243) | 422 (396-440) | 967 (749-1488) | 500 |
@@ -564,21 +565,21 @@ range in brackets.
 
 | Windows | Engine | DATA frames after the cancel | Their bytes | Offset at the cancel |
 |---------|--------|-----------------------------:|------------:|---------------------:|
-| Kestrel's | stock | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
-| Kestrel's | patched, 1 | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
-| Kestrel's | patched, 16 | 36 (0-49) | 491 826 (0-655 791) | 295 339 (131 374-787 165) |
+| 768 KiB | stock | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| 768 KiB | patched, 1 | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| 768 KiB | patched, 16 | 36 (0-49) | 491 826 (0-655 791) | 295 339 (131 374-787 165) |
 | largest | stock | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
 | largest | patched, 1 | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
 | largest | patched, 16 | 2 560 (2 560-2 560) | 33 580 032 (33 580 032-33 580 032) | 459 304 (196 960-1 311 922) |
 
-### Verdicts
+### What the unbounded queue costs
 
 - **DATA after a reset is not negligible at 16 frames per write, and it goes past the bound
   documented for it.** `decisions.md` and the option's description say a call reset while its part
   is being written can still send up to FramesPerWrite - 1 frames; measured, a cancelled upload
-  sends up to 49 frames, 655 791 bytes, after its cancel under Kestrel's windows, and 2 560 frames,
+  sends up to 49 frames, 655 791 bytes, after its cancel under 768 KiB windows, and 2 560 frames,
   33 580 032 bytes, in every trial under the largest, against one frame of 16 393 bytes for stock
-  h2 and for the patched build at one frame per write, in every trial. Under Kestrel's windows,
+  h2 and for the patched build at one frame per write, in every trial. Under 768 KiB windows,
   the offset at the cancel and the bytes after it add up to 787 165 in all 50 trials, the stream's
   window being 786 432 bytes of DATA: consistent with all that the window allowed and the socket
   had not taken going out after the cancel. Under the largest, the 2 560 frames are 512 whole
@@ -586,29 +587,128 @@ range in brackets.
   512 x (65 541 + 5 x 9) = 33 580 032 bytes), the same in every trial while the offset at the
   cancel ranges from 196 960 to 1 311 922; the window, 2^31 - 1, is not what stops it, and what
   does is not measured here.
-- **A neighbouring call is not slowed under Kestrel's windows.** Beside the upload, the patched
+- **A neighbouring call is not slowed under 768 KiB windows.** Beside the upload, the patched
   build at 16 has the lowest P50, 1 126 us, its range clear below stock's (1 083-1 188 against
   1 314-1 610), and a P99 within the spread of the others; at one frame per write it is a tie with
   stock in every column. The upload beside it hands 362 MiB/s to the channel against 255 for stock.
   The upload, not the build, is what moves the call: it raises P50 3.1 to 3.7 times and P99 5.2
   to 7.7 times for every engine.
-- **A PING waits longer behind an upload at 16, by up to tens of milliseconds under Kestrel's
-  windows and around 50 under the largest.** Under Kestrel's, the median is a tie (388 us against
-  397 for stock), but P99 is 16 426 (1 224-19 420) us against 1 199 (1 034-1 723), one pass of
-  five overlapping stock's, and the longest wait 18 845 (16 166-29 539) against 6 672
-  (2 390-12 255), those ranges apart; the unary P99 of the benchmark, under the same windows, does
-  not move with it. Under the largest, the median is 47 691 us
-  against 1 442, P99 99 188 against 4 715, the longest 123 787 against 15 798, every range apart;
-  the 20 s ended before the 500 PINGs did. At one frame per write the patched build is within the
-  spread of stock in every column. Against the keepalive's default timeout of 20 s, the longest
-  wait measured, 128 ms, is 0.6 %. These are a server's PINGs, acknowledged by the client; the
-  engine's own keepalive PINGs wait in the same queue on their way out, which is not measured. A
-  neighbouring unary call's latency under the largest windows is not measured here, the
-  benchmark's server being Kestrel.
+- **A PING waits longer behind an upload at 16, by up to tens of milliseconds under 768 KiB windows
+  and around 50 under the largest.** Under 768 KiB windows, the median is a tie (388 us against 397
+  for stock), but P99 is 16 426 (1 224-19 420) us against 1 199 (1 034-1 723), one pass of five
+  overlapping stock's, and the longest wait 18 845 (16 166-29 539) against 6 672 (2 390-12 255),
+  those ranges apart; the unary P99 of the benchmark, under the same windows, does not move with it.
+  Under the largest, the median is 47 691 us against 1 442, P99 99 188 against 4 715, the longest
+  123 787 against 15 798, every range apart; the 20 s ended before the 500 PINGs did. At one frame
+  per write the patched build is within the spread of stock in every column. Against the keepalive's
+  default timeout of 20 s, the longest wait measured, 128 ms, is 0.6 %. These are a server's PINGs,
+  acknowledged by the client; the engine's own keepalive PINGs wait in the same queue on their way
+  out, which is not measured. A neighbouring unary call's latency under the largest windows is not
+  measured here, the benchmark's test server granting 768 KiB.
 - So of the two costs, the second is not negligible: up to 655 791 bytes sent after a cancel under
-  Kestrel's windows and 33 580 032 under the largest, against 16 393. The first is negligible for a
-  neighbouring call under Kestrel's windows, and a PING's wait stays far below the keepalive's
+  768 KiB windows and 33 580 032 under the largest, against 16 393. The first is negligible for a
+  neighbouring call under 768 KiB windows, and a PING's wait stays far below the keepalive's
   timeout under both.
+
+### With the queue bounded at 1 MiB
+
+`f6cf86e10` bounds the patched build's queue: no more DATA is queued once 1 MiB of payload waits,
+and one more part may follow. That engine is measured as above, with two additions: the Rust test
+of `11bdb9c0c` also cancels uploads of 4 KiB chunks, shorter than a frame, which the patched build
+queues whole at any frames per write; and the full benchmark runs idle, `native` on stock h2 and
+`native-batch`, for what the patch gains.
+
+Two campaigns on 2026-10-15, on the performance cores at AboveNormal priority, each run started once
+no build, test or prover of another session ran, the 3 s sampling seeing none during any run; the
+System log shows no sleep, standby, wake or clock change from 22:15 to their end. The first, 22:19
+to 22:34, five passes of the benchmark's eight runs interleaved. The second, 22:36 to 22:51, five
+passes of the Rust test of both builds interleaved, the patched build's test run from the build's
+own directory. The processor was 13 to 51 % busy one second before the runs kept. Four benchmark
+runs whose first calibration is outside 7 500 to 8 000 us are left out: 4 859, a faster processor,
+and 8 528, 9 477 and 14 378; the runs kept read 7 526 to 7 571 us.
+
+What the patch gains, idle, .NET 8 just-in-time:
+
+| Engine | n | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) | P50 (us) | CPU per call (us) |
+|--------|--:|-----------------------:|-------------------------:|----------------------:|------------------------:|---------:|------------------:|
+| stock | 5 | 480 (263-491) | 3208 (2875-5771) | 357 (316-366) | 2458 (2167-2875) | 336 (330-353) | 325 (278-380) |
+| patched, 16 | 3 | 605 (583-767) | 2479 (1917-2542) | 417 (401-452) | 1562 (1438-1667) | 333 (330-342) | 325 (308-406) |
+
+A neighbouring call, the benchmark's `pinned` and `shared` scenarios:
+
+| Engine | Upload beside | n | P50 (us) | P95 (us) | P99 (us) | Upload beside (MiB/s) |
+|--------|---------------|--:|---------:|---------:|---------:|----------------------:|
+| stock | none | 3 | 336 (335-629) | 871 (856-893) | 1136 (973-1253) | |
+| stock | 64 KiB chunks | 5 | 1127 (978-1187) | 2851 (2268-3033) | 8006 (4386-10736) | 291 (281-358) |
+| patched, 1 | none | 5 | 340 (336-343) | 610 (473-878) | 924 (724-1237) | |
+| patched, 1 | 64 KiB chunks | 5 | 1077 (1039-1141) | 2625 (2545-2840) | 5702 (5358-10023) | 314 (288-315) |
+| patched, 16 | none | 5 | 336 (329-343) | 485 (446-956) | 912 (723-1298) | |
+| patched, 16 | 64 KiB chunks | 5 | 919 (840-1116) | 2306 (2248-2468) | 3901 (3679-4724) | 434 (380-448) |
+
+A PING's acknowledgement:
+
+| Windows | Engine | Upload | P50 (us) | P99 (us) | Most (us) | PINGs |
+|---------|--------|--------|---------:|---------:|----------:|------:|
+| 768 KiB | stock | none | 208 (157-221) | 387 (378-459) | 681 (466-1968) | 500 |
+| 768 KiB | stock | 64 KiB chunks | 382 (300-556) | 4014 (1183-10513) | 12900 (2503-18686) | 500 |
+| 768 KiB | patched, 1 | none | 153 (101-184) | 366 (300-383) | 490 (411-816) | 500 |
+| 768 KiB | patched, 1 | 64 KiB chunks | 420 (315-449) | 1472 (910-10378) | 14509 (1400-17303) | 500 |
+| 768 KiB | patched, 16 | none | 200 (140-253) | 373 (368-519) | 587 (527-703) | 500 |
+| 768 KiB | patched, 16 | 64 KiB chunks | 306 (247-401) | 14968 (2343-18189) | 19369 (17095-30019) | 500 |
+| largest | stock | none | 181 (173-208) | 416 (403-478) | 630 (457-722) | 500 |
+| largest | stock | 64 KiB chunks | 1193 (629-1302) | 3116 (2831-4907) | 15746 (6911-18429) | 500 |
+| largest | patched, 1 | none | 149 (98-220) | 381 (316-415) | 484 (412-559) | 500 |
+| largest | patched, 1 | 64 KiB chunks | 1412 (1369-1654) | 2844 (2754-5087) | 13063 (3136-19584) | 500 |
+| largest | patched, 16 | none | 184 (131-214) | 378 (334-389) | 542 (408-1393) | 500 |
+| largest | patched, 16 | 64 KiB chunks | 2230 (1900-2825) | 31653 (14506-33173) | 38717 (29506-51949) | 500 |
+
+DATA after a cancel, 50 trials a cell:
+
+| Windows | Engine | Chunk | DATA frames after the cancel | Their bytes | Offset at the cancel |
+|---------|--------|-------|-----------------------------:|------------:|---------------------:|
+| 768 KiB | stock | 64 KiB | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| 768 KiB | stock | 4 KiB | 1 (1-1) | 4 110 (4 110-4 110) | 74 182 (74 182-78 292) |
+| 768 KiB | patched, 1 | 64 KiB | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 (82 181-114 967) |
+| 768 KiB | patched, 1 | 4 KiB | 150 (114-176) | 613 485 (467 580-722 400) | 174 877 (65 962-320 782) |
+| 768 KiB | patched, 16 | 64 KiB | 2 (0-44) | 32 758 (0-590 205) | 754 406 (196 960-787 165) |
+| 768 KiB | patched, 16 | 4 KiB | 150 (117-175) | 617 595 (479 910-718 290) | 170 767 (70 072-308 452) |
+| largest | stock | 64 KiB | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| largest | stock | 4 KiB | 1 (1-1) | 4 110 (4 110-4 110) | 74 182 (74 182-78 292) |
+| largest | patched, 1 | 64 KiB | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| largest | patched, 1 | 4 KiB | 256 (256-256) | 1 052 160 (1 052 160-1 052 160) | 146 107 (65 962-1 151 002) |
+| largest | patched, 16 | 64 KiB | 80 (80-80) | 1 049 376 (1 049 376-1 049 376) | 328 132 (196 960-1 311 922) |
+| largest | patched, 16 | 4 KiB | 256 (256-256) | 1 052 160 (1 052 160-1 052 160) | 154 327 (65 962-1 118 131) |
+
+- **The gain remains, smaller than measured before**: the streamed upload is 1.26 times as fast
+  (605 against 480 MiB/s) for 23 % less CPU per MiB, the unary upload 1.17 times (417 against 357)
+  for 36 % less, every range clear of stock's; P50 and the CPU per call are a tie. "h2-batch, where
+  it acts" measured 1.55 times for both, for 25 and 43 % less CPU per MiB, with stock h2 uploading
+  at 219 MiB/s streamed where it uploads at 480 here; whether the bound or the machine accounts for
+  the difference is not measured, the unbounded build not having run in these campaigns. The
+  patched row keeps three passes, two left out for their calibration, and stock's streamed uploads
+  read 263 and 288 MiB/s in two passes, 480 to 491 in the other three.
+- **DATA after a cancel is bounded**: under the largest windows by the queue, at most 1 052 160
+  bytes, 256 messages of 4 KiB at one and at 16 frames per write, or 16 of 64 KiB at 16 (1 049 376),
+  in every trial, against 33 580 032 before the bound; under 768 KiB windows by the window, at most
+  722 400.
+  Stock h2 sends one frame, 4 110 or 16 393 bytes, and so does the patched build at one frame per
+  write with 64 KiB chunks.
+- **A neighbouring call is not slowed**: at 16 frames per write, P50 919 (840-1 116) us against
+  1 127 (978-1 187) for stock and P99 3 901 (3 679-4 724) against 8 006 (4 386-10 736), the
+  ranges overlapping, the upload beside it handing 434 MiB/s to the channel against 291; at one
+  frame per write, a tie.
+- **A PING waits longer behind an upload at 16 under the largest windows**: P50 2 230
+  (1 900-2 825) us against 1 193 (629-1 302) for stock, P99 31 653 (14 506-33 173) against 3 116
+  (2 831-4 907), the longest 38 717 (29 506-51 949) against 15 746 (6 911-18 429), every range
+  apart; before the bound, 47 691, 99 188 and 123 787. One MiB at the 434 MiB/s the upload reached
+  beside a call takes 2.3 ms; what holds the P99 and the longest waits past that is not measured.
+  Under 768 KiB windows, where the window rather than the bound limits the queue, the cost measured
+  before the bound remains: P99 14 968 (2 343-18 189) against 4 014 (1 183-10 513) for stock and
+  the longest wait 19 369 (17 095-30 019) against 12 900 (2 503-18 686), each range overlapping
+  stock's only through stock's own spread, wider than in the earlier campaign; the median is a tie
+  (306 against 382). At one frame per write under the largest windows, the
+  median is 1 412 (1 369-1 654) against 1 193, the ranges 67 us apart, and the rest overlaps. The
+  longest wait measured, 52 ms, is 0.26 % of the keepalive's default timeout of 20 s.
 
 ## The machine
 

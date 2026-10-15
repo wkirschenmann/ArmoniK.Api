@@ -46,6 +46,8 @@ What is queued is the writer's, so:
 - **Frames behind queued data.** A PING, SETTINGS acknowledgement, WINDOW_UPDATE, GOAWAY or
   another stream's frame waits behind the DATA already queued.
 
+Measured in `spec/armonik_grpc_ffi/benchmarks.md`, section "h2-batch, what it costs".
+
 ## Building with it
 
 ```sh
