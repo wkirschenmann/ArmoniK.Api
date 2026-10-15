@@ -483,6 +483,133 @@ it (`4bf4a4912`) and after, in the campaign above:
   stretch from the driver's first poll to `send_request` 7.7 against 7.5 us: what is saved is
   below what the rest of the stretch varies by at this clock.
 
+## h2-batch, what it costs
+
+`decisions.md` names two costs of the build against h2-batch's patch, besides its writes: a
+control frame, or a neighbouring call's frame, waits behind the DATA the patched connection has
+queued; and above one frame per write, a reset call sends DATA after its reset. Three engines
+here: stock h2, which takes one frame per write; the build against the
+patch at one (`patched, 1`); and that build at 16 (`patched, 16`, `native-batch`). The engine is
+that of `e24169ad3`, the benchmark that of `b38f87e34`, the Rust test `h2_batch_costs` of
+`36364eacf`.
+
+One campaign on 2026-10-15, 16:48 to 17:08: five passes, the eight runs of a pass interleaved and
+their order rotated from one pass to the next, on the performance cores at AboveNormal priority.
+Each run started once no build, test or prover of another session ran, and a sample of the
+processes every 3 s saw none during any run, but for the first, which began before the sampling;
+the System log (Id 42, 107 and 1) shows no sleep, wake or clock change from 14:55 to the end. The
+processor was 9 to 71 % busy one second before the runs kept, the desktop's applications open. Four
+benchmark runs whose first calibration is above 8 000 us, a processor slower than the campaign's,
+are left out: 12 982, 9 283, 9 554 and 8 127 us; the calibrations of the runs kept read 7 528 to
+7 756 us at their start. The Rust test has no calibration; its runs are interleaved with the
+benchmark's.
+
+### A neighbouring call
+
+The benchmark's `pinned` and `shared` scenarios, .NET 8 just-in-time, against the test server
+over TLS: 10 000 sequential `Say` calls after 1 000 to warm up, on a channel held to one
+connection (`Http2.SimultaneousCallsPerConnection` `{"Limit": 16}`), alone on it, and beside a
+streamed upload of 64 KiB chunks that starts a second before the measured calls and stops after
+them. A run of `shared` with stock h2 showed one established connection in 12 samples over 24 s.
+The last column is what the upload hands to the channel during the measured calls. The test
+server is Kestrel, with its default windows: 768 KiB per stream, 1 MiB for the connection. Each
+cell is the median of the passes kept, the range in brackets.
+
+| Engine | Upload beside | n | P50 (us) | P95 (us) | P99 (us) | Upload beside (MiB/s) |
+|--------|---------------|--:|---------:|---------:|---------:|----------------------:|
+| stock | none | 4 | 391 (374-609) | 1086 (871-1140) | 1409 (1206-1857) | |
+| stock | 64 KiB chunks | 3 | 1327 (1314-1610) | 3057 (2883-3453) | 7361 (6368-11464) | 255 (233-280) |
+| patched, 1 | none | 5 | 371 (352-418) | 761 (609-1637) | 1079 (828-1993) | |
+| patched, 1 | 64 KiB chunks | 5 | 1376 (1257-1623) | 3034 (2939-3624) | 8296 (7414-12077) | 260 (229-270) |
+| patched, 16 | none | 5 | 365 (349-437) | 682 (633-793) | 1084 (1002-1443) | |
+| patched, 16 | 64 KiB chunks | 4 | 1126 (1083-1188) | 2510 (2401-2567) | 7738 (4652-9222) | 362 (346-372) |
+
+### A PING's acknowledgement
+
+The engine does not expose how long its own keepalive PINGs wait: hyper sends them and times
+their acknowledgements, and reads neither out. `h2_batch_costs`'s `a_ping_behind_an_upload`
+measures the other direction: a server that sends a PING, waits for its acknowledgement, 2 ms,
+and the next, 500 times or for 20 s, over a call that sent one byte (idle) and over a streamed
+upload of 64 KiB chunks for as long as the PINGs last. The wait runs from the PING's write to the
+server's read of the acknowledgement, behind whatever the client sent before it; the server reads
+every frame and gives back half a window at a time. Under two sets of windows: Kestrel's defaults,
+and the largest HTTP/2 allows (2^31 - 1 for each stream and the connection). The release build
+of the test, its threads on the performance cores at AboveNormal priority. Each cell is the median
+of five passes, the range in brackets; every PING of every pass was acknowledged.
+
+| Windows | Engine | Upload | P50 (us) | P99 (us) | Most (us) | PINGs |
+|---------|--------|--------|---------:|---------:|----------:|------:|
+| Kestrel's | stock | none | 207 (184-265) | 419 (321-753) | 493 (351-1889) | 500 |
+| Kestrel's | stock | 64 KiB chunks | 397 (350-471) | 1199 (1034-1723) | 6672 (2390-12255) | 500 |
+| Kestrel's | patched, 1 | none | 238 (158-285) | 515 (436-775) | 742 (555-1576) | 500 |
+| Kestrel's | patched, 1 | 64 KiB chunks | 553 (354-885) | 2217 (1540-3243) | 9236 (2454-20806) | 500 |
+| Kestrel's | patched, 16 | none | 245 (196-264) | 523 (359-623) | 1012 (471-1687) | 500 |
+| Kestrel's | patched, 16 | 64 KiB chunks | 388 (190-476) | 16426 (1224-19420) | 18845 (16166-29539) | 500 |
+| largest | stock | none | 214 (165-221) | 378 (328-850) | 1211 (465-1464) | 500 |
+| largest | stock | 64 KiB chunks | 1442 (1066-1657) | 4715 (3779-11990) | 15798 (12926-26698) | 500 |
+| largest | patched, 1 | none | 203 (174-243) | 422 (396-440) | 967 (749-1488) | 500 |
+| largest | patched, 1 | 64 KiB chunks | 1714 (1409-2149) | 4646 (3474-13351) | 20483 (3963-24670) | 500 |
+| largest | patched, 16 | none | 196 (160-215) | 485 (384-552) | 1279 (870-1482) | 500 |
+| largest | patched, 16 | 64 KiB chunks | 47691 (40121-55417) | 99188 (91515-104931) | 123787 (114607-128442) | 373 (324-443) |
+
+### DATA after a cancel
+
+`h2_batch_costs`'s `data_after_a_cancel`: a streamed upload of 64 KiB chunks to a server that, at
+the first DATA frame, reads nothing more; once the client has written nothing for 300 ms, the call
+is cancelled, and 200 ms later the server reads again, to the stream's RST_STREAM. The test hooks
+count the bytes the client has written, so the server tells which DATA frames end past the offset
+the client had written to when it cancelled, and their bytes past it. The server's windows are
+those above and never updated. Ten trials a pass, five passes, 50 trials a cell: the median, the
+range in brackets.
+
+| Windows | Engine | DATA frames after the cancel | Their bytes | Offset at the cancel |
+|---------|--------|-----------------------------:|------------:|---------------------:|
+| Kestrel's | stock | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| Kestrel's | patched, 1 | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| Kestrel's | patched, 16 | 36 (0-49) | 491 826 (0-655 791) | 295 339 (131 374-787 165) |
+| largest | stock | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| largest | patched, 1 | 1 (1-1) | 16 393 (16 393-16 393) | 82 181 |
+| largest | patched, 16 | 2 560 (2 560-2 560) | 33 580 032 (33 580 032-33 580 032) | 459 304 (196 960-1 311 922) |
+
+### Verdicts
+
+- **DATA after a reset is not negligible at 16 frames per write, and it goes past the bound
+  documented for it.** `decisions.md` and the option's description say a call reset while its part
+  is being written can still send up to FramesPerWrite - 1 frames; measured, a cancelled upload
+  sends up to 49 frames, 655 791 bytes, after its cancel under Kestrel's windows, and 2 560 frames,
+  33 580 032 bytes, in every trial under the largest, against one frame of 16 393 bytes for stock
+  h2 and for the patched build at one frame per write, in every trial. Under Kestrel's windows,
+  the offset at the cancel and the bytes after it add up to 787 165 in all 50 trials, the stream's
+  window being 786 432 bytes of DATA: consistent with all that the window allowed and the socket
+  had not taken going out after the cancel. Under the largest, the 2 560 frames are 512 whole
+  messages, each its 65 541 bytes in four frames of 16 384 and one of 5 (512 x 5 frames, and
+  512 x (65 541 + 5 x 9) = 33 580 032 bytes), the same in every trial while the offset at the
+  cancel ranges from 196 960 to 1 311 922; the window, 2^31 - 1, is not what stops it, and what
+  does is not measured here.
+- **A neighbouring call is not slowed under Kestrel's windows.** Beside the upload, the patched
+  build at 16 has the lowest P50, 1 126 us, its range clear below stock's (1 083-1 188 against
+  1 314-1 610), and a P99 within the spread of the others; at one frame per write it is a tie with
+  stock in every column. The upload beside it hands 362 MiB/s to the channel against 255 for stock.
+  The upload, not the build, is what moves the call: it raises P50 3.1 to 3.7 times and P99 5.2
+  to 7.7 times for every engine.
+- **A PING waits longer behind an upload at 16, by up to tens of milliseconds under Kestrel's
+  windows and around 50 under the largest.** Under Kestrel's, the median is a tie (388 us against
+  397 for stock), but P99 is 16 426 (1 224-19 420) us against 1 199 (1 034-1 723), one pass of
+  five overlapping stock's, and the longest wait 18 845 (16 166-29 539) against 6 672
+  (2 390-12 255), those ranges apart; the unary P99 of the benchmark, under the same windows, does
+  not move with it. Under the largest, the median is 47 691 us
+  against 1 442, P99 99 188 against 4 715, the longest 123 787 against 15 798, every range apart;
+  the 20 s ended before the 500 PINGs did. At one frame per write the patched build is within the
+  spread of stock in every column. Against the keepalive's default timeout of 20 s, the longest
+  wait measured, 128 ms, is 0.6 %. These are a server's PINGs, acknowledged by the client; the
+  engine's own keepalive PINGs wait in the same queue on their way out, which is not measured. A
+  neighbouring unary call's latency under the largest windows is not measured here, the
+  benchmark's server being Kestrel.
+- So of the two costs, the second is not negligible: up to 655 791 bytes sent after a cancel under
+  Kestrel's windows and 33 580 032 under the largest, against 16 393. The first is negligible for a
+  neighbouring call under Kestrel's windows, and a PING's wait stays far below the keepalive's
+  timeout under both.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
@@ -525,7 +652,20 @@ started without TLS, which tells what TLS costs from the rest; `managed-h2c` doe
 .NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS. The h2-batch run builds the engine
 over the one the other transports use, so a run of both builds takes a copy of the output
 directory before the second build. A run that fails is reported and left out, and a cell left
-with fewer passes says so.
+with fewer passes says so. `pinned` and `shared`, in `-Scenarios`, measure the unary latency alone,
+on a native channel held to one connection, without and with a streamed upload beside it; the
+managed transports skip them.
+
+The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
+stock build and in the build against h2-batch's patch:
+
+```bash
+cargo test -p armonik-transport --features test-hooks --release --test h2_batch_costs -- --include-ignored --nocapture --test-threads 1
+```
+
+```bash
+packages/rust/patches/h2-batch/build.sh test -p armonik-transport --features test-hooks --release --test h2_batch_costs -- --include-ignored --nocapture --test-threads 1
+```
 
 A single run is the benchmark itself, with the transport and `busy` for the busy scenario:
 
