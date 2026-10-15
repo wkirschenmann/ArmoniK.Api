@@ -1,5 +1,5 @@
 # The benchmark campaign benchmarks.md reports: every framework, just-in-time and ahead-of-time,
-# each transport, idle and busy, the runs of a pass interleaved, and the median of the passes.
+# each transport, in each scenario, the runs of a pass interleaved, and the median of the passes.
 #
 # Run from a Visual Studio x64 developer PowerShell; -Out is relative to the current directory, the
 # rest to this script's. On a hybrid processor, pass the performance cores as -Affinity (0xFF where
@@ -9,6 +9,8 @@ param(
   [int] $Passes = 3,
   [string[]] $Frameworks = @("net4.8", "net8.0", "net10.0"),
   [string[]] $Transports = @("native", "managed"),
+  # idle, busy, and pinned and shared: the unary latency on one connection, without and with a
+  # streamed upload beside it, which the native transports alone run.
   [string[]] $Scenarios = @("idle", "busy"),
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
@@ -79,8 +81,9 @@ try {
     foreach ($scenario in $Scenarios) {
       foreach ($variant in $variants) {
         foreach ($transport in $Transports) {
+          if (($scenario -in @("pinned", "shared")) -and ($transport -notlike "native*")) { continue }
           $arguments = @($transport)
-          if ($scenario -eq "busy") { $arguments += "busy" }
+          if ($scenario -ne "idle") { $arguments += $scenario }
           Set-Environment DOTNET_ROOT $(if ($variant.Root) { $variant.Root } else { $saved.DOTNET_ROOT })
           $line = & $variant.Exe @arguments 2>&1 | Select-Object -Last 1
           if ($LASTEXITCODE -ne 0) {
@@ -100,7 +103,7 @@ finally {
 }
 
 # The median of the passes, per transport, variant and scenario.
-$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy)? (.*)$' } | ForEach-Object {
+$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared)? (.*)$' } | ForEach-Object {
   $fields = @{}
   foreach ($pair in ($Matches[4] -split ' ')) {
     $key, $value = $pair -split '=', 2
@@ -109,7 +112,7 @@ $runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\
   [pscustomobject]@{
     Transport = $Matches[1]
     Variant = $Matches[2]
-    Scenario = if ($Matches[3]) { "busy" } else { "idle" }
+    Scenario = if ($Matches[3]) { $Matches[3].Trim() } else { "idle" }
     Fields = $fields
   }
 }
@@ -121,7 +124,7 @@ function Median([double[]] $values) {
   return [math]::Round(($sorted[$middle - 1] + $sorted[$middle]) / 2)
 }
 $columns = "p50_us", "p95_us", "p99_us", "stream_mib_s", "upload_stream_mib_s", "upload_unary_mib_s", "alloc_b_call", "cpu_us_call",
-           "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib", "calib_us", "calib_end_us"
+           "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib", "upload_beside_mib_s", "calib_us", "calib_end_us"
 ""
 "| Variant | Scenario | Transport | " + ($columns -join " | ") + " |"
 "|---|---|---|" + (($columns | ForEach-Object { "---:" }) -join "|") + "|"
