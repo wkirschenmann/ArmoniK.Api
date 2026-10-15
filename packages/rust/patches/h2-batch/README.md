@@ -7,7 +7,7 @@ build alone. Every other build uses h2 as crates.io ships it.
 
 ## What the patch does
 
-`h2-batch.patch` is three changes to h2's `src/`:
+`h2-batch.patch` is four changes to h2's `src/`:
 
 1. [hyperium/h2#903](https://github.com/hyperium/h2/pull/903), ported onto 0.4.19: the
    connection queues several DATA frames and writes them in one vectored write, rather than one
@@ -19,6 +19,8 @@ build alone. Every other build uses h2 as crates.io ships it.
 3. How many it may span is the connection's: `h2::with_frames_per_write(frames, future)` sets
    it for every connection whose codec is made while `future` is polled. A connection made
    outside it spans one frame, which is the behaviour of hyperium/h2#903 alone.
+4. The DATA queued for writing is bounded: no more is queued once 1 MiB of payload waits
+   (`MAX_QUEUED_DATA`), besides the 512 queued frames hyperium/h2#903 bounds it at.
 
 The engine sets it from `Http2.Send.FramesPerWrite`, and refuses a value above 1 from a build
 without the patch.
@@ -31,16 +33,18 @@ would take a write per chunk.
 
 ## What it changes besides the writes
 
-- **Data after a reset.** A queued frame of N frames is handed to the writer whole, so a reset
-  of its stream after that sends up to N - 1 DATA frames before the RST_STREAM, the last of them
-  possibly carrying END_STREAM. Stock h2 sends at most the one frame in flight. RFC 9113 allows
-  it, and it stays within flow control: the window was taken when the frame was handed over.
-- **Control frames behind queued data.** A PING, SETTINGS acknowledgement, WINDOW_UPDATE or
-  GOAWAY waits behind the DATA already queued. Stock h2 holds one DATA frame at a time;
-  hyperium/h2#903 queues up to 512 parts, one per stream with data to send, each of N frames.
+Stock h2 holds one DATA frame at a time for the writer. The patch queues several, up to 1 MiB of
+payload and one more part, at any N. A part is at most N frames of a message: a message that fits
+in one is queued whole and its stream stays ready to queue the next; one longer than that is
+queued a part at a time, its stream waiting for the part to be written before it queues the next.
+What is queued is the writer's, so:
 
-At N = 1 a reset sends no more than with stock h2, but a control frame still waits behind one
-frame per active stream.
+- **Data after a reset.** A reset of a stream does not take back its queued frames, which go out
+  before the RST_STREAM, the last of them possibly carrying END_STREAM. Stock h2 sends at most the
+  one frame in flight. RFC 9113 allows it, and it stays within flow control: the window was taken
+  when the frame was queued.
+- **Frames behind queued data.** A PING, SETTINGS acknowledgement, WINDOW_UPDATE, GOAWAY or
+  another stream's frame waits behind the DATA already queued.
 
 ## Building with it
 
