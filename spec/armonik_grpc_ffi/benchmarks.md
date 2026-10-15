@@ -495,22 +495,23 @@ it (`4bf4a4912`) and after, in the campaign above:
 
 ## A whole request's write, unheld
 
-`6fc0f9702` sends at once a write that ends every request it carries, where the coalescing held
-it a round more (`decisions.md`): in the engine's tests a unary call is held one round instead of
-two. One campaign of 2026-10-15, 16:47 to 18:08, entirely after the machine's last wake (11:59:17;
-the System log, Id 42, 107 and 1, shows no sleep, wake or clock change from then to its end), on
+`6fc0f9702` sends at once a write that ends every request it carries, where the coalescing held it a
+round more (`decisions.md`): in the engine's tests a unary call is held one round instead of two.
+The engine does not keep it ("Concurrent calls" below). One campaign of 2026-10-15, 16:47 to 18:08,
+entirely after the machine's last wake (11:59:17; the System log, Id 42, 107 and 1, and Kernel-Power
+Id 105, 506 and 507, show no sleep, standby, power source or clock change from then to its end), on
 the performance cores (logical processors 0 to 7, `-Affinity 0xFF`) at AboveNormal priority, five
-passes interleaved, the order rotated each pass. Each run started once no build, test or prover
-ran, other sessions' included, which held the campaign from about 17:13 to 17:34 but for one run at
-17:28, and once the processor was under 30 % busy (three of those readings round to 30 in the
-log). Every call is the plain
-`Say`. Three variants, from the benchmark of `b1823d7e8`: `native`, the engine of `6fc0f9702`;
-`native, hold kept`, the same tree with the engine's `coalesce.rs` of `e24169ad3`, which holds such
-a write as before; `managed`, grpc-dotnet. The runs whose first calibration (`calib_us`, see "What
-is measured") is above 8 000 us, 22 of 130 (8 065 to 13 415 us), ran on a slower processor and are
-left out; each cell says how many passes it keeps (n). The calibrations of the runs kept read 7 526
-to 7 987 us. Each cell is the median of the passes kept, the range in brackets; the allocation,
-whose range within a cell is at most about 50 B, is the median alone.
+passes interleaved, the order rotated each pass. Each run started once no build, test or prover ran,
+other sessions' included, which held the campaign from about 17:13 to 17:34 but for one run at
+17:28, and once the processor was under 30 % busy (three of those readings round to 30 in the log).
+Every call is the plain `Say`. Three variants, from the benchmark of `b1823d7e8`: `native`, the
+engine of `6fc0f9702`; `native, hold kept`, the same tree with the engine's `coalesce.rs` of
+`e24169ad3`, which holds such a write as before; `managed`, grpc-dotnet. The runs whose first
+calibration (`calib_us`, see "What is measured") is above 8 000 us, 22 of 130 (8 065 to 13 415 us),
+ran on a slower processor and are left out; each cell says how many passes it keeps (n). The
+calibrations of the runs kept read 7 526 to 7 987 us. Each cell is the median of the passes kept,
+the range in brackets; the allocation, whose range within a cell is at most about 50 B, is the
+median alone.
 
 Idle:
 
@@ -593,6 +594,79 @@ calibration and not reproduced here.
   P50 and 326 of CPU per call against 404 and 394 there, both outside today's ranges. grpc-dotnet's
   386 and 691 lie inside its ranges here (301-447 and 552-847). Today's figures compare with that
   table through these rows, not directly.
+
+### Concurrent calls
+
+The engine does not keep the unheld write: the hold also gathers the frames of other calls in
+flight, which the unheld write gives up. Two measurements of 2026-10-15 show it.
+
+The writes, counted with the transport's test hooks in a release build of the engine's FFI tests:
+bursts of N one-request unary calls on one channel, started and sent from one host thread, or from
+N threads at once; 30 bursts, three repetitions, the range of the repetitions. Both rules run from
+one build, through an environment switch, not committed, that restores the hold.
+
+| Calls in flight | Hold, one thread | Unheld, one thread | Hold, N threads | Unheld, N threads |
+|----------------:|-----------------:|-------------------:|----------------:|------------------:|
+| 1 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 2 | 0.50 | 0.88-0.95 | 0.53-0.55 | 0.85-0.97 |
+| 8 | 0.13 | 0.86-0.89 | 0.16-0.18 | 0.84-0.88 |
+| 64 | 0.04-0.05 | 0.83-0.84 | 0.08-0.12 | 0.83-0.84 |
+
+Writes per request. With the hold, a burst goes out in a few writes; unheld, in about one per call,
+since each completed request goes before the next calls' frames join it.
+
+What that costs, from 22:29 to 22:59: the benchmark with a mode, not committed, in which N workers
+call the plain `Say` at once, 40 000 calls after 2 000 of warm-up; `native, unheld` the engine of
+`6fc0f9702`, `native, hold` the same build with the switch, `managed` grpc-dotnet. .NET 8
+just-in-time, .NET 8 and .NET 10 ahead-of-time; N of 1, 8 and 64; five passes interleaved, the
+order rotated each pass, on the performance cores (`-Affinity 0xFF`) at AboveNormal priority, each
+run started on mains power once no build, test or prover ran and the processor was under 30 % busy.
+The CPU per call is the client process's, every thread's. A first run of this campaign, from 20:31
+to 22:27, is left out whole: the machine went into Modern Standby (System log, Kernel-Power Id 506
+and 507) from 20:56 to 21:47, during its fourth pass, which Id 42 and 107 do not
+record. The System log shows no standby, power source change, sleep or clock change during the
+second. The runs whose first calibration is above 8 000 us, 32 of 135, are left out. Each cell is
+the median of the passes kept, the range in brackets.
+
+| Host | Calls in flight | Transport | n | Calls a second | CPU per call (us) | P50 (us) |
+|------|----------------:|-----------|--:|---------------:|------------------:|---------:|
+| .NET 8 | 1 | native, unheld | 4 | 4542 (3951-5161) | 303 (279-341) | 192 (181-206) |
+| .NET 8 | 1 | native, hold | 4 | 3980 (3737-4951) | 313 (267-349) | 212 (187-213) |
+| .NET 8 | 1 | managed | 5 | 3952 (3520-4420) | 449 (414-525) | 216 (181-222) |
+| .NET 8 | 8 | native, unheld | 2 | 13951 (12977-14925) | 198 (175-222) | 520 (488-551) |
+| .NET 8 | 8 | native, hold | 5 | 15140 (14595-15280) | 157 (153-163) | 515 (509-528) |
+| .NET 8 | 8 | managed | 4 | 15772 (14126-16165) | 258 (248-274) | 496 (488-526) |
+| .NET 8 | 64 | native, unheld | 5 | 15600 (14560-15812) | 166 (159-182) | 4053 (4014-4196) |
+| .NET 8 | 64 | native, hold | 2 | 24980 (23320-26639) | 60 (59-61) | 2518 (2361-2674) |
+| .NET 8 | 64 | managed | 4 | 41677 (39775-42668) | 104 (94-106) | 1391 (1354-1420) |
+| .NET 8 AOT | 1 | native, unheld | 3 | 4479 (3188-4847) | 206 (197-250) | 193 (183-280) |
+| .NET 8 AOT | 1 | native, hold | 5 | 3902 (3374-4519) | 220 (196-241) | 210 (199-236) |
+| .NET 8 AOT | 1 | managed | 5 | 4246 (3557-4624) | 153 (146-177) | 193 (185-228) |
+| .NET 8 AOT | 8 | native, unheld | 3 | 15040 (9730-16775) | 96 (90-138) | 494 (455-753) |
+| .NET 8 AOT | 8 | native, hold | 2 | 16836 (16547-17124) | 70 (70-71) | 470 (457-483) |
+| .NET 8 AOT | 8 | managed | 4 | 19724 (16436-20000) | 98 (67-108) | 394 (386-430) |
+| .NET 8 AOT | 64 | native, unheld | 5 | 16161 (12282-16442) | 96 (86-113) | 4018 (3924-4433) |
+| .NET 8 AOT | 64 | native, hold | 3 | 24166 (22786-27218) | 54 (52-56) | 2510 (2346-2567) |
+| .NET 8 AOT | 64 | managed | 5 | 53385 (51023-53889) | 44 (38-59) | 1080 (1075-1134) |
+| .NET 10 AOT | 1 | native, unheld | 4 | 4515 (3247-4777) | 201 (180-270) | 196 (189-238) |
+| .NET 10 AOT | 1 | native, hold | 3 | 4535 (3137-4574) | 210 (196-263) | 194 (193-257) |
+| .NET 10 AOT | 1 | managed | 5 | 4531 (4158-5108) | 140 (132-173) | 186 (178-198) |
+| .NET 10 AOT | 8 | native, unheld | 3 | 16114 (16063-16820) | 97 (93-98) | 477 (456-479) |
+| .NET 10 AOT | 8 | native, hold | 5 | 17138 (15511-17274) | 73 (59-82) | 464 (464-516) |
+| .NET 10 AOT | 8 | managed | 2 | 20288 (20232-20343) | 70 (68-72) | 384 (384-384) |
+| .NET 10 AOT | 64 | native, unheld | 4 | 15150 (13936-16603) | 99 (89-108) | 4178 (3863-4205) |
+| .NET 10 AOT | 64 | native, hold | 3 | 26168 (24564-26316) | 49 (46-49) | 2433 (2419-2505) |
+| .NET 10 AOT | 64 | managed | 4 | 57747 (51987-60366) | 37 (31-41) | 1002 (945-1117) |
+
+- **At 64 calls in flight, the unheld write makes 33 to 42 % fewer calls a second for 1.8 to 2.8
+  times the CPU per call**, and its P50 is 1.6 to 1.7 times as high, on every host, every range
+  clear of the hold's.
+- **At 8, it spends 26 to 37 % more CPU per call**, the ranges clear on every host; the calls a
+  second and P50 overlap.
+- **One call at a time, every range overlaps**, as in the campaign above.
+- **At 64 calls in flight, grpc-dotnet makes 1.7 to 2.2 times as many calls a second as the native
+  engine with the hold**, for less CPU per call ahead-of-time and more just-in-time; these runs do
+  not say why.
 
 ## The machine
 

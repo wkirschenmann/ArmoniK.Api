@@ -254,8 +254,6 @@ once.
 channel's thread adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while
 its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
-A write that ends every request it carries goes at once, as no round can add to those: the writer
-reads END_STREAM in the headers of the frames it writes.
 
 **Request headers are bounded where they are built.** With `Http2.Send.HeaderListBytes`, a
 call whose header list - counted as RFC 9113 counts one - is past the limit ends
