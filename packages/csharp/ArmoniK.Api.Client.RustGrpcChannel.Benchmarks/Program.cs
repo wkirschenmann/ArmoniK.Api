@@ -44,7 +44,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   One transport per process, so that what one leaves allocated is not counted against the
 ///   other. TLS by default for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over
 ///   it. The -h2c transports speak HTTP/2 in the clear, which tells TLS's share of a call from the
-///   rest; grpc-dotnet speaks it in the clear only on .NET.
+///   rest; grpc-dotnet speaks it in the clear only on .NET. The server runs with
+///   <c>--plain-say</c>: its <c>Say</c> answers with the reply and <c>x-answered</c> alone.
 /// </remarks>
 public static class Program
 {
@@ -580,8 +581,8 @@ public static class Program
                                                      .Value!);
       var process = Process.Start(new ProcessStartInfo("dotnet",
                                                        tls
-                                                         ? $"\"{assembly}\" --tls"
-                                                         : $"\"{assembly}\"")
+                                                         ? $"\"{assembly}\" --plain-say --tls"
+                                                         : $"\"{assembly}\" --plain-say")
                                   {
                                     RedirectStandardInput  = true,
                                     RedirectStandardOutput = true,

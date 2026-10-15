@@ -34,6 +34,16 @@ loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only
   neither the affinity nor the priority holds: runs whose calibrations differ ran on processors
   of different speeds. Comparable only between runs of one framework and one build.
 
+The test server's `Say` answers in one of two ways. The plain `Say` answers with the reply and
+one head entry, `x-answered`; the benchmark starts its server with `--plain-say`, which gives it
+this one. The other `Say` adds what the compression tests read: three head entries
+(`x-saw-encoding`, `x-saw-accept-encoding`, `x-saw-content-length`) and a trailer
+(`x-sent-encoding`), which both transports decode on every call, about 455 B more allocation per
+call. The figures per call - latency, CPU and allocation per call - of "Results" and "T6.13 and
+h2-batch" use the plain `Say`; those of "After integration", "What the metrics build costs",
+"h2-batch, where it acts" and "The channel thread's spin, TLS's share, and the driver's trim" use
+the other. The downloads and uploads call no `Say`.
+
 Every transport option is left at its default, the runtime's ceilings included.
 
 Every measurement runs in two scenarios. **Idle**: the benchmark is all the process does, so the
@@ -536,6 +546,6 @@ bin/Release/net8.0/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native busy
 It prints one line: the latencies, the download and the two uploads, the allocation per call and
 on .NET the thread pool work items, and for an idle run the CPU per call and per MiB uploaded and
 the memory before and after the uploads. `ARMONIK_BENCH_AFFINITY` and `ARMONIK_BENCH_PRIORITY` set
-where it and its server run. The benchmark starts its test server, a `net8.0` program, with the
-`dotnet` the system finds first, which has to be an install with a .NET 8 runtime. Every run's
-line ends with the two calibrations.
+where it and its server run. The benchmark starts its test server, a `net8.0` program, with
+`--plain-say` and the `dotnet` the system finds first, which has to be an install with a .NET 8
+runtime. Every run's line ends with the two calibrations.
