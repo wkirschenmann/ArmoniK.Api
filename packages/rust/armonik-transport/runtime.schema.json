@@ -22,7 +22,7 @@
       "$ref": "#/$defs/LoggingOptions"
     },
     "BeforeSleep": {
-      "description": "What a channel's thread does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `{\"Spin\": {}}`: it polls for new work for 100 microseconds after it last called\nthe host.",
+      "description": "What a channel's thread does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `\"None\"`: it sleeps as soon as it runs out of work. `{\"Spin\": {}}` has it poll\nfor new work for 100 microseconds after it last called the host.",
       "$ref": "#/$defs/BeforeSleep"
     }
   },

@@ -3303,8 +3303,8 @@ pub struct RuntimeOptions {
     /// What a channel's thread does once it has run out of work, before it sleeps until more
     /// comes. Ignored by a Rust host, whose channels run on its own runtime.
     ///
-    /// Defaults to `{"Spin": {}}`: it polls for new work for 100 microseconds after it last called
-    /// the host.
+    /// Defaults to `"None"`: it sleeps as soon as it runs out of work. `{"Spin": {}}` has it poll
+    /// for new work for 100 microseconds after it last called the host.
     #[serde(
         default,
         deserialize_with = "alternative::optional",
@@ -3326,24 +3326,19 @@ impl RuntimeOptions {
 }
 
 /// What a channel's thread does once it has run out of work, before it sleeps.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum BeforeSleep {
     /// Nothing: the thread sleeps at once, and the operating system wakes it when a socket is
     /// ready, a timer is due or the host hands it work.
+    #[default]
     None,
 
     /// The thread goes on polling for that work, without blocking, until `WindowMicroseconds`
     /// have passed since it last called the host, and then sleeps. What the host sends within the
     /// window finds the thread awake, which saves a wake-up's latency for the polls' CPU time.
     Spin(SpinOptions),
-}
-
-impl Default for BeforeSleep {
-    fn default() -> Self {
-        Self::Spin(SpinOptions::default())
-    }
 }
 
 impl BeforeSleep {
@@ -5722,14 +5717,14 @@ mod tests {
     }
 
     #[test]
-    fn a_channel_thread_spins_for_a_hundred_microseconds_unless_told_otherwise() {
+    fn a_channel_thread_sleeps_at_once_unless_told_to_spin() {
         let window = |document: &str| {
             serde_json::from_str::<RuntimeOptions>(document)
                 .expect("valid options")
                 .spin_window()
         };
 
-        assert_eq!(window("{}"), Some(Duration::from_micros(100)));
+        assert_eq!(window("{}"), None);
         assert_eq!(
             window(r#"{"BeforeSleep":{"Spin":{}}}"#),
             Some(Duration::from_micros(100))
