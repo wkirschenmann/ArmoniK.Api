@@ -65,10 +65,10 @@ public static class Program
   public static async Task<int> Main(string[] args)
   {
     if (args.Length is < 1 or > 2 ||
-        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-nospin" && args[0] != "native-h2c" &&
+        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
          args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy"))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-nospin|native-h2c|managed|managed-h2c [busy]");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy]");
       return 2;
     }
 
@@ -257,22 +257,22 @@ public static class Program
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
                                                                Server server)
   {
-    if (transport is "native" or "native-batch" or "native-metrics" or "native-nospin" or "native-h2c")
+    if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
       // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
       // by any other. native-metrics loads the build with the engine's counters, which is
-      // selected before the first runtime exists. native-nospin has the channel's thread sleep
-      // as soon as it runs out of work. native-h2c reaches a server with no authority, so its
-      // channel states no Tls.
+      // selected before the first runtime exists. native-spin has the channel's thread poll for
+      // work for the spin's default window after each callback into the host before it sleeps.
+      // native-h2c reaches a server with no authority, so its channel states no Tls.
       if (transport == "native-metrics")
       {
         NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
       }
 
-      var runtime = transport == "native-nospin"
+      var runtime = transport == "native-spin"
                       ? NativeRuntime.Create(new RuntimeOptions
                                              {
-                                               BeforeSleep = new BeforeSleep.None(),
+                                               BeforeSleep = new BeforeSleep.Spin(),
                                              })
                       : NativeRuntime.Create();
       var channel = runtime.Channel(server.Endpoint,

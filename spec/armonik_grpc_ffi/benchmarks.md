@@ -34,7 +34,12 @@ loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only
   neither the affinity nor the priority holds: runs whose calibrations differ ran on processors
   of different speeds. Comparable only between runs of one framework and one build.
 
-Every transport option is left at its default, the runtime's ceilings included.
+Every transport option is left at its default, the runtime's ceilings included. `native` is the
+engine as a host gets it, a channel's thread sleeping as soon as it runs out of work (`BeforeSleep`
+`"None"`), and `native-spin` the same engine with `{"Spin": {}}`. `native` ran `"None"` too in
+every campaign whose engine predates the option, those of `bf86fece3` and `21a0b7807` among them.
+In that of 2026-10-15, when the spin was the default, `native` and `native-h2c` ran the spin and
+`native-nospin`, a name the benchmark no longer takes, ran `"None"`.
 
 Every measurement runs in two scenarios. **Idle**: the benchmark is all the process does, so the
 .NET thread pool sleeps between calls. **Busy**: two pool workers compute for 50 us and yield,
@@ -353,8 +358,9 @@ more: the processor slows over a run, which the interleaving shares out between 
 
 ### The spin
 
-`native` is the engine with its default `BeforeSleep`, a spin of 100 us after each callback into
-the host (`decisions.md`); `native-nospin` the same engine with `"None"`; `managed` grpc-dotnet.
+`native` is the engine with what was then its default `BeforeSleep`, a spin of 100 us after each
+callback into the host, which is `native-spin` today; `native-nospin` the same engine with
+`"None"`, which is `native` today; `managed` grpc-dotnet.
 The engine of `276a8c5a5`. Five passes interleaved, 12:27 to 13:39; each cell the median of the
 passes kept, the range in brackets.
 
@@ -408,15 +414,18 @@ What they say:
   below, the send to the driver's first poll is 4.5 us (4.0-4.8 over the passes) with it
   against 12.8 (12.3-15.2) without, the operating system's wake-up of the channel's thread. The
   stages after it overlap between the two, but for the write held for coalescing, 5.9 (5.0-6.4)
-  against 6.8 (6.6-8.9); the whole call overlaps too. A host that wants the CPU
-  rather than those microseconds states `"BeforeSleep": "None"`.
+  against 6.8 (6.6-8.9); the whole call overlaps too.
 - **Just-in-time, grpc-dotnet is the slower transport in P50, CPU and the uploads** on both
   hosts, the ranges apart for CPU and the uploads.
+
+The spin's CPU, for a P50 within the spread, is why the default is `"None"` (`decisions.md`); a
+host that wants the microseconds of that stage rather than the CPU states
+`"BeforeSleep": {"Spin": {}}`.
 
 ### What TLS costs
 
 The same campaign: `native-h2c` and `managed-h2c` speak HTTP/2 in the clear, against the test
-server started without TLS.
+server started without TLS. Both native rows ran the spin, the default then.
 
 | Host | Transport | n | P50 (us) | P99 (us) | CPU per call (us) |
 |------|-----------|--:|---------:|---------:|------------------:|
@@ -518,8 +527,9 @@ h2-batch's patch and takes Git Bash first on the PATH, and a build without it re
 option. `native-metrics` loads the engine's build with its counters, which the benchmark's build
 copies beside it unless `-p:NativeEngineMetrics=false`, and which it selects with
 `NativeLibrarySelection` before the first runtime exists; the published ahead-of-time
-benchmarks do not carry that build, so it does not run there. `native-nospin` runs the engine
-with `BeforeSleep` `"None"`, a channel's thread sleeping as soon as it runs out of work.
+benchmarks do not carry that build, so it does not run there. `native-spin` runs the engine
+with `BeforeSleep` `{"Spin": {}}`, a channel's thread polling for work for the default window,
+100 us, after each callback into the host before it sleeps.
 `native-h2c` and `managed-h2c` speak HTTP/2 in the clear, prior knowledge, to the test server
 started without TLS, which tells what TLS costs from the rest; `managed-h2c` does not run on
 .NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS. The h2-batch run builds the engine
