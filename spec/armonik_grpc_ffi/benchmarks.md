@@ -338,6 +338,151 @@ What they say:
   Framework streamed upload of `21a0b7807` 22 % below the engine's before it. h2-batch's gap, 46
   to 60 % over the six-pass median of the same engine, is wider than any range.
 
+## The channel thread's spin, TLS's share, and the driver's trim
+
+Two campaigns of 2026-10-15, both run entirely after the machine's last wake (11:59:17; the System
+log, Id 42, 107 and 1, shows no sleep, wake or clock change from then to their end), on the
+performance cores at AboveNormal priority, each run started once no build, test or prover ran
+and the processor was under 30 % busy. Another session's builds started during nine runs of the
+first two passes; those runs, and the runs whose first calibration is above 8 000 us, a
+processor slower than the campaign's, are left out. Two runs left no line in the campaign's log:
+.NET 10 native idle in pass 3 and .NET 10 AOT native-nospin busy in pass 1. Each cell says how many passes it keeps (n). The calibrations of
+the runs kept read 7 526 to 7 990 us at their start, so these figures compare with each other
+and not with the tables above. The end calibration, read after a run, often reads 12 700 or
+more: the processor slows over a run, which the interleaving shares out between the variants.
+
+### The spin
+
+`native` is the engine with its default `BeforeSleep`, a spin of 100 us after each callback into
+the host (`decisions.md`); `native-nospin` the same engine with `"None"`; `managed` grpc-dotnet.
+The engine of `276a8c5a5`. Five passes interleaved, 12:27 to 13:39; each cell the median of the
+passes kept, the range in brackets.
+
+Idle:
+
+| Host | Transport | n | P50 (us) | P99 (us) | CPU per call (us) | Download (MiB/s) | Upload, stream (MiB/s) | Upload, unary (MiB/s) |
+|------|-----------|--:|---------:|---------:|------------------:|-----------------:|-----------------------:|----------------------:|
+| .NET 8 | native | 4 | 270 (252-288) | 447 (432-622) | 297 (286-341) | 474 (358-589) | 296 (281-414) | 380 (264-421) |
+| .NET 8 | native-nospin | 4 | 255 (238-277) | 498 (461-1108) | 262 (217-269) | 528 (421-591) | 346 (285-451) | 371 (336-491) |
+| .NET 8 | managed | 4 | 310 (296-351) | 763 (497-1313) | 576 (531-691) | 244 (223-258) | 116 (109-131) | 97 (91-104) |
+| .NET 10 | native | 4 | 250 (240-267) | 536 (418-704) | 347 (331-372) | 415 (338-570) | 288 (284-430) | 445 (274-474) |
+| .NET 10 | native-nospin | 3 | 286 (242-288) | 747 (491-916) | 323 (278-338) | 410 (294-475) | 290 (199-455) | 471 (436-491) |
+| .NET 10 | managed | 4 | 294 (283-330) | 672 (530-1098) | 622 (594-642) | 262 (244-305) | 96 (88-119) | 102 (95-111) |
+| .NET 8 AOT | native | 4 | 258 (253-303) | 523 (419-1000) | 210 (198-241) | 451 (344-509) | 354 (323-374) | 283 (269-493) |
+| .NET 8 AOT | native-nospin | 4 | 274 (252-302) | 526 (390-1066) | 180 (164-192) | 436 (360-504) | 374 (316-471) | 334 (234-447) |
+| .NET 8 AOT | managed | 4 | 254 (247-260) | 928 (644-1184) | 172 (145-183) | 482 (408-565) | 186 (170-205) | 219 (183-234) |
+| .NET 10 AOT | native | 4 | 246 (240-299) | 839 (400-1680) | 200 (180-330) | 528 (459-540) | 455 (331-472) | 313 (224-416) |
+| .NET 10 AOT | native-nospin | 5 | 272 (249-297) | 663 (392-900) | 180 (164-191) | 411 (353-547) | 348 (320-450) | 413 (278-448) |
+| .NET 10 AOT | managed | 5 | 251 (220-288) | 486 (349-1005) | 144 (122-173) | 533 (494-597) | 204 (182-242) | 209 (158-229) |
+
+Busy:
+
+| Host | Transport | n | P50 (us) | P99 (us) | Download (MiB/s) | Upload, stream (MiB/s) | Upload, unary (MiB/s) |
+|------|-----------|--:|---------:|---------:|-----------------:|-----------------------:|----------------------:|
+| .NET 8 | native | 5 | 303 (296-352) | 627 (481-989) | 283 (265-380) | 472 (445-481) | 377 (342-385) |
+| .NET 8 | native-nospin | 3 | 312 (280-340) | 526 (484-526) | 281 (225-287) | 469 (455-471) | 385 (291-389) |
+| .NET 8 | managed | 5 | 358 (305-432) | 646 (542-1284) | 284 (242-334) | 129 (125-134) | 126 (102-128) |
+| .NET 10 | native | 5 | 348 (265-360) | 577 (456-781) | 281 (267-299) | 452 (331-487) | 348 (268-404) |
+| .NET 10 | native-nospin | 5 | 330 (319-342) | 525 (498-796) | 270 (222-285) | 481 (441-493) | 283 (279-340) |
+| .NET 10 | managed | 5 | 398 (382-412) | 633 (559-1523) | 318 (265-368) | 111 (104-145) | 117 (114-127) |
+| .NET 8 AOT | native | 5 | 273 (256-276) | 564 (422-819) | 283 (273-366) | 365 (281-443) | 420 (401-425) |
+| .NET 8 AOT | native-nospin | 5 | 270 (270-279) | 443 (410-470) | 359 (271-414) | 273 (254-433) | 370 (302-432) |
+| .NET 8 AOT | managed | 4 | 260 (257-264) | 398 (389-612) | 335 (308-389) | 194 (158-206) | 142 (134-156) |
+| .NET 10 AOT | native | 5 | 258 (242-273) | 420 (398-765) | 383 (286-418) | 283 (251-410) | 438 (373-472) |
+| .NET 10 AOT | native-nospin | 4 | 284 (266-296) | 590 (434-788) | 284 (251-299) | 352 (275-476) | 428 (367-439) |
+| .NET 10 AOT | managed | 5 | 254 (248-264) | 390 (385-739) | 286 (282-356) | 205 (171-225) | 131 (112-147) |
+
+What they say:
+
+- **The spin costs CPU per call, 11 to 17 % ahead-of-time and 7 to 13 % just-in-time**: 210
+  against 180 us on .NET 8 AOT, the ranges apart; 200 against 180 on .NET 10 AOT, 297 against 262
+  on .NET 8 and 347 against 323 on .NET 10, the ranges overlapping. grpc-dotnet spends 172 and
+  144 ahead-of-time.
+- **What it does to P50 is within the spread**: ahead-of-time 258 against 274 us on .NET 8 and
+  246 against 272 on .NET 10, grpc-dotnet at 254 and 251, the ranges overlapping; the same
+  engine without the spin reads 261 (244-313) in the trim's table below, so 13 us is what two
+  cells of one configuration differ by here. Just-in-time 270 against 255 and 250 against 286;
+  busy, from 26 us lower to 18 us higher with the spin. No difference is reported.
+- **The downloads and the uploads move within their ranges** with the spin, in both directions.
+- **The one stage the spin clearly moves** is the one it aims at: in the instrumented calls
+  below, the send to the driver's first poll is 4.5 us (4.0-4.8 over the passes) with it
+  against 12.8 (12.3-15.2) without, the operating system's wake-up of the channel's thread. The
+  stages after it overlap between the two, but for the write held for coalescing, 5.9 (5.0-6.4)
+  against 6.8 (6.6-8.9); the whole call overlaps too. A host that wants the CPU
+  rather than those microseconds states `"BeforeSleep": "None"`.
+- **Just-in-time, grpc-dotnet is the slower transport in P50, CPU and the uploads** on both
+  hosts, the ranges apart for CPU and the uploads.
+
+### What TLS costs
+
+The same campaign: `native-h2c` and `managed-h2c` speak HTTP/2 in the clear, against the test
+server started without TLS.
+
+| Host | Transport | n | P50 (us) | P99 (us) | CPU per call (us) |
+|------|-----------|--:|---------:|---------:|------------------:|
+| .NET 8 | native, TLS | 4 | 270 (252-288) | 447 (432-622) | 297 (286-341) |
+| .NET 8 | native, h2c | 4 | 208 (200-235) | 393 (371-716) | 354 (314-380) |
+| .NET 8 | managed, TLS | 4 | 310 (296-351) | 763 (497-1313) | 576 (531-691) |
+| .NET 8 | managed, h2c | 4 | 272 (262-287) | 510 (433-1173) | 581 (473-594) |
+| .NET 8 AOT | native, TLS | 4 | 258 (253-303) | 523 (419-1000) | 210 (198-241) |
+| .NET 8 AOT | native, h2c | 5 | 235 (227-246) | 393 (357-742) | 200 (181-227) |
+| .NET 8 AOT | managed, TLS | 4 | 254 (247-260) | 928 (644-1184) | 172 (145-183) |
+| .NET 8 AOT | managed, h2c | 5 | 228 (212-231) | 542 (361-726) | 139 (105-145) |
+| .NET 10 AOT | native, TLS | 4 | 246 (240-299) | 839 (400-1680) | 200 (180-330) |
+| .NET 10 AOT | native, h2c | 4 | 236 (222-268) | 372 (366-937) | 200 (180-231) |
+| .NET 10 AOT | managed, TLS | 5 | 251 (220-288) | 486 (349-1005) | 144 (122-173) |
+| .NET 10 AOT | managed, h2c | 5 | 216 (207-225) | 427 (311-578) | 123 (102-148) |
+
+The instrumented calls: the engine with QueryPerformanceCounter marks on both sides of every
+stage of a unary call (not committed), .NET 8 ahead-of-time, idle, four passes interleaved from
+12:07 to 12:27, calibration 7 530 to 7 934 us at the start of each run. The engine of
+`4bf4a4912`, before the trim, in the first three columns, and that of `276a8c5a5` in the last,
+the same configuration as the second but for the trim, which shows how far two cells of one
+configuration differ. Each cell is the median over the passes of the per-call medians of the
+10 000 measured calls, the range of the passes in brackets.
+
+| Stage (us) | TLS, spin | TLS, no spin | h2c, spin | TLS, no spin, trimmed |
+|---|---:|---:|---:|---:|
+| send to the driver's first poll | 4.5 (4.0-4.8) | 12.8 (12.3-15.2) | 4.6 (4.4-6.0) | 13.4 (12.2-13.9) |
+| driver's first poll to `send_request` | 7.4 (6.2-7.5) | 7.5 (7.1-9.5) | 6.8 (6.4-9.8) | 7.7 (6.4-7.9) |
+| `send_request` to the first write | 10.7 (8.3-11.0) | 10.9 (10.0-14.8) | 9.3 (8.6-13.8) | 12.7 (10.1-13.4) |
+| write held, coalescing | 5.9 (5.0-6.4) | 6.8 (6.6-8.9) | 5.5 (4.9-8.2) | 7.6 (6.3-8.0) |
+| socket write | 31.9 (25.2-32.7) | 27.6 (25.0-37.4) | 27.0 (25.1-40.4) | 31.7 (25.2-33.5) |
+| write to the first read | 153.1 (146.0-172.6) | 143.6 (140.2-185.9) | 131.6 (120.3-148.8) | 143.7 (133.2-177.8) |
+| first read to the head | 15.2 (10.9-16.0) | 12.5 (12.0-17.8) | 11.8 (10.8-19.0) | 15.7 (11.5-16.5) |
+| the whole call, to the callback's return | 270.6 (245.8-286.2) | 259.1 (249.9-339.2) | 235.9 (230.4-301.0) | 275.0 (240.6-307.4) |
+
+- **The socket write is mostly the send, not TLS**: 27.0 us in the clear against 31.9 with
+  TLS, both with the spin, the ranges overlapping; rustls's record is at most a few us of it.
+  Two cells of one configuration differ by 4 us here (27.6 and 31.7).
+- **TLS's cost to a call lies after the write rather than in it**: the whole instrumented call
+  is 235.9 us in the clear against 270.6 with TLS, of which 21.5 between the write and the first
+  read, the stage that holds the server, both sides' TLS on the answer and the loopback, and the
+  ranges of every stage overlap. In the plain runs above, it is 10 to 23 us of P50
+  ahead-of-time for the native engine and 26 to 35 for grpc-dotnet, the ranges apart on .NET 8
+  for both and overlapping on .NET 10 for both; in the clear grpc-dotnet leans faster on both hosts (228 against
+  235 us, 216 against 236), where with TLS the two are within 5 us of each other.
+
+### The driver's trim
+
+`276a8c5a5` writes the engine's headers into the request's own and gives tonic's encoder a
+buffer of 0, which tonic allocated, 1 KiB, for every request. `native-nospin`, the engine before
+it (`4bf4a4912`) and after, in the campaign above:
+
+| Host | Engine | n | P50 (us) | P99 (us) | CPU per call (us) | Allocated per call (B) |
+|------|--------|--:|---------:|---------:|------------------:|-----------------------:|
+| .NET 8 | before | 4 | 277 (232-281) | 502 (440-1158) | 249 (223-288) | 4100 |
+| .NET 8 | after | 4 | 255 (238-277) | 498 (461-1108) | 262 (217-269) | 4099 |
+| .NET 8 AOT | before | 5 | 261 (244-313) | 1164 (561-1251) | 178 (159-197) | 4067 |
+| .NET 8 AOT | after | 4 | 274 (252-302) | 526 (390-1066) | 180 (164-192) | 4066 |
+
+- **The trim is not visible in a whole call**: every range overlaps the other, in both
+  directions; the allocation the benchmark counts is managed, and the buffer was native.
+- In the instrumented calls, the engine's headers and the header list's check take 0.6 us
+  after it against 0.9 before (spin off, four passes each, 0.4-0.6 against 0.9-1.2), and the
+  stretch from the driver's first poll to `send_request` 7.7 against 7.5 us: what is saved is
+  below what the rest of the stretch varies by at this clock.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
@@ -349,8 +494,8 @@ AboveNormal priority.
 
 Built with .NET SDK 11.0.100-rc.1; run on .NET 8.0.19, .NET 10.0.12 and .NET Framework 4.8,
 ahead-of-time with the 8.0.31 and 10.0.12 ILCompiler packages; rustc 1.94.1, the engine built
-with the release profile. The client and the server share the machine. The runs of `bf86fece3`
-used the same SDK, runtimes, ILCompiler packages and compiler.
+with the release profile. The client and the server share the machine. The runs of `bf86fece3`,
+and those of 2026-10-15, used the same SDK, runtimes, ILCompiler packages and compiler.
 
 ## Running it again
 
