@@ -34,15 +34,15 @@ loopback. TLS for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only
   neither the affinity nor the priority holds: runs whose calibrations differ ran on processors
   of different speeds. Comparable only between runs of one framework and one build.
 
-The test server's `Say` answers in one of two ways. The plain `Say` answers with the reply and
-one head entry, `x-answered`; the benchmark starts its server with `--plain-say`, which gives it
-this one. The other `Say` adds what the compression tests read: three head entries
-(`x-saw-encoding`, `x-saw-accept-encoding`, `x-saw-content-length`) and a trailer
-(`x-sent-encoding`), which both transports decode on every call, about 455 B more allocation per
-call. The figures per call - latency, CPU and allocation per call - of "Results" and "T6.13 and
-h2-batch" use the plain `Say`; those of "After integration", "What the metrics build costs",
-"h2-batch, where it acts" and "The channel thread's spin, TLS's share, and the driver's trim" use
-the other. The downloads and uploads call no `Say`.
+The test server's `Say` answers in one of two ways. The plain `Say` answers with the reply and one
+head entry, `x-answered`; the benchmark starts its server with `--plain-say`, which gives it this
+one. The other `Say` adds what the compression tests read: three head entries (`x-saw-encoding`,
+`x-saw-accept-encoding`, `x-saw-content-length`) and a trailer (`x-sent-encoding`), which both
+transports decode on every call: about 455 B more allocation per call for the native engine, 360 B
+for grpc-dotnet. The figures per call - latency, CPU and allocation per call - of "Results", "T6.13
+and h2-batch" and "A whole request's write, unheld" use the plain `Say`; those of "After
+integration", "What the metrics build costs", "h2-batch, where it acts" and "The channel thread's
+spin, TLS's share, and the driver's trim" use the other. The downloads and uploads call no `Say`.
 
 Every transport option is left at its default, the runtime's ceilings included.
 
@@ -492,6 +492,107 @@ it (`4bf4a4912`) and after, in the campaign above:
   after it against 0.9 before (spin off, four passes each, 0.4-0.6 against 0.9-1.2), and the
   stretch from the driver's first poll to `send_request` 7.7 against 7.5 us: what is saved is
   below what the rest of the stretch varies by at this clock.
+
+## A whole request's write, unheld
+
+`6fc0f9702` sends at once a write that ends every request it carries, where the coalescing held
+it a round more (`decisions.md`): in the engine's tests a unary call is held one round instead of
+two. One campaign of 2026-10-15, 16:47 to 18:08, entirely after the machine's last wake (11:59:17;
+the System log, Id 42, 107 and 1, shows no sleep, wake or clock change from then to its end), on
+the performance cores (logical processors 0 to 7, `-Affinity 0xFF`) at AboveNormal priority, five
+passes interleaved, the order rotated each pass. Each run started once no build, test or prover
+ran, other sessions' included, which held the campaign from about 17:13 to 17:34 but for one run at
+17:28, and once the processor was under 30 % busy (three of those readings round to 30 in the
+log). Every call is the plain
+`Say`. Three variants, from the benchmark of `b1823d7e8`: `native`, the engine of `6fc0f9702`;
+`native, hold kept`, the same tree with the engine's `coalesce.rs` of `e24169ad3`, which holds such
+a write as before; `managed`, grpc-dotnet. The runs whose first calibration (`calib_us`, see "What
+is measured") is above 8 000 us, 22 of 130 (8 065 to 13 415 us), ran on a slower processor and are
+left out; each cell says how many passes it keeps (n). The calibrations of the runs kept read 7 526
+to 7 987 us. Each cell is the median of the passes kept, the range in brackets; the allocation,
+whose range within a cell is at most about 50 B, is the median alone.
+
+Idle:
+
+| Host | Transport | n | P50 (us) | P99 (us) | CPU per call (us) | Allocated per call (B) |
+|------|-----------|--:|---------:|---------:|------------------:|-----------------------:|
+| .NET 8 | native | 4 | 282 (263-322) | 852 (618-1142) | 358 (303-417) | 3647 |
+| .NET 8 | native, hold kept | 4 | 266 (254-331) | 818 (607-977) | 318 (280-406) | 3646 |
+| .NET 8 | managed | 4 | 357 (289-475) | 951 (679-1292) | 662 (536-878) | 8008 |
+| .NET 10 | native | 4 | 258 (244-295) | 850 (535-1126) | 342 (327-373) | 3648 |
+| .NET 10 | native, hold kept | 4 | 300 (237-345) | 940 (618-1134) | 392 (309-483) | 3648 |
+| .NET 10 | managed | 3 | 374 (267-388) | 899 (892-1234) | 741 (622-778) | 7950 |
+| .NET 8 AOT | native | 4 | 278 (258-307) | 556 (496-1106) | 210 (202-245) | 3614 |
+| .NET 8 AOT | native, hold kept | 4 | 298 (284-306) | 727 (548-1425) | 236 (217-242) | 3612 |
+| .NET 8 AOT | managed | 3 | 285 (262-296) | 688 (644-839) | 177 (134-180) | 7840 |
+| .NET 10 AOT | native | 4 | 294 (278-398) | 938 (676-1310) | 238 (186-369) | 3612 |
+| .NET 10 AOT | native, hold kept | 4 | 291 (270-320) | 834 (691-1100) | 242 (219-255) | 3614 |
+| .NET 10 AOT | managed | 5 | 264 (244-275) | 711 (502-1063) | 162 (148-192) | 7837 |
+
+Busy:
+
+| Host | Transport | n | P50 (us) | P99 (us) |
+|------|-----------|--:|---------:|---------:|
+| .NET 8 | native | 5 | 338 (300-483) | 625 (540-1364) |
+| .NET 8 | native, hold kept | 5 | 386 (302-475) | 716 (525-1482) |
+| .NET 8 | managed | 3 | 398 (310-430) | 671 (581-823) |
+| .NET 10 | native | 5 | 312 (269-407) | 545 (515-853) |
+| .NET 10 | native, hold kept | 5 | 342 (311-416) | 704 (490-1174) |
+| .NET 10 | managed | 5 | 415 (371-446) | 675 (596-771) |
+| .NET 8 AOT | native | 4 | 261 (257-266) | 543 (434-601) |
+| .NET 8 AOT | native, hold kept | 4 | 264 (257-270) | 476 (405-655) |
+| .NET 8 AOT | managed | 4 | 294 (267-311) | 542 (480-628) |
+| .NET 10 AOT | native | 5 | 286 (248-315) | 647 (561-1151) |
+| .NET 10 AOT | native, hold kept | 4 | 282 (278-337) | 1005 (543-1268) |
+| .NET 10 AOT | managed | 4 | 310 (264-346) | 679 (486-841) |
+
+What they say:
+
+- **The unheld write is not visible in a whole call**: in every cell, idle and busy, its range
+  overlaps the hold's, in P50, P99 and CPU per call, and the medians move both ways. Set side by
+  side within each pass, the 31 pairs where both runs are kept put the unheld write's P50 a median
+  5 us lower, 17 lower and 14 higher, and its CPU per call a median 5 us lower over 14 idle pairs,
+  7 each way: a lean of the size of the held round in the instrumented calls of "The channel
+  thread's spin, TLS's share, and the driver's trim" (5.5 to 7.6 us), which five passes whose
+  cells spread by up to 190 us at P50 do not resolve. The 40 pairs with no run left out give the
+  same, 4 us lower at P50. The allocation does not move, nor, idle, the thread pool's work items
+  per call (2.04 to 2.08).
+- **Ahead-of-time, against grpc-dotnet**: idle, P50 is a tie on .NET 8 (278 against 285 us) and
+  grpc-dotnet is lower on .NET 10 (264 against 294, the ranges 3 us apart); grpc-dotnet spends
+  less CPU per call, 177 against 210 us on .NET 8, the ranges apart, and 162 against 238 on .NET
+  10, overlapping. Busy, the native engine is lower on .NET 8 (261 against 294, the ranges 1 us
+  apart) and the two overlap on .NET 10.
+- **Just-in-time, the native engine spends half the CPU per call** (358 against 662 us on .NET 8,
+  342 against 741 on .NET 10, the ranges apart); its P50 is lower on both, idle and busy, the
+  ranges overlapping.
+- **The plain `Say`** allocates 3 647 B per call for the native engine on .NET 8, against 4 099
+  with the other in "The driver's trim", 452 B less; grpc-dotnet 8 008 against 8 368 in "After
+  integration", 360 B less.
+
+### Against the baseline's engine
+
+The baseline's engine and benchmark (`1eca48506`), the same campaign, .NET 8 just-in-time, idle,
+interleaved with the variants above. Its own test server answers the plain `Say`, the only one it
+has. Its benchmark prints no calibration: the calibration of today's is added to it for these runs,
+and is not committed. The first two rows are the first table's ("Results"), measured without a
+calibration and not reproduced here.
+
+| Build | Transport | n | P50 (us) | P99 (us) | CPU per call (us) | Allocated per call (B) |
+|-------|-----------|--:|---------:|---------:|------------------:|-----------------------:|
+| `1eca48506`, first table | native | 3 | 404 | 1374 | 394 | 3627 |
+| `1eca48506`, first table | managed | 3 | 386 | 1305 | 691 | 7981 |
+| `1eca48506` | native | 4 | 318 (291-334) | 1038 (826-1254) | 326 (286-362) | 3630 |
+| `1eca48506` | managed | 4 | 330 (301-447) | 1030 (763-1217) | 604 (552-847) | 8004 |
+| `b1823d7e8` | native | 4 | 282 (263-322) | 852 (618-1142) | 358 (303-417) | 3647 |
+| `b1823d7e8` | managed | 4 | 357 (289-475) | 951 (679-1292) | 662 (536-878) | 8008 |
+
+- **Today's engine and the baseline's are within the spread of each other**: P50 282 against 318
+  us, P99 852 against 1038, CPU per call 358 against 326, every range overlapping. It allocates
+  17 B more per call, which these runs do not attribute to a commit.
+- **The baseline's engine does not reproduce the first table's native figures today**: 318 us at
+  P50 and 326 of CPU per call against 404 and 394 there, both outside today's ranges. grpc-dotnet's
+  386 and 691 lie inside its ranges here (301-447 and 552-847). Today's figures compare with that
+  table through these rows, not directly.
 
 ## The machine
 
