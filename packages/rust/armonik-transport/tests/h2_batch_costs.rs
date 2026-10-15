@@ -1,7 +1,7 @@
 //! Against peers that read the wire frame by frame, per build and frames per write: the DATA a
 //! cancelled upload still sends past the offset the client had written to when it cancelled, and
 //! how long a server's PING waits for its acknowledgement, idle and behind an upload. Each under
-//! two sets of flow-control windows, the largest HTTP/2 allows and Kestrel's defaults. Compiled by
+//! two sets of flow-control windows, the largest HTTP/2 allows and 768 KiB a stream. Compiled by
 //! both builds, the stock one at one frame per write only; `--nocapture` prints the figures, and
 //! the PINGs, a measurement of up to about 80 s, run with `--ignored`.
 
@@ -29,6 +29,14 @@ const PREFACE: usize = 24;
 const HEAD: usize = 9;
 /// The chunk of the streamed upload in ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.
 const CHUNK: usize = 64 * 1024;
+/// The chunks of the cancelled uploads: a message longer than a frame, and one shorter, which the
+/// patched build queues whole at any frames per write.
+const CANCELLED_CHUNKS: [usize; 2] = [CHUNK, 4 * 1024];
+/// h2-batch.patch's `MAX_QUEUED_DATA`: the DATA payload bytes the patched build queues for writing,
+/// past which it admits one more part and no further.
+const QUEUED_DATA: usize = 1024 * 1024;
+/// The largest DATA frame payload the client sends: the peer's SETTINGS leave the default.
+const MAX_FRAME: usize = 16 * 1024;
 const RESETS: usize = 10;
 const PINGS: usize = 500;
 /// How long the PINGs of one measurement go on, at most.
@@ -53,9 +61,10 @@ const LARGEST: Windows = Windows {
     connection: 0x7fff_ffff,
 };
 
-/// Kestrel's defaults, the server of ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.
-const KESTREL: Windows = Windows {
-    name: "kestrel",
+/// 768 KiB a stream and 1 MiB for the connection, those of the server of
+/// ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.
+const WINDOW_768_KIB: Windows = Windows {
+    name: "768KiB",
     stream: 768 * 1024,
     connection: 1024 * 1024,
 };
@@ -198,9 +207,9 @@ async fn writes_stop(quiet: Duration) -> usize {
     }
 }
 
-/// A streamed upload of `CHUNK`s, cancelled once its connection's writes have stopped against a
+/// A streamed upload of `chunk`s, cancelled once its connection's writes have stopped against a
 /// peer that reads nothing, whether on a full socket or on an exhausted window.
-async fn after_a_cancel(frames_per_write: usize, windows: Windows) -> Tail {
+async fn after_a_cancel(frames_per_write: usize, windows: Windows, chunk: usize) -> Tail {
     let (started, has_started) = oneshot::channel();
     let resume = std::sync::Arc::new(Notify::new());
     let (wire, has_wire) = oneshot::channel();
@@ -213,7 +222,7 @@ async fn after_a_cancel(frames_per_write: usize, windows: Windows) -> Tail {
         .expect("the call starts")
         .split();
     let sending = tokio::spawn(async move {
-        let chunk = Bytes::from(vec![0x5a; CHUNK]);
+        let chunk = Bytes::from(vec![0x5a; chunk]);
         while send.send_message(chunk.clone()).await.is_ok() {}
     });
     tokio::time::timeout(Duration::from_secs(5), has_started)
@@ -250,34 +259,46 @@ async fn after_a_cancel(frames_per_write: usize, windows: Windows) -> Tail {
     }
 }
 
-/// A cancelled upload sends at most one DATA frame past the offset its cancel found on the wire at
-/// one frame per write, in either build; above one, what it sends is printed.
+/// A cancelled upload sends at most one DATA frame past the offset its cancel found on the wire in
+/// the stock build, and in the patched build at one frame per write when a message is longer than
+/// a frame; otherwise, in the patched build, at most what its queue holds, `QUEUED_DATA` bytes of
+/// payload and one more part, with their heads, which only the largest windows let it reach. What
+/// it sends is printed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn data_after_a_cancel() {
     let _alone = ALONE.lock().await;
-    for windows in [LARGEST, KESTREL] {
+    for windows in [LARGEST, WINDOW_768_KIB] {
         for &frames in frame_counts() {
-            let mut tails = Vec::new();
-            for _ in 0..RESETS {
-                tails.push(after_a_cancel(frames, windows).await);
-            }
-            for tail in &tails {
-                println!(
-                    "h2_batch={} windows={} frames_per_write={frames} cancelled_at={} after_cancel_frames={} after_cancel_bytes={}",
-                    cfg!(h2_batch),
-                    windows.name,
-                    tail.cancelled_at,
-                    tail.frames,
-                    tail.bytes,
-                );
-            }
-            for tail in &tails {
-                if frames == 1 {
-                    assert!(
-                        tail.frames <= 1,
-                        "{} DATA frames after the cancel at one frame per write",
-                        tail.frames
+            for chunk in CANCELLED_CHUNKS {
+                let mut tails = Vec::new();
+                for _ in 0..RESETS {
+                    tails.push(after_a_cancel(frames, windows, chunk).await);
+                }
+                for tail in &tails {
+                    println!(
+                        "h2_batch={} windows={} frames_per_write={frames} chunk={chunk} cancelled_at={} after_cancel_frames={} after_cancel_bytes={}",
+                        cfg!(h2_batch),
+                        windows.name,
+                        tail.cancelled_at,
+                        tail.frames,
+                        tail.bytes,
                     );
+                }
+                for tail in &tails {
+                    if cfg!(h2_batch) && !(frames == 1 && chunk > MAX_FRAME) {
+                        let most = QUEUED_DATA + frames * MAX_FRAME + HEAD * tail.frames;
+                        assert!(
+                            tail.bytes <= most,
+                            "{} bytes after the cancel, past {most}, at {frames} frames per write, {chunk}-byte chunks",
+                            tail.bytes
+                        );
+                    } else {
+                        assert!(
+                            tail.frames <= 1,
+                            "{} DATA frames after the cancel, {chunk}-byte chunks",
+                            tail.frames
+                        );
+                    }
                 }
             }
         }
@@ -408,7 +429,7 @@ fn percentile(delays: &[Duration], fraction: f64) -> u128 {
 #[ignore = "a measurement of up to about 80 s"]
 async fn a_ping_behind_an_upload() {
     let _alone = ALONE.lock().await;
-    for windows in [LARGEST, KESTREL] {
+    for windows in [LARGEST, WINDOW_768_KIB] {
         for &frames in frame_counts() {
             for uploading in [false, true] {
                 let delays = ping_delays(frames, windows, uploading).await;
