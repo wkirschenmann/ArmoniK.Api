@@ -485,11 +485,11 @@ it (`4bf4a4912`) and after, in the campaign above:
 
 ## h2-batch, what it costs
 
-`decisions.md` names two costs of the build against h2-batch's patch, besides its writes: a
-control frame, or a neighbouring call's frame, waits behind the DATA the patched connection has
-queued; and above one frame per write, a reset call sends DATA after its reset. Three engines
-here: stock h2, which takes one frame per write; the build against the
-patch at one (`patched, 1`); and that build at 16 (`patched, 16`, `native-batch`). The engine is
+`decisions.md` named two costs of the build against h2-batch's patch, besides its writes, when
+this was measured: a control frame, or a neighbouring call's frame, waits behind the DATA the
+patched connection has queued; and above one frame per write, a reset call sends DATA after its
+reset. Three engines here: stock h2, which takes one frame per write; the build against the patch
+at one (`patched, 1`); and that build at 16 (`patched, 16`, `native-batch`). The engine is
 that of `e24169ad3`, the benchmark that of `b38f87e34`, the Rust test `h2_batch_costs` of
 `36364eacf`; the last subsection measures the engine once its queue is bounded.
 
@@ -575,9 +575,10 @@ range in brackets.
 ### What the unbounded queue costs
 
 - **DATA after a reset is not negligible at 16 frames per write, and it goes past the bound
-  documented for it.** `decisions.md` and the option's description say a call reset while its part
-  is being written can still send up to FramesPerWrite - 1 frames; measured, a cancelled upload
-  sends up to 49 frames, 655 791 bytes, after its cancel under 768 KiB windows, and 2 560 frames,
+  documented for it.** `decisions.md` and the option's description then said a call reset while
+  its part is being written can still send up to FramesPerWrite - 1 frames; measured, a cancelled
+  upload sends up to 49 frames, 655 791 bytes, after its cancel under 768 KiB windows, and 2 560
+  frames,
   33 580 032 bytes, in every trial under the largest, against one frame of 16 393 bytes for stock
   h2 and for the patched build at one frame per write, in every trial. Under 768 KiB windows,
   the offset at the cancel and the bytes after it add up to 787 165 in all 50 trials, the stream's

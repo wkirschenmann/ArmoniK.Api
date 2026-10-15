@@ -1596,13 +1596,16 @@ public sealed class Http2SendOptions
   /// <summary>
   ///   How many DATA frames of the peer's largest size one queued part of a request may span,
   ///   written one after the other in one write: a large message then goes out in fewer, larger
-  ///   writes. Above 1, a call reset while its part is being written can still send up to this
-  ///   many frames less one before its reset, and a PING or a SETTINGS acknowledgement queued
-  ///   behind DATA waits for this many times more of it. Above 1 needs an engine built against
-  ///   the h2-batch patch (<c>packages/rust/patches/h2-batch</c>), and is refused otherwise. At most
-  ///   256.
+  ///   writes. Above 1 needs an engine built against the h2-batch patch
+  ///   (<c>packages/rust/patches/h2-batch</c>), and is refused otherwise. At most 256.
   /// </summary>
-  /// <remarks>Defaults to 1.</remarks>
+  /// <remarks>
+  ///   An engine built against the patch queues for the connection's writes up to 1 MiB of DATA,
+  ///   whatever this value, and one more part of up to this many frames, a message whole when it
+  ///   fits in one part. A call reset while DATA of it is queued still sends that DATA before its
+  ///   reset, and a PING or another call's frame waits behind what is queued.
+  ///   Defaults to 1.
+  /// </remarks>
   [JsonPropertyName("FramesPerWrite")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public int? FramesPerWrite { get; set; }
