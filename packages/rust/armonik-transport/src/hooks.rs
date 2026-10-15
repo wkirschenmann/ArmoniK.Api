@@ -119,9 +119,11 @@ pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 static IN_DRIVER: Mutex<Option<Hook>> = Mutex::new(None);
 static AFTER_REQUEST_GIVEN: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
+static WHEN_READ_WAITS: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
+static DELIVERY_ROUNDS_ANSWERED: AtomicUsize = AtomicUsize::new(0);
 static COMPRESSIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// How many writes the HTTP/2 connections of this process have made to the stream under them,
@@ -142,6 +144,15 @@ pub fn delivery_rounds() -> usize {
 
 pub(crate) fn count_delivery_round() {
     DELIVERY_ROUNDS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// How many of the rounds `delivery_rounds` counts found the read they waited for.
+pub fn delivery_rounds_answered() -> usize {
+    DELIVERY_ROUNDS_ANSWERED.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_answered_round() {
+    DELIVERY_ROUNDS_ANSWERED.fetch_add(1, Ordering::SeqCst);
 }
 
 /// How many messages the engine has begun to compress in this process, whether or not the
@@ -190,6 +201,12 @@ pub fn after_request_given(hook: Option<Hook>) {
     set(&AFTER_REQUEST_GIVEN, hook);
 }
 
+/// Runs `hook` on the call's thread when the first poll of a read past a response's head is
+/// pending, before the delivery waits its round or is flushed. `None` removes it.
+pub fn when_read_waits(hook: Option<Hook>) {
+    set(&WHEN_READ_WAITS, hook);
+}
+
 pub(crate) fn run_in_driver() {
     run(&IN_DRIVER);
 }
@@ -200,6 +217,10 @@ pub(crate) fn run_after_request_given() {
 
 pub(crate) fn run_in_dial() {
     run(&IN_DIAL);
+}
+
+pub(crate) fn run_when_read_waits() {
+    run(&WHEN_READ_WAITS);
 }
 
 fn set(point: &Mutex<Option<Hook>>, hook: Option<Hook>) {

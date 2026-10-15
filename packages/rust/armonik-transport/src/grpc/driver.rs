@@ -757,11 +757,19 @@ async fn finish<S: ResponseSink>(
                 read_next(answered, read_gate, turn_only, body)
             ));
             let mut polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+            #[cfg(feature = "test-hooks")]
+            if polled.is_pending() {
+                crate::hooks::run_when_read_waits();
+            }
             if polled.is_pending() && held.is_some_and(|bytes| bytes < coalescing) {
                 #[cfg(feature = "test-hooks")]
                 crate::hooks::count_delivery_round();
                 tokio::task::yield_now().await;
                 polled = std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await;
+                #[cfg(feature = "test-hooks")]
+                if polled.is_ready() {
+                    crate::hooks::count_answered_round();
+                }
             }
             match polled {
                 Poll::Ready(read) => read,
