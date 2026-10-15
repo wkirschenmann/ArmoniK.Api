@@ -77,7 +77,7 @@ impl<T> Coalescing<T> {
         if let Poll::Ready(Ok(bytes)) = written {
             self.conn.bytes_written(bytes);
             #[cfg(feature = "test-hooks")]
-            crate::hooks::count_write();
+            crate::hooks::count_write(bytes);
         }
         written
     }

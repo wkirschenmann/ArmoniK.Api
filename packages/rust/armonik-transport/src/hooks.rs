@@ -121,6 +121,7 @@ static AFTER_REQUEST_GIVEN: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
+static BYTES_WRITTEN: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
 static COMPRESSIONS: AtomicUsize = AtomicUsize::new(0);
 
@@ -130,8 +131,15 @@ pub fn writes() -> usize {
     WRITES.load(Ordering::SeqCst)
 }
 
-pub(crate) fn count_write() {
+/// How many bytes those writes have taken, in all: on a connection in the clear and alone in the
+/// process, the offset on the wire the client has written to.
+pub fn bytes_written() -> usize {
+    BYTES_WRITTEN.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_write(bytes: usize) {
     WRITES.fetch_add(1, Ordering::SeqCst);
+    BYTES_WRITTEN.fetch_add(bytes, Ordering::SeqCst);
 }
 
 /// How many rounds of the runtime the deliveries of this process's responses have waited for
