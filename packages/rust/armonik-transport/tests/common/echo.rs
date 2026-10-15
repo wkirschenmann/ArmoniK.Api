@@ -359,6 +359,15 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
 
     let path = request.uri().path().to_owned();
     if let Some(raw) = path.strip_prefix("/raw/") {
+        if raw == "Paced" {
+            // Read to its end first, as a unary server does: the head then never reaches the
+            // client while its own request is still being sent, which wakes the call's task.
+            let (parts, mut body) = request.into_parts();
+            while let Some(Ok(_)) =
+                std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await
+            {}
+            return canned(raw, &parts.headers);
+        }
         return canned(raw, request.headers());
     }
 

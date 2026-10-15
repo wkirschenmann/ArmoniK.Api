@@ -90,9 +90,9 @@ fn a_unary_answer_reaches_the_host_in_one_callback() {
         PARTS * CALLS,
         "a delivery waits a round for each part"
     );
-    // Whether a round reads what reached the socket is the I/O driver's: on Windows it sometimes
-    // does not, so only the calls whose rounds all found their part show the gathering. Every
-    // call missing is a round that no longer reads the connection.
+    // A round ends before the runtime reads the connection when something else wakes the call's
+    // task, so only the calls whose rounds all found their part show the gathering. Every call
+    // missing is a round that no longer reads the connection.
     assert!(paced.answered > 0, "no call's rounds found their parts");
     assert_eq!(
         paced.answered_whole, paced.answered,
