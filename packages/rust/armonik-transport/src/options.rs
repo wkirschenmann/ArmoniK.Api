@@ -1126,7 +1126,8 @@ pub struct Http2SendOptions {
     /// How many bytes a write to the connection may gather before it goes. A write waits while
     /// the work already ready adds frames to it, one round of the runtime at a time, and goes once
     /// a round adds none or it holds this many bytes: a request's message handed over while its
-    /// headers wait then goes out with them, in one write rather than two. 0 writes at once.
+    /// headers wait then goes out with them, in one write rather than two. A write that ends every
+    /// request it carries goes at once. 0 writes at once.
     ///
     /// Defaults to 16384, 16 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]

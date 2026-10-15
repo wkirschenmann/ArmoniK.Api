@@ -15,7 +15,8 @@ use crate::metrics::{ConnCounters, Sniffer};
 /// that a task polled after it makes ready goes in a write of its own: a request's message, handed
 /// over from another thread while its headers wait, follows them in a second write. Holding the
 /// write behind the work already ready lets such frames join it. A round that adds bytes earns
-/// another; one that adds none, or a buffer at the limit, sends it. A limit of 0 holds nothing.
+/// another; one that adds none, or a buffer at the limit, sends it. A write that ends every
+/// request it carries goes at once, as no round can add to those. A limit of 0 holds nothing.
 pub(crate) struct Coalescing<T> {
     io: T,
     limit: usize,
@@ -46,8 +47,9 @@ impl<T> Coalescing<T> {
         }
     }
 
-    /// Whether a write of `len` bytes waits a round, in which case this task is woken after it.
-    fn hold(&mut self, len: usize, cx: &mut Context<'_>) -> bool {
+    /// Whether the write of `bufs`, `len` bytes, waits a round, in which case this task is woken
+    /// after it.
+    fn hold(&mut self, bufs: &[io::IoSlice<'_>], len: usize, cx: &mut Context<'_>) -> bool {
         match self.state {
             State::Sending => return false,
             State::Held(before) if len <= before => {
@@ -56,10 +58,12 @@ impl<T> Coalescing<T> {
             }
             State::Open | State::Held(_) => {}
         }
-        if len >= self.limit {
+        if len >= self.limit || ends_its_requests(bufs) {
             self.state = State::Sending;
             return false;
         }
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::count_held_write();
         self.state = State::Held(len);
         // Polled once and dropped: that queues this task's wake-up behind the tasks already
         // ready, including those woken from another thread, whose frames the next attempt brings.
@@ -81,6 +85,79 @@ impl<T> Coalescing<T> {
         }
         written
     }
+}
+
+const DATA: u8 = 0x0;
+const HEADERS: u8 = 0x1;
+const END_STREAM: u8 = 0x1;
+
+/// How many open requests a write is read for; one that carries more is held.
+const REQUESTS_READ: usize = 8;
+
+/// Whether a write, which starts at a frame, ends at least one request and every request whose
+/// frames it carries.
+///
+/// Read from the frames' headers, where END_STREAM is a flag of a request's last HEADERS or DATA
+/// frame: the writer learns it from the bytes it writes, and shares no state with the calls. A
+/// frame whose payload runs past the write is its last; a header the write cuts reads as a request
+/// left open.
+fn ends_its_requests(bufs: &[io::IoSlice<'_>]) -> bool {
+    let mut slices = bufs.iter().map(|buf| &**buf);
+    let mut rest: &[u8] = &[];
+    let mut open = [0_u32; REQUESTS_READ];
+    let mut opened = 0;
+    let mut ended = false;
+    'frames: loop {
+        let mut header = [0_u8; 9];
+        let mut filled = 0;
+        while filled < header.len() {
+            if rest.is_empty() {
+                match slices.next() {
+                    Some(next) => rest = next,
+                    None if filled == 0 => break 'frames,
+                    None => return false,
+                }
+                continue;
+            }
+            let taken = (header.len() - filled).min(rest.len());
+            header[filled..filled + taken].copy_from_slice(&rest[..taken]);
+            filled += taken;
+            rest = &rest[taken..];
+        }
+        let [a, b, c, kind, flags, s0, s1, s2, s3] = header;
+        if matches!(kind, DATA | HEADERS) {
+            let stream = u32::from_be_bytes([s0 & 0x7f, s1, s2, s3]);
+            let at = open[..opened].iter().position(|&open| open == stream);
+            match (flags & END_STREAM != 0, at) {
+                (true, Some(at)) => {
+                    opened -= 1;
+                    open.swap(at, opened);
+                    ended = true;
+                }
+                (true, None) => ended = true,
+                (false, Some(_)) => {}
+                (false, None) if opened < open.len() => {
+                    open[opened] = stream;
+                    opened += 1;
+                }
+                (false, None) => return false,
+            }
+        }
+        let mut payload = (usize::from(a) << 16) | (usize::from(b) << 8) | usize::from(c);
+        while payload > 0 {
+            if rest.is_empty() {
+                match slices.next() {
+                    Some(next) => rest = next,
+                    None => break 'frames,
+                }
+                continue;
+            }
+            let taken = payload.min(rest.len());
+            payload -= taken;
+            rest = &rest[taken..];
+        }
+    }
+    ended && opened == 0
 }
 
 impl<T: Read + Unpin> Read for Coalescing<T> {
@@ -125,7 +202,7 @@ impl<T: Write + Unpin> Write for Coalescing<T> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        if this.hold(buf.len(), cx) {
+        if this.hold(&[io::IoSlice::new(buf)], buf.len(), cx) {
             return Poll::Pending;
         }
         let written = Pin::new(&mut this.io).poll_write(cx, buf);
@@ -139,7 +216,7 @@ impl<T: Write + Unpin> Write for Coalescing<T> {
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
         let len = bufs.iter().map(|buf| buf.len()).sum();
-        if this.hold(len, cx) {
+        if this.hold(bufs, len, cx) {
             return Poll::Pending;
         }
         let written = Pin::new(&mut this.io).poll_write_vectored(cx, bufs);
@@ -238,12 +315,12 @@ mod tests {
     /// buffer in two halves.
     fn write_with(
         limit: usize,
-        first: usize,
-        added: usize,
+        first: Vec<u8>,
+        added: Vec<u8>,
         connection: Recorded,
         vectored: bool,
     ) -> Written {
-        let pending = Arc::new(Mutex::new(vec![0_u8; first]));
+        let pending = Arc::new(Mutex::new(first));
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("a runtime");
@@ -279,7 +356,7 @@ mod tests {
                 pending
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .extend(std::iter::repeat_n(0_u8, added));
+                    .extend(added);
             });
             adding.await.expect("the addition");
             writing.await.expect("the write").expect("written")
@@ -290,21 +367,63 @@ mod tests {
         }
     }
 
+    /// `len` bytes of zeros, which read as empty DATA frames that end no request.
+    fn zeros(len: usize) -> Vec<u8> {
+        vec![0; len]
+    }
+
+    /// A frame of `kind` on `stream`, with `flags` and a payload of `len` bytes, of which the
+    /// first `written` are in the frame: a frame cut short is the start of one the write ends in.
+    fn frame(kind: u8, flags: u8, stream: u32, len: usize, written: usize) -> Vec<u8> {
+        let [_, a, b, c] = u32::try_from(len).expect("a frame's length").to_be_bytes();
+        let mut frame = vec![a, b, c, kind, flags];
+        frame.extend(stream.to_be_bytes());
+        frame.resize(9 + written, 0);
+        frame
+    }
+
+    /// The headers of a request, which say nothing of its end.
+    fn headers(stream: u32) -> Vec<u8> {
+        frame(HEADERS, 0x4, stream, 3, 3)
+    }
+
+    /// A message of a request, its last when `last`.
+    fn data(stream: u32, last: bool) -> Vec<u8> {
+        let flags = if last { END_STREAM } else { 0 };
+        frame(DATA, flags, stream, 5, 5)
+    }
+
+    fn joined(frames: &[Vec<u8>]) -> Vec<u8> {
+        frames.concat()
+    }
+
     #[test]
     fn what_a_ready_task_adds_goes_in_the_same_write() {
-        let written = write_with(16_384, 100, 50, Recorded::taking(usize::MAX), false);
+        let written = write_with(
+            16_384,
+            zeros(100),
+            zeros(50),
+            Recorded::taking(usize::MAX),
+            false,
+        );
         assert_eq!(written.writes, [150]);
     }
 
     #[test]
     fn a_vectored_write_gathers_the_same_way() {
-        let written = write_with(16_384, 100, 50, Recorded::taking(usize::MAX), true);
+        let written = write_with(
+            16_384,
+            zeros(100),
+            zeros(50),
+            Recorded::taking(usize::MAX),
+            true,
+        );
         assert_eq!(written.writes, [150]);
     }
 
     #[test]
     fn what_is_left_of_a_write_taken_in_part_goes_unheld() {
-        let written = write_with(16_384, 100, 50, Recorded::taking(100), false);
+        let written = write_with(16_384, zeros(100), zeros(50), Recorded::taking(100), false);
         assert_eq!(written.writes, [100, 50]);
         // Held at the first attempt and after the round that brought the 50; the third poll sends
         // both parts.
@@ -313,13 +432,142 @@ mod tests {
 
     #[test]
     fn a_write_at_the_limit_goes_at_once() {
-        let written = write_with(100, 100, 50, Recorded::taking(usize::MAX), false);
+        let written = write_with(
+            100,
+            zeros(100),
+            zeros(50),
+            Recorded::taking(usize::MAX),
+            false,
+        );
         assert_eq!((written.writes, written.polls), (vec![100], 1));
     }
 
     #[test]
     fn a_limit_of_zero_holds_nothing() {
-        let written = write_with(0, 100, 50, Recorded::taking(usize::MAX), false);
+        let written = write_with(
+            0,
+            zeros(100),
+            zeros(50),
+            Recorded::taking(usize::MAX),
+            false,
+        );
         assert_eq!((written.writes, written.polls), (vec![100], 1));
+    }
+
+    #[test]
+    fn a_unary_request_goes_at_once() {
+        let request = joined(&[headers(1), data(1, true)]);
+        let len = request.len();
+        for vectored in [false, true] {
+            let written = write_with(
+                16_384,
+                request.clone(),
+                headers(3),
+                Recorded::taking(usize::MAX),
+                vectored,
+            );
+            assert_eq!(
+                (written.writes, written.polls),
+                (vec![len], 1),
+                "{vectored}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_header_split_between_two_parts_is_read_whole() {
+        let request = joined(&[headers(1), data(1, true)]);
+        // The vectored write splits the request inside the DATA frame's header.
+        assert!((12..21).contains(&(request.len() / 2)));
+        let written = write_with(
+            16_384,
+            request,
+            Vec::new(),
+            Recorded::taking(usize::MAX),
+            true,
+        );
+        assert_eq!(written.polls, 1);
+    }
+
+    #[test]
+    fn a_frame_whose_payload_is_not_in_the_write_still_ends_it() {
+        let request = joined(&[headers(1), frame(DATA, END_STREAM, 1, 100, 0)]);
+        let written = write_with(
+            16_384,
+            request,
+            Vec::new(),
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!((written.writes, written.polls), (vec![21], 1));
+    }
+
+    #[test]
+    fn the_middle_messages_of_a_stream_still_gather() {
+        let written = write_with(
+            16_384,
+            data(1, false),
+            data(1, false),
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!(written.writes, [28]);
+        // Held at the first attempt and after the round that brought the second message.
+        assert_eq!(written.polls, 3);
+    }
+
+    #[test]
+    fn the_last_message_of_a_stream_goes_once_it_joins() {
+        let written = write_with(
+            16_384,
+            data(1, false),
+            data(1, true),
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!((written.writes, written.polls), (vec![28], 2));
+    }
+
+    #[test]
+    fn a_request_left_open_holds_the_write_that_ends_another() {
+        let written = write_with(
+            16_384,
+            joined(&[headers(3), data(1, true)]),
+            data(3, true),
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!((written.writes, written.polls), (vec![40], 2));
+    }
+
+    #[test]
+    fn a_write_of_no_request_is_held() {
+        // A WINDOW_UPDATE of the connection.
+        let window_update = frame(0x8, 0, 0, 4, 4);
+        let written = write_with(
+            16_384,
+            window_update.clone(),
+            window_update,
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!(written.writes, [26]);
+    }
+
+    #[test]
+    fn more_requests_than_are_read_hold_the_write() {
+        let mut first: Vec<u8> = (0..=REQUESTS_READ as u32)
+            .flat_map(|n| headers(2 * n + 1))
+            .collect();
+        first.extend((0..=REQUESTS_READ as u32).flat_map(|n| data(2 * n + 1, true)));
+        let len = first.len();
+        let written = write_with(
+            16_384,
+            first,
+            data(99, true),
+            Recorded::taking(usize::MAX),
+            false,
+        );
+        assert_eq!(written.writes, [len + 14]);
     }
 }
