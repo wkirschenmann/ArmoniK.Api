@@ -380,6 +380,8 @@ pub async fn answer(request: hyper::Request<Incoming>) -> hyper::Response<TonicB
                     then_fails: false,
                     paced: false,
                     gave_way: false,
+                    released: false,
+                    release: None,
                 }))
                 .expect("a response");
         }
@@ -507,6 +509,8 @@ async fn frames(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody>
             then_fails: false,
             paced: false,
             gave_way: false,
+            released: false,
+            release: None,
         }))
         .expect("a response")
 }
@@ -570,6 +574,8 @@ async fn flaky(request: hyper::Request<Incoming>) -> hyper::Response<TonicBody> 
             then_fails: false,
             paced: false,
             gave_way: false,
+            released: false,
+            release: None,
         }))
         .expect("a well-formed flaky response")
 }
@@ -606,6 +612,19 @@ pub struct Canned {
     paced: bool,
     /// Whether the next frame has given way already.
     gave_way: bool,
+    /// Waits before each frame for `release_paced_part`, so each frame goes out apart from what
+    /// went before, only once the client asks for it.
+    released: bool,
+    /// The wait for the next frame's release, once begun.
+    release: Option<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
+}
+
+/// Permits for the frames of "/raw/Paced" its server may write, one per frame.
+static PACED_PARTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(0);
+
+/// Lets the server write the next frame of a "/raw/Paced" answer.
+pub fn release_paced_part() {
+    PACED_PARTS.add_permits(1);
 }
 
 impl Body for Canned {
@@ -616,6 +635,22 @@ impl Body for Canned {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = &mut *self;
+        if this.released && !this.frames.as_slice().is_empty() {
+            let release = this.release.get_or_insert_with(|| {
+                Box::pin(async {
+                    PACED_PARTS
+                        .acquire()
+                        .await
+                        .expect("the semaphore is never closed")
+                        .forget();
+                })
+            });
+            if release.as_mut().poll(cx).is_pending() {
+                return Poll::Pending;
+            }
+            this.release = None;
+        }
         if self.paced && !std::mem::replace(&mut self.gave_way, true) {
             cx.waker().wake_by_ref();
             return Poll::Pending;
@@ -840,7 +875,8 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
             ],
         ),
         "NoTrailers" => (grpc_head(), vec![Frame::data(grpc_message(0, b"orphan"))]),
-        // A unary answer whose head, message and trailers go out in three writes.
+        // A unary answer whose head, message and trailers go out apart: the message and the
+        // trailers each wait for `release_paced_part`.
         "Paced" => (
             grpc_head(),
             vec![
@@ -915,8 +951,10 @@ pub fn canned(case: &str, request: &HeaderMap) -> hyper::Response<TonicBody> {
         .body(TonicBody::new(Canned {
             frames: frames.into_iter(),
             then_fails: case == "ResetsMidBody" || case == "PacedReset",
-            paced: case == "Paced" || case == "PacedReset",
+            paced: case == "PacedReset",
             gave_way: false,
+            released: case == "Paced",
+            release: None,
         }))
         .expect("a well-formed canned response")
 }
