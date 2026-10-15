@@ -19,13 +19,17 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 thread_local! {
+    /// Whether this thread spins: only one that does reads the clock on each callback.
+    static SPINS: Cell<bool> = const { Cell::new(false) };
     /// When this thread last called the host, until its window has passed.
     static CALLED: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
-/// Marks this thread as having called the host, which opens its window anew.
+/// Marks this thread as having called the host, which opens its window anew if it spins.
 pub(crate) fn host_called() {
-    CALLED.set(Some(Instant::now()));
+    if SPINS.get() {
+        CALLED.set(Some(Instant::now()));
+    }
 }
 
 /// The window, and the poller's wake-up.
@@ -43,8 +47,16 @@ impl Spin {
         }
     }
 
+    /// Makes the runtime built by `builder` spin. Called on the thread that will block on it,
+    /// which is the thread a current-thread runtime parks.
+    pub(crate) fn install(&self, builder: &mut tokio::runtime::Builder) {
+        SPINS.set(true);
+        let spin = self.clone();
+        builder.on_thread_park(move || spin.before_park());
+    }
+
     /// Run by tokio before the thread parks: keeps it awake while the window is open.
-    pub(crate) fn before_park(&self) {
+    fn before_park(&self) {
         let Some(called) = CALLED.get() else {
             return;
         };
@@ -76,12 +88,9 @@ mod tests {
     #[test]
     fn a_thread_polls_through_its_window_and_then_sleeps() {
         let spin = Spin::new(Duration::from_millis(200));
-        let hook = spin.clone();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .on_thread_park(move || hook.before_park())
-            .build()
-            .expect("a runtime");
+        let mut builder = tokio::runtime::Builder::new_current_thread();
+        spin.install(builder.enable_all());
+        let runtime = builder.build().expect("a runtime");
         runtime.spawn(spin.poller());
 
         let (within, after) = runtime.block_on(async {
@@ -108,12 +117,9 @@ mod tests {
     #[test]
     fn a_thread_that_has_not_called_the_host_sleeps_at_once() {
         let spin = Spin::new(Duration::from_secs(10));
-        let hook = spin.clone();
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .on_thread_park(move || hook.before_park())
-            .build()
-            .expect("a runtime");
+        let mut builder = tokio::runtime::Builder::new_current_thread();
+        spin.install(builder.enable_all());
+        let runtime = builder.build().expect("a runtime");
         runtime.spawn(spin.poller());
 
         let parks = runtime.block_on(async {
@@ -125,5 +131,15 @@ mod tests {
         });
 
         assert!(parks >= 1, "a thread with nothing to wait for sleeps");
+    }
+
+    #[test]
+    fn a_thread_that_does_not_spin_records_no_call() {
+        std::thread::spawn(|| {
+            host_called();
+            assert_eq!(CALLED.get(), None);
+        })
+        .join()
+        .expect("the thread records nothing");
     }
 }

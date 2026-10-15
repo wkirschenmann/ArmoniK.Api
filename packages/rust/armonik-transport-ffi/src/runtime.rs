@@ -180,8 +180,8 @@ impl AkRuntime {
                 let _alive = crate::hooks::ChannelThreadAlive::new();
                 let mut builder = tokio::runtime::Builder::new_current_thread();
                 builder.enable_all();
-                if let Some(spin) = spin.clone() {
-                    builder.on_thread_park(move || spin.before_park());
+                if let Some(spin) = &spin {
+                    spin.install(&mut builder);
                 }
                 let tokio = match builder.build() {
                     Ok(tokio) => tokio,
