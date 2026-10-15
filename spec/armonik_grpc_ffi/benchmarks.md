@@ -685,7 +685,7 @@ DATA after a cancel, 50 trials a cell:
   for 36 % less, every range clear of stock's; P50 and the CPU per call are a tie. "h2-batch, where
   it acts" measured 1.55 times for both, for 25 and 43 % less CPU per MiB, with stock h2 uploading
   at 219 MiB/s streamed where it uploads at 480 here; whether the bound or the machine accounts for
-  the difference is not measured, the unbounded build not having run in these campaigns. The
+  the difference is answered in the next subsection, which runs both builds. The
   patched row keeps three passes, two left out for their calibration, and stock's streamed uploads
   read 263 and 288 MiB/s in two passes, 480 to 491 in the other three.
 - **DATA after a cancel is bounded**: under the largest windows by the queue, at most 1 052 160
@@ -710,6 +710,39 @@ DATA after a cancel, 50 trials a cell:
   (306 against 382). At one frame per write under the largest windows, the
   median is 1 412 (1 369-1 654) against 1 193, the ranges 67 us apart, and the rest overlaps. The
   longest wait measured, 52 ms, is 0.26 % of the keepalive's default timeout of 20 s.
+
+### Throughput, without and with the bound
+
+The full benchmark (see "What is measured"), idle, .NET 8 just-in-time, for three engines side by
+side: stock h2 (`native`), and the build against h2-batch's patch at 16 frames per write
+(`native-batch`), with the patch as it was before `f6cf86e10`, unbounded, and as `f6cf86e10` has
+it, bounded at 1 MiB. One campaign on 2026-10-16, 00:23 to 00:27: five passes of the three runs
+interleaved, their order rotated, on the performance cores at AboveNormal priority, the 3 s
+sampling seeing no build during any run; the System log shows no sleep, standby, wake or clock
+change from 00:10 to the end. The processor was 3 to 36 % busy one second before the runs kept.
+One run whose first calibration is outside 7 500 to 8 000 us is left out, the bounded build's of
+pass 2 at 14 920 us; the runs kept read 7 528 to 7 544 us.
+
+| Engine | n | Download (MiB/s) | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) |
+|--------|--:|-----------------:|-----------------------:|-------------------------:|----------------------:|------------------------:|
+| stock | 5 | 325 (213-350) | 271 (233-334) | 5062 (3875-5583) | 226 (214-231) | 3792 (3292-3917) |
+| patched, 16, unbounded | 5 | 252 (229-292) | 339 (308-408) | 4083 (3312-4229) | 307 (276-338) | 2188 (1917-2312) |
+| patched, 16, bounded | 4 | 286 (229-341) | 386 (343-422) | 3688 (3167-4104) | 304 (302-307) | 2208 (2062-2396) |
+
+- **The bound costs nothing measurable**: every range of the bounded build overlaps the unbounded
+  one's, the streamed upload leaning higher (386 against 339 MiB/s) and the unary one a tie (304
+  against 307).
+- **Against stock h2, both builds upload a whole message 1.35 and 1.36 times as fast** (304 and 307
+  against 226 MiB/s), for 42 % less CPU per MiB, the ranges clear. The streamed upload is 1.42
+  times as fast bounded, its range clear of stock's, and 1.25 times unbounded, the ranges
+  overlapping; its CPU per MiB is 27 and 19 % lower, the ranges overlapping.
+- **The download is a tie**: the three ranges overlap.
+- **The bound does not account for the smaller gain of the campaign before**: unbounded, the
+  build here uploads 1.25 times as fast as stock streamed and 1.36 times unary, also below the
+  1.55 of "h2-batch, where it acts". What does is not measured.
+- Stock's streamed upload reads 271 MiB/s here and 480 in the campaign before, the same build, and
+  the bounded build's 386 and 605; the ratios differ too, 1.42 against 1.26 streamed and 1.35
+  against 1.17 unary. The cause is not measured.
 
 ## The machine
 
