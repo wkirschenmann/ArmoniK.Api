@@ -119,6 +119,7 @@ pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 static IN_DRIVER: Mutex<Option<Hook>> = Mutex::new(None);
 static AFTER_REQUEST_GIVEN: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
+static OFF_THE_RUNTIME: Mutex<Option<Hook>> = Mutex::new(None);
 static WHEN_READ_WAITS: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
@@ -214,6 +215,12 @@ pub(crate) fn attempt_ended(origin: &Origin, code: GrpcStatusCode, pushback: Pus
     }
 }
 
+/// Runs `hook` on the blocking thread that compresses a large message, before it compresses.
+/// `None` removes it.
+pub fn off_the_runtime(hook: Option<Hook>) {
+    set(&OFF_THE_RUNTIME, hook);
+}
+
 /// Runs `hook` in every give of a call's one request, once the request is given and its driver
 /// woken. `None` removes it.
 pub fn after_request_given(hook: Option<Hook>) {
@@ -232,6 +239,10 @@ pub(crate) fn run_in_driver() {
 
 pub(crate) fn run_after_request_given() {
     run(&AFTER_REQUEST_GIVEN);
+}
+
+pub(crate) fn run_off_the_runtime() {
+    run(&OFF_THE_RUNTIME);
 }
 
 pub(crate) fn run_in_dial() {
