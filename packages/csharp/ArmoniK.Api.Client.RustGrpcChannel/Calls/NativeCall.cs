@@ -243,9 +243,19 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
       return false;
     }
 
-    return receiving_.Store(kind,
-                           payload,
-                           statusCode);
+    var owed = receiving_.Store(kind,
+                                payload,
+                                statusCode);
+
+    // No BUDGET_WAKE follows a terminal, so a send parked against the ceiling is woken here, to be
+    // refused as a call that ended whether or not anyone reads the terminal. After the store, so
+    // the terminal is in the ring when the send ends the call.
+    if (kind == ak_event_kind.AK_EVENT_STATUS)
+    {
+      sending_.Woken();
+    }
+
+    return owed;
   }
 
   public void Arrived()
@@ -367,10 +377,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   {
     await receiving_.Settled.ConfigureAwait(false);
 
-    // Before the wait below and not after. A send parked against the memory ceiling watches this
-    // token, and what it waits for is room to serialize a message into a call that is over - room
-    // other calls have to give up, on a schedule this one does not control. Cancelled afterwards,
-    // the wait for that sender would be waiting on the sender it is there to release.
+    // The call is over: whatever watches the token stops waiting.
     ending_.Cancel();
 
     await sending_.HandedEverythingBackAsync()

@@ -59,8 +59,8 @@ internal sealed class Sender
 
   private readonly ArrivalSignal handedBack_ = new();
 
-  // Set at each AK_EVENT_BUDGET_WAKE: a release gave bytes back since a send of this call was
-  // refused for room.
+  // Set at each AK_EVENT_BUDGET_WAKE, a release having given bytes back since a send of this call
+  // was refused for room, and at the terminal, after which no lend of the call succeeds.
   private readonly ArrivalSignal woken_ = new();
 
   // The write waiting for its acquittal, or null between writes, and the claim a writer takes
@@ -89,7 +89,8 @@ internal sealed class Sender
             ?.TrySetResult(true);
   }
 
-  /// <summary>An AK_EVENT_BUDGET_WAKE: a send refused for room may find it now.</summary>
+  /// <summary>An AK_EVENT_BUDGET_WAKE or the terminal: a send refused for room may find it now,
+  /// or is refused as a call that ended.</summary>
   internal void Woken()
     => woken_.Set();
 

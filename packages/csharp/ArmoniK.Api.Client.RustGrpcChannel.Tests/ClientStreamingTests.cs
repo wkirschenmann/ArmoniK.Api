@@ -186,11 +186,10 @@ public class ClientStreamingTests : EchoServerFixture
 
   /// <summary>A send parked against the memory ceiling is released by its own call's terminal.</summary>
   /// <remarks>
-  ///   What it costs when it is not: the settlement waits for the sender to hand its buffer back
-  ///   before it cancels the token that sender is waiting on, so a call whose terminal is already
-  ///   in waits for room to serialize a message that can no longer go anywhere - and the room is
-  ///   other calls' to give up, on a schedule this one does not control. Here nothing gives it up:
-  ///   the ceiling is held by a serializer on another channel that is held open on purpose.
+  ///   No lend of a call that is over succeeds, and no BUDGET_WAKE comes for one, so a send that
+  ///   is not released by the terminal waits for room to serialize a message that can no longer go
+  ///   anywhere. Here nothing gives room back: the ceiling is held by a serializer on another
+  ///   channel that is held open on purpose.
   ///   <para>
   ///     The disposal path is not this one: `CancelAndDrain` ends the call before it drains, so a
   ///     cancelled or disposed call releases its parked sender. What this drives is a terminal
@@ -285,9 +284,9 @@ public class ClientStreamingTests : EchoServerFixture
       Assert.That(ended?.StatusCode,
                   Is.EqualTo(StatusCode.DeadlineExceeded));
 
-      // Bounded, and awaited through its outcome rather than by an assertion that awaits: what
-      // the missing cancel costs is a wait and not a fault, so an unbounded assertion here would
-      // hang the run instead of naming the defect.
+      // Bounded, and awaited through its outcome rather than by an assertion that awaits: a send
+      // left parked costs a wait and not a fault, so an unbounded assertion here would hang the
+      // run instead of naming the defect.
       var outcome = Task.Run(async () =>
                              {
                                try
