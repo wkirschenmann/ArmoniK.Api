@@ -22,8 +22,8 @@ param(
   # the apphost of every other framework looks there instead, so they are left out.
   [string] $DotnetRoot = "",
   [string[]] $DotnetRootFor = @("net10.0", "net11.0"),
-  # Passed to the build and every publish, e.g. -p:NativeEngineH2Batch=true for the engine
-  # native-batch needs.
+  # Passed to the build and every publish, e.g. -p:NativeEngineH2Batch=false for an engine on
+  # stock h2.
   [string[]] $BuildArgs = @(),
   # Passed to every publish only, e.g. -p:IlcUseEnvironmentalTools=true to link with the
   # developer prompt's tools.

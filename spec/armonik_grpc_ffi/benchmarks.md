@@ -47,10 +47,15 @@ downloads and uploads call no `Say`.
 
 Every transport option is left at its default, the runtime's ceilings included, but where a
 transport or a scenario states one: `native-batch` sets `Http2.Send.FramesPerWrite` to 16, and
-`pinned` and `shared` set `Http2.SimultaneousCallsPerConnection` to `{"Limit": 16}`. `native` is the
-engine as a host gets it, a channel's thread sleeping as soon as it runs out of work (`BeforeSleep`
-`"None"`), and `native-spin` the same engine with `{"Spin": {}}`. `native` ran `"None"` too in
-every campaign whose engine predates the option, those of `bf86fece3` and `21a0b7807` among them.
+`pinned` and `shared` set `Http2.SimultaneousCallsPerConnection` to `{"Limit": 16}`. The native
+transports take the build's frames per write: 16 since the .NET binding builds its engine against
+h2-batch's patch by default, and 1 with `-p:NativeEngineH2Batch=false`. In every campaign before
+that they ran at 1, and the engine was stock unless a section says otherwise; on the default build
+`native` and `native-batch` now agree, and a comparison of the two builds takes both. `native` is
+the engine as a host gets it, a channel's thread sleeping as soon as it runs out of work
+(`BeforeSleep` `"None"`), and `native-spin` the same engine with `{"Spin": {}}`. `native` ran
+`"None"` too in every campaign whose engine predates the option, those of `bf86fece3` and
+`21a0b7807` among them.
 In the campaigns of 2026-10-15, and in that of 2026-10-16 in "h2-batch, what it costs", whose
 engines had the spin as their default, the native transports ran the spin, `native-batch` among
 them, and `native-nospin`, a name the benchmark no longer takes, ran `"None"`.
@@ -981,21 +986,20 @@ the ahead-of-time variants, runs the passes interleaved and prints the medians:
 11 runtimes when the system-wide one does not, which `-DotnetRootFor` lists. A developer prompt's
 linker is passed to the ahead-of-time publish with `-PublishArgs -p:IlcUseEnvironmentalTools=true`.
 `-Transports` and `-Scenarios` choose what runs, `native` and `managed`, idle and busy, by default;
-`native-batch` needs `-BuildArgs -p:NativeEngineH2Batch=true`, which builds the engine against
-h2-batch's patch and takes Git Bash first on the PATH, and a build without it refuses the
-option. `native-metrics` loads the engine's build with its counters, which the benchmark's build
-copies beside it unless `-p:NativeEngineMetrics=false`, and which it selects with
-`NativeLibrarySelection` before the first runtime exists; the published ahead-of-time
-benchmarks do not carry that build, so it does not run there. `native-spin` runs the engine
-with `BeforeSleep` `{"Spin": {}}`, a channel's thread polling for work for the default window,
-100 us, after each callback into the host before it sleeps.
-`native-h2c` and `managed-h2c` speak HTTP/2 in the clear, prior knowledge, to the test server
-started without TLS, which tells what TLS costs from the rest; `managed-h2c` does not run on
-.NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS. The h2-batch run builds the engine
-over the one the other transports use, so a run of both builds takes a copy of the output
-directory before the second build. A run that fails is reported and left out, and a cell left
-with fewer passes says so. `pinned` and `shared`, in `-Scenarios`, measure the unary latency alone,
-on a native channel held to one connection, without and with a streamed upload beside it; the
+`native-batch` needs the default build, against h2-batch's patch, which takes Git Bash first on the
+PATH on Windows; `-BuildArgs -p:NativeEngineH2Batch=false` builds the engine on stock h2, which
+refuses it. `native-metrics` loads the engine's build with its counters, which the benchmark's
+build copies beside it unless `-p:NativeEngineMetrics=false`, and which it selects with
+`NativeLibrarySelection` before the first runtime exists; the published ahead-of-time benchmarks do
+not carry that build, so it does not run there. `native-spin` runs the engine with `BeforeSleep`
+`{"Spin": {}}`, a channel's thread polling for work for the default window, 100 us, after each
+callback into the host before it sleeps. `native-h2c` and `managed-h2c` speak HTTP/2 in the clear,
+prior knowledge, to the test server started without TLS, which tells what TLS costs from the rest;
+`managed-h2c` does not run on .NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS.
+Either build writes its engine over the other's, so a run of both builds takes a copy of the
+output directory before the second build. A run that fails is reported and left out, and a cell
+left with fewer passes says so. `pinned` and `shared`, in `-Scenarios`, measure the unary latency
+alone, on a native channel held to one connection, without and with a streamed upload beside it; the
 managed transports skip them.
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the

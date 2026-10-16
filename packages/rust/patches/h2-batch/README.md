@@ -72,11 +72,12 @@ packages/rust/patches/h2-batch/build.sh test -p armonik-transport --all-features
 A path patch makes cargo rewrite Cargo.lock; `build.sh` puts it back when it exits. It needs
 bash, tar, patch and sha256sum, which Git for Windows provides.
 
-The .NET binding builds its native engine with it when the MSBuild property
-`NativeEngineH2Batch` is `true`, which needs `bash` on the PATH to be Git Bash on Windows:
+The .NET binding builds its native engine with it unless the MSBuild property
+`NativeEngineH2Batch` is `false`, which needs `bash` on the PATH to be Git Bash on Windows. On
+stock h2:
 
 ```sh
-dotnet build -p:NativeEngineH2Batch=true
+dotnet build -p:NativeEngineH2Batch=false
 ```
 
 ## Moving to another h2

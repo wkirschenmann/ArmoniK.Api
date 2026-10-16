@@ -416,8 +416,9 @@ public static class Program
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
-      // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
-      // by any other. native-metrics loads the build with the engine's counters, which is
+      // native takes the build's frames per write, 16 against h2-batch's patch, the binding's
+      // default, and 1 with -p:NativeEngineH2Batch=false; native-batch states 16, which a stock
+      // build refuses. native-metrics loads the build with the engine's counters, which is
       // selected before the first runtime exists. native-spin has the channel's thread poll for
       // work for the spin's default window after each callback into the host before it sleeps.
       // native-h2c reaches a server with no authority, so its channel states no Tls.
