@@ -477,7 +477,15 @@ internal sealed class Receiver<TResponse>
     {
       // Bytes that will not decode leave the stream unusable, so this faults the call as well as
       // the read. The token had its chance at the same arbiter and lost; there is no second
-      // policy.
+      // policy. A head that will not decode fails the headers with why, as the prologue's does,
+      // ahead of the cancellation's own answer.
+      if (metadata)
+      {
+        FailHead(new RpcException(new Status(StatusCode.Internal,
+                                             "the response metadata could not be read",
+                                             decodeFailure)));
+      }
+
       CancelAndDrain();
       ExceptionDispatchInfo.Capture(decodeFailure)
                            .Throw();
@@ -693,6 +701,12 @@ internal sealed class Receiver<TResponse>
   /// marshaller's until it returns, and the drain is owed instead.</remarks>
   internal void CancelAndDrain()
   {
+    // Whatever the phase, pending headers fail: the model's `BeginDisposeCall` and
+    // `CancelWaitingRead` leave no managed waiter behind, and the head the drain would otherwise
+    // consume is not an answer for a call cancelled before anyone took it. Before the drain is
+    // owed, so a drain never meets them pending.
+    FailHead(Cancelled());
+
     Volatile.Write(ref drainOwed_,
                    1);
     call_.EndCall();
@@ -705,16 +719,9 @@ internal sealed class Receiver<TResponse>
                                   new Reading(Phase.Idle,
                                               null),
                                   seen);
-      FailHead(Cancelled());
-    }
-    else if (seen.Phase == Phase.Prologue)
-    {
-      // The headers have no read to be faulted with, so they are faulted here - the model's
-      // `BeginDisposeCall`, which leaves no managed waiter behind. The phase is not moved: the
-      // prologue is the one owner of that transition, and it takes it on the signal below.
-      FailHead(Cancelled());
     }
 
+    // A prologue keeps its phase: it owns that transition, and takes it on the signal below.
     HandoffToDrain();
 
     // Last, so a waiter that observed an empty ring before any of this wakes and sees the claim
@@ -803,23 +810,14 @@ internal sealed class Receiver<TResponse>
           TakeHead(slot);
         }
       }
-      catch (Exception thrown)
+      catch (Exception thrown) when (terminal)
       {
-        if (terminal)
-        {
-          var unreadable = Unreadable(thrown);
-          // With no trailers to answer, a head that left the headers to the terminal fails them
-          // too.
-          FailHead(new RpcException(unreadable));
-          Resolve(unreadable);
-        }
-        else
-        {
-          // The headers, which the terminal would otherwise answer with an empty set on a call
-          // that ended OK - "none" where the truth is "none that could be read".
-          FailHead(new RpcException(new Status(StatusCode.Internal,
-                                               $"the call's initial metadata could not be read: {thrown.Message}")));
-        }
+        // The headers are settled already: CancelAndDrain fails them before a drain is owed.
+        Resolve(Unreadable(thrown));
+      }
+      catch
+      {
+        // A head that will not decode answers nothing: the headers are settled already.
       }
       finally
       {
@@ -1008,9 +1006,10 @@ internal sealed class Receiver<TResponse>
           break;
         }
 
-        if (call_.Ending.IsCancellationRequested)
+        if (Volatile.Read(ref drainOwed_) != 0)
         {
-          // Cancelled or settled with nothing published. Whatever arrives now is the drain's.
+          // Disposed with nothing published. Whatever arrives now is the drain's. A call that
+          // ended otherwise - a failed send - still owes the headers their head.
           return;
         }
 
@@ -1049,10 +1048,10 @@ internal sealed class Receiver<TResponse>
             break;
           }
 
-          if (call_.Ending.IsCancellationRequested)
+          if (Volatile.Read(ref drainOwed_) != 0)
           {
-            // The call is ending: whoever consumes the ring next takes the head again, and the
-            // terminal answers the headers there.
+            // The call is disposed: the drain takes the head again, and the headers are already
+            // faulted.
             return;
           }
 

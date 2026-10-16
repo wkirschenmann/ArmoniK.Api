@@ -394,8 +394,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
     registration.Dispose();
 
-    // This terminates: a terminal cannot be consumed until the prologue has let go, and the
-    // cancel above is what ends one still waiting on a call that published nothing.
+    // This terminates: the terminal is consumed, which no consumer does while the prologue holds
+    // the ring, and a prologue started after it ends at once.
     await receiving_.PrologueFinished.ConfigureAwait(false);
   }
 
