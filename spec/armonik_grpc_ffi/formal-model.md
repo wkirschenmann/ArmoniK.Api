@@ -1109,8 +1109,10 @@ actions rather than by induction, and this document must not imply a theorem exi
   concurrent `MoveNext`, or two concurrent `WriteAsync`, are unrepresentable.  The
   representation encodes what the API requires of the caller: the serialization is the
   application's conformity hypothesis, not a guarantee the binding manufactures
-- **NoDowncallAfterDestroy**: the call downcalls carry `BindingMayDowncall`, the channel
-  downcalls their own channel-machine guards, and `BeginRuntimeShutdown` requires every
+- **NoDowncallAfterDestroy**: `StartCall` and the write downcalls carry
+  `BindingMayDowncall`; the cancellation downcalls, the passthrough that also stands for
+  the engine's deadline among them, carry the call's dispose state and level 1's
+  `~IsRuntimeOfCallDestroyed`; the channel downcalls their own channel-machine guards, and `BeginRuntimeShutdown` requires every
   channel settled - an ordering on dispose, not a safety net.  Level 1's
   `DestroyedRuntimeRejectsHandles` is the runtime's side of the same fact
 - **The second event's unreachability is an invariant, not a construction**:
@@ -1362,7 +1364,6 @@ encodings, or of code the models abstract on purpose.
 | **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
 | **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
 | **`CallOptions` in full** - credentials, headers; the deadline is in the model only as the engine's cancellation, `RequestCallCancellation`, with no clock | Still declared missing work, not a hidden claim |
-| **A deadline passing during the runtime's dispose** - level 2 has the deadline only as its cancellation passthrough, which `BindingMayDowncall` guards, so a call the sweep has not reached yet cannot be cancelled at its deadline while the runtime is disposing; the sweep's `BeginDisposeCall` latches the same flag when it reaches the call | Nothing: a known gap of the level-2 model |
 | **The runtime's lock** between a channel's creation and the disposal's sweep - level 2 takes both as atomic steps | Nothing directed: no test races a creation against the disposal |
 | **The handles' concrete encoding** - widths, allocation, type discrimination | ABI header work and stale-handle tests |
 | **Budget polling's cadence, backoff and starvation** | Nothing: deliberately not guaranteed, and the model says so |

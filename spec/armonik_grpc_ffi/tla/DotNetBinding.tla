@@ -136,10 +136,11 @@ EveryChannelSettled == \A chId \in ChannelIds : ChannelSettled(chId)
 ChannelDisposeMayResolve(chId) ==
     channel_dispose_state[chId] = "released"
 
-\* The binding downcalls on a call only while neither the call nor the
-\* runtime is being torn down.  The channel downcalls carry their own
-\* channel-machine guards; NoDowncallAfterDestroy is the sum of all of
-\* them plus the dispose ordering, not this predicate alone.
+\* The binding starts a call and writes on it only while neither the call
+\* nor the runtime is being torn down; its cancellations need the call alone.
+\* The channel downcalls carry their own channel-machine guards;
+\* NoDowncallAfterDestroy is the sum of all of them plus the dispose ordering,
+\* not this predicate alone.
 BindingMayDowncall(cId) ==
     /\ call_dispose_state[cId] = "active"
     /\ runtime_dispose_state = "active"
@@ -913,13 +914,13 @@ RuntimeSteps ==
     \/ \E n \in L1!Sizes : L1!EngineGivesBackBytes(n)
 
 \* The binding's ak_call_cancel, or the engine's own cancellation when the
-\* call's deadline passes: one level-1 step either way.  The guard leaves one
-\* deadline out: one that passes while the runtime is disposing, on a call
-\* the sweep has not reached yet.  The sweep's BeginDisposeCall latches the
-\* same flag when it does.
+\* call's deadline passes: one level-1 step either way.  Guarded by the call
+\* alone, so a deadline may pass while the runtime is disposing and its sweep
+\* has not reached the call; a call already disposing has latched the flag,
+\* or is over.
 BindingDowncalls ==
     \E cId \in CallIds :
-        /\ BindingMayDowncall(cId)
+        /\ call_dispose_state[cId] = "active"
         /\ L1!RequestCallCancellation(cId)
 
 Passthrough == (RuntimeSteps \/ BindingDowncalls) /\ ManagedStutter
