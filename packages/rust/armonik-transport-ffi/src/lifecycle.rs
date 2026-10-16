@@ -198,6 +198,9 @@ fn close_channel(channel: &Arc<AkChannel>) {
 /// Cancels the calls a close has to, when this is the close that started it.
 fn close(channel: &Arc<AkChannel>, enlisted: Option<Vec<ak_handle>>) {
     if let Some(enlisted) = enlisted {
+        // First, so the watcher ends whatever the rest does: the calls it watches are cancelled
+        // below, and a call that starts now is refused its listing and cancels itself.
+        channel.deadlines.close();
         for call in enlisted {
             if let Some(call) = tables::calls().get(call) {
                 call.cancel();

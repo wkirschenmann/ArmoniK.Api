@@ -100,8 +100,11 @@ pub(crate) struct CallState {
     requests: Requests,
     /// The call's task until it is spawned: at once for a stream; for a call that sends one request,
     /// by whichever comes first of its commit and what needs the task before it - a cancellation,
-    /// and a lend refused for the budget, whose wake-up the task raises.
+    /// a lend refused for the budget, whose wake-up the task raises, and its deadline, which its
+    /// channel watches until then.
     task: Mutex<Option<CallTask>>,
+    /// The deadline the channel watches for the call until its task is spawned.
+    watched: Option<tokio::time::Instant>,
     window: Semaphore,
     credits: Semaphore,
     debt: Debt,
@@ -247,7 +250,16 @@ impl CallState {
         self.spawn_task();
     }
 
-    /// Spawns the call's task, once: the first to ask takes it, under the lock that decides.
+    /// Spawns the call's task once its deadline has passed, for its channel's watcher. A task that
+    /// is not spawned is a call that never ends: the shutdown is what is left.
+    pub(crate) fn spawn_at_deadline(self: &Arc<Self>) {
+        if catch_unwind(AssertUnwindSafe(|| self.spawn_task())).is_err() {
+            self.shut_down();
+        }
+    }
+
+    /// Spawns the call's task, once: the first to ask takes it, under the lock that decides. The
+    /// task watches the deadline from then on.
     fn spawn_task(self: &Arc<Self>) {
         let task = self
             .task
@@ -255,6 +267,9 @@ impl CallState {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(task) = task {
+            if let Some(at) = self.watched {
+                self.channel.deadlines.forget(at, self.handle);
+            }
             actor::spawn(self, task);
         }
     }

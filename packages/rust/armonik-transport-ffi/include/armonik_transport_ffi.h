@@ -97,9 +97,10 @@
  * server-streaming method. ak_call_send_message also ends the sending, ak_call_end_send is
  * refused with AK_STATUS_INVALID_STATE, and no AK_EVENT_WRITE_DONE comes: the send is settled
  * when it is committed, and an ak_get_call_buffer after it answers AK_STATUS_INVALID_STATE. The
- * call sends nothing until its commit, and nothing watches its deadline before: a commit past it
- * is accepted and the call ends DEADLINE_EXCEEDED, and a call never committed ends at its
- * cancellation.
+ * call sends nothing until its commit, and its deadline runs from ak_call_start all the same: a
+ * call not committed by then ends DEADLINE_EXCEEDED having sent nothing, and a commit after its
+ * end is refused with AK_STATUS_INVALID_STATE. One with no deadline stays open until committed or
+ * cancelled.
  */
 #define AK_CALL_ONE_REQUEST 4
 

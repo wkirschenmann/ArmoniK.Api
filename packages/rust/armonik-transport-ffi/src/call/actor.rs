@@ -25,6 +25,11 @@ pub(super) fn create(
     turn: Arc<ReadTurn>,
     (requests, task): (Requests, CallTask),
 ) -> Arc<CallState> {
+    // Only a call that sends one request waits for its spawn; a stream's task watches its own.
+    let watched = matches!(requests, Requests::One(_))
+        .then(|| task.driver.deadline())
+        .flatten()
+        .map(tokio::time::Instant::from_std);
     Arc::new(CallState {
         ctx,
         host: Arc::clone(services.host),
@@ -32,6 +37,7 @@ pub(super) fn create(
         control,
         requests,
         task: Mutex::new(Some(task)),
+        watched,
         window: Semaphore::new(channel.max_sends_in_flight),
         credits: Semaphore::new(channel.delivery_credits),
         debt: Debt::default(),
