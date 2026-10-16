@@ -2,8 +2,9 @@
 //! cancelled upload still sends past the offset the client had written to when it cancelled, and
 //! how long a server's PING waits for its acknowledgement, idle and behind an upload. Each under
 //! two sets of flow-control windows, the largest HTTP/2 allows and 768 KiB a stream. Compiled by
-//! both builds, the stock one at one frame per write only; `--nocapture` prints the figures, and
-//! the PINGs, a measurement of up to about 80 s, run with `--ignored`.
+//! both builds, the stock one at one frame per write only; `--nocapture` prints the figures. By
+//! default one cancel a case checks the bounds; the measurements, ten cancels a case and the
+//! PINGs, up to about 80 s, run with `--ignored`.
 
 mod common;
 
@@ -27,7 +28,7 @@ const WINDOW_UPDATE: u8 = 0x8;
 const ACK: u8 = 0x1;
 const PREFACE: usize = 24;
 const HEAD: usize = 9;
-/// The chunk of the streamed upload in ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.
+/// The chunk of a streamed upload, longer than a frame.
 const CHUNK: usize = 64 * 1024;
 /// The chunks of the cancelled uploads: a message longer than a frame, and one shorter, which the
 /// patched build queues whole at any frames per write.
@@ -37,7 +38,8 @@ const CANCELLED_CHUNKS: [usize; 2] = [CHUNK, 4 * 1024];
 const QUEUED_DATA: usize = 1024 * 1024;
 /// The largest DATA frame payload the client sends: the peer's SETTINGS leave the default.
 const MAX_FRAME: usize = 16 * 1024;
-const RESETS: usize = 10;
+/// The cancels a case of the measurement.
+const CANCELS: usize = 10;
 const PINGS: usize = 500;
 /// How long the PINGs of one measurement go on, at most.
 const PINGING: Duration = Duration::from_secs(20);
@@ -61,8 +63,7 @@ const LARGEST: Windows = Windows {
     connection: 0x7fff_ffff,
 };
 
-/// 768 KiB a stream and 1 MiB for the connection, those of the server of
-/// ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.
+/// 768 KiB a stream and 1 MiB for the connection.
 const WINDOW_768_KIB: Windows = Windows {
     name: "768KiB",
     stream: 768 * 1024,
@@ -266,12 +267,24 @@ async fn after_a_cancel(frames_per_write: usize, windows: Windows, chunk: usize)
 /// it sends is printed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn data_after_a_cancel() {
+    cancels(1).await;
+}
+
+/// The same, ten times a case, for the spread of what a cancel sends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement of up to about a minute"]
+async fn data_after_ten_cancels() {
+    cancels(CANCELS).await;
+}
+
+/// `trials` cancels for each windows, frames per write and chunk, each printed and checked.
+async fn cancels(trials: usize) {
     let _alone = ALONE.lock().await;
     for windows in [LARGEST, WINDOW_768_KIB] {
         for &frames in frame_counts() {
             for chunk in CANCELLED_CHUNKS {
                 let mut tails = Vec::new();
-                for _ in 0..RESETS {
+                for _ in 0..trials {
                     tails.push(after_a_cancel(frames, windows, chunk).await);
                 }
                 for tail in &tails {
