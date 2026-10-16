@@ -230,9 +230,11 @@ SomeBufferOutstanding ==
 \* that the refusal is AK_STATUS_MESSAGE_TOO_LARGE, permanent, and the
 \* complement of this predicate is exactly that condition.  Zero is no request:
 \* ak_get_call_buffer refuses it as an invalid argument, and an empty message
-\* goes through ak_call_send_message with no buffer, a send this model does not
-\* represent - it takes no memory, so nothing here would tell it apart.
+\* goes through ak_call_send_message with no buffer, which is SendEmptyMessage.
 IsLendable(len) == len <= Ceiling
+
+\* A message with no bytes, which needs no buffer to carry it.
+IsEmptyMessage(msg) == MessageLength[msg] = 0
 
 \* Room for a charge right now.  Its negation is what AK_STATUS_BUDGET_BUSY
 \* reports, through RefuseLendForBudget: a refusal for the charge the
@@ -1159,6 +1161,26 @@ SendMessage(cId, msg, b) ==
                    buffer_charge, buffer_length, memory_used, engine_held,
                    read_admitted, lend_waiting, budget_wake_owed>>
 
+\* ak_call_send_message with the empty buffer, owner NULL and len 0: a send no
+\* buffer carries.  It is a send all the same - it takes a slot of the window,
+\* which counts it through submitted, it is acquitted by its WRITE_DONE, and the
+\* terminal and the shutdown wait for that - but nothing is charged and no
+\* buffer names it.  The host may hold a buffer meanwhile: that buffer has its
+\* own slot.  On a call that declared one request the same downcall ends the
+\* sending, which is EndSend after it, as with a lent buffer.  The engine
+\* takes no slot for that request, whose commit settles it; the guard still
+\* holds there unless the host holds a lent buffer beside it, the one case the
+\* model leaves out: an empty request committed past a buffer the host holds.
+SendEmptyMessage(cId, msg) ==
+    /\ ~IsHandleReleased(cId)
+    /\ ~IsCancelRequested(cId)
+    /\ HasFreeSendSlot(cId)
+    /\ IsEmptyMessage(msg)
+    /\ NeverSubmitted(msg)
+    /\ NeverReceived(msg)
+    /\ L0!SendMessage(cId, msg)
+    /\ UNCHANGED ffi_vars
+
 EndSend(cId) ==
     /\ ~IsHandleReleased(cId)
     /\ L0!EndSend(cId)
@@ -1533,6 +1555,7 @@ Next ==
            ResizeSendBuffer(cId, b, nb, len, charge)
     \/ \E cId \in CallIds, msg \in Messages, b \in BufferIds :
            SendMessage(cId, msg, b)
+    \/ \E cId \in CallIds, msg \in Messages : SendEmptyMessage(cId, msg)
     \/ \E cId \in CallIds : EndSend(cId)
     \/ \E cId \in CallIds : EmitWriteDone(cId)
     \/ \E cId \in CallIds : WriteDoneReturns(cId)
@@ -1774,7 +1797,8 @@ LivenessProperties ==
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
 (* The remaining downcalls (CallStart, LendSendBuffer, ResizeSendBuffer,  *)
-(* SendMessage, EndSend, RequestCallCancellation, RuntimeBeginShutdown)    *)
+(* SendMessage, SendEmptyMessage, EndSend, RequestCallCancellation,        *)
+(* RuntimeBeginShutdown)                                                   *)
 (* carry no fairness: the model never promises the host acts, only what    *)
 (* follows when it does.                                                   *)
 (***************************************************************************)

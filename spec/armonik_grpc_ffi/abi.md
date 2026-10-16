@@ -355,8 +355,12 @@ has given back everything it took, the call's one buffer included, and the host 
 at once.
 
 A length of zero is refused with `AK_STATUS_INVALID_ARG`: an empty message needs no buffer, and
-`ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. That send takes
-a slot of the window and gets its `AK_EVENT_WRITE_DONE` like any other.
+`ak_call_send_message` sends one when given the empty buffer, owner NULL and len 0. Nothing is
+charged for it. On a stream it is a send like any other: it takes a slot of the window, the
+shutdown waits for it, and it gets its `AK_EVENT_WRITE_DONE`. On a call that declared one request it
+is the request, settled at its commit with no slot and no `AK_EVENT_WRITE_DONE`, which ends the
+sending. The formal model's step is `SendEmptyMessage`, and the model leaves out one case of it: an
+empty request committed while the host still holds a lent buffer of the call.
 
 `ak_resize_call_buffer(buffer, new_len, keep, out)` is for a host that finds the length it asked
 for was not the length it needed, whichever way: it exchanges the buffer for one of `new_len`

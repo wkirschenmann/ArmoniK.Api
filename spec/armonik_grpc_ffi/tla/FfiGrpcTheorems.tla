@@ -106,6 +106,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
+           /\ \A msg \in Messages : ~SendEmptyMessage(cId, msg)
            /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
                  ~LendSendBuffer(cId, b, ln, ch)
            /\ \A ln \in RequestLengths : ~RefuseLendTooLarge(cId, ln)

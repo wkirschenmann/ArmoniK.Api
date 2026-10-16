@@ -34,6 +34,7 @@ NextSafeCallOnly ==
     \/ \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
     \/ \E cId \in CallIds, msg \in Messages, b \in BufferIds :
            SendMessage(cId, msg, b)
+    \/ \E cId \in CallIds, msg \in Messages : SendEmptyMessage(cId, msg)
     \/ \E cId \in CallIds : EndSend(cId)
     \/ \E cId \in CallIds : NetworkSend(cId)
     \/ \E cId \in CallIds, msg \in Messages : NetworkReceive(cId, msg)
@@ -312,20 +313,22 @@ UnacquittedSendKeepsItsBytes ==
             buffer_send[cId][b] > write_dones_emitted[cId] =>
                 buffer_state[cId][b] = "returned"
 
-\* Every accepted send lives in an allocation.  The step that accepts a
-\* send is the step that records it against the buffer the caller passed,
-\* so a send without a buffer is unreachable - and this is what says so,
-\* rather than leaving it to be read off the actions.
+\* Every accepted send of a message with bytes lives in an allocation.  The
+\* step that accepts it is the step that records it against the buffer the
+\* caller passed, so such a send without a buffer is unreachable - and this is
+\* what says so, rather than leaving it to be read off the actions.  An empty
+\* message may be sent with no buffer, by SendEmptyMessage.
 EverySendHasItsBuffer ==
     \A cId \in CallIds :
         \A k \in 1..Len(submitted[cId]) :
-            \E b \in BufferIds : buffer_send[cId][b] = k
+            ~IsEmptyMessage(submitted[cId][k]) =>
+                \E b \in BufferIds : buffer_send[cId][b] = k
 
 \* And no two allocations claim the same send: a commit records the index
 \* the submitted sequence is about to reach, which is above every index
-\* already recorded.  With the conjunct above, each accepted send lives in
-\* exactly one allocation - the formal content of that sentence, which the
-\* keying alone does not give.
+\* already recorded.  With the conjunct above, each accepted send of a message
+\* with bytes lives in exactly one allocation, and an empty one in one at most -
+\* the formal content of that sentence, which the keying alone does not give.
 SendsLiveInOneBuffer ==
     \A cId \in CallIds :
         \A b1, b2 \in BufferIds :

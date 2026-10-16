@@ -729,8 +729,25 @@ CommitWrite(cId, msg, b) ==
     /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
                ReaderVars, retry_len>>
 
+\* A message that serializes to no bytes: the commit takes the empty buffer
+\* from an idle writer, which holds no buffer, and the write is in flight as
+\* after CommitWrite.  A serializer that announced a length and wrote nothing
+\* has given that buffer back first, the step WriteAborted takes.
+CommitEmptyWrite(cId, msg) ==
+    /\ writer_state[cId] = "idle"
+    /\ BindingMayDowncall(cId)
+    /\ L1!SendEmptyMessage(cId, msg)
+    /\ writer_state' =
+           [writer_state EXCEPT
+                ![cId] = IF OneRequestCall(cId) THEN "sealing"
+                         ELSE "awaiting_write_done"]
+    /\ UNCHANGED <<ManagedRuntimeVars, ManagedChannelVars, ManagedCallVars,
+               ReaderVars, retry_len>>
+
 \* Serialization threw, or the commit is refused (cancellation latched):
-\* the disposable wrapper returns the buffer and the write faults.
+\* the disposable wrapper returns the buffer and the write faults.  The same
+\* return, with no fault, ends a serialization that wrote no bytes, and
+\* CommitEmptyWrite follows it.
 WriteAborted(cId, b) ==
     /\ writer_state[cId] = "serializing"
     /\ L1!HostReturnsBuffer(cId, b)
@@ -960,6 +977,7 @@ Next ==
     \/ \E cId \in CallIds, b \in BufferIds, nb \in BufferIds,
          len \in L1!Sizes, charge \in L1!Sizes :
            WriteResizesBuffer(cId, b, nb, len, charge)
+    \/ \E cId \in CallIds, msg \in Messages : CommitEmptyWrite(cId, msg)
 
 (**************************************************************************)
 (* FAIRNESS - three tiers, and every conjunct is an action of THIS level.  *)

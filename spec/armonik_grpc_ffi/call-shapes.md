@@ -161,8 +161,9 @@ then refused, except a deadline past on a call not yet spawned, as the deadline 
 Otherwise `SendMessage` and `EndSend` linearize together at the commit, on the call's state, which
 no other step of the call holds between them. The engine takes `EmitWriteDone` and
 `WriteDoneReturns` before the call's terminal, which needs them (`HasNoSendInFlight`). The empty
-request is outside the model, as it is today: an empty send takes no memory, and level 1 does not
-represent it.
+request is `SendEmptyMessage` in place of `SendMessage`: a send no buffer carries and nothing is
+charged for, settled by the same two steps. The engine takes no slot of the window for it; the
+model's guard on a free slot holds there unless the host holds a lent buffer beside it.
 
 ## The response side: what arrives together is delivered together
 

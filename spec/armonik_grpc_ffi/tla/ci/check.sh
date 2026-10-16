@@ -43,8 +43,9 @@ for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          DotNetBinding_MCwitness.tla DotNetBinding_MCwitnessPrologue.tla \
          DotNetBinding_MCwitnessBudget.tla DotNetBinding_MCwitnessResize.tla \
          FfiGrpc_MCwitnessResize.tla FfiGrpc_MCwitnessEngineBytes.tla \
-         FfiGrpc_MCwitnessEngineLend.tla \
-         DotNetBinding_MCwitnessEngineBytes.tla; do
+         FfiGrpc_MCwitnessEngineLend.tla FfiGrpc_MCwitnessEmptySend.tla \
+         DotNetBinding_MCwitnessEngineBytes.tla \
+         DotNetBinding_MCwitnessEmptyWrite.tla; do
   out=$(java -cp "$TLA2TOOLS" tla2sany.SANY "$m" 2>&1)
   # Positive evidence, not the absence of an error word: a launcher failure
   # matches no error pattern, and reporting that as clean is worse than no
