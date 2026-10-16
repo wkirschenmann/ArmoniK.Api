@@ -290,6 +290,7 @@ public static class Program
                      : Task.CompletedTask;
       var    latencies = new double[MeasuredCalls];
       double beside;
+      var    measured = false;
       try
       {
         if (uploading)
@@ -311,12 +312,20 @@ public static class Program
           latencies[call] = clock.Elapsed.TotalMilliseconds * 1000;
         }
 
-        beside = (Interlocked.Read(ref uploaded.Value) - before) / span.Elapsed.TotalSeconds / (1024 * 1024);
+        beside   = (Interlocked.Read(ref uploaded.Value) - before) / span.Elapsed.TotalSeconds / (1024 * 1024);
+        measured = true;
       }
       finally
       {
         stop.Cancel();
-        await upload.ConfigureAwait(false);
+        // A measurement that failed reports its own exception, not the upload's.
+        try
+        {
+          await upload.ConfigureAwait(false);
+        }
+        catch (Exception) when (!measured)
+        {
+        }
       }
 
       Array.Sort(latencies);
@@ -350,7 +359,12 @@ public static class Program
   }
 
   /// <summary>Streams chunks to the server until <paramref name="stop" />, adding each one's bytes
-  /// to <paramref name="sent" /> once the channel has taken it, then ends the request.</summary>
+  /// to <paramref name="sent" /> once the channel has taken it.</summary>
+  /// <remarks>
+  ///   <paramref name="stop" /> cancels the call, so that a write that waits for the channel to
+  ///   take it ends too: .NET Framework's stream writer takes no token. A write that fails once
+  ///   <paramref name="stop" /> is set ends the upload, whatever status the transport gives it.
+  /// </remarks>
   private static async Task UploadUntil(Echo.EchoClient   client,
                                         StrongBox<long>   sent,
                                         CancellationToken stop)
@@ -359,18 +373,20 @@ public static class Program
                 {
                   Data = Google.Protobuf.ByteString.CopyFrom(new byte[ChunkSize]),
                 };
-    using var upload = client.Upload();
-    while (!stop.IsCancellationRequested)
+    using var upload = client.Upload(cancellationToken: stop);
+    try
     {
-      await upload.RequestStream.WriteAsync(chunk)
-                  .ConfigureAwait(false);
-      Interlocked.Add(ref sent.Value,
-                      ChunkSize);
+      while (!stop.IsCancellationRequested)
+      {
+        await upload.RequestStream.WriteAsync(chunk)
+                    .ConfigureAwait(false);
+        Interlocked.Add(ref sent.Value,
+                        ChunkSize);
+      }
     }
-
-    await upload.RequestStream.CompleteAsync()
-                .ConfigureAwait(false);
-    await upload.ResponseAsync.ConfigureAwait(false);
+    catch (Exception) when (stop.IsCancellationRequested)
+    {
+    }
   }
 
   /// <summary>Thread-pool workers kept running, as in an application whose pool is never idle.</summary>
