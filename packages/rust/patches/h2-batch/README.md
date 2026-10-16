@@ -33,10 +33,11 @@ would take a write per chunk.
 
 ## What it changes besides the writes
 
-Stock h2 holds one DATA frame at a time for the writer. The patch queues several, up to 1 MiB of
-payload and one more part, at any N. A part is at most N frames of a message: a message that fits
-in one is queued whole and its stream stays ready to queue the next; one longer than that is
-queued a part at a time, its stream waiting for the part to be written before it queues the next.
+Stock h2 holds one DATA frame at a time for the writer. The patch queues several, at any N: less
+than 1 MiB of payload, and the one part that takes it past. A part is at most N frames of the
+peer's largest size, 4 MiB at N = 256 with frames of 16 KiB: a message that fits in one is queued
+whole and its stream stays ready to queue the next; one longer than that is queued a part at a
+time, its stream waiting for the part to be written before it queues the next.
 What is queued is the writer's, so:
 
 - **Data after a reset.** A reset of a stream does not take back its queued frames, which go out

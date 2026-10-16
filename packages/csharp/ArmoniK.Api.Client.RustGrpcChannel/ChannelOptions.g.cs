@@ -1600,10 +1600,11 @@ public sealed class Http2SendOptions
   ///   (<c>packages/rust/patches/h2-batch</c>), and is refused otherwise. At most 256.
   /// </summary>
   /// <remarks>
-  ///   An engine built against the patch queues for the connection's writes up to 1 MiB of DATA,
-  ///   whatever this value, and one more part of up to this many frames, a message whole when it
-  ///   fits in one part. A call reset while DATA of it is queued still sends that DATA before its
-  ///   reset, and a PING or another call's frame waits behind what is queued.
+  ///   An engine built against the patch queues for the connection's writes less than 1 MiB of
+  ///   DATA, whatever this value, and one more part of up to this many frames of the peer's
+  ///   largest size, 4 MiB at 256 frames of 16 KiB; a message goes whole into a part it fits in.
+  ///   A call reset while DATA of it is queued still sends that DATA before its reset, and a PING
+  ///   or another call's frame waits behind what is queued.
   ///   Defaults to 1.
   /// </remarks>
   [JsonPropertyName("FramesPerWrite")]
