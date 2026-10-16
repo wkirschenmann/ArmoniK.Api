@@ -87,7 +87,7 @@ LEMMA ChannelCallProjects == NextSafeChannelCall => L0!NextSafeChannelCall
 
 LEMMA CallOnlyProjects == NextSafeCallOnly => L0!NextSafeCallOnly
 <1>1. QED
-    BY DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
+    BY DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend,
            NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
            DeliverInitialMetadata, DeliverMessage, DeliverStatus,
            DeliverCancelled, L0!NextSafeCallOnly
@@ -213,7 +213,7 @@ LEMMA ChannelAndCallStepsKeepRuntime ==
     BY SMTT(120)
     DEF NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
+        CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
         ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
         DeliverStatus, DeliverCancelled, HandPayloadToHost,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
@@ -258,7 +258,7 @@ LEMMA OnlySendMessageWritesBufferSend ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -295,7 +295,7 @@ LEMMA OnlyEngineStepsWriteEngineHeld ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -339,7 +339,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -393,7 +393,7 @@ LEMMA OnlyBudgetStepsWriteBudget ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         HandPayloadToHost, EndWaitOf,
@@ -570,7 +570,7 @@ LEMMA OnlyReceiveStepsMoveReceivedBytes ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         HandPayloadToHost, EndWaitOf, HeldReceivedTop,
@@ -908,6 +908,14 @@ LEMMA NextPreservesReceiveAccountingInv ==
       DEF RecvKeptAt, SendMessage, L0!SendMessage, L0!IsActiveCall,
           L0!ActiveCallStates, ffi_vars, TypeOK, L0!TypeOK
     <3>3. QED BY <3>2, <1>f
+  <2>25. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+    <3>1. PICK c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      BY <2>25
+    <3>2. RecvKeptAt(d)
+      BY <3>1, SMT
+      DEF RecvKeptAt, SendEmptyMessage, L0!SendMessage, L0!IsActiveCall,
+          L0!ActiveCallStates, ffi_vars, TypeOK, L0!TypeOK
+    <3>3. QED BY <3>2, <1>f
   <2>3. CASE \E c \in CallIds : EndSend(c)
     <3>1. PICK c \in CallIds : EndSend(c)
       BY <2>3
@@ -1035,7 +1043,7 @@ LEMMA NextPreservesReceiveAccountingInv ==
         DEF RecvAcctAt, L0!IsActiveCall, L0!ActiveCallStates
     <3>5. QED BY <3>3, <3>4
   <2>10. QED
-    BY <1>3, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9
+    BY <1>3, <2>1, <2>2, <2>25, <2>3, <2>4, <2>5, <2>6, <2>7, <2>8, <2>9
     DEF NextSafeCallOnly
 <1>4. CASE NextSafeFfiOnly
   <2>1. UNCHANGED l0_vars
@@ -1629,7 +1637,7 @@ LEMMA OnlyReleaseStepsWriteReleaseFlags ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1667,7 +1675,7 @@ LEMMA OnlyShutdownStepsWriteShutdownFlags ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1717,7 +1725,7 @@ LEMMA OnlyChannelStepsWriteChannelState ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1757,7 +1765,7 @@ LEMMA OnlyChannelCreateWritesOwnership ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -2096,6 +2104,8 @@ LEMMA RefiningPreservesFfiTypes ==
       BY <2>0, <3>2, SMT
       DEF SendMessage, HostHoldsSomeBuffer, BufferStates, IsFreshBuffer, IsLentBuffer, IsReturnedBuffer,
           FfiTypes
+    <3>25. CASE \E cId \in CallIds, msg \in Messages : SendEmptyMessage(cId, msg)
+      BY <2>0, <3>25, UnchangedFfiPreservesFfiTypes DEF SendEmptyMessage
     <3>3. CASE \E cId \in CallIds : EndSend(cId)
       BY <2>0, <3>3, UnchangedFfiPreservesFfiTypes DEF EndSend
     <3>4. CASE \E cId \in CallIds : NetworkSend(cId)
@@ -2149,7 +2159,7 @@ LEMMA RefiningPreservesFfiTypes ==
         BY <4>1 DEF DeliverCancelled, HandPayloadToHost
       <4>6. QED
         BY <1>1, <2>0, <4>3, <4>4, <4>5, <4>55, <4>56, SMT DEF FfiTypes
-    <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>3, <3>4, <3>5, <3>55, <3>6, <3>7,
+    <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>25, <3>3, <3>4, <3>5, <3>55, <3>6, <3>7,
                    <3>8, <3>9, <3>10 DEF NextSafeCallOnly
   <2>6. QED BY <1>1, <2>0, <2>1, <2>2, <2>3, <2>4, <2>5 DEF NextSafeRefining
 <1>2. QED BY <1>1
@@ -3200,6 +3210,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
            /\ ~EndSend(cId)
            /\ \A msg \in Messages, b \in BufferIds :
                  ~SendMessage(cId, msg, b)
+           /\ \A msg \in Messages : ~SendEmptyMessage(cId, msg)
            /\ \A b \in BufferIds, ln \in Sizes, ch \in Sizes :
                  ~LendSendBuffer(cId, b, ln, ch)
            /\ \A ln \in RequestLengths : ~RefuseLendTooLarge(cId, ln)
@@ -3253,6 +3264,9 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>8. \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
     BY <1>0, <1>5, SMT
     DEF SendMessage, HostHoldsSomeBuffer, HostHoldsNoBuffer, TypeOK
+<1>82. \A msg \in Messages : ~SendEmptyMessage(cId, msg)
+    BY <1>4, Zenon DEF SendEmptyMessage, L0!SendMessage, L0!IsActiveCall,
+        L0!ActiveCallStates
 <1>85. \A b \in BufferIds : ~IsLentBuffer(cId, b)
     BY <1>0, <1>5, NoLentBufferWhenCountIsZero, Zenon
     DEF StrongInv, BufferStateInv
@@ -3262,7 +3276,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
           ~ResizeSendBuffer(cId, b, nb, ln, ch)
     BY <1>4, Zenon DEF ResizeSendBuffer
 <1>95. QED
-    BY <1>3, <1>6, <1>7, <1>75, <1>8, <1>9, <1>92
+    BY <1>3, <1>6, <1>7, <1>75, <1>8, <1>82, <1>9, <1>92
 
 LEMMA DeliveryReturnTransfers ==
     ASSUME NEW cId \in CallIds, TypeOK, DeliveryCallbackReturns(cId)
@@ -3655,6 +3669,153 @@ LEMMA SendMessageTransfers ==
     BY <1>1, SMT
 <1>9. QED
     BY <1>1, <1>3, <1>30, <1>4, <1>5, <1>6, <1>7, <1>8, Zenon
+
+\* The predicate-level effect of an empty send: the call gains one send and
+\* one occupied slot, no buffer moves, everything else reads unchanged.
+LEMMA SendEmptyMessageTransfers ==
+    ASSUME NEW cId \in CallIds, NEW msg \in Messages,
+           TypeOK, FfiCallInv, SendEmptyMessage(cId, msg)
+    PROVE  /\ L0!IsActiveCall(cId)
+           /\ ~IsCancelRequested(cId)
+           /\ ~IsHandleReleased(cId)
+           /\ HasFreeSendSlot(cId)
+           /\ \A c \in CallIds :
+                  /\ (L0!IsActiveCall(c))' =
+                         (IF c = cId THEN TRUE ELSE L0!IsActiveCall(c))
+                  /\ (L0!IsTerminalCall(c))' =
+                         (IF c = cId THEN FALSE ELSE L0!IsTerminalCall(c))
+                  /\ (L0!IsUnusedCall(c))' =
+                         (IF c = cId THEN FALSE ELSE L0!IsUnusedCall(c))
+                  /\ (L0!HasStatus(c))' = L0!HasStatus(c)
+                  /\ (HasNoDeliveredEvents(c))' = HasNoDeliveredEvents(c)
+                  /\ (IsDeliveryCallbackRunning(c))' =
+                         IsDeliveryCallbackRunning(c)
+                  /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                  /\ (HostOwnsAtMostCredits(c))' = HostOwnsAtMostCredits(c)
+                  /\ (HostOwnsAtMostCreditsPlusOne(c))' =
+                         HostOwnsAtMostCreditsPlusOne(c)
+                  /\ (payloads_consumed_by_host[c])' =
+                         payloads_consumed_by_host[c]
+                  /\ (events_delivered[c])' = events_delivered[c]
+                  /\ (IsHandleReleased(c))' = IsHandleReleased(c)
+                  /\ (IsCancelRequested(c))' = IsCancelRequested(c)
+                  /\ (IsWriteDoneCallbackRunning(c))' =
+                         IsWriteDoneCallbackRunning(c)
+                  /\ (write_dones_emitted[c])' = write_dones_emitted[c]
+                  /\ Len((submitted[c])') =
+                         IF c = cId THEN Len(submitted[c]) + 1
+                         ELSE Len(submitted[c])
+                  /\ (HasNoSendInFlight(c))' =
+                         (IF c = cId THEN FALSE ELSE HasNoSendInFlight(c))
+                  /\ (SendWindowOccupancy(c))' =
+                         (IF c = cId THEN SendWindowOccupancy(c) + 1
+                          ELSE SendWindowOccupancy(c))
+                  /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
+                  /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
+                  /\ (call_channel[c])' = call_channel[c]
+           /\ \A chId \in ChannelIds :
+                  (IsClosingChannel(chId))' = IsClosingChannel(chId)
+<1>1. /\ submitted' = [submitted EXCEPT ![cId] = Append(@, msg)]
+      /\ call_state' = [call_state EXCEPT ![cId] = "sending"]
+      /\ call_state[cId] \in {"started", "sending"}
+      /\ ~IsCancelRequested(cId)
+      /\ ~IsHandleReleased(cId)
+      /\ HasFreeSendSlot(cId)
+      /\ UNCHANGED <<call_channel, channel_state, channel_runtime,
+                     events_delivered, sent, received, delivered,
+                     send_closed, status_pending, runtime_state>>
+      /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                     write_done_callback_running,
+                     delivery_callback_running, payloads_consumed_by_host,
+                     handle_released, cancel_requested,
+                     shutdown_event_emitted, shutdown_callback_running>>
+    BY SMT DEF SendEmptyMessage, L0!SendMessage,
+        L0!RuntimeVars, L0!ChannelVars, ffi_vars
+<1>2. /\ submitted \in [CallIds -> Seq(Messages)]
+      /\ call_state \in [CallIds -> L0!CallStates]
+      /\ buffers_held_by_host \in [CallIds -> Nat]
+      /\ write_dones_emitted \in [CallIds -> Nat]
+      /\ write_done_callback_running \in [CallIds -> BOOLEAN]
+    BY Zenon DEF TypeOK, L0!TypeOK
+<1>3. L0!IsActiveCall(cId)
+    BY <1>1, Zenon DEF L0!IsActiveCall, L0!ActiveCallStates
+<1>4. ASSUME NEW c \in CallIds
+      PROVE  /\ (IsDeliveryCallbackRunning(c))' =
+                    IsDeliveryCallbackRunning(c)
+             /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+             /\ (HostOwnsAtMostCredits(c))' = HostOwnsAtMostCredits(c)
+             /\ (HostOwnsAtMostCreditsPlusOne(c))' =
+                    HostOwnsAtMostCreditsPlusOne(c)
+             /\ (payloads_consumed_by_host[c])' = payloads_consumed_by_host[c]
+             /\ (events_delivered[c])' = events_delivered[c]
+             /\ (HasNoDeliveredEvents(c))' = HasNoDeliveredEvents(c)
+             /\ (IsHandleReleased(c))' = IsHandleReleased(c)
+             /\ (IsCancelRequested(c))' = IsCancelRequested(c)
+             /\ (IsWriteDoneCallbackRunning(c))' =
+                    IsWriteDoneCallbackRunning(c)
+             /\ (write_dones_emitted[c])' = write_dones_emitted[c]
+             /\ (call_channel[c])' = call_channel[c]
+             /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
+             /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
+    BY <1>1, <1>2, SMTT(120)
+    DEF HostHoldsNoBuffer, HostHoldsSomeBuffer
+<1>5. ASSUME NEW c \in CallIds
+      PROVE  Len((submitted[c])') =
+                 IF c = cId THEN Len(submitted[c]) + 1
+                 ELSE Len(submitted[c])
+  <2>1. CASE c = cId
+    <3>1. (submitted[c])' = Append(submitted[cId], msg)
+      BY <1>1, <1>2, <2>1, Zenon
+    <3>20. submitted[cId] \in Seq(Messages)
+      BY <1>2, Zenon
+    <3>2. Len(Append(submitted[cId], msg)) = Len(submitted[cId]) + 1
+      BY <3>20, AppendProperties
+    <3>3. QED BY <2>1, <3>1, <3>2, Zenon
+  <2>2. CASE c # cId
+    BY <1>1, <1>2, <2>2, Zenon
+  <2>3. QED BY <2>1, <2>2, Zenon
+\* The send takes its slot through submitted, with no buffer to give back.
+<1>6. ASSUME NEW c \in CallIds
+      PROVE  /\ (HasNoSendInFlight(c))' =
+                    (IF c = cId THEN FALSE ELSE HasNoSendInFlight(c))
+             /\ (SendWindowOccupancy(c))' =
+                    (IF c = cId THEN SendWindowOccupancy(c) + 1
+                     ELSE SendWindowOccupancy(c))
+  <2>0. /\ write_dones_emitted[c] \in Nat
+        /\ Len(submitted[c]) \in Nat
+        /\ buffers_held_by_host[c] \in Nat
+        /\ write_dones_emitted[c] <= Len(submitted[c])
+    <3>1. submitted \in [CallIds -> Seq(Messages)]
+      BY <1>2, Zenon
+    <3>2. Len(submitted[c]) \in Nat
+      BY <3>1, LenProperties, Zenon
+    <3>3. QED
+      BY <1>2, <3>2, Zenon DEF TypeOK, FfiCallInv, WriteDonesNeverExceedSends
+  <2>05. (buffers_held_by_host[c])' = buffers_held_by_host[c]
+    BY <1>1, Zenon
+  <2>1. (SendWindowOccupancy(c))' =
+            (IF c = cId THEN SendWindowOccupancy(c) + 1
+             ELSE SendWindowOccupancy(c))
+    BY <1>4, <1>5, <2>0, <2>05, SMT DEF SendWindowOccupancy
+  <2>2. QED
+    BY <1>4, <1>5, <2>0, <2>1, SMT DEF HasNoSendInFlight
+<1>7. ASSUME NEW c \in CallIds
+      PROVE  /\ (L0!IsActiveCall(c))' =
+                    (IF c = cId THEN TRUE ELSE L0!IsActiveCall(c))
+             /\ (L0!IsTerminalCall(c))' =
+                    (IF c = cId THEN FALSE ELSE L0!IsTerminalCall(c))
+             /\ (L0!IsUnusedCall(c))' =
+                    (IF c = cId THEN FALSE ELSE L0!IsUnusedCall(c))
+             /\ (L0!HasStatus(c))' = L0!HasStatus(c)
+    BY <1>1, <1>2, SMTT(120) DEF L0!IsActiveCall, L0!ActiveCallStates,
+        L0!IsTerminalCall, L0!IsUnusedCall, L0!HasStatus,
+        L0!EventKinds, L0!StatusKinds
+<1>8. ASSUME NEW chId \in ChannelIds
+      PROVE  (IsClosingChannel(chId))' = IsClosingChannel(chId)
+    BY <1>1, SMT
+<1>9. QED
+    BY <1>1, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8, Zenon
+
 \* Proved in three groups rather than one: the conjunct list is long
 \* enough that a single goal outgrows the solver's budget.
 LEMMA FfiFramePreservesFfiCallInv ==
@@ -4395,6 +4556,142 @@ LEMMA CallOnlyPreservesFfiCallInv ==
       <4>4. QED
         BY <4>1, <4>2, <4>32, <4>33, <4>35, <4>95, Zenon DEF FfiCallInv
     <3>2. QED BY <2>2, <3>1
+\* An empty send is a commit with no buffer: the slot it takes is the one
+\* its guard found free.
+  <2>25. CASE \E cId \in CallIds, msg \in Messages : SendEmptyMessage(cId, msg)
+    <3> HIDE DEF HasNoSendInFlight, SendWindowOccupancy, HasFreeSendSlot,
+             IsAwaitingWriteDone, IsWriteDoneCallbackRunning,
+             WriteDonesReturned, HasAcceptedSendAt, IsSendAcquittedAt,
+             IsDeliveryCallbackRunning, IsCancelRequested,
+             IsHandleReleased, HasNoDeliveredEvents, IsClosingChannel
+    <3>1. ASSUME NEW cId \in CallIds, NEW msg \in Messages,
+                 SendEmptyMessage(cId, msg)
+          PROVE  FfiCallInv'
+      <4>0. /\ L0!IsActiveCall(cId)
+            /\ ~IsCancelRequested(cId)
+            /\ ~IsHandleReleased(cId)
+            /\ HasFreeSendSlot(cId)
+            /\ \A c \in CallIds :
+                   /\ (L0!IsActiveCall(c))' =
+                          (IF c = cId THEN TRUE ELSE L0!IsActiveCall(c))
+                   /\ (L0!IsTerminalCall(c))' =
+                          (IF c = cId THEN FALSE
+                           ELSE L0!IsTerminalCall(c))
+                   /\ (L0!IsUnusedCall(c))' =
+                          (IF c = cId THEN FALSE ELSE L0!IsUnusedCall(c))
+                   /\ (L0!HasStatus(c))' = L0!HasStatus(c)
+                   /\ (HasNoDeliveredEvents(c))' = HasNoDeliveredEvents(c)
+                   /\ (IsDeliveryCallbackRunning(c))' =
+                          IsDeliveryCallbackRunning(c)
+                   /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
+                   /\ (HostOwnsAtMostCredits(c))' =
+                          HostOwnsAtMostCredits(c)
+                   /\ (HostOwnsAtMostCreditsPlusOne(c))' =
+                          HostOwnsAtMostCreditsPlusOne(c)
+                   /\ (payloads_consumed_by_host[c])' =
+                          payloads_consumed_by_host[c]
+                   /\ (events_delivered[c])' = events_delivered[c]
+                   /\ (IsHandleReleased(c))' = IsHandleReleased(c)
+                   /\ (IsCancelRequested(c))' = IsCancelRequested(c)
+                   /\ (IsWriteDoneCallbackRunning(c))' =
+                          IsWriteDoneCallbackRunning(c)
+                   /\ (write_dones_emitted[c])' = write_dones_emitted[c]
+                   /\ Len((submitted[c])') =
+                          IF c = cId THEN Len(submitted[c]) + 1
+                          ELSE Len(submitted[c])
+                   /\ (HasNoSendInFlight(c))' =
+                          (IF c = cId THEN FALSE
+                           ELSE HasNoSendInFlight(c))
+                   /\ (SendWindowOccupancy(c))' =
+                          (IF c = cId THEN SendWindowOccupancy(c) + 1
+                           ELSE SendWindowOccupancy(c))
+                   /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
+                   /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
+                   /\ (call_channel[c])' = call_channel[c]
+            /\ \A chId \in ChannelIds :
+                   (IsClosingChannel(chId))' = IsClosingChannel(chId)
+        BY <1>1, <3>1, SendEmptyMessageTransfers, Zenon
+      <4>12. \A c \in CallIds : c # cId =>
+                 /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
+                 /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
+                 /\ (\A b \in BufferIds :
+                        (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b))
+        BY <1>1, <3>1, SMT
+        DEF SendEmptyMessage, L0!SendMessage, L0!IsTerminalCall,
+            HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
+            ffi_vars, TypeOK, L0!TypeOK
+      <4>1. (/\ ReleasedCallIsClean
+             /\ ClosingChannelCallsCancelRequested
+             /\ NoDeliveryImpliesNoDebt
+             /\ ActiveCallHasNoStatus
+             /\ UnusedCallHasNoEvents)'
+        BY <1>1, <4>0, <4>12, Zenon
+        DEF FfiCallInv, ReleasedCallIsClean,
+            ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+            ActiveCallHasNoStatus, UnusedCallHasNoEvents
+      <4>2. (/\ ActiveCallPayloadsWithinCredits
+             /\ PayloadsOwnedWithinCreditsPlusOne
+             /\ ReleasesNeverExceedDeliveries)'
+        BY <1>1, <4>0, Zenon
+        DEF FfiCallInv, ActiveCallPayloadsWithinCredits,
+            PayloadsOwnedWithinCreditsPlusOne,
+            ReleasesNeverExceedDeliveries
+      <4>30. /\ UnusedCallsAreFfiClean
+             /\ SendsInFlightWithinLimit
+             /\ WriteDonesNeverExceedSends
+             /\ RunningWriteDoneWasEmitted
+             /\ TerminalCallHasNoSendInFlight
+        BY <1>1, Zenon DEF FfiCallInv
+      <4>31. \A c \in CallIds : SendWindowOccupancy(c) \in Int
+        BY <1>1, SendWindowCountsAreIntegers, Zenon
+      <4>32. (/\ UnusedCallsAreFfiClean
+              /\ RunningWriteDoneWasEmitted
+              /\ TerminalCallHasNoSendInFlight)'
+        BY <4>0, <4>30, Zenon
+        DEF UnusedCallsAreFfiClean, RunningWriteDoneWasEmitted,
+            TerminalCallHasNoSendInFlight
+      <4>33. SendsInFlightWithinLimit'
+        <5>1. SendWindowOccupancy(cId) < MaxSendsInFlight
+          BY <4>0 DEF HasFreeSendSlot
+        <5>2. MaxSendsInFlight \in Nat
+          BY MaxSendsInFlightIsPositive
+        <5>3. QED
+          BY <4>0, <4>30, <4>31, <5>1, <5>2, SMT DEF SendsInFlightWithinLimit
+      <4>34. /\ write_dones_emitted \in [CallIds -> Nat]
+             /\ \A c \in CallIds : Len(submitted[c]) \in Nat
+        <5>1. /\ write_dones_emitted \in [CallIds -> Nat]
+              /\ submitted \in [CallIds -> Seq(Messages)]
+          BY <1>1, Zenon DEF TypeOK, L0!TypeOK
+        <5>2. QED BY <5>1, LenProperties, Zenon
+      <4>35. WriteDonesNeverExceedSends'
+        BY <4>0, <4>30, <4>34, SMT DEF WriteDonesNeverExceedSends
+      <4>95. (/\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
+              /\ DirectionsShareNoToken)'
+        <5>1. /\ SubmittedOccurrencesGloballyUnique
+              /\ ReceivedOccurrencesGloballyUnique
+              /\ DirectionsShareNoToken
+          BY <1>1, Zenon DEF FfiCallInv
+        <5>2. /\ submitted' = [submitted EXCEPT ![cId] =
+                                  Append(submitted[cId], msg)]
+              /\ received' = received
+          BY <3>1, Zenon DEF SendEmptyMessage, L0!SendMessage, l0_vars, L0!vars,
+             L0!RuntimeVars, L0!ChannelVars, L0!CallVars
+        <5>3. submitted \in [CallIds -> Seq(Messages)]
+          BY <1>1, Zenon DEF TypeOK, L0!TypeOK
+        <5>4. \A c \in CallIds :
+                  \A k \in DOMAIN submitted[c] : submitted[c][k] # msg
+          BY <3>1, Zenon DEF SendEmptyMessage, NeverSubmitted
+        <5>45. \A c \in CallIds :
+                   \A j \in DOMAIN received[c] : received[c][j] # msg
+          BY <3>1, Zenon DEF SendEmptyMessage, NeverReceived
+        <5>5. QED
+          BY <5>1, <5>2, <5>3, <5>4, <5>45, AppendProperties, SMTT(120)
+          DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
+              DirectionsShareNoToken
+      <4>4. QED
+        BY <4>1, <4>2, <4>32, <4>33, <4>35, <4>95, Zenon DEF FfiCallInv
+    <3>2. QED BY <2>25, <3>1
 \* Half-closing keeps the call active and touches nothing the FFI
 \* invariants read besides the call state, so every conjunct transfers.
   <2>3. CASE \E cId \in CallIds : EndSend(cId)
@@ -4947,7 +5244,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
              DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
                  DirectionsShareNoToken
     <3>4. QED BY <3>0, <3>1, <3>2, <3>3, <3>95, Zenon DEF FfiCallInv
-  <2>11. QED BY <1>1, <2>1, <2>2, <2>3, <2>4, <2>5, <2>6, <2>65, <2>7,
+  <2>11. QED BY <1>1, <2>1, <2>2, <2>25, <2>3, <2>4, <2>5, <2>6, <2>65, <2>7,
                  <2>8, <2>9, <2>10 DEF NextSafeCallOnly
 <1>2. QED BY <1>1
 
@@ -6083,7 +6380,7 @@ LEMMA FailedRuntimePersists ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
+        CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
         ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
         DeliverStatus, DeliverCancelled,
         L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
@@ -6123,7 +6420,7 @@ LEMMA FailedPersists ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
+        CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
         ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
         DeliverStatus, DeliverCancelled,
         L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
@@ -6158,7 +6455,7 @@ LEMMA SafeKeepsNotFailed ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
+        CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
         ReceiveStatus, DeliverInitialMetadata, DeliverMessage,
         DeliverStatus, DeliverCancelled,
         L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
@@ -6302,7 +6599,7 @@ LEMMA EveryStepEitherDeliversOrKeepsEvents ==
 <1>1. CASE NextSafeRefining
   <2>1. CASE NextSafeCallOnly
     BY <2>1, SMT
-    DEF NextSafeCallOnly, CallStart, SendMessage, EndSend, NetworkSend,
+    DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend,
         NetworkReceive, EndCallPastHardCeiling, ReceiveStatus, L0!CallStart, L0!SendMessage,
         L0!EndSend, L0!NetworkSend, L0!NetworkReceive, EndCallPastHardCeiling, L0!ReceiveStatus,
         L0!RuntimeVars, L0!ChannelVars
@@ -6373,7 +6670,7 @@ LEMMA EveryStepEitherConsumesOrKeepsReleases ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6411,7 +6708,7 @@ LEMMA EveryStepEitherEmitsOrKeepsWriteDones ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6446,7 +6743,7 @@ LEMMA EveryStepEitherAcquitsOrKeepsWriteDoneFlag ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6473,6 +6770,7 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
     ASSUME [Next]_vars
     PROVE  \/ \E c \in CallIds, m \in Messages,
                  bs \in BufferIds : SendMessage(c, m, bs)
+           \/ \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
            \/ UNCHANGED submitted
 <1>1. CASE NextSafeRefining
     BY <1>1, SMTT(120)
@@ -6482,7 +6780,7 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
         L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
         L0!CallStart, L0!EndSend, NetworkSend, L0!NetworkSend,
         NetworkReceive, EndCallPastHardCeiling, L0!NetworkReceive, ReceiveStatus, L0!ReceiveStatus,
         DeliverInitialMetadata, L0!DeliverInitialMetadata,
@@ -6527,7 +6825,7 @@ LEMMA EveryStepEitherLendsOrKeepsBuffers ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, EndSend,
+        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6675,7 +6973,7 @@ LEMMA NextPreservesFreshBuffers ==
         L0!ChannelStates, L0!CallVars, L0!IsUnusedCall, L0!CallStates, TypeOK, L0!TypeOK
   <2>3. CASE NextSafeCallOnly
     BY <1>1, <2>3, SMTT(45)
-    DEF NextSafeCallOnly, CallStart, SendMessage, EndSend, NetworkSend,
+    DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend,
         NetworkReceive, EndCallPastHardCeiling, ReceiveStatus, DeliverInitialMetadata,
         DeliverMessage, DeliverStatus, DeliverCancelled,
         L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
@@ -6825,7 +7123,8 @@ LEMMA NextPreservesSendBufferMatch ==
     BY <1>2, LenProperties
   <2>5. (EverySendHasItsBuffer)'
     <3>1. SUFFICES ASSUME NEW x \in CallIds,
-                          NEW k \in 1..Len((submitted[x])')
+                          NEW k \in 1..Len((submitted[x])'),
+                          ~IsEmptyMessage((submitted[x][k])')
                    PROVE  \E b \in BufferIds : (buffer_send[x][b])' = k
       BY Zenon DEF EverySendHasItsBuffer
     <3>2. CASE x = d /\ k = Len(submitted[d]) + 1
@@ -6833,8 +7132,26 @@ LEMMA NextPreservesSendBufferMatch ==
     <3>3. CASE ~(x = d /\ k = Len(submitted[d]) + 1)
       <4>1. k \in 1..Len(submitted[x])
         BY <2>3, <2>4, <3>1, <3>3, SMT
+\* An earlier index keeps its message, so the old instance answers.
+      <4>11. submitted' = [submitted EXCEPT ![d] = Append(submitted[d], m)]
+        BY <2>1, Zenon DEF SendMessage, L0!SendMessage
+      <4>12. (submitted[x][k])' = submitted[x][k]
+        <5>1. CASE x = d
+          <6>1. (submitted[x])' = Append(submitted[d], m)
+            BY <1>2, <4>11, <5>1, Zenon
+          <6>2. submitted[d] \in Seq(Messages)
+            BY <1>2, Zenon
+          <6>3. \A i \in 1..Len(submitted[d]) :
+                    Append(submitted[d], m)[i] = submitted[d][i]
+            BY <6>2, AppendProperties
+          <6>4. QED BY <4>1, <5>1, <6>1, <6>3, Zenon
+        <5>2. CASE x # d
+          BY <1>2, <4>11, <5>2, Zenon
+        <5>3. QED BY <5>1, <5>2
+      <4>13. ~IsEmptyMessage(submitted[x][k])
+        BY <3>1, <4>12
       <4>2. PICK b \in BufferIds : buffer_send[x][b] = k
-        BY <1>1, <4>1, Zenon DEF BufferStateInv, EverySendHasItsBuffer
+        BY <1>1, <4>1, <4>13, Zenon DEF BufferStateInv, EverySendHasItsBuffer
       <4>3. ~(x = d /\ b = e)
         BY <1>4, <2>2, <4>1, <4>2, SMT
       <4>4. QED BY <2>3, <4>2, <4>3, Zenon
@@ -6887,11 +7204,59 @@ LEMMA NextPreservesSendBufferMatch ==
       <4>7. QED BY <4>4, <4>5, <4>6
     <3>4. QED BY <3>2, <3>3
   <2>7. QED BY <2>5, <2>6
+\* An empty send adds an index no buffer names, and its message is empty, so
+\* the first conjunct asks nothing of it.
+<1>55. CASE \E d \in CallIds, m \in Messages : SendEmptyMessage(d, m)
+  <2>1. PICK d \in CallIds, m \in Messages : SendEmptyMessage(d, m)
+    BY <1>55
+  <2>2. /\ submitted' = [submitted EXCEPT ![d] = Append(submitted[d], m)]
+        /\ UNCHANGED buffer_send
+        /\ IsEmptyMessage(m)
+    BY <2>1, Zenon DEF SendEmptyMessage, L0!SendMessage, ffi_vars
+  <2>3. submitted[d] \in Seq(Messages)
+    BY <1>2, Zenon
+  <2>4. ASSUME NEW x \in CallIds, NEW k \in 1..Len((submitted[x])'),
+               ~IsEmptyMessage((submitted[x][k])')
+        PROVE  /\ k \in 1..Len(submitted[x])
+               /\ (submitted[x][k])' = submitted[x][k]
+    <3>1. CASE x = d
+      <4>1. (submitted[x])' = Append(submitted[d], m)
+        BY <1>2, <2>2, <3>1, Zenon
+      <4>2. /\ Len(Append(submitted[d], m)) = Len(submitted[d]) + 1
+            /\ Append(submitted[d], m)[Len(submitted[d]) + 1] = m
+            /\ \A i \in 1..Len(submitted[d]) :
+                   Append(submitted[d], m)[i] = submitted[d][i]
+        BY <2>3, AppendProperties
+      <4>3. k # Len(submitted[d]) + 1
+        BY <2>2, <2>4, <4>1, <4>2, Zenon
+      <4>4. k \in 1..Len(submitted[d])
+        BY <2>3, <4>1, <4>2, <4>3, LenProperties, SMT
+      <4>5. QED BY <3>1, <4>1, <4>2, <4>4
+    <3>2. CASE x # d
+      BY <1>2, <2>2, <3>2, Zenon
+    <3>3. QED BY <3>1, <3>2
+  <2>5. (EverySendHasItsBuffer)'
+    <3>1. SUFFICES ASSUME NEW x \in CallIds,
+                          NEW k \in 1..Len((submitted[x])'),
+                          ~IsEmptyMessage((submitted[x][k])')
+                   PROVE  \E b \in BufferIds : (buffer_send[x][b])' = k
+      BY Zenon DEF EverySendHasItsBuffer
+    <3>2. /\ k \in 1..Len(submitted[x])
+          /\ (submitted[x][k])' = submitted[x][k]
+      BY <2>4, <3>1
+    <3>3. ~IsEmptyMessage(submitted[x][k])
+      BY <3>1, <3>2
+    <3>4. PICK b \in BufferIds : buffer_send[x][b] = k
+      BY <1>1, <3>2, <3>3, Zenon DEF BufferStateInv, EverySendHasItsBuffer
+    <3>5. QED BY <2>2, <3>4, Zenon
+  <2>6. (SendsLiveInOneBuffer)'
+    BY <1>1, <2>2, Zenon DEF BufferStateInv, SendsLiveInOneBuffer
+  <2>7. QED BY <2>5, <2>6
 <1>6. CASE UNCHANGED buffer_send /\ UNCHANGED submitted
     BY <1>1, <1>6, Zenon
     DEF BufferStateInv, EverySendHasItsBuffer, SendsLiveInOneBuffer
 <1>7. QED
-    BY <1>1, <1>5, <1>6, OnlySendMessageWritesBufferSend,
+    BY <1>1, <1>5, <1>55, <1>6, OnlySendMessageWritesBufferSend,
        EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
 
 LEMMA NextPreservesBufferSendLink ==
@@ -7151,11 +7516,29 @@ LEMMA NextPreservesBufferSendLink ==
       BY <2>2, <2>25, <3>3, SMT
     <3>4. QED BY <3>1, <3>2, <3>3
   <2>7. QED BY <2>4, <2>5, <2>6
+\* An empty send only lengthens submitted: every recorded index stays below
+\* it, and no buffer moves.
+<1>13. CASE \E d \in CallIds, m \in Messages : SendEmptyMessage(d, m)
+  <2>1. PICK d \in CallIds, m \in Messages : SendEmptyMessage(d, m)
+    BY <1>13
+  <2>2. /\ submitted' = [submitted EXCEPT ![d] = Append(submitted[d], m)]
+        /\ UNCHANGED <<buffer_send, buffer_state, write_dones_emitted>>
+    BY <2>1, Zenon DEF SendEmptyMessage, L0!SendMessage, ffi_vars
+  <2>3. Len((submitted[c])') >= Len(submitted[c])
+    BY <1>4, <2>2, AppendProperties, SMT
+  <2>4. /\ buffer_send[c][b] <= Len(submitted[c])
+        /\ (buffer_send[c][b] # 0 =>
+              buffer_state[c][b] \in {"returned", "freed"})
+        /\ (buffer_send[c][b] > write_dones_emitted[c] =>
+              buffer_state[c][b] = "returned")
+    BY <1>1, <1>2
+  <2>5. QED
+    BY <1>4, <2>2, <2>3, <2>4, LenProperties, SMT
 <1>10. CASE UNCHANGED <<buffer_send, buffer_state, submitted,
                         write_dones_emitted>>
     BY <1>2, <1>10, Zenon
 <1>11. QED
-    BY <1>1, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>12,
+    BY <1>1, <1>5, <1>6, <1>7, <1>8, <1>9, <1>10, <1>12, <1>13,
        OnlyBufferStepsWriteBufferStates, OnlySendMessageWritesBufferSend,
        EveryStepEitherEmitsOrKeepsWriteDones,
        EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
@@ -7429,7 +7812,7 @@ LEMMA OnlyCallStartWritesCallChannel ==
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
 <1>3. CASE NextSafeCallOnly
     BY <1>3, SMT
-    DEF NextSafeCallOnly, CallStart, SendMessage, EndSend, NetworkSend,
+    DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend,
         NetworkReceive, EndCallPastHardCeiling, ReceiveStatus, DeliverInitialMetadata,
         DeliverMessage, DeliverStatus, DeliverCancelled, HandPayloadToHost,
         L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
@@ -8006,7 +8389,7 @@ LEMMA NextPreservesDestroyedClean ==
         CallStart, RequestCallCancellation, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
+        SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -8243,6 +8626,110 @@ LEMMA NextPreservesShutdownSignal ==
         <5>2. QED
           BY <5>25, <5>27, Zenon DEF ShutdownSignalInv, ShutdownSignalCore
       <4>2. QED BY <3>2, <4>1
+    <3>25. CASE \E cId \in CallIds, msg \in Messages : SendEmptyMessage(cId, msg)
+      <4>1. ASSUME NEW cId \in CallIds, NEW msg \in Messages,
+                   SendEmptyMessage(cId, msg)
+            PROVE  ShutdownSignalCore'
+        <5>1. \A rtId \in RuntimeIds :
+                  IsShutdownEventEmitted(rtId) =>
+                      ~(call_channel[cId] \in L0!ChannelsOf(rtId))
+          BY <1>1, <4>1, SMTT(120)
+          DEF SendEmptyMessage, L0!SendMessage,
+              ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
+              StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
+              L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
+              L0!UnusedCallsAreEmpty, L0!ChannelLifecycleInv,
+              L0!CallLifecycleInv, L0!TerminalStatusEquivalence,
+              L0!UsedChannels, L0!UsedCalls, L0!ActiveChannels,
+              L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
+              TypeOK, L0!TypeOK,
+              L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
+              L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
+              L0!CallStates
+        \* Only the quiescence conjunct can move: a send touches no
+        \* runtime state, and it happens on a call whose channel belongs
+        \* to no runtime that has already signalled.
+        <5>20. /\ UNCHANGED <<runtime_state, shutdown_event_emitted,
+                              shutdown_callback_running, channel_state,
+                              channel_runtime, call_channel,
+                              events_delivered>>
+               /\ UNCHANGED <<delivery_callback_running,
+                              write_dones_emitted,
+                              write_done_callback_running>>
+          BY <4>1, SMT DEF SendEmptyMessage, L0!SendMessage, L0!RuntimeVars,
+              L0!ChannelVars, ffi_vars
+        <5>21. \A rtId \in RuntimeIds :
+                   /\ (IsShutdownCallbackRunning(rtId))' =
+                          IsShutdownCallbackRunning(rtId)
+                   /\ (IsShutdownEventEmitted(rtId))' =
+                          IsShutdownEventEmitted(rtId)
+                   /\ (IsStoppingRuntime(rtId))' = IsStoppingRuntime(rtId)
+                   /\ (IsReleasedRuntime(rtId))' = IsReleasedRuntime(rtId)
+                   /\ (L0!ChannelsOf(rtId))' = L0!ChannelsOf(rtId)
+          BY <5>20, SMT DEF L0!ChannelsOf
+        <5>22. \A chId \in ChannelIds :
+                   (IsClosedChannel(chId))' = IsClosedChannel(chId)
+          BY <5>20, SMT
+        <5>23. \A c \in CallIds :
+                   /\ (IsDeliveryCallbackRunning(c))' =
+                          IsDeliveryCallbackRunning(c)
+                   /\ (call_channel[c])' = call_channel[c]
+          BY <5>20, SMT
+        <5>24. \A c \in CallIds :
+                   (HasNoSendInFlight(c))' =
+                       (IF c = cId THEN FALSE ELSE HasNoSendInFlight(c))
+          BY <1>1, <4>1, SendEmptyMessageTransfers, Zenon
+              DEF StrongInv
+        <5>25. \A rtId \in RuntimeIds :
+                   /\ ((IsShutdownCallbackRunning(rtId) =>
+                            IsShutdownEventEmitted(rtId)))'
+                   /\ ((IsShutdownEventEmitted(rtId) =>
+                            (IsStoppingRuntime(rtId) \/
+                             IsReleasedRuntime(rtId))))'
+                   /\ ((IsReleasedRuntime(rtId) =>
+                            /\ IsShutdownEventEmitted(rtId)
+                            /\ ~IsShutdownCallbackRunning(rtId)))'
+          BY <1>1, <5>21, SMT DEF StrongInv, ShutdownSignalInv, ShutdownSignalCore
+        \* Everything here is carried as an implication: an ASSUME
+        \* hypothesis placed after a NEW is silently dropped by this
+        \* prover, and the resulting obligation is unprovable.
+        <5>26. ASSUME NEW rtId \in RuntimeIds
+               PROVE  IsShutdownEventEmitted(rtId) =>
+                          (IsRuntimeDrained(rtId))'
+          <6>20. ShutdownSignalInv
+            BY <1>1, Zenon DEF StrongInv
+          <6>2. IsShutdownEventEmitted(rtId) => IsRuntimeDrained(rtId)
+            BY <6>20, Zenon DEF ShutdownSignalInv, ShutdownSignalCore
+          <6>3. IsShutdownEventEmitted(rtId) =>
+                    /\ (\A chId \in L0!ChannelsOf(rtId) :
+                            IsClosedChannel(chId))
+                    /\ (\A c \in CallIds :
+                            call_channel[c] \in L0!ChannelsOf(rtId) =>
+                                /\ ~IsDeliveryCallbackRunning(c)
+                                /\ HasNoSendInFlight(c))
+            BY <6>2, Zenon DEF IsRuntimeDrained
+          <6>5. IsShutdownEventEmitted(rtId) =>
+                    ~(call_channel[cId] \in L0!ChannelsOf(rtId))
+            BY <5>1, Zenon
+          <6>6. IsShutdownEventEmitted(rtId) =>
+                    (\A chId \in L0!ChannelsOf(rtId) :
+                         IsClosedChannel(chId))'
+            BY <5>20, <6>3, SMT DEF L0!ChannelsOf
+          <6>7. IsShutdownEventEmitted(rtId) =>
+                    (\A c \in CallIds :
+                         call_channel[c] \in L0!ChannelsOf(rtId) =>
+                             /\ ~IsDeliveryCallbackRunning(c)
+                             /\ HasNoSendInFlight(c))'
+            BY <5>20, <5>24, <6>3, <6>5, SMT DEF L0!ChannelsOf
+          <6>8. QED
+            BY <6>6, <6>7, Zenon DEF IsRuntimeDrained
+        <5>27. \A rtId \in RuntimeIds :
+                   ((IsShutdownEventEmitted(rtId) =>
+                         IsRuntimeDrained(rtId)))'
+          BY <5>21, <5>26, Zenon
+        <5>2. QED
+          BY <5>25, <5>27, Zenon DEF ShutdownSignalInv, ShutdownSignalCore
+      <4>2. QED BY <3>25, <4>1
     <3>3. CASE \E cId \in CallIds : EndSend(cId)
       BY <1>1, <3>3, SMTT(120)
       DEF EndSend, L0!EndSend, L0!RuntimeVars, L0!ChannelVars, ffi_vars,
@@ -8396,7 +8883,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
         L0!CallStates
-    <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>65, <3>7,
+    <3>11. QED BY <1>1, <2>5, <3>1, <3>2, <3>25, <3>3, <3>4, <3>5, <3>6, <3>65, <3>7,
                    <3>8, <3>9, <3>10 DEF NextSafeCallOnly
   <2>6. CASE NextSafeShutdownFfi
     BY <1>1, <2>6, SMT
@@ -9116,6 +9603,26 @@ LEMMA SendSubscriptCollapses ==
 <1>1. QED
     BY SMT DEF SendMessage, HostHoldsSomeBuffer, vars, ffi_vars, TypeOK
 
+\* An empty send lengthens submitted, so it is never a stutter.
+LEMMA SendEmptySubscriptCollapses ==
+    ASSUME TypeOK, NEW cId \in CallIds, NEW msg \in Messages
+    PROVE  <<SendEmptyMessage(cId, msg)>>_vars <=> SendEmptyMessage(cId, msg)
+<1>1. ASSUME SendEmptyMessage(cId, msg)
+      PROVE  vars' # vars
+  <2>1. submitted' = [submitted EXCEPT ![cId] = Append(submitted[cId], msg)]
+    BY <1>1, Zenon DEF SendEmptyMessage, L0!SendMessage
+  <2>2. /\ submitted \in [CallIds -> Seq(Messages)]
+        /\ submitted[cId] \in Seq(Messages)
+    BY Zenon DEF TypeOK, L0!TypeOK
+  <2>3. Len((submitted[cId])') = Len(submitted[cId]) + 1
+    BY <2>1, <2>2, AppendProperties, SMT
+  <2>4. submitted' # submitted
+    BY <2>2, <2>3, LenProperties, SMT
+  <2>5. QED
+    BY <2>4 DEF vars, l0_vars, L0!vars
+<1>2. QED
+    BY <1>1
+
 \* Cancellation is latched forever: no action clears it.
 LEMMA CancelMonotone ==
     ASSUME NEW cId \in CallIds
@@ -9135,7 +9642,7 @@ LEMMA CancelMonotone ==
         RemainFailed, RemainReleased,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
         CallStart, RequestCallCancellation, ReleaseCallHandle,
-        SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
+        SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -9247,7 +9754,7 @@ LEMMA CallbackFrame ==
         RemainFailed, RemainReleased,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
         CallStart, RequestCallCancellation, ReleaseCallHandle,
-        SendMessage, EndSend, EmitWriteDone, WriteDoneReturns,
+        SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -9341,7 +9848,9 @@ LEMMA SlotFrame ==
                            (IsWriteDoneCallbackRunning(cId))')
                /\ (HasNoSendInFlight(cId) /\
                        (\A msg \in Messages, bs \in BufferIds :
-                            ~<<SendMessage(cId, msg, bs)>>_vars) =>
+                            ~<<SendMessage(cId, msg, bs)>>_vars) /\
+                       (\A msg \in Messages :
+                            ~<<SendEmptyMessage(cId, msg)>>_vars) =>
                            (HasNoSendInFlight(cId))')
 <1>0. ASSUME TypeOK,
              /\ (IsAwaitingWriteDone(cId) /\
@@ -9354,7 +9863,8 @@ LEMMA SlotFrame ==
                          (IsWriteDoneCallbackRunning(cId))')
              /\ (HasNoSendInFlight(cId) /\
                      (\A msg \in Messages, bs \in BufferIds :
-                          ~SendMessage(cId, msg, bs)) =>
+                          ~SendMessage(cId, msg, bs)) /\
+                     (\A msg \in Messages : ~SendEmptyMessage(cId, msg)) =>
                          (HasNoSendInFlight(cId))')
       PROVE  /\ (IsAwaitingWriteDone(cId) /\
                      ~IsWriteDoneCallbackRunning(cId) /\
@@ -9366,7 +9876,9 @@ LEMMA SlotFrame ==
                          (IsWriteDoneCallbackRunning(cId))')
              /\ (HasNoSendInFlight(cId) /\
                      (\A msg \in Messages, bs \in BufferIds :
-                          ~<<SendMessage(cId, msg, bs)>>_vars) =>
+                          ~<<SendMessage(cId, msg, bs)>>_vars) /\
+                     (\A msg \in Messages :
+                          ~<<SendEmptyMessage(cId, msg)>>_vars) =>
                          (HasNoSendInFlight(cId))')
   <2>1. <<EmitWriteDone(cId)>>_vars <=> EmitWriteDone(cId)
     BY <1>0, SubscriptCollapses
@@ -9379,8 +9891,15 @@ LEMMA SlotFrame ==
       BY <1>0, SendSubscriptCollapses
     <3>2. QED
       BY <3>1
+  <2>35. (\A msg \in Messages : ~<<SendEmptyMessage(cId, msg)>>_vars) <=>
+             (\A msg \in Messages : ~SendEmptyMessage(cId, msg))
+    <3>1. ASSUME NEW msg \in Messages
+          PROVE  <<SendEmptyMessage(cId, msg)>>_vars <=> SendEmptyMessage(cId, msg)
+      BY <1>0, SendEmptySubscriptCollapses
+    <3>2. QED
+      BY <3>1
   <2>4. QED
-    BY <1>0, <2>1, <2>2, <2>3
+    BY <1>0, <2>1, <2>2, <2>3, <2>35
 <1>1. ASSUME TypeOK, [Next]_vars
       PROVE  /\ (IsAwaitingWriteDone(cId) /\
                      ~IsWriteDoneCallbackRunning(cId) /\
@@ -9392,7 +9911,8 @@ LEMMA SlotFrame ==
                          (IsWriteDoneCallbackRunning(cId))')
              /\ (HasNoSendInFlight(cId) /\
                      (\A msg \in Messages, bs \in BufferIds :
-                          ~SendMessage(cId, msg, bs)) =>
+                          ~SendMessage(cId, msg, bs)) /\
+                     (\A msg \in Messages : ~SendEmptyMessage(cId, msg)) =>
                          (HasNoSendInFlight(cId))')
   <2>0. /\ write_dones_emitted \in [CallIds -> Nat]
         /\ write_done_callback_running \in [CallIds -> BOOLEAN]
@@ -9452,15 +9972,35 @@ LEMMA SlotFrame ==
         <5>2. QED
           BY <3>0, <5>1, SMT
       <4>5. QED BY <4>3, <4>4
+    <3>15. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      <4>1. PICK c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+        BY <3>15
+      <4>2. submitted' = [submitted EXCEPT ![c] = Append(@, m)]
+        BY <4>1, Zenon DEF SendEmptyMessage, L0!SendMessage
+      <4>3. CASE c = cId
+        <5>1. (submitted[cId])' = Append(submitted[cId], m)
+          BY <2>0, <4>2, <4>3, Zenon
+        <5>2. /\ Append(submitted[cId], m) \in Seq(Messages)
+              /\ Len(Append(submitted[cId], m)) = Len(submitted[cId]) + 1
+          BY <3>0, AppendProperties
+        <5>3. QED
+          BY <3>0, <5>1, <5>2, SMT
+      <4>4. CASE c # cId
+        <5>1. (submitted[cId])' = submitted[cId]
+          BY <2>0, <4>2, <4>4, Zenon
+        <5>2. QED
+          BY <3>0, <5>1, SMT
+      <4>5. QED BY <4>3, <4>4
     <3>2. CASE UNCHANGED submitted
       <4>1. (submitted[cId])' = submitted[cId]
         BY <3>2, Zenon
       <4>2. QED
         BY <3>0, <4>1, SMT
     <3>3. QED
-      BY <1>1, <3>1, <3>2, EveryStepEitherSubmitsOrKeepsSubmitted
+      BY <1>1, <3>1, <3>15, <3>2, EveryStepEitherSubmitsOrKeepsSubmitted
   <2>5. ASSUME \A msg \in Messages, bs \in BufferIds :
-                   ~SendMessage(cId, msg, bs)
+                   ~SendMessage(cId, msg, bs),
+               \A msg \in Messages : ~SendEmptyMessage(cId, msg)
         PROVE  Len((submitted[cId])') = Len(submitted[cId])
     <3>1. CASE \E c \in CallIds, m \in Messages,
                   bs \in BufferIds : SendMessage(c, m, bs)
@@ -9472,8 +10012,16 @@ LEMMA SlotFrame ==
       <4>3. submitted' = [submitted EXCEPT ![c] = Append(@, m)]
         BY <4>1, Zenon DEF SendMessage, L0!SendMessage
       <4>4. QED BY <2>0, <4>2, <4>3, Zenon
+    <3>15. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      <4>1. PICK c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+        BY <3>15
+      <4>2. c # cId
+        BY <2>5, <4>1
+      <4>3. submitted' = [submitted EXCEPT ![c] = Append(@, m)]
+        BY <4>1, Zenon DEF SendEmptyMessage, L0!SendMessage
+      <4>4. QED BY <2>0, <4>2, <4>3, Zenon
     <3>2. QED
-      BY <1>1, <3>1, EveryStepEitherSubmitsOrKeepsSubmitted, SMT
+      BY <1>1, <3>1, <3>15, EveryStepEitherSubmitsOrKeepsSubmitted, SMT
   <2>6. ASSUME IsAwaitingWriteDone(cId), ~IsWriteDoneCallbackRunning(cId),
                ~EmitWriteDone(cId)
         PROVE  (IsAwaitingWriteDone(cId) /\
@@ -9500,10 +10048,12 @@ LEMMA SlotFrame ==
 \* Nothing can emit on a drained call - emission needs an unacquitted
 \* send - and nothing can return, since no callback is running.
   <2>8. HasNoSendInFlight(cId) /\
-            (\A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)) =>
+            (\A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)) /\
+            (\A msg \in Messages : ~SendEmptyMessage(cId, msg)) =>
                 (HasNoSendInFlight(cId))'
     <3>1. SUFFICES ASSUME HasNoSendInFlight(cId),
-                          \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
+                          \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs),
+                          \A msg \in Messages : ~SendEmptyMessage(cId, msg)
                              PROVE  (HasNoSendInFlight(cId))'
       OBVIOUS
     <3>2. ~EmitWriteDone(cId)
@@ -9743,6 +10293,13 @@ LEMMA StatusReadyStable ==
               StatusReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
               L0!IsTerminalCall, L0!StatusKinds, L0!EventKinds
+        <5>25. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+          BY <1>1, <5>25, SMTT(45)
+          DEF SendEmptyMessage, L0!SendMessage, ffi_vars,
+              L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
+              StatusReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
+              L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
+              L0!IsTerminalCall, L0!StatusKinds, L0!EventKinds
         <5>3. CASE \E c \in CallIds : EndSend(c)
           BY <1>1, <5>3, SMTT(45)
           DEF EndSend, L0!EndSend,
@@ -9809,7 +10366,7 @@ LEMMA StatusReadyStable ==
               StatusReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
               L0!IsTerminalCall, L0!StatusKinds, L0!EventKinds
-        <5>12. QED BY <4>3, <5>1, <5>2, <5>3, <5>4, <5>5, <5>6, <5>7, <5>8, <5>9, <5>10, <5>11 DEF NextSafeCallOnly
+        <5>12. QED BY <4>3, <5>1, <5>2, <5>25, <5>3, <5>4, <5>5, <5>6, <5>7, <5>8, <5>9, <5>10, <5>11 DEF NextSafeCallOnly
       <4>4. QED BY <3>1, <4>1, <4>2, <4>3 DEF NextSafeRefining
     <3>2. CASE NextSafeFfiOnly
 \* Nothing an FFI-only step writes is read here.
@@ -9864,14 +10421,18 @@ LEMMA StatusReadyDrainStable ==
 \* status_pending is exactly what the level-0 send guard refuses.
   <2>1. \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
     BY <1>1, Zenon DEF SendMessage, L0!SendMessage, StatusReady
+  <2>15. \A msg \in Messages : ~SendEmptyMessage(cId, msg)
+    BY <1>1, Zenon DEF SendEmptyMessage, L0!SendMessage, StatusReady
   <2>2. ~EmitWriteDone(cId)
     BY <1>1, SMT DEF EmitWriteDone, HasNoSendInFlight, IsAwaitingWriteDone
   <2>3. (submitted[cId])' = submitted[cId]
     <3>1. CASE \E c \in CallIds, m \in Messages,
                   bs \in BufferIds : SendMessage(c, m, bs)
       BY <1>1, <2>0, <2>1, <3>1, SMT DEF SendMessage, L0!SendMessage
+    <3>15. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      BY <1>1, <2>0, <2>15, <3>15, SMT DEF SendEmptyMessage, L0!SendMessage
     <3>2. QED
-      BY <1>1, <3>1, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
+      BY <1>1, <3>1, <3>15, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
   <2>4. (write_dones_emitted[cId])' = write_dones_emitted[cId]
     <3>1. CASE \E c \in CallIds : EmitWriteDone(c)
       BY <1>1, <2>0, <2>2, <3>1, SMT DEF EmitWriteDone
@@ -9916,13 +10477,14 @@ LEMMA StatusReadyDrainStable ==
                  \/ \E c \in CallIds, m \in Messages,
                        bs \in BufferIds : SendMessage(c, m, bs)
                  \/ \E c \in CallIds : EndSend(c)
+                 \/ \E c \in CallIds, m0 \in Messages : SendEmptyMessage(c, m0)
                  \/ \E c \in CallIds : NetworkSend(c)
                  \/ \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
                  \/ \E c \in CallIds : ReceiveStatus(c)
                  \/ \E c \in CallIds, m \in Messages : EndCallPastHardCeiling(c, m)
         <5>1. UNCHANGED delivery_callback_running
           BY <4>1, SMT
-          DEF CallStart, SendMessage, EndSend, NetworkSend,
+          DEF CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend,
               NetworkReceive, EndCallPastHardCeiling, ReceiveStatus, ffi_vars
         <5>2. QED
           BY <1>2, <5>1, Zenon DEF IsDeliveryCallbackRunning
@@ -9968,7 +10530,8 @@ LEMMA StatusReadyDrainStable ==
   BY <1>1, <1>2, DeliverySubscriptCollapses, Zenon
 
 NoSendsTo(cId) ==
-    \A msg \in Messages, bs \in BufferIds : ~<<SendMessage(cId, msg, bs)>>_vars
+    /\ \A msg \in Messages, bs \in BufferIds : ~<<SendMessage(cId, msg, bs)>>_vars
+    /\ \A msg \in Messages : ~<<SendEmptyMessage(cId, msg)>>_vars
 
 NoDeliveriesTo(cId) ==
     /\ ~<<DeliverInitialMetadata(cId)>>_vars
@@ -9982,14 +10545,14 @@ LEMMA NoSendUnderCancel ==
     ASSUME NEW cId \in CallIds
     PROVE  TypeOK /\ IsCancelRequested(cId) => NoSendsTo(cId)
 <1>1. QED
-    BY SMT DEF NoSendsTo, SendMessage, TypeOK, L0!TypeOK,
+    BY SMT DEF NoSendsTo, SendMessage, SendEmptyMessage, TypeOK, L0!TypeOK,
         vars, l0_vars, L0!vars, ffi_vars
 
 LEMMA NoSendUnderStatusReady ==
     ASSUME NEW cId \in CallIds
     PROVE  TypeOK /\ StatusReady(cId) => NoSendsTo(cId)
 <1>1. QED
-    BY SMT DEF NoSendsTo, SendMessage, L0!SendMessage, StatusReady,
+    BY SMT DEF NoSendsTo, SendMessage, SendEmptyMessage, L0!SendMessage, StatusReady,
         TypeOK, L0!TypeOK, vars, l0_vars, L0!vars, ffi_vars,
         L0!IsActiveCall, L0!ActiveCallStates, L0!HasStatus
 
@@ -10044,6 +10607,7 @@ LEMMA SendQuietFrame ==
 <1>1. ASSUME TypeOK, SendDrainMeasure(cId) = n + 1, [Next]_vars,
              \A msg \in Messages, bs \in BufferIds :
                  ~SendMessage(cId, msg, bs),
+             \A msg \in Messages : ~SendEmptyMessage(cId, msg),
              ~EmitWriteDone(cId),
              ~WriteDoneReturns(cId)
       PROVE  (SendDrainMeasure(cId) = n + 1)'
@@ -10055,8 +10619,10 @@ LEMMA SendQuietFrame ==
     <3>1. CASE \E c \in CallIds, m \in Messages,
                   bs \in BufferIds : SendMessage(c, m, bs)
       BY <1>1, <2>0, <3>1, SMT DEF SendMessage, L0!SendMessage
+    <3>15. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      BY <1>1, <2>0, <3>15, SMT DEF SendEmptyMessage, L0!SendMessage
     <3>2. QED
-      BY <1>1, <3>1, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
+      BY <1>1, <3>1, <3>15, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
   <2>2. (write_dones_emitted[cId])' = write_dones_emitted[cId]
     <3>1. CASE \E c \in CallIds : EmitWriteDone(c)
       BY <1>1, <2>0, <3>1, SMT DEF EmitWriteDone
@@ -10073,12 +10639,16 @@ LEMMA SendQuietFrame ==
   <2>4. QED
     BY <1>1, <2>1, <2>2, <2>3, Zenon DEF SendDrainMeasure
 <1>2. ASSUME TypeOK, NoSendsTo(cId)
-      PROVE  \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
+      PROVE  /\ \A msg \in Messages, bs \in BufferIds : ~SendMessage(cId, msg, bs)
+             /\ \A msg \in Messages : ~SendEmptyMessage(cId, msg)
   <2>1. ASSUME NEW msg \in Messages, NEW bs \in BufferIds
         PROVE  <<SendMessage(cId, msg, bs)>>_vars <=> SendMessage(cId, msg, bs)
     BY <1>2, SendSubscriptCollapses
+  <2>15. ASSUME NEW msg \in Messages
+         PROVE  <<SendEmptyMessage(cId, msg)>>_vars <=> SendEmptyMessage(cId, msg)
+    BY <1>2, SendEmptySubscriptCollapses
   <2>2. QED
-    BY <1>2, <2>1 DEF NoSendsTo
+    BY <1>2, <2>1, <2>15 DEF NoSendsTo
 <1>3. QED
   BY <1>1, <1>2, SubscriptCollapses, Zenon
 
@@ -11071,7 +11641,7 @@ LEMMA MsgReadyStable ==
               L0!EventKinds, L0!CallStates
       <4>3. CASE NextSafeCallOnly
         BY <1>1, <4>3, SMTT(45)
-        DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
+        DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend,
             NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
             DeliverInitialMetadata, DeliverMessage, DeliverStatus,
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
@@ -11126,7 +11696,7 @@ LEMMA SlotFreeStableUnderCancel ==
   <2>0. CASE NextSafeRefining
     <3>1. CASE NextSafeCallOnly
       BY <1>1, <3>1, SMTT(120)
-      DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
+      DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend,
           NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
           DeliverInitialMetadata, DeliverMessage, DeliverStatus,
           DeliverCancelled, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal,
@@ -11621,7 +12191,7 @@ LEMMA EventsMonotone ==
             TypeOK, L0!TypeOK, L0!CallStates
       <4>3. CASE NextSafeCallOnly
         BY <1>1, <4>3, SMTT(45)
-        DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
+        DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend,
             NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
             DeliverInitialMetadata, DeliverMessage, DeliverStatus,
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
@@ -11908,7 +12478,7 @@ LEMMA OffOrDeadStable ==
               L0!ActiveCallStates, L0!ChannelStates, L0!CallStates
       <4>3. CASE NextSafeCallOnly
         BY <1>1, <4>3, SMTT(45)
-        DEF NextSafeCallOnly, CallStart, SendMessage, EndSend,
+        DEF NextSafeCallOnly, CallStart, SendMessage, SendEmptyMessage, EndSend,
             NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
             DeliverInitialMetadata, DeliverMessage, DeliverStatus,
             DeliverCancelled, L0!CallStart, L0!SendMessage, L0!EndSend,
@@ -12402,6 +12972,7 @@ LEMMA QuietStable ==
                    \/ \E c2 \in CallIds, m \in Messages,
                         b \in BufferIds : SendMessage(c2, m, b)
                    \/ \E c2 \in CallIds : EndSend(c2)
+                   \/ \E c2 \in CallIds, m0 \in Messages : SendEmptyMessage(c2, m0)
                    \/ \E c2 \in CallIds : NetworkSend(c2)
                    \/ \E c2 \in CallIds, m \in Messages :
                         NetworkReceive(c2, m)
@@ -12409,7 +12980,7 @@ LEMMA QuietStable ==
                    \/ \E c2 \in CallIds, m \in Messages : EndCallPastHardCeiling(c2, m)
           <6>1. UNCHANGED delivery_callback_running
             BY <5>4, SMT
-            DEF CallStart, SendMessage, EndSend, NetworkSend,
+            DEF CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend,
                 NetworkReceive, EndCallPastHardCeiling, ReceiveStatus, ffi_vars
           <6>2. QED
             BY <5>15, <6>1, Zenon
@@ -13258,8 +13829,31 @@ LEMMA AcceptedSendStable ==
         <5>2. QED
           BY <1>1, <5>1, Zenon DEF HasAcceptedSendAt
       <4>6. QED BY <4>4, <4>5
+    <3>15. CASE \E c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+      <4>1. PICK c \in CallIds, m \in Messages : SendEmptyMessage(c, m)
+        BY <3>15
+      <4>2. submitted' = [submitted EXCEPT ![c] = Append(@, m)]
+        BY <4>1, Zenon DEF SendEmptyMessage, L0!SendMessage
+      <4>3. submitted[cId] \in Seq(Messages)
+        BY <1>1, Zenon DEF TypeOK, L0!TypeOK
+      <4>4. CASE c = cId
+        <5>1. (submitted[cId])' = Append(submitted[cId], m)
+          BY <1>1, <4>2, <4>4, Zenon DEF TypeOK, L0!TypeOK
+        <5>2. /\ Append(submitted[cId], m) \in Seq(Messages)
+              /\ Len(Append(submitted[cId], m)) = Len(submitted[cId]) + 1
+          BY <4>3, AppendProperties
+        <5>3. Len(submitted[cId]) \in Nat
+          BY <4>3, LenProperties
+        <5>4. QED
+          BY <1>1, <5>1, <5>2, <5>3, SMT DEF HasAcceptedSendAt
+      <4>5. CASE c # cId
+        <5>1. (submitted[cId])' = submitted[cId]
+          BY <1>1, <4>2, <4>5, Zenon DEF TypeOK, L0!TypeOK
+        <5>2. QED
+          BY <1>1, <5>1, Zenon DEF HasAcceptedSendAt
+      <4>6. QED BY <4>4, <4>5
     <3>2. QED
-      BY <1>1, <3>1, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
+      BY <1>1, <3>1, <3>15, EveryStepEitherSubmitsOrKeepsSubmitted, Zenon
       DEF HasAcceptedSendAt
   <2>2. CASE UNCHANGED vars
     BY <1>1, <2>2, SMT DEF vars, l0_vars, L0!vars, ffi_vars
@@ -15948,13 +16542,14 @@ LEMMA TerminalCallDebtOnlyFalls ==
                \/ \E c \in CallIds, m \in Messages,
                      bs \in BufferIds : SendMessage(c, m, bs)
                \/ \E c \in CallIds : EndSend(c)
+               \/ \E c \in CallIds, m0 \in Messages : SendEmptyMessage(c, m0)
                \/ \E c \in CallIds : NetworkSend(c)
                \/ \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
                \/ \E c \in CallIds : ReceiveStatus(c)
                \/ \E c \in CallIds, m \in Messages : EndCallPastHardCeiling(c, m)
       <4>1. UNCHANGED delivery_callback_running
         BY <3>1, SMT
-        DEF CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
+        DEF CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive, EndCallPastHardCeiling,
             ReceiveStatus, ffi_vars
       <4>2. QED BY <2>0, <4>1, Zenon DEF IsDeliveryCallbackRunning
     <3>2. CASE \E d \in CallIds : DeliverInitialMetadata(d)
@@ -17989,7 +18584,7 @@ LEMMA UnadmittedStaysUnadmitted ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, SendMessage, EndSend, NetworkSend, NetworkReceive,
+        CallStart, SendMessage, SendEmptyMessage, EndSend, NetworkSend, NetworkReceive,
         EndCallPastHardCeiling, ReceiveStatus, DeliverInitialMetadata,
         DeliverMessage, DeliverStatus, DeliverCancelled, ffi_vars, TypeOK
   <2>2. CASE NextSafeFfiOnly
@@ -18156,7 +18751,7 @@ LEMMA DeliveredOnlyGrows ==
         ChannelStartClosing, ChannelFinishClosing, CallStart,
         RequestCallCancellation, ReleaseCallHandle, LendSendBuffer,
         RefuseLendTooLarge, RefuseLendForSlot, RefuseLendForBudget,
-        HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, SendMessage, EndSend,
+        HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, SendMessage, SendEmptyMessage, EndSend,
         EmitWriteDone, WriteDoneReturns, NetworkSend, AdmitRead,
         NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverStatus, DeliverCancelled,
