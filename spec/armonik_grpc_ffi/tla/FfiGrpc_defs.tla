@@ -65,6 +65,7 @@ NextSafeShutdownFfi ==
 
 NextSafeCallFfi ==
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
+    \/ \E cId \in CallIds : CancelCallOfClosingChannel(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
            LendSendBuffer(cId, b, len, charge)
@@ -196,16 +197,6 @@ TerminalCallHasNoSendInFlight ==
     \A cId \in CallIds :
         L0!IsTerminalCall(cId) => HasNoSendInFlight(cId)
 
-\* Both paths into "closing" latch cancellation on the channel's active
-\* calls, and no call can start on a closing channel.  This is what lets
-\* WF(DeliverCancelled) drain a closing channel.
-ClosingChannelCallsCancelRequested ==
-    \A cId \in CallIds :
-        /\ L0!IsActiveCall(cId)
-        /\ call_channel[cId] \in ChannelIds
-        /\ IsClosingChannel(call_channel[cId])
-        => IsCancelRequested(cId)
-
 \* While a call is active it owes at most the credit count: non-terminal
 \* deliveries require a credit left, and the terminal ends activity.
 ActiveCallPayloadsWithinCredits ==
@@ -270,7 +261,6 @@ FfiCallInv ==
     /\ WriteDonesNeverExceedSends
     /\ RunningWriteDoneWasEmitted
     /\ TerminalCallHasNoSendInFlight
-    /\ ClosingChannelCallsCancelRequested
     /\ ActiveCallPayloadsWithinCredits
     /\ PayloadsOwnedWithinCreditsPlusOne
     /\ ReleasesNeverExceedDeliveries

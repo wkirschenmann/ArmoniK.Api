@@ -451,7 +451,12 @@ runs, and the terminal waits for every `AK_EVENT_WRITE_DONE` of the call to have
 stale, so the answer is `AK_STATUS_HANDLE_STALE` rather than nothing: the call is over, nothing
 is left to cancel, and the host does not choose when reclamation happens. No lock guards the
 request: the call's own task reads it and emits the callbacks, and from the moment it observes
-the request, received messages not yet delivered are dropped without a callback.
+the request, received messages not yet delivered are dropped without a callback, their bytes
+given back at once, before the terminal. A call's deadline is a cancellation of the engine's
+own, which ends the call `DEADLINE_EXCEEDED`, and so is its channel closing, by
+`ak_channel_release` or by the runtime's shutdown: each call's task takes the close into account
+on its own, so a call of a channel the host has released may still deliver a message before
+its terminal.
 
 #### Normalization of the head
 

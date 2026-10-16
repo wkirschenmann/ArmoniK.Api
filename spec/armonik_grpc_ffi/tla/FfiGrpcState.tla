@@ -124,8 +124,9 @@ VARIABLES
 \* hands it to another, and read by the commit and the free; memory_used is
 \* the runtime-wide counter, kept the way the implementation keeps it - an
 \* independent quantity moved by the lend, the exchange, the
-\* free, a received message, its consumption, a cancelled call's end and the
-\* engine's taking or giving back bytes, not a sum evaluated on demand.
+\* free, a received message, its consumption, the latch of a call's
+\* cancellation and the engine's taking or giving back bytes, not a sum
+\* evaluated on demand.
 \* Independent is the point.  MemoryAccountingExact ties the counter to the
 \* charges of the buffers out and the messages held, and it can fail: a path
 \* that forgets an increment, forgets a decrement, credits twice, or publishes

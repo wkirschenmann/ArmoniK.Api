@@ -44,6 +44,7 @@ for m in AbstractGrpcState.tla AbstractGrpc.tla AbstractGrpc_defs.tla \
          DotNetBinding_MCwitnessBudget.tla DotNetBinding_MCwitnessResize.tla \
          FfiGrpc_MCwitnessResize.tla FfiGrpc_MCwitnessEngineBytes.tla \
          FfiGrpc_MCwitnessEngineLend.tla FfiGrpc_MCwitnessEmptySend.tla \
+         FfiGrpc_MCwitnessCancelDrop.tla FfiGrpc_MCwitnessCloseLatch.tla \
          DotNetBinding_MCwitnessEngineBytes.tla \
          DotNetBinding_MCwitnessEmptyWrite.tla; do
   out=$(java -cp "$TLA2TOOLS" tla2sany.SANY "$m" 2>&1)

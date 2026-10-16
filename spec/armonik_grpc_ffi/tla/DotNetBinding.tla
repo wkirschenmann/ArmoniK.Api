@@ -897,9 +897,14 @@ RuntimeSteps ==
            \/ L1!ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, msg \in Messages : L1!NetworkReceive(cId, msg)
     \/ \E cId \in CallIds, b \in BufferIds : L1!FreeReturnedBuffer(cId, b)
-    \* The receive side's admission, the wake-up a refused send is owed, and
-    \* the message past the second threshold.
-    \/ \E cId \in CallIds : L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
+    \* The receive side's admission, the wake-up a refused send is owed, a
+    \* call's task taking its channel's close into account, and the message
+    \* past the second threshold.  The binding releases a channel only once
+    \* its calls are settled, so the close's step finds no active call here;
+    \* it is passed through for the refinement.
+    \/ \E cId \in CallIds :
+           \/ L1!AdmitRead(cId) \/ L1!EmitBudgetWake(cId)
+           \/ L1!CancelCallOfClosingChannel(cId)
     \/ \E cId \in CallIds, msg \in Messages :
            ~IsSealing(cId) /\ L1!EndCallPastHardCeiling(cId, msg)
     \* The copies the engine holds for the messages it sends: the binding
@@ -907,6 +912,11 @@ RuntimeSteps ==
     \/ \E cId \in CallIds, n \in L1!Sizes : L1!EngineTakesBytes(cId, n)
     \/ \E n \in L1!Sizes : L1!EngineGivesBackBytes(n)
 
+\* The binding's ak_call_cancel, or the engine's own cancellation when the
+\* call's deadline passes: one level-1 step either way.  The guard leaves one
+\* deadline out: one that passes while the runtime is disposing, on a call
+\* the sweep has not reached yet.  The sweep's BeginDisposeCall latches the
+\* same flag when it does.
 BindingDowncalls ==
     \E cId \in CallIds :
         /\ BindingMayDowncall(cId)
@@ -1034,6 +1044,8 @@ PassEmitResourcesReleased(rtId) ==
     L1!EmitResourcesReleased(rtId) /\ ManagedStutter
 PassChannelFinishClosing(chId) ==
     L1!ChannelFinishClosing(chId) /\ ManagedStutter
+PassCancelCallOfClosingChannel(cId) ==
+    L1!CancelCallOfClosingChannel(cId) /\ ManagedStutter
 
 \* The serializing state ends, by commit or by the wrapper's abort.  It is
 \* also the whole of what discharges HostReturnsBuffer: whenever the host
@@ -1110,6 +1122,9 @@ RuntimeOwedFairness ==
     /\ \A rtId \in RuntimeIds : WF_vars(PassEmitResourcesReleased(rtId))
     \* a closing channel closes, so its calls end and its handle can go
     /\ \A chId \in ChannelIds : WF_vars(PassChannelFinishClosing(chId))
+    \* a call of a closing channel is cancelled; never enabled here, kept
+    \* for the lift
+    /\ \A cId \in CallIds : WF_vars(PassCancelCallOfClosingChannel(cId))
     \* the copies the engine holds are dropped with their messages, so the
     \* byte budget is not held for ever by what only the engine keeps: level
     \* 1's assumption that the application's compressed sending stops

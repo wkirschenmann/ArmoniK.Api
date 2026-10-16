@@ -33,14 +33,14 @@ SPECS = [
 # Definitions that build a state predicate rather than a step.  Init assigns
 # every variable without priming, and the helpers below are fragments meant to
 # be conjoined into an action, not actions themselves.
-NOT_ACTIONS = {"Init", "TypeOK", "RequestCancellationOfActiveCalls",
+NOT_ACTIONS = {"Init", "TypeOK", "LatchCancellationOf",
                "HandPayloadToHost", "EndWaitOf", "OweBudgetWakeToWaitingCalls"}
 
 # Temporal formulas are not actions: they quantify over behaviours.
 # Fragments meant to be conjoined into an action.  They carry primes of their
 # own, so an action that names one is covered for those variables - not
 # following them reported seven complete actions as incomplete.
-FRAGMENTS = {"RequestCancellationOfActiveCalls", "HandPayloadToHost",
+FRAGMENTS = {"LatchCancellationOf", "HandPayloadToHost",
              "EndWaitOf", "OweBudgetWakeToWaitingCalls"}
 
 TEMPORAL = ("~>", "[]", "<>", "WF_", "SF_")

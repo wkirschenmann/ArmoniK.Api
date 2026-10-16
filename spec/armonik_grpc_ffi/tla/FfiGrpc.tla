@@ -187,8 +187,8 @@ IsSendAcquittedAt(cId, k) == WriteDonesReturned(cId) >= k
 \* A data callback (metadata, message or terminal) is on the host stack.
 IsDeliveryCallbackRunning(cId) == delivery_callback_running[cId]
 
-\* ak_call_cancel has latched the request, or the runtime has latched it
-\* on behalf of a closing channel.
+\* The call's task has taken a cancellation into account: one ak_call_cancel
+\* asked for, the call's deadline, or its channel closing.
 IsCancelRequested(cId) == cancel_requested[cId]
 
 \* The runtime has retired the handle: no further downcall on it, and
@@ -361,11 +361,13 @@ MessagesReleased(cId) ==
     IF payloads_consumed_by_host[cId] = 0 THEN 0
     ELSE payloads_consumed_by_host[cId] - 1
 
-\* The last received message whose bytes are held.  A call that ended keeps
-\* what it delivered and nothing else: what it received and never delivered
-\* went with it.
+\* The last received message whose bytes are held.  A call that ended, or
+\* whose task has taken a cancellation into account, keeps what it delivered
+\* and nothing else: what it received and never delivered is dropped.
 HeldReceivedTop(cId) ==
-    IF L0!IsTerminalCall(cId) THEN Len(delivered[cId]) ELSE Len(received[cId])
+    IF L0!IsTerminalCall(cId) \/ IsCancelRequested(cId)
+    THEN Len(delivered[cId])
+    ELSE Len(received[cId])
 
 \* The bytes of each received message, keyed like the buffer charges.
 \* PayloadIndices rather than Nat, for the reason it exists.
@@ -400,13 +402,14 @@ NextConsumedLength(cId) ==
         THEN ReceivedLength[<<cId, k>>]
         ELSE 0
 
-\* What a call that ends without delivering them gives back: the held pairs
-\* past its deliveries.
+\* What the call's task drops when it takes a cancellation into account: the
+\* held pairs past its deliveries.  None once it has, or once the call ended.
 UndeliveredPairs(cId) ==
     {q \in {cId} \X PayloadIndices :
         /\ MessagesReleased(cId) < q[2]
         /\ Len(delivered[cId]) < q[2]
-        /\ q[2] <= Len(received[cId])}
+        /\ q[2] <= Len(received[cId])
+        /\ q[2] <= HeldReceivedTop(cId)}
 UndeliveredBytes(cId) ==
     SumFunctionOnSet(ReceivedLength, UndeliveredPairs(cId))
 
@@ -469,14 +472,20 @@ HandPayloadToHost(cId) ==
            [delivery_callback_running EXCEPT ![cId] = TRUE]
     /\ UNCHANGED payloads_consumed_by_host
 
-\* Cancellation is latched on every active call of a channel set.  Used by
-\* both closing paths: closing a channel cancels its calls, and shutdown
-\* closes every channel of the runtime.
-RequestCancellationOfActiveCalls(chs) ==
-    cancel_requested' = [cId \in CallIds |->
-        IF call_channel[cId] \in chs /\ L0!IsActiveCall(cId)
-        THEN TRUE
-        ELSE IsCancelRequested(cId)]
+\* The call sits on a channel that is closing.
+IsOnClosingChannel(cId) ==
+    /\ call_channel[cId] \in ChannelIds
+    /\ IsClosingChannel(call_channel[cId])
+
+\* The call's task takes a cancellation into account: the latch, and the
+\* message it received and has not delivered dropped, its bytes given back.
+\* A release of bytes owes the calls whose send waits their wake-up.
+LatchCancellationOf(cId) ==
+    /\ cancel_requested' = [cancel_requested EXCEPT ![cId] = TRUE]
+    /\ memory_used' = memory_used - UndeliveredBytes(cId)
+    /\ IF UndeliveredBytes(cId) > 0
+       THEN OweBudgetWakeToWaitingCalls
+       ELSE UNCHANGED budget_wake_owed
 
 \* Nothing of the runtime's memory is in the host's hands: every call of
 \* every channel of the runtime has given its payloads and its buffers
@@ -626,22 +635,14 @@ RuntimeCreate(rtId) ==
     /\ ~HasEngineHeldBytes
     /\ UNCHANGED ffi_vars
 
-\* Shutdown closes the channels (level 0) and latches cancellation on
-\* every active call of the runtime: the drain must not depend on the
-\* host, per the level-0 directive.
+\* Shutdown closes the gate and the channels (level 0).  Each active call's
+\* task then takes the close into account as a cancellation, in a step of
+\* its own, CancelCallOfClosingChannel: the drain does not depend on the
+\* host, per the level-0 directive, and a call may still deliver a message
+\* before its task has seen the close.
 RuntimeBeginShutdown(rtId) ==
     /\ L0!RuntimeBeginShutdown(rtId)
-    /\ RequestCancellationOfActiveCalls(L0!ChannelsOf(rtId))
-    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                   write_done_callback_running,
-                   delivery_callback_running,
-                   payloads_consumed_by_host, handle_released,
-                   shutdown_event_emitted, shutdown_callback_running,
-                   runtime_destroyed, buffer_state, buffer_send,
-                   second_event_owed, last_lend_status, resources_released_emitted,
-                   resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used, engine_held,
-                   read_admitted, lend_waiting, budget_wake_owed>>
+    /\ UNCHANGED ffi_vars
 
 EmitShutdownComplete(rtId) ==
     /\ IsStoppingRuntime(rtId)
@@ -783,21 +784,13 @@ ChannelCreate(chId, rtId) ==
     /\ L0!ChannelCreate(chId, rtId)
     /\ UNCHANGED ffi_vars
 
-\* Closing a channel cancels its calls: without this, a channel whose
-\* host neither cancels nor consumes would never drain.
+\* ak_channel_release.  It sets each call's cancellation flag in the same
+\* downcall, but a call is cancelled when its task reads the flag, which is
+\* CancelCallOfClosingChannel, as for ak_call_cancel: without it, a channel
+\* whose host neither cancels nor consumes would never drain.
 ChannelStartClosing(chId) ==
     /\ L0!ChannelStartClosing(chId)
-    /\ RequestCancellationOfActiveCalls({chId})
-    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                   write_done_callback_running,
-                   delivery_callback_running,
-                   payloads_consumed_by_host, handle_released,
-                   shutdown_event_emitted, shutdown_callback_running,
-                   runtime_destroyed, buffer_state, buffer_send,
-                   second_event_owed, last_lend_status, resources_released_emitted,
-                   resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used, engine_held,
-                   read_admitted, lend_waiting, budget_wake_owed>>
+    /\ UNCHANGED ffi_vars
 
 \* At level 1 the close completes only once every call has terminated on
 \* its own (through DeliverCancelled): the level-0 cancel-en-masse
@@ -817,14 +810,18 @@ CallStart(cId, chId) ==
     /\ L0!CallStart(cId, chId)
     /\ UNCHANGED ffi_vars
 
-\* ak_call_cancel only latches the request; the cancellation itself is
-\* the DeliverCancelled callback.  A handle exists only for a started,
-\* not-yet-released call.
+\* The call's task takes a cancellation into account: one ak_call_cancel
+\* asked for, or the call's deadline passing, which the engine raises as a
+\* cancellation of its own.  The engine ends that call DEADLINE_EXCEEDED, a
+\* code level 0 does not carry, so the model's terminal is CANCELLED.  The
+\* step is the task's observation, not the downcall's return; the
+\* cancellation itself is the DeliverCancelled callback.  A handle exists
+\* only for a started, not-yet-released call.
 RequestCallCancellation(cId) ==
     /\ ~L0!IsUnusedCall(cId)
     /\ ~IsHandleReleased(cId)
     /\ ~IsRuntimeOfCallDestroyed(cId)
-    /\ cancel_requested' = [cancel_requested EXCEPT ![cId] = TRUE]
+    /\ LatchCancellationOf(cId)
     /\ UNCHANGED l0_vars
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
@@ -834,8 +831,30 @@ RequestCallCancellation(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length, memory_used, engine_held,
-                   read_admitted, lend_waiting, budget_wake_owed>>
+                   buffer_charge, buffer_length, engine_held,
+                   read_admitted, lend_waiting>>
+
+\* The call's task takes its channel's close into account - ak_channel_release,
+\* or the shutdown, which closes every channel of the runtime - and the call
+\* is cancelled as by ak_call_cancel.  The runtime's step, owed: it is what
+\* drains a closing channel without the host.
+CancelCallOfClosingChannel(cId) ==
+    /\ L0!IsActiveCall(cId)
+    /\ ~IsHandleReleased(cId)
+    /\ IsOnClosingChannel(cId)
+    /\ ~IsCancelRequested(cId)
+    /\ LatchCancellationOf(cId)
+    /\ UNCHANGED l0_vars
+    /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
+                   write_done_callback_running,
+                   delivery_callback_running,
+                   payloads_consumed_by_host, handle_released,
+                   shutdown_event_emitted, shutdown_callback_running,
+                   runtime_destroyed, buffer_state, buffer_send,
+                   second_event_owed, last_lend_status, resources_released_emitted,
+                   resources_released_callback_running,
+                   buffer_charge, buffer_length, engine_held,
+                   read_admitted, lend_waiting>>
 
 \* Reclaiming a call is the runtime's own step, not a downcall: the ABI has
 \* no ak_call_release.  Every resource a call lends out comes back through
@@ -1262,6 +1281,8 @@ AdmitRead(cId) ==
 \* message each; a message past the second is EndCallPastHardCeiling's.
 NetworkReceive(cId, msg) ==
     /\ IsReadAdmitted(cId)
+    \* A task that has taken a cancellation into account reads nothing more.
+    /\ ~IsCancelRequested(cId)
     /\ IsWithinHardCeiling(MessageLength[msg])
     /\ L0!NetworkReceive(cId, msg)
     \* The occurrence discipline: a fresh token, never seen in either
@@ -1286,6 +1307,8 @@ NetworkReceive(cId, msg) ==
 \* refines the arrival of a status, whose code level 0 does not carry.
 EndCallPastHardCeiling(cId, msg) ==
     /\ IsReadAdmitted(cId)
+    \* A task that has taken a cancellation into account reads nothing more.
+    /\ ~IsCancelRequested(cId)
     /\ ~IsWithinHardCeiling(MessageLength[msg])
     /\ L0!ReceiveStatus(cId)
     /\ read_admitted' = [read_admitted EXCEPT ![cId] = FALSE]
@@ -1372,15 +1395,9 @@ DeliverCancelled(cId) ==
     /\ ~HasNoDeliveredEvents(cId)
     /\ L0!CallCancel(cId)
     /\ HandPayloadToHost(cId)
-    \* What the call received and never delivered goes with it, and a release
-    \* that gives bytes back owes the other waiting sends their wake-up.
-    /\ memory_used' = memory_used - UndeliveredBytes(cId)
-    /\ lend_waiting' = [lend_waiting EXCEPT ![cId] = 0]
-    /\ budget_wake_owed' =
-           [c \in CallIds |->
-               IF c = cId THEN FALSE
-               ELSE IsBudgetWakeOwed(c)
-                    \/ (UndeliveredBytes(cId) > 0 /\ IsLendWaiting(c))]
+    \* The latch has given back what the call received and never
+    \* delivered, so nothing is left to give back here.
+    /\ EndWaitOf(cId)
     /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                    write_done_callback_running,
                    handle_released, cancel_requested,
@@ -1388,7 +1405,7 @@ DeliverCancelled(cId) ==
                    runtime_destroyed, buffer_state, buffer_send,
                    second_event_owed, last_lend_status, resources_released_emitted,
                    resources_released_callback_running,
-                   buffer_charge, buffer_length,
+                   buffer_charge, buffer_length, memory_used,
                    engine_held, read_admitted>>
 
 DeliveryCallbackReturns(cId) ==
@@ -1540,6 +1557,7 @@ Next ==
     \/ \E chId \in ChannelIds : ChannelFinishClosing(chId)
     \/ \E cId \in CallIds, chId \in ChannelIds : CallStart(cId, chId)
     \/ \E cId \in CallIds : RequestCallCancellation(cId)
+    \/ \E cId \in CallIds : CancelCallOfClosingChannel(cId)
     \/ \E cId \in CallIds : ReleaseCallHandle(cId)
     \/ \E cId \in CallIds, b \in BufferIds, len \in Sizes, charge \in Sizes :
            LendSendBuffer(cId, b, len, charge)
@@ -1760,17 +1778,20 @@ LivenessProperties ==
 (***************************************************************************)
 (* FAIRNESS AND SPEC                                                       *)
 (*                                                                         *)
-(* Twenty-one action families under WF, all individual, and which side     *)
+(* Twenty-two action families under WF, all individual, and which side     *)
 (* owes each one, or what it rests on, is what the groups below record.    *)
 (* The proofs rest on their conjunction, so the grouping does not affect   *)
 (* them: it says who answers for a promise that is not kept.               *)
 (*                                                                         *)
-(* The Rust runtime owes seven: NetworkSend, EmitBudgetWake,               *)
+(* The Rust runtime owes eight: NetworkSend, EmitBudgetWake,               *)
 (* RuntimeRelease, EmitShutdownComplete, EmitResourcesReleased,            *)
-(* FreeReturnedBuffer and ReleaseCallHandle. These are its own threads and *)
-(* its own allocator, and its own code inside a downcall -                 *)
-(* ReleaseCallHandle is taken where the last debt clears, on the host's    *)
-(* thread too - so nothing outside the library can stall them.             *)
+(* FreeReturnedBuffer, ReleaseCallHandle and CancelCallOfClosingChannel.   *)
+(* These are its own threads and its own allocator, and its own code       *)
+(* inside a downcall - ReleaseCallHandle is taken where the last debt      *)
+(* clears, on the host's thread too - so nothing outside the library can   *)
+(* stall them. CancelCallOfClosingChannel is the call's task taking its    *)
+(* channel's close into account, which nothing outside the task can        *)
+(* withhold.                                                               *)
 (*                                                                         *)
 (* Three more are the runtime's steps and wait on the network.             *)
 (* ReceiveStatus waits on the peer sending its status, and a stream reads  *)
@@ -1810,11 +1831,12 @@ LivenessProperties ==
 (* HostConsumesEvent per call is enough because release is FIFO, whereas   *)
 (* buffer returns are unordered and so need one per buffer.                *)
 (*                                                                         *)
-(* The remaining downcalls (CallStart, LendSendBuffer, ResizeSendBuffer,  *)
+(* The remaining downcalls (CallStart, LendSendBuffer, ResizeSendBuffer,   *)
 (* SendMessage, SendEmptyMessage, EndSend, RequestCallCancellation,        *)
-(* RuntimeBeginShutdown)                                                   *)
-(* carry no fairness: the model never promises the host acts, only what    *)
-(* follows when it does.                                                   *)
+(* RuntimeBeginShutdown) carry no fairness: the model never promises the   *)
+(* host acts, only what follows when it does. RequestCallCancellation is   *)
+(* also the call's deadline passing, and a call may state none, so it      *)
+(* carries none either.                                                    *)
 (***************************************************************************)
 
 Fairness ==
@@ -1838,6 +1860,8 @@ Fairness ==
     /\ \A rtId \in RuntimeIds :
            WF_vars(ResourcesReleasedCallbackReturns(rtId))
     /\ \A chId \in ChannelIds : WF_vars(ChannelFinishClosing(chId))
+    \* The call's task observes its channel's close.
+    /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
     \* Per buffer, not per call: returns are unordered, so a per-call
     \* conjunct would let a host cycle buffers while starving one.  The
     \* payload side gets away with one per call because release is FIFO.

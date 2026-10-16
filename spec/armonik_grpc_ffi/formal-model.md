@@ -129,9 +129,9 @@ escape.
 - **EventualMetadata**: a started call eventually gets its response head
   (under: scheduler fairness, network progresses)
 - **EventualTerminal**: a started call eventually reaches STATUS. Applied to a stopping
-  runtime this is what drains it: closing latches cancellation on the channel's active
-  calls, so the drain asks the host for no ownership return - though it does need the
-  callbacks already dispatched to return
+  runtime this is what drains it: each active call of a closing channel has its
+  cancellation taken into account by its own task, so the drain asks the host for no
+  ownership return - though it does need the callbacks already dispatched to return
   (under: scheduler fairness, network progresses, client and server each produce a
   finite number of messages)
 - **EventualShutdown**: runtime STOPPING ⇒ ◇ RELEASED
@@ -183,13 +183,19 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
   the arena may go. Set by `ReleaseCallHandle`, the runtime's own step and not a downcall of
   its own: the ABI has no `ak_call_release`, and the step is taken by the thread that clears the
   call's last debt, inside the host's downcall or as the last callback returns
-- `cancel_requested`: per call, cancellation latched - by `ak_call_cancel` or by a
-  channel or runtime closing. Reclamation does not latch it: it only happens past the
-  terminal, so by then there is nothing left to cancel. The latching step models the moment the call's delivery
-  task takes the request into account, not the downcall's return: the window in
-  between is level-1 stutter (the level-2 command queue), like the send path, so the
-  guard `~IsCancelRequested` on `DeliverMessage` costs the implementation one test in
-  the task's own loop, never a cross-thread lock
+- `cancel_requested`: per call, cancellation latched - by `ak_call_cancel`, by the call's
+  deadline passing, which the engine raises as a cancellation of its own and ends
+  `DEADLINE_EXCEEDED`, or by the call's channel closing, `ak_channel_release` or the
+  runtime's shutdown. Reclamation does not latch it: it only happens past the terminal, so
+  by then there is nothing left to cancel. The latching step models the moment the call's
+  delivery task takes the cancellation into account, not the downcall's return nor the close:
+  the window in between is level-1 stutter (the level-2 command queue), like the send path,
+  so the guard `~IsCancelRequested` on `DeliverMessage` costs the implementation one test in
+  the task's own loop, never a cross-thread lock. A close is therefore two steps,
+  `ChannelStartClosing` and then, per active call, `CancelCallOfClosingChannel`, and a call
+  of a channel the host has released may still deliver a message before its task has seen
+  the close. The latch drops the message the call received and has not delivered, its bytes
+  given back at once, and the call reads nothing more
 - `shutdown_event_emitted`, `shutdown_callback_running`: per runtime, the
   SHUTDOWN_COMPLETE discipline
 - `second_event_owed`: per runtime, the tag SHUTDOWN_COMPLETE carried. The event
@@ -235,8 +241,8 @@ thresholds over the runtime's one count of bytes - `Ceiling`, where work waits, 
   taken. `CoversRequest` ties them at the lend and nothing relates them afterwards
 - `memory_used`: the runtime-wide counter, moved the way an implementation moves it rather
   than evaluated as a sum on demand: up by the lend and by a received message as it arrives
-  decoded, by the difference on an exchange of a lent buffer, down by the free, by the consumption of a message payload, and by a cancelled
-  call's end, which gives back what it received and never delivered; up and down by what the
+  decoded, by the difference on an exchange of a lent buffer, down by the free, by the consumption of a message payload, and by the
+  latch of a call's cancellation, which gives back what it received and never delivered; up and down by what the
   engine takes for itself and gives back. Typed `Int`;
   `MemoryAccountingExact` is what makes it non-negative and what makes the thresholds mean
   anything
@@ -399,8 +405,6 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   design chooses assume-guarantee instead, and the level-2 obligations are where the
   binding pays it
 - **TerminalCallHasNoSendInFlight**: WRITE_DONE always precedes the terminal
-- **ClosingChannelCallsCancelRequested**: both paths into closing latch cancellation on the
-  channel's active calls, so a closing channel drains without the host
 - **ActiveCallPayloadsWithinCredits / PayloadsOwnedWithinCreditsPlusOne**: at most
   `DeliveryCredits` payloads owed while the call is active, one more only when the last
   is the terminal
@@ -454,8 +458,8 @@ Additional invariants (the FFI conjuncts of the level-1 inductive invariant):
   which is why the split keeps each preservation obligation the size it was
 - **MemoryAccountingExact**: the runtime-wide counter equals the charges of the send
   buffers actually out plus the lengths of the received messages held - by the host, until it
-  consumes them, or by the engine, until it delivers them or the call ends - plus the bytes
-  the engine holds for itself. This is the
+  consumes them, or by the engine, until it delivers them, the call ends or its task takes a
+  cancellation into account - plus the bytes the engine holds for itself. This is the
   accounting claim with content, and it can fail - a lend that forgets its increment, a free
   that forgets its decrement or subtracts the wrong charge, a second credit for one buffer, a
   consumption or a cancellation that gives back the wrong bytes, a copy charged and not
@@ -589,13 +593,14 @@ New liveness guarantees:
 
 #### Fairness
 
-Twenty-one weak-fairness conjuncts, all individual, and they do not all belong to the same
-party. Which side owes each one is the whole point of listing them, because the ones the
-host owes are exactly the obligations a level-2 binding has to discharge.
+Twenty-two weak-fairness conjuncts, all individual, and they do not all belong to the same
+party. Which side owes each one is
+the whole point of listing them, because the ones the host owes are exactly the obligations a
+level-2 binding has to discharge.
 
 | Owed by | Conjuncts | What it means |
 | --- | --- | --- |
-| Rust runtime | `NetworkSend`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
+| Rust runtime | `NetworkSend`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `FreeReturnedBuffer`, `ReleaseCallHandle`, `CancelCallOfClosingChannel` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too, and `CancelCallOfClosingChannel` is a call's task taking its channel's close into account. Nothing outside the library can stall them |
 | Rust runtime, assumed of the application | `EngineGivesBackAllBytes` | An assumption that the application's compressed sending stops, not something the library guarantees |
 | Rust runtime, waiting on the network | `ReceiveStatus`, `EmitWriteDone`, `DeliverInitialMetadata` | The runtime's steps, each taken once the peer has moved: its status arrives, and on a stream is read only once the read is admitted under the memory ceiling, so after the host has given memory back; the body queue moves under its HTTP/2 flow control; its head arrives, or the call ends. Hypotheses on the network, not promises of the library |
 | FFI layer | `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
@@ -621,7 +626,8 @@ is, and a call held back below the threshold reads again only when a release mak
 
 The remaining downcalls (`CallStart`, `LendSendBuffer`, `ResizeSendBuffer`, `SendMessage`, `SendEmptyMessage`, `EndSend`,
 `RequestCallCancellation`, `RuntimeBeginShutdown`, `RuntimeDestroy`) carry no fairness:
-the model never promises the host acts, only what follows when it does. `ReleaseCallHandle`
+the model never promises the host acts, only what follows when it does. `RequestCallCancellation`
+is also the call's deadline passing, and a call may state none, so it carries none either. `ReleaseCallHandle`
 is not among them, because it is not a downcall - the runtime reclaims a settled call
 itself, which is what removing `ak_call_release` from the ABI buys. Runtime shutdown
 completes without any ownership return from the host, which discharges the level-0
@@ -1355,7 +1361,8 @@ encodings, or of code the models abstract on purpose.
 | **Serialized bytes** - arbitrary `Marshaller<T>` round-trips | Protobuf round-trip tests |
 | **Exact metadata, status and trailers**, and the .NET exception mapping | gRPC conformance tests |
 | **The five `CallInvoker` shapes' cardinalities** - the model is the generic bidirectional call | A test per shape |
-| **`CallOptions` in full** - credentials, headers; the deadline is the engine's timer, outside the model | Still declared missing work, not a hidden claim |
+| **`CallOptions` in full** - credentials, headers; the deadline is in the model only as the engine's cancellation, `RequestCallCancellation`, with no clock | Still declared missing work, not a hidden claim |
+| **A deadline passing during the runtime's dispose** - level 2 has the deadline only as its cancellation passthrough, which `BindingMayDowncall` guards, so a call the sweep has not reached yet cannot be cancelled at its deadline while the runtime is disposing; the sweep's `BeginDisposeCall` latches the same flag when it reaches the call | Nothing: a known gap of the level-2 model |
 | **The runtime's lock** between a channel's creation and the disposal's sweep - level 2 takes both as atomic steps | Nothing directed: no test races a creation against the disposal |
 | **The handles' concrete encoding** - widths, allocation, type discrimination | ABI header work and stale-handle tests |
 | **Budget polling's cadence, backoff and starvation** | Nothing: deliberately not guaranteed, and the model says so |
@@ -1468,7 +1475,7 @@ the artefact rather than left to rot:
 | SANY, on the twenty-seven SANY-clean modules | Green |
 | `ci/check_property_manifest.py` | Green: this document's property lists and the manifests name the same properties |
 | The two memory observers' normative invariants | **Covered at level 1.** `buffer_charge` holds the bytes each lent buffer was granted, `ReceivedLength` the length of each message received, and `memory_used` the runtime-wide total; `MemoryAccountingExact` states `memory_used = BytesOutstanding + BytesReceived + BytesHeldByEngine` and `MemoryWithinHardCeiling` that the total never passes `HardCeiling`. Both are in `IndInv` and proved inductive. The category totals - `BytesHostLent`, `BytesSendInFlight`, `BytesRuntimeHeld` on the send side, `BytesHostReceived` and `BytesRuntimeReceived` on the receive side - are sums over the pairs each state selects, and the sixth, `BytesHeldByEngine`, is the compressed copies of sent messages that the engine charges to the same count: `engine_held`, which the engine's two steps move and the lend's room check reads. `CategoriesPartitionTotal` and `ReceivedCategoriesPartitionTotal` are the snapshot identities the observers must report, the six adding up to the total through `MemoryAccountingExact` |
-| Level 2 | **Refined and proved, liveness included.** Fourteen modules exist, thirteen of them SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in ten configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected`, its one call declaring both shapes, is exhaustive - 628413 states, depth 39 - and its constraint prunes every state with a returned buffer before the shutdown, which an exchange and a send both leave, so it never explores past either, and the engine, which takes bytes only for a call that has sent, takes none there; `DotNetBinding_MC`, which has no such constraint, does: an exploratory run of four minutes, made before the engine's bytes were modelled, covered over a million states, `WriteResizesBuffer` taking 69350 of them, with no violation. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, about 10 seconds each (`-Dtlc2.TLC.stopAfter=10`, which `ci/tlc.sh` does not pass): the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Six configurations are witnesses rather than checks at level 2, and four more at level 1: their targets are stated negatively, so a violation trace is the result. `FfiGrpc_MCwitnessEmptySend` and `DotNetBinding_MCwitnessEmptyWrite` each show an empty message sent with no buffer and acquitted, on a call never lent one, the case `SendEmptyMessage` and `CommitEmptyWrite` exist for, reached in 1789 and 4912 distinct states; every other configuration gives each message one byte, so these two are the only runs that reach an empty send. `FfiGrpc_MCwitnessResize` and `DotNetBinding_MCwitnessResize` each show a lent buffer exchangeable for a larger one, the case `ResizeSendBuffer` and `WriteResizesBuffer` exist for, reached in under 400 and under 100 distinct states. `FfiGrpc_MCwitnessEngineBytes` and `DotNetBinding_MCwitnessEngineBytes` each show the engine taking bytes for itself and giving them back, the case `EngineTakesBytes` and `EngineGivesBackBytes` exist for, reached in under 4000 and under 16000 distinct states; `FfiGrpc_MCwitnessEngineLend` shows a lend refused for room it would have had were the engine holding nothing, the refusal `engine_held` exists for, reached in under 4000. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of these branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty-one fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fifteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved. With the engine's bytes in the model, the three proofs modules they reach verify by windows with the fingerprint cache enabled - `FfiGrpcTheorems_proofs` 13803 obligations, `FfiGrpcEnabledTheorems_proofs` 23 and `DotNetBindingTheorems_proofs` 34508, no failure; `AbstractGrpcTheorems_proofs`, which level 0 alone carries, verifies with the cache disabled at 1809; the counts are sums over windows, which may count an obligation twice at a boundary.  The seventeen cost fifteen derived invariants, listed above. |
+| Level 2 | **Refined and proved, liveness included.** Fourteen modules exist, thirteen of them SANY-clean and registered in `ci/check.sh`; the manifests hold 27 safety conjuncts and 17 liveness properties, bound to this document by the manifest checker, and `DotNetBindingTheorems` declares the freeze's obligations. TLC, in ten configurations, with no invariant violation in any run that checks one: `DotNetBinding_MCdirected`, its one call declaring both shapes, is exhaustive - 628413 states, depth 39 - and its constraint prunes every state with a returned buffer before the shutdown, which an exchange and a send both leave, so it never explores past either, and the engine, which takes bytes only for a call that has sent, takes none there; `DotNetBinding_MC`, which has no such constraint, does: an exploratory run of four minutes, made before the engine's bytes were modelled, covered over a million states, `WriteResizesBuffer` taking 69350 of them, with no violation. `DotNetBinding_MCcall`, whose call declares one request, and `DotNetBinding_MC`, whose calls are streams, are bounded and run as instantiability checks, about 10 seconds each (`-Dtlc2.TLC.stopAfter=10`, which `ci/tlc.sh` does not pass): the proof carries the content, and what TLC adds is that the configuration binds every constant and every variable. `DotNetBinding_MClive` evaluates the seventeen liveness properties under the three fairness tiers, 17 branches, run the same way. Six configurations are witnesses rather than checks at level 2, and four more at level 1: their targets are stated negatively, so a violation trace is the result. `FfiGrpc_MCwitnessEmptySend` and `DotNetBinding_MCwitnessEmptyWrite` each show an empty message sent with no buffer and acquitted, on a call never lent one, the case `SendEmptyMessage` and `CommitEmptyWrite` exist for, reached in 1789 and 4912 distinct states; every other configuration gives each message one byte, so these two are the only runs that reach an empty send. `FfiGrpc_MCwitnessCancelDrop` shows a cancelled call, still active, holding a message it received and never delivered while the count is back at zero, the bytes `LatchCancellationOf` gives back before the terminal, reached in under 2000 distinct states, and `FfiGrpc_MCwitnessCloseLatch` shows a message delivery enabled on a call of a closing channel, the window between `ChannelStartClosing` and `CancelCallOfClosingChannel`, reached in under 19000. `FfiGrpc_MCwitnessResize` and `DotNetBinding_MCwitnessResize` each show a lent buffer exchangeable for a larger one, the case `ResizeSendBuffer` and `WriteResizesBuffer` exist for, reached in under 400 and under 100 distinct states. `FfiGrpc_MCwitnessEngineBytes` and `DotNetBinding_MCwitnessEngineBytes` each show the engine taking bytes for itself and giving them back, the case `EngineTakesBytes` and `EngineGivesBackBytes` exist for, reached in under 4000 and under 16000 distinct states; `FfiGrpc_MCwitnessEngineLend` shows a lend refused for room it would have had were the engine holding nothing, the refusal `engine_held` exists for, reached in under 4000. `DotNetBinding_MCwitness` shows a cancelled parse holding the terminal slot on a healthy runtime - the case `FinishCancelledParse` decodes the status for; `DotNetBinding_MCwitnessPrologue` shows a token firing on a read suspended before the metadata - the case `BeginMoveNext`'s prologue guard exists for; `DotNetBinding_MCwitnessBudget` shows a write waiting on the send budget after the server has ended its call - the case `CancelWriterWait`'s guard on a call no longer active exists for. Without them any of these branches could be dead code, and a proof about a step that never fires proves nothing. A bounded run is evidence about what it explored and nothing more. TLAPS: the refinement is closed - `RefinesInit`, `RefinesNext` disjunct by disjunct, the twenty-one fairness lifts, `ManagedIndInvHolds`, `ManagedSafetyHolds`, `DerivedInvariantsHold` and `RefinesSpec`, which carries every level-1 theorem here, its fifteen liveness properties included.  The induction forced six invariant conjuncts into words that no safety statement had asked for, three of them under a passthrough - which is to say when the native side moves beneath the managed layer, where no managed action could have revealed them.  All seventeen managed liveness promises are proved. With the engine's bytes in the model, the three proofs modules they reach verify by windows with the fingerprint cache enabled - `FfiGrpcTheorems_proofs` 13803 obligations, `FfiGrpcEnabledTheorems_proofs` 23 and `DotNetBindingTheorems_proofs` 34508, no failure; `AbstractGrpcTheorems_proofs`, which level 0 alone carries, verifies with the cache disabled at 1809; the counts are sums over windows, which may count an obligation twice at a boundary.  The seventeen cost fifteen derived invariants, listed above. |
 | Deadlock detection at level 2 | `ci/tlc.sh` passes `-deadlock`, which switches TLC's deadlock check off, so the gate has never used it at any level - worth knowing before reading a clean run as evidence of progress. Invoked directly, `DotNetBinding_MC` reaches a deadlock: every channel refused and the runtime torn down, the finite `ChannelIds` set spent, a rejected channel being terminal. That is quiescence rather than a stall, and an artefact of the bound rather than a property of the system, which the configuration now states. `AbsentRuntimeOwesNothing` carries the content instead, and a genuine mid-flight stall still breaks the liveness configuration |
 
 There is an objection to modelling any of this, and it is half right, so it is worth stating.
@@ -1552,7 +1559,8 @@ refinement.
 |----------------|---------------------|
 | `RuntimeCreate` | `ak_runtime_create`, or `ak_runtime_create_from`, publishes the runtime as RUNNING |
 | `ChannelCreate` | `ak_channel_create` publishes the channel as open |
-| `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
+| `ChannelStartClosing` | `ak_channel_release` marks the channel closing, or the runtime's shutdown closes the gate. The step latches nothing on the calls: `ak_channel_release` sets each call's flag in the same downcall, and the shutdown's task a little later, but a call is cancelled when its task reads the flag, which is `CancelCallOfClosingChannel`, as `RequestCallCancellation` is for `ak_call_cancel` |
+| `CancelCallOfClosingChannel` | the call's task reads the cancellation its channel's close set on it, waiting for a delivery credit or before it charges a message (`actor.rs`), and drops the message it holds undelivered, its bytes given back |
 | `ChannelFinishClosing` | the last call of a closing channel leaves it, inside its terminal callback once the host's callback has returned |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
 | `LendSendBuffer` | the ledger's bounded CAS on its byte count succeeds, inside `ak_get_call_buffer`, the call's window slot taken just before it and given back by any refusal. When the arena it hands out is a spare with slack, the slack is charged in a second step on the ledger, which is a growth `ResizeSendBuffer` of the buffer just lent into a fresh identity, so it spends a member of `BufferIds`; when the ceiling has no room for the slack, an arena of the request's own size replaces the spare and no second step is taken. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
@@ -1569,9 +1577,9 @@ refinement.
 | `DeliverInitialMetadata` / `DeliverMessage` / `DeliverStatus` / `DeliverCancelled` | the actor stages the event for the data callback once it has it in hand, having taken a credit; the callback carries every event staged before it calls the host |
 | `DeliveryCallbackReturns` | that callback returns to the actor; for an event another of the same callback follows, the actor takes it just before it stages that one, the host not having been called |
 | `HostConsumesEvent(c)` | `ak_event_consumed` frees the oldest outstanding payload, identified by its `owner`; `ak_events_consumed` of `n` payloads is `n` of these, in order |
-| `RequestCallCancellation` | `ak_call_cancel`: the actor observes the flag, not the downcall's return |
+| `RequestCallCancellation` | `ak_call_cancel`: the actor observes the flag, not the downcall's return, and drops the message it holds undelivered, its bytes given back. Or the call's deadline passing (`within_deadline` in `driver.rs`), a cancellation of the engine's own: it drops the driver and the message it holds, and the call ends `DEADLINE_EXCEEDED`, a code level 0 does not carry, so `DeliverCancelled` delivers it as the CANCELLED terminal |
 | `ReleaseCallHandle` | the last debt of a terminal call clears: no payload owed, no buffer out, its own callbacks returned. Taken by the thread that clears it - the host's, in the downcall that gives the last payload or buffer back, or the engine's, as the last callback returns. Not a downcall of its own |
-| `RuntimeBeginShutdown` | `ak_runtime_begin_shutdown` closes the start gate |
+| `RuntimeBeginShutdown` | `ak_runtime_begin_shutdown` closes the start gate, and the runtime reads STOPPING. Level 0 closes the runtime's channels in the same step, where the code's shutdown task closes them a little later, so `ak_channel_status` may read OPEN on a channel of a runtime that reads STOPPING. That read takes no step and changes nothing a host can do: a channel of a stopping runtime refuses every start, whatever it reads, and its calls are cancelled as `CancelCallOfClosingChannel` says |
 | `EmitShutdownComplete` | the runtime task invokes the callback with `AK_EVENT_SHUTDOWN_COMPLETE` |
 | `ShutdownCallbackReturns` | that callback returns |
 | `RuntimeRelease` | the runtime publishes `AK_RUNTIME_GRPC_STOPPED`, or `AK_RUNTIME_QUIESCENT` when nothing of it is outstanding. Both refine the level-0 RELEASED state; which one the host reads is the release signal, not a level-0 distinction |
@@ -1579,8 +1587,8 @@ refinement.
 | `ResourcesReleasedCallbackReturns` | that callback returns, which completes the resources branch. It does not by itself make the status `AK_RUNTIME_QUIESCENT`: the order against `RuntimeRelease` is free, so the level-0 transition may still be owed |
 | `RuntimeDestroy` | `ak_runtime_destroy` accepts, its precondition checked |
 | `AdmitRead` | the call's read loop, before it asks for its next message, finds the count below the first threshold lowered by the largest length a refused send waits on. Held back, it waits for a release or for that send to be served |
-| `NetworkReceive` | the read loop has the next message decoded and charges its length, the count staying at or below the second threshold |
-| `EndCallPastHardCeiling` | the decoded message would take the count past the second threshold: the call ends with `RESOURCE_EXHAUSTED` and the message is dropped, never charged |
+| `NetworkReceive` | the read loop has the next message decoded and charges its length, the count staying at or below the second threshold; a task that has taken a cancellation into account charges nothing more |
+| `EndCallPastHardCeiling` | the decoded message would take the count past the second threshold: the call ends with `RESOURCE_EXHAUSTED` and the message is dropped, never charged; a task that has taken a cancellation into account reads nothing more |
 | `engine_held`, `EngineTakesBytes`, `EngineGivesBackBytes` | `CopyBudget` in `armonik-transport-ffi/src/ledger.rs`. The term is the bytes the ledger holds for compressed copies. `EngineTakesBytes` is `Ledger::hold_copy`, called by `CopyBudget::charge` once the copy is made: the bounded CAS on the byte count against the first threshold. A refusal returns no charge, the copy is dropped and the message goes out uncompressed, so it is no step of the model. `EngineGivesBackBytes` is `Ledger::release_copy`, run when the charge goes with the message that holds the copy, written or not: the bytes come off the count and the sends that wait are owed their wake-up. The count a shutdown waits on does not move for either, which is why no quiescence condition reads the term. The fairness instance, `EngineGivesBackAllBytes`, is every message that holds a copy being dropped, which holds once the application's compressed sending stops: an assumption on the application |
 | `EmitBudgetWake` | the call's task invokes the callback with `AK_EVENT_BUDGET_WAKE`, after a release that gave bytes back while the call's send waited |
 | `NetworkSend` / `ReceiveStatus` | internal to the `grpc` module, not observable at the ABI |

@@ -205,6 +205,7 @@ THEOREM ChannelCloseLift ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => WF_l0_vars(L0!ChannelFinishClosing(chId))
 
 (***************************************************************************)
@@ -269,6 +270,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => ((IsStoppingRuntime(rtId)) ~>
                    IsShutdownEventEmitted(rtId))
 
@@ -311,6 +313,7 @@ THEOREM ShutdownEmitFairnessRequirement ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => ((IsStoppingRuntime(rtId)) ~>
                    IsShutdownEventEmitted(rtId))
 
