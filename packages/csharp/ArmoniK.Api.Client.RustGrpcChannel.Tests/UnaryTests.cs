@@ -30,6 +30,7 @@ using Grpc.Core;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
@@ -943,6 +944,68 @@ public class UnaryTests : EchoServerFixture
     Assert.That(channel.DisposeState,
                 Is.EqualTo(ChannelDisposeState.Disposed));
   }
+
+#if DEBUG
+  /// <summary>A call whose start overlaps the channel's disposal is a call that disposal waits for.</summary>
+  /// <remarks>
+  ///   The interleaving held open: the engine has started the call and the channel has not tracked
+  ///   it yet when the disposal begins. A disposal that finished then would release the channel
+  ///   with a call of it unsettled, and a runtime disposed next would shut down while the host
+  ///   still owes that call's payloads. The hook is Debug-only and process-wide.
+  /// </remarks>
+  [Test]
+  [NonParallelizable]
+  public async Task AChannelDisposalWaitsForACallStartedBesideIt()
+  {
+    var channel = Channel();
+    using var started = new ManualResetEventSlim(false);
+    using var release = new ManualResetEventSlim(false);
+    TestHooks.StartedNotTracked = () =>
+                                  {
+                                    started.Set();
+                                    release.Wait();
+                                  };
+    try
+    {
+      var starting = Task.Run(() => channel.StartCall("/armonik.transport.ffi.test.Echo/Never",
+                                                      null,
+                                                      ReplyMarshaller));
+      Assert.That(started.Wait(TimeSpan.FromSeconds(30)),
+                  Is.True,
+                  "the engine started the call");
+
+      var disposing = Task.Run(() => channel.DisposeAsync()
+                                            .AsTask());
+      var finishedWhileHeld = await Task.WhenAny(disposing,
+                                                 Task.Delay(TimeSpan.FromSeconds(1)))
+                                        .ConfigureAwait(false) == disposing;
+      release.Set();
+
+      var call = await starting.ConfigureAwait(false);
+      Assert.That(await Task.WhenAny(disposing,
+                                     Task.Delay(TimeSpan.FromSeconds(30)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(disposing),
+                  "the disposal ends");
+      var settledWhenDisposed = call.Settled.IsCompleted;
+
+      Assert.Multiple(() =>
+                      {
+                        Assert.That(finishedWhileHeld,
+                                    Is.False,
+                                    "the disposal did not finish beside a call the engine had started on the channel");
+                        Assert.That(settledWhenDisposed,
+                                    Is.True,
+                                    "and the call had settled when it did");
+                      });
+    }
+    finally
+    {
+      TestHooks.StartedNotTracked = null;
+      release.Set();
+    }
+  }
+#endif
 
   /// <summary>Metadata the engine refuses, as a caller sees it.</summary>
   /// <remarks>`InvalidArgument` and not `Internal`: nothing left this process, and what was wrong

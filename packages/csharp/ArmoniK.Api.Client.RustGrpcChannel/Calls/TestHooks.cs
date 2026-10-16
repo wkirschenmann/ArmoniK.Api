@@ -29,6 +29,10 @@ internal static class TestHooks
   /// <remarks>Awaited rather than run: the prologue's first pass is on the thread that starts the
   /// call, which a hook that blocked would stop before the call is handed out.</remarks>
   internal static Func<RingConsumer, Task>? FoundTheRingEmpty;
+
+  /// <summary>Run by a channel on the starting thread, once the engine has started a call and
+  /// before the channel tracks it.</summary>
+  internal static Action? StartedNotTracked;
 }
 
 internal enum RingConsumer
