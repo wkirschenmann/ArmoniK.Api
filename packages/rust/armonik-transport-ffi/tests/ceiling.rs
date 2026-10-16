@@ -1,10 +1,12 @@
 //! Received messages count against the runtime's ceiling: reads wait past the first threshold, a
 //! message past the second ends its call, and a send refused for room is woken by a release. A
-//! call whose reads wait still ends at its deadline. A lend of no bytes is refused: an empty
-//! message takes none.
+//! call whose reads wait still ends at its deadline. A received message dropped undelivered is
+//! given back before the terminal, on a deadline as on a cancel. A lend of no bytes is refused: an
+//! empty message takes none.
 
 mod support;
 
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use armonik_transport_ffi::*;
@@ -18,6 +20,7 @@ const SIZED: &str = "/raw/Sized";
 /// decides, not the delivery window.
 const CREDITS: &str = r#"{"Grpc":{"Host":{"Receive":{"Window":8}}}}"#;
 
+const CANCELLED: i32 = 1;
 const DEADLINE_EXCEEDED: i32 = 4;
 const RESOURCE_EXHAUSTED: i32 = 8;
 
@@ -249,6 +252,80 @@ fn a_call_whose_reads_wait_still_ends_at_its_deadline() {
     host.recorder.consume_all();
     ak_channel_release(channel);
     host.stop();
+}
+
+/// A received message that waits for a delivery credit when its call ends is dropped undelivered,
+/// and its bytes are given back before the terminal, on a deadline as on a cancel: the deadline is
+/// an engine-side cancellation.
+#[test]
+fn a_message_dropped_undelivered_is_given_back_before_the_terminal() {
+    for by_deadline in [true, false] {
+        let server = TestServer::start();
+        let host = Host::start();
+        host.recorder.hold_payloads();
+        let channel = host.channel_with(
+            &server.endpoint,
+            r#"{"Grpc":{"Host":{"Receive":{"Window":1}}}}"#,
+        );
+        let runtime = host.runtime;
+        let at_terminal = Arc::new(Mutex::new(None));
+        let read = Arc::clone(&at_terminal);
+        host.recorder.react(Some(Arc::new(move |kind| {
+            if kind == ak_event_kind::AK_EVENT_STATUS {
+                *read.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(memory_usage(runtime).bytes_used);
+            }
+        })));
+
+        // The head takes the one credit and the host holds it, so the first message is read,
+        // charged, and waits.
+        let sizes = sized("40,40");
+        let call = if by_deadline {
+            start_call_within(channel, SIZED, &sizes, Duration::from_secs(1))
+        } else {
+            start_call(channel, SIZED, &sizes)
+        };
+        host.recorder.await_metadata();
+        support::poll_until(
+            || memory_usage(runtime).bytes_used == 40,
+            || format!("{} bytes used", memory_usage(runtime).bytes_used),
+        );
+        if !by_deadline {
+            assert_eq!(
+                unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+                ak_status::AK_STATUS_OK
+            );
+        }
+
+        let seen = host.recorder.await_terminal();
+        // The reaction runs after the event is recorded, so the read is waited for.
+        support::poll_until(
+            || {
+                at_terminal
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .is_some()
+            },
+            || "the terminal's callback read the usage".to_owned(),
+        );
+        host.recorder.react(None);
+        assert_eq!(
+            seen.status_code(),
+            Some(if by_deadline {
+                DEADLINE_EXCEEDED
+            } else {
+                CANCELLED
+            })
+        );
+        assert_eq!(
+            *at_terminal.lock().unwrap_or_else(PoisonError::into_inner),
+            Some(0),
+            "the message waiting for a credit was given back before the terminal, by deadline: {by_deadline}"
+        );
+        host.recorder.consume_all();
+        ak_channel_release(channel);
+        host.stop();
+    }
 }
 
 /// No lend is of no bytes: an empty message needs no buffer, and the send takes none.
