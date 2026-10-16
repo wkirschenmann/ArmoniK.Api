@@ -1,6 +1,6 @@
 //! Points where a test runs its own code inside the engine, to reach a path nothing else reaches,
-//! and counts of what the engine writes and of the rounds its deliveries wait. Compiled with the
-//! `test-hooks` feature only.
+//! and counts of what the engine writes and of the rounds its writes and deliveries wait.
+//! Compiled with the `test-hooks` feature only.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -122,6 +122,7 @@ static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
 static WHEN_READ_WAITS: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
+static HELD_WRITES: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS_ANSWERED: AtomicUsize = AtomicUsize::new(0);
 static COMPRESSIONS: AtomicUsize = AtomicUsize::new(0);
@@ -134,6 +135,16 @@ pub fn writes() -> usize {
 
 pub(crate) fn count_write() {
     WRITES.fetch_add(1, Ordering::SeqCst);
+}
+
+/// How many times a write of this process's HTTP/2 connections has waited a round of the runtime
+/// for more to join it.
+pub fn held_writes() -> usize {
+    HELD_WRITES.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_held_write() {
+    HELD_WRITES.fetch_add(1, Ordering::SeqCst);
 }
 
 /// How many rounds of the runtime the deliveries of this process's responses have waited for

@@ -412,6 +412,18 @@ pub fn send_one(call: ak_handle, message: &[u8]) {
     );
 }
 
+/// Sends a one-request call's request, which is its whole sending: such a call has no end of its
+/// own to send.
+pub fn send_one_request(call: ak_handle, message: &[u8]) {
+    let (status, buffer) = lend(call, message.len());
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+    unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK
+    );
+}
+
 pub fn try_create_runtime(memory_ceiling: u64, runtime_ctx: *mut c_void) -> (ak_status, ak_handle) {
     try_create_runtime_with(memory_ceiling, 0, runtime_ctx)
 }

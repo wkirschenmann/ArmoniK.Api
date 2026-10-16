@@ -42,6 +42,8 @@ public static class Program
   public static async Task Main(string[] args)
   {
     var tls = args.Contains("--tls");
+    // `--plain-say` answers Say with the reply and `x-answered` alone.
+    var plainSay = args.Contains("--plain-say");
 
     // `--port N` listens there rather than at a port the system picks, for a test that starts the
     // server after it dialled.
@@ -51,8 +53,10 @@ public static class Program
                  ? 0
                  : int.Parse(args[portAt + 1]);
     var builder = WebApplication.CreateBuilder(args.Where((arg,
-                                                           at) => arg != "--tls" && (portAt < 0 || (at != portAt && at != portAt + 1)))
+                                                           at) => arg != "--tls" && arg != "--plain-say" &&
+                                                                  (portAt < 0 || (at != portAt && at != portAt + 1)))
                                                    .ToArray());
+    builder.Services.AddSingleton(new SayShape(plainSay));
 
     var (certificate, authority) = tls
                                      ? Certificate()
