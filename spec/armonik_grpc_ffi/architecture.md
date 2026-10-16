@@ -405,8 +405,10 @@ refuses with `AK_STATUS_BUDGET_BUSY` because the runtime-wide ceiling is reached
 not necessarily this call's doing - with a window deeper than one, its own sends hold
 budget too - so a WRITE_DONE of this call is a wake-up,
 never an exhaustive one: the budget is runtime-wide and anyone's free recredits it.
-A genuine allocator failure is `AK_STATUS_INTERNAL`, one of those rows: a refused lend that
-changes nothing level 1 carries, and not `RuntimeFail`.
+A genuine allocator failure is `AK_STATUS_INTERNAL`, one of those rows, and not `RuntimeFail`.
+The arena is allocated after the charge, so that refusal is a lend whose buffer comes straight
+back: level 1's `LendSendBuffer`, `HostReturnsBuffer` and `FreeReturnedBuffer`, which
+formal-model.md's mapping table describes.
 
 The order of those checks is what keeps `AK_STATUS_INTERNAL` rare. The ceiling is tested
 *before* anything is allocated, so a runtime at its budget refuses with `AK_STATUS_BUDGET_BUSY`

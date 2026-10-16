@@ -396,8 +396,10 @@ buffer is as that answer says:
   ceiling's charge, moved in one step or not at all - the answer is `AK_STATUS_INTERNAL`, a
   refusal like an allocator failure. A buffer the host held stays lent, charged and the host's,
   and `*out` as it was, so the host may retry or give the buffer back. A lend refused by a
-  contained panic holds nothing: nothing is charged, no slot of the window is spent, the call's one
-  buffer is free, no wait for room is recorded and `*out` is untouched, so the host may ask again.
+  contained panic holds nothing once it returns: nothing is charged, no slot of the window is
+  spent, the call's one buffer is free, no wait for room is recorded and `*out` is untouched, so
+  the host may ask again. A panic after the charge has repaid it on the way out, as the paragraph
+  on a refusal after the charge below says.
 - Once the operation is made - the message queued, or on a one-request call given; the exchange
   made - the answer is `AK_STATUS_OK`, whatever a panic in the rest of it does.
 - Between the two, where the buffer is gone and the operation was not made - a commit whose arena
@@ -410,14 +412,22 @@ it reads the bytes after the end of the buffer treats the buffer as an overrun, 
 being freed, with the runtime shutting down.
 
 A genuine allocator failure is none of these: it is `AK_STATUS_INTERNAL`, and the lend is
-refused as the others are - nothing charged, no slot spent - while the runtime carries on. A
-refused lend, whether for an allocator failure or a panic, pays what it took part by part,
-whatever a panic in one part does to the others, so a runtime whose lend was refused still reaches
-`QUIESCENT` with nothing owed and no byte charged.
+refused as the others are, while the runtime carries on. A refused lend, whether for an allocator
+failure or a panic, pays what it took part by part, whatever a panic in one part does to the
+others, so a runtime whose lend was refused still reaches `QUIESCENT` with nothing owed and no
+byte charged.
 
-A lend refused with `AK_STATUS_BUDGET_BUSY` leaves the call waiting on that length until a lend
-of it succeeds or the call ends, and every release that gives bytes back meanwhile owes the call
-an `AK_EVENT_BUDGET_WAKE`. While it waits, every call of the runtime reads only below the ceiling
+A lend can be refused after its charge: with `AK_STATUS_INVALID_STATE` when the call is found over
+once counted, or with `AK_STATUS_INTERNAL` for an allocator failure or a panic past the charge. Its
+charge was made, so it is what a lend whose buffer comes straight back is: the call's wait for room
+ends at the charge as at a successful lend, the bytes it gives back owe every waiting call an
+`AK_EVENT_BUDGET_WAKE` as any release does, and a shutdown that reads the ledger while the charge
+stands may tag `AK_HOST_MUST_RETURN`. The formal model's steps are in formal-model.md's mapping
+table.
+
+A lend refused with `AK_STATUS_BUDGET_BUSY` leaves the call waiting on that length until a
+lend by the call is charged or the call ends, and every release that gives bytes back meanwhile
+owes the call an `AK_EVENT_BUDGET_WAKE`. While it waits, every call of the runtime reads only below the ceiling
 lowered by that length, so the host must try again when woken or cancel the call: a send given up
 on a live call holds reception lowered for the whole runtime. The event may arrive in parallel
 with the call's data callbacks, like `AK_EVENT_WRITE_DONE`, and before its terminal; it promises
