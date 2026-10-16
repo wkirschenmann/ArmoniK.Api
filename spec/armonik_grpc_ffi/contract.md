@@ -108,7 +108,8 @@ pub struct Http2Config {
     /// How many DATA frames of the peer's largest size one queued part of a
     /// request may span, written one after the other in one write. At 1 a
     /// part is one frame, as in stock h2; more needs the engine built against
-    /// h2-batch's patch, and is refused otherwise. At most 256.
+    /// h2-batch's patch, and is refused otherwise. At most 256; by default 16
+    /// in an engine built against the patch, and 1 in any other.
     pub frames_per_write: usize,
     // Not built: max_frame_size, and the advertised SETTINGS_MAX_CONCURRENT_STREAMS,
     // which bounds the streams the *peer* may open (RFC 9113 s5.1.2) - for a client,

@@ -279,7 +279,7 @@ pub struct Http2Config {
     /// How many DATA frames of the peer's largest size one queued part of a request may span,
     /// written one after the other in one write. At 1 a part is one frame, as in stock h2; more
     /// needs the engine built against h2-batch's patch, and is refused otherwise. At most
-    /// `LARGEST_FRAMES_PER_WRITE`.
+    /// `LARGEST_FRAMES_PER_WRITE`; by default 16 in a build against the patch, and 1 in any other.
     pub frames_per_write: usize,
     /// The most bytes the headers of one request may take, counted as RFC 9113 section 6.5.2
     /// counts a header list: each field's name and value, and 32 more, the pseudo-header fields
@@ -290,6 +290,10 @@ pub struct Http2Config {
 
 /// The most DATA frames one queued part may span: 4 MiB at h2's default frame size.
 pub const LARGEST_FRAMES_PER_WRITE: usize = 256;
+
+/// The frames per write a session takes unless told otherwise: 16 in a build against h2-batch's
+/// patch, and 1 in any other, which takes no more.
+const DEFAULT_FRAMES_PER_WRITE: usize = if cfg!(h2_batch) { 16 } else { 1 };
 
 /// How much the session lets its peer send ahead of what is read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,7 +350,7 @@ impl Default for Http2Config {
             simultaneous_calls_per_connection: None,
             write_coalescing: 16 * 1024,
             send_buffer: 1024 * 1024,
-            frames_per_write: 1,
+            frames_per_write: DEFAULT_FRAMES_PER_WRITE,
             max_header_list_size: None,
         }
     }

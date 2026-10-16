@@ -22,8 +22,8 @@ build alone. Every other build uses h2 as crates.io ships it.
 4. The DATA queued for writing is bounded: no more is queued once 1 MiB of payload waits
    (`MAX_QUEUED_DATA`), besides the 512 queued frames hyperium/h2#903 bounds it at.
 
-The engine sets it from `Http2.Send.FramesPerWrite`, and refuses a value above 1 from a build
-without the patch.
+The engine sets it from `Http2.Send.FramesPerWrite`, which defaults to 16 in a build against the
+patch and to 1 in any other, and refuses a value above 1 from a build without the patch.
 
 Measured over TCP loopback, 16 MiB uploads at 16 frames per write: 15.3 to about 8.2 ms of
 client CPU per call, and 1245 to 286 syscalls; a 4 MiB request goes out in 17 writes at 16
@@ -72,11 +72,12 @@ packages/rust/patches/h2-batch/build.sh test -p armonik-transport --all-features
 A path patch makes cargo rewrite Cargo.lock; `build.sh` puts it back when it exits. It needs
 bash, tar, patch and sha256sum, which Git for Windows provides.
 
-The .NET binding builds its native engine with it when the MSBuild property
-`NativeEngineH2Batch` is `true`, which needs `bash` on the PATH to be Git Bash on Windows:
+The .NET binding builds its native engine with it unless the MSBuild property
+`NativeEngineH2Batch` is `false`, which needs `bash` on the PATH to be Git Bash on Windows. On
+stock h2:
 
 ```sh
-dotnet build -p:NativeEngineH2Batch=true
+dotnet build -p:NativeEngineH2Batch=false
 ```
 
 ## Moving to another h2
