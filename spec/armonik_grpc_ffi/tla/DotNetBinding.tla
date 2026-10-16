@@ -1073,7 +1073,10 @@ SerializationSettles(cId) ==
 \* level 1 is one for one.  PassEngineGivesBackAllBytes is the runtime's
 \* step but holds only once the application's compressed sending stops:
 \* an assumption on the application, here because its step is the
-\* runtime's.
+\* runtime's.  Four more are the runtime's steps that the implementation
+\* takes only once something else has moved, as level 1's table says: the
+\* status, the acquittal and the head wait on the network, and the
+\* channel's close on the return of its last call's terminal callback.
 RuntimeOwedFairness ==
     \* accepted sends reach the wire, so a committed write can be acquitted
     /\ \A cId \in CallIds : WF_vars(PassNetworkSend(cId))

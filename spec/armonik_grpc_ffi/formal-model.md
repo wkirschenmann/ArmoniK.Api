@@ -595,10 +595,15 @@ host owes are exactly the obligations a level-2 binding has to discharge.
 
 | Owed by | Conjuncts | What it means |
 | --- | --- | --- |
-| Rust runtime | `NetworkSend`, `ReceiveStatus`, `EmitWriteDone`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `ChannelFinishClosing`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
+| Rust runtime | `NetworkSend`, `EmitBudgetWake`, `RuntimeRelease`, `EmitShutdownComplete`, `EmitResourcesReleased`, `FreeReturnedBuffer`, `ReleaseCallHandle` | Its own threads and its own allocator, and its own code inside a downcall: `ReleaseCallHandle` is taken where the last debt clears, on the host's thread too. Nothing outside the library can stall them |
 | Rust runtime, assumed of the application | `EngineGivesBackAllBytes` | An assumption that the application's compressed sending stops, not something the library guarantees |
-| FFI layer | `DeliverInitialMetadata`, `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
+| Rust runtime, waiting on the network | `ReceiveStatus`, `EmitWriteDone`, `DeliverInitialMetadata` | The runtime's steps, each taken once the peer has moved: its status arrives, and on a stream is read only once the read is admitted under the memory ceiling, so after the host has given memory back; the body queue moves under its HTTP/2 flow control; its head arrives, or the call ends. Hypotheses on the network, not promises of the library |
+| FFI layer | `DeliverMessage`, `DeliverStatus`, `DeliverCancelled` | An event that reaches the queue reaches the host |
 | Host (binding + application) | `DeliveryCallbackReturns`, `WriteDoneReturns`, `ShutdownCallbackReturns`, `ResourcesReleasedCallbackReturns`, `HostConsumesEvent`, `HostReturnsBuffer` | Six hypotheses the ABI imposes and cannot enforce |
+| Rust runtime, waiting on the host | `ChannelFinishClosing` | The model's step is enabled once the channel's last call is over. The implementation takes it later, inside the terminal callback of that call once the host's callback has returned, so it waits on the host as `DeliveryCallbackReturns` does |
+
+The proofs rest on the conjunction of the rows, so the grouping does not affect them: it says who
+answers for a promise that is not kept.
 
 The four callback-return conjuncts say that the callback the *host* installed eventually
 returns. For our own .NET binding that is a property we implement and can point at; for
@@ -842,9 +847,12 @@ rather than restated.
   per level-1 family the runtime and the FFI dispatch owe - `PassNetworkSend`,
   `PassDeliverStatus`, `PassEmitWriteDone`, `PassEmitBudgetWake` and the rest, each of
   them the level-1 action beside a managed stutter - and `PassWriteDoneReturns`, the
-  engine's return of a one-request call's acquittal.  One is the exception to the tier's
+  engine's return of a one-request call's acquittal.  Five are exceptions to the tier's
   name: `PassEngineGivesBackAllBytes` is the runtime's step but carries level 1's assumption
-  that the application's compressed sending stops.  The transfer is one for one: a
+  that the application's compressed sending stops, and the passthroughs of `ReceiveStatus`,
+  `EmitWriteDone`, `DeliverInitialMetadata` and `ChannelFinishClosing` are the runtime's steps
+  that the implementation takes only after the network or the host has moved, as level 1's
+  fairness table says.  The transfer is one for one: a
   projection lemma says the level-2 step is the level-1 step, and PTL turns the pair into
   the level-1 weak fairness.  Two wait while a one-request commit seals, the status's and
   the acquittal's, so their transfer goes through `SealingPasses`: a call seals once at
@@ -1545,7 +1553,7 @@ refinement.
 | `RuntimeCreate` | `ak_runtime_create`, or `ak_runtime_create_from`, publishes the runtime as RUNNING |
 | `ChannelCreate` | `ak_channel_create` publishes the channel as open |
 | `ChannelStartClosing` | `ak_channel_release`, or the runtime's shutdown closing the gate |
-| `ChannelFinishClosing` | the last call of a closing channel reaches its terminal |
+| `ChannelFinishClosing` | the last call of a closing channel leaves it, inside its terminal callback once the host's callback has returned |
 | `CallStart` | `ak_call_start` registers the actor and returns `AK_STATUS_OK` |
 | `LendSendBuffer` | the bounded CAS on the slot counter succeeds, inside `ak_get_call_buffer`. Its three refusals - `AK_STATUS_SLOT_BUSY` for this call's window, `AK_STATUS_BUDGET_BUSY` for the runtime-wide ceiling, `AK_STATUS_MESSAGE_TOO_LARGE` for a request past it - are the model actions `RefuseLendForSlot`, `RefuseLendForBudget` and `RefuseLendTooLarge`, linearizing at the check that fails; each writes the call's last-lend status and nothing else |
 | `HostReturnsBuffer` | `ak_return_call_buffer` gives a lent buffer back unused |
