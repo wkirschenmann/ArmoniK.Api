@@ -1605,7 +1605,7 @@ public sealed class Http2SendOptions
   ///   largest size, 4 MiB at 256 frames of 16 KiB; a message goes whole into a part it fits in.
   ///   A call reset while DATA of it is queued still sends that DATA before its reset, and a PING
   ///   or another call's frame waits behind what is queued.
-  ///   Defaults to 1.
+  ///   Defaults to 16 in an engine built against the patch, and to 1 in any other.
   /// </remarks>
   [JsonPropertyName("FramesPerWrite")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
