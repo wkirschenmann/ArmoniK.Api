@@ -100,8 +100,11 @@ pub(crate) struct CallState {
     requests: Requests,
     /// The call's task until it is spawned: at once for a stream; for a call that sends one request,
     /// by whichever comes first of its commit and what needs the task before it - a cancellation,
-    /// and a lend refused for the budget, whose wake-up the task raises.
+    /// a lend refused for the budget, whose wake-up the task raises, and its deadline, which its
+    /// channel watches until then.
     task: Mutex<Option<CallTask>>,
+    /// The deadline the channel watches for the call until its task is spawned.
+    watched: Option<tokio::time::Instant>,
     window: Semaphore,
     credits: Semaphore,
     debt: Debt,
@@ -174,15 +177,29 @@ impl Drop for Lending<'_> {
     }
 }
 
-/// A lend's record of its send as waiting for room, which ends the wait when it is dropped.
-/// `CallState::charge_or_wait` forgets it when the record is to stand.
+/// A lend's record of its send as waiting for room, which puts back the wait that stood before
+/// it when it is dropped, or ends the wait when none stood: a lend refused without its own
+/// refusal for the budget leaves the call as it found it. `CallState::charge_or_wait` forgets it
+/// when the record is to stand.
 struct Waiting<'a> {
     call: &'a CallState,
+    /// The length an earlier refusal of this call waits on, zero for none.
+    before: usize,
 }
 
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
-        guard_void(|| self.call.ledger.stop_waiting(&self.call.waiter));
+        guard_void(|| {
+            let call = self.call;
+            if self.before != 0 {
+                call.ledger.wait(&call.waiter, self.before);
+                // Read against the end after the record, as `charge_or_wait` reads it.
+                if call.live() {
+                    return;
+                }
+            }
+            call.ledger.stop_waiting(&call.waiter);
+        });
     }
 }
 
@@ -233,7 +250,16 @@ impl CallState {
         self.spawn_task();
     }
 
-    /// Spawns the call's task, once: the first to ask takes it, under the lock that decides.
+    /// Spawns the call's task once its deadline has passed, for its channel's watcher. A task that
+    /// is not spawned is a call that never ends: the shutdown is what is left.
+    pub(crate) fn spawn_at_deadline(self: &Arc<Self>) {
+        if catch_unwind(AssertUnwindSafe(|| self.spawn_task())).is_err() {
+            self.shut_down();
+        }
+    }
+
+    /// Spawns the call's task, once: the first to ask takes it, under the lock that decides. The
+    /// task watches the deadline from then on.
     fn spawn_task(self: &Arc<Self>) {
         let task = self
             .task
@@ -241,6 +267,9 @@ impl CallState {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(task) = task {
+            if let Some(at) = self.watched {
+                self.channel.deadlines.forget(at, self.handle);
+            }
             actor::spawn(self, task);
         }
     }
@@ -459,13 +488,17 @@ impl CallState {
     /// the order `Ledger::stop_waiting` states.
     ///
     /// The record stands only on the refusal for the budget, whose wake-up the task raises. Any
-    /// other way out takes it back, a panic included: a refused lend holds nothing, and a send
-    /// that no lend is waiting for must not lower what every call may read.
+    /// other way out puts back what stood before it, a panic included: the wait of an earlier
+    /// refusal stands until a lend is served or the call ends, and with none, a send that no lend
+    /// is waiting for must not lower what every call may read.
     fn charge_or_wait(self: &Arc<Self>, len: usize) -> Result<(), ak_status> {
         if self.ledger.hold_bytes(len).is_ok() {
             return Ok(());
         }
-        let waiting = Waiting { call: self };
+        let waiting = Waiting {
+            call: self,
+            before: self.waiter.waits_on(),
+        };
         self.ledger.wait(&self.waiter, len);
         if !self.live() {
             return Err(ak_status::AK_STATUS_INVALID_STATE);

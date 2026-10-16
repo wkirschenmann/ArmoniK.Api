@@ -1,5 +1,5 @@
 diff --git a/src/codec/framed_write.rs b/src/codec/framed_write.rs
-index efd1966..5ea2fbe 100644
+index efd1966..733c8a6 100644
 --- a/src/codec/framed_write.rs
 +++ b/src/codec/framed_write.rs
 @@ -4,12 +4,15 @@ use crate::frame::{self, Frame, FrameSize};
@@ -20,7 +20,7 @@ index efd1966..5ea2fbe 100644
  
  // A macro to get around a method needing to borrow &mut self
  macro_rules! limited_write_buf {
-@@ -38,11 +41,11 @@ struct Encoder<B> {
+@@ -38,11 +41,14 @@ struct Encoder<B> {
      /// TODO: Should this be a ring buffer?
      buf: Cursor<BytesMut>,
  
@@ -31,12 +31,15 @@ index efd1966..5ea2fbe 100644
  
 -    /// Last data frame
 -    last_data_frame: Option<frame::Data<B>>,
++    /// The DATA payload bytes of `next_vec` not yet written.
++    queued_data: usize,
++
 +    /// Next continuation frame to encode
 +    next_continuation: Option<frame::Continuation>,
  
      /// Max frame size, this is specified by the peer
      max_frame_size: FrameSize,
-@@ -52,12 +55,117 @@ struct Encoder<B> {
+@@ -52,12 +58,118 @@ struct Encoder<B> {
  
      /// Min buffer required to attempt to write a frame
      min_buffer_capacity: usize,
@@ -67,18 +70,22 @@ index efd1966..5ea2fbe 100644
 +/// Such a frame is written as consecutive DATA frames of at most the peer's max frame size, each
 +/// with its own 9-byte head and END_STREAM only on the last, inside the same vectored writes as
 +/// the other queued frames. 1, the value of a connection made outside this, is hyperium/h2#903's
-+/// behaviour: several DATA frames per write, each of them queued alone. A reset of a stream drops
-+/// what was not handed to the writer, so up to `frames - 1` DATA frames of it can still go out
-+/// before its RST_STREAM.
++/// behaviour: several DATA frames per write, each of them queued alone. The connection queues for
++/// writing less than 1 MiB of DATA payload and one more part of up to `frames` max-size frames,
++/// which goes out ahead of any frame buffered after it and is not taken back by a reset of its
++/// stream: the stream can still send it before its RST_STREAM.
 +pub fn with_frames_per_write<F: Future>(frames: usize, future: F) -> WithFramesPerWrite<F> {
 +    WithFramesPerWrite {
 +        frames: frames.max(1),
 +        future: Box::pin(future),
 +    }
-+}
-+
+ }
+ 
 +/// The future [`with_frames_per_write`] returns.
-+#[derive(Debug)]
+ #[derive(Debug)]
+-enum Next<B> {
+-    Data(frame::Data<B>),
+-    Continuation(frame::Continuation),
 +pub struct WithFramesPerWrite<F> {
 +    frames: usize,
 +    future: Pin<Box<F>>,
@@ -92,8 +99,8 @@ index efd1966..5ea2fbe 100644
 +        let _restored = Restore(FRAMES_PER_WRITE.with(|frames| frames.replace(this.frames)));
 +        this.future.as_mut().poll(cx)
 +    }
- }
- 
++}
++
 +/// Puts back the value a poll found, even when the poll panics.
 +struct Restore(usize);
 +
@@ -105,10 +112,7 @@ index efd1966..5ea2fbe 100644
 +
 +/// The sub-frames of a queued data frame longer than the max frame size. The wire bytes after
 +/// the element's `buf_len` are: payload window 0, then for j = 1.. : heads[j - 1], window j.
- #[derive(Debug)]
--enum Next<B> {
--    Data(frame::Data<B>),
--    Continuation(frame::Continuation),
++#[derive(Debug)]
 +struct Split {
 +    /// max frame size at buffer time
 +    max: usize,
@@ -157,16 +161,21 @@ index efd1966..5ea2fbe 100644
  }
  
  /// Initialize the connection with this amount of write buffer.
-@@ -76,6 +184,8 @@ const CHAIN_THRESHOLD: usize = 256;
+@@ -76,6 +188,13 @@ const CHAIN_THRESHOLD: usize = 256;
  /// fragmented data being sent, and hereby improve the throughput.
  const CHAIN_THRESHOLD_WITHOUT_VECTORED_IO: usize = 1024;
  
 +const MAX_VECTORED_IO_COUNT: usize = 1024;
 +
++/// The DATA payload bytes queued for writing at which no more DATA is queued; one more part may
++/// follow. What is queued goes out ahead of any frame buffered after it and is not taken back by a
++/// reset of its stream.
++const MAX_QUEUED_DATA: usize = 1024 * 1024;
++
  // TODO: Make generic
  impl<T, B> FramedWrite<T, B>
  where
-@@ -83,10 +193,10 @@ where
+@@ -83,10 +202,10 @@ where
      B: Buf,
  {
      pub fn new(inner: T) -> FramedWrite<T, B> {
@@ -180,13 +189,14 @@ index efd1966..5ea2fbe 100644
          };
          FramedWrite {
              inner,
-@@ -94,11 +204,12 @@ where
+@@ -94,11 +213,13 @@ where
              encoder: Encoder {
                  hpack: hpack::Encoder::default(),
                  buf: Cursor::new(BytesMut::with_capacity(DEFAULT_BUFFER_CAPACITY)),
 -                next: None,
 -                last_data_frame: None,
 +                next_vec: VecDeque::with_capacity(next_vec_capacity),
++                queued_data: 0,
 +                next_continuation: None,
                  max_frame_size: frame::DEFAULT_MAX_FRAME_SIZE,
                  chain_threshold,
@@ -195,7 +205,7 @@ index efd1966..5ea2fbe 100644
              },
          }
      }
-@@ -108,24 +219,37 @@ where
+@@ -108,24 +229,37 @@ where
      /// Calling this function may result in the current contents of the buffer
      /// to be flushed to `T`.
      pub fn poll_ready(&mut self, cx: &mut Context) -> Poll<io::Result<()>> {
@@ -241,7 +251,7 @@ index efd1966..5ea2fbe 100644
      /// Buffer a frame.
      ///
      /// `poll_ready` must be called first to ensure that a frame may be
-@@ -136,36 +260,37 @@ where
+@@ -136,36 +270,37 @@ where
  
      /// Flush buffered data to the wire
      pub fn flush(&mut self, cx: &mut Context) -> Poll<io::Result<()>> {
@@ -305,7 +315,7 @@ index efd1966..5ea2fbe 100644
              }
          }
  
-@@ -186,38 +311,20 @@ where
+@@ -186,38 +321,20 @@ where
      }
  }
  
@@ -354,7 +364,7 @@ index efd1966..5ea2fbe 100644
      }
  
      fn buffer(&mut self, item: Frame<B>) -> Result<(), UserError> {
-@@ -230,14 +337,36 @@ where
+@@ -230,14 +347,36 @@ where
  
          match item {
              Frame::Data(mut v) => {
@@ -393,7 +403,7 @@ index efd1966..5ea2fbe 100644
                      let head = v.head();
  
                      // Encode the frame head to the buffer
-@@ -248,30 +377,30 @@ where
+@@ -248,30 +387,31 @@ where
                          self.buf.get_mut().put(v.payload_mut().take(extra_bytes));
                      }
  
@@ -413,6 +423,7 @@ index efd1966..5ea2fbe 100644
                  }
 +
 +                // Push the most recent data frame...
++                self.queued_data += v.payload().remaining();
 +                self.next_vec.push_back(BufElement {
 +                    buf_len: buf_len_to_push,
 +                    data_frame: v,
@@ -435,7 +446,7 @@ index efd1966..5ea2fbe 100644
              }
              Frame::Settings(v) => {
                  v.encode(self.buf.get_mut());
-@@ -307,16 +436,13 @@ where
+@@ -307,16 +447,26 @@ where
      }
  
      fn has_capacity(&self) -> bool {
@@ -454,10 +465,23 @@ index efd1966..5ea2fbe 100644
 +        self.next_continuation.is_none()
 +            && self.next_vec.len() < self.next_vec.capacity()
 +            && self.buf_capacity() >= self.min_buffer_capacity
++            && self.queued_data() < MAX_QUEUED_DATA
++    }
++
++    /// The DATA payload bytes queued and not yet written.
++    fn queued_data(&self) -> usize {
++        debug_assert_eq!(
++            self.queued_data,
++            self.next_vec
++                .iter()
++                .map(|next| next.data_frame.payload().remaining())
++                .sum::<usize>()
++        );
++        self.queued_data
      }
  }
  
-@@ -326,12 +452,200 @@ impl<B> Encoder<B> {
+@@ -326,12 +476,202 @@ impl<B> Encoder<B> {
      }
  }
  
@@ -524,6 +548,7 @@ index efd1966..5ea2fbe 100644
 +                        Piece::Payload(w) => {
 +                            let i = n.min(w);
 +                            next.data_frame.payload_mut().advance(i);
++                            self.queued_data -= i;
 +                            n -= i;
 +                            if i == w {
 +                                sp.head_done = 0;
@@ -538,6 +563,7 @@ index efd1966..5ea2fbe 100644
 +                let i = n.min(rem);
 +                n -= i;
 +                next.data_frame.payload_mut().advance(i);
++                self.queued_data -= i;
 +                if i < rem {
 +                    return;
 +                }
@@ -658,7 +684,7 @@ index efd1966..5ea2fbe 100644
      /// Set the peer's max frame size.
      pub fn set_max_frame_size(&mut self, val: usize) {
          assert!(val <= frame::MAX_MAX_FRAME_SIZE as usize);
-@@ -343,16 +657,21 @@ impl<T, B> FramedWrite<T, B> {
+@@ -343,16 +683,21 @@ impl<T, B> FramedWrite<T, B> {
          self.encoder.hpack.update_max_size(val);
      }
  
@@ -685,7 +711,7 @@ index efd1966..5ea2fbe 100644
  impl<T: AsyncRead + Unpin, B> AsyncRead for FramedWrite<T, B> {
      fn poll_read(
          mut self: Pin<&mut Self>,
-@@ -376,3 +695,59 @@ mod unstable {
+@@ -376,3 +721,59 @@ mod unstable {
          }
      }
  }

@@ -369,6 +369,12 @@ pub struct CallDriver {
 }
 
 impl CallDriver {
+    /// When the call ends DEADLINE_EXCEEDED, fixed at its start: its own deadline, or the
+    /// channel's default counted from the start. None for a call that has neither.
+    pub fn deadline(&self) -> Option<std::time::Instant> {
+        self.outgoing.deadline.map(tokio::time::Instant::into_std)
+    }
+
     /// The call, driven to its terminal, its response going to `sink`.
     pub fn drive<S: ResponseSink>(self, sink: S) -> impl Future<Output = ()> + Send + 'static {
         driver::drive(self.inner, self.outgoing, self.driving.with_sink(sink))

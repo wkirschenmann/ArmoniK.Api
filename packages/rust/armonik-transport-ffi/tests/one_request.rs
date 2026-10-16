@@ -101,10 +101,10 @@ fn a_call_cancelled_before_its_commit_ends_and_refuses_the_commit() {
     fixture.close();
 }
 
-/// Nothing watches the deadline of a call not yet committed: the commit past it is accepted, and
-/// the call ends DEADLINE_EXCEEDED without sending.
+/// The deadline runs from the call's start: a call its host neither commits nor cancels ends
+/// DEADLINE_EXCEEDED when it passes, having sent nothing.
 #[test]
-fn a_commit_past_the_deadline_is_accepted_and_the_call_ends_deadline_exceeded() {
+fn a_call_never_committed_ends_deadline_exceeded_at_its_deadline() {
     let fixture = Host::connected();
     let (host, channel) = (&fixture.host, fixture.channel);
 
@@ -113,19 +113,91 @@ fn a_commit_past_the_deadline_is_accepted_and_the_call_ends_deadline_exceeded() 
         ECHO,
         &[],
         AK_CALL_ONE_REQUEST,
-        Duration::from_millis(1),
+        Duration::from_millis(100),
     );
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(
-        host.recorder.len(),
-        0,
-        "no task watched the deadline before the commit"
-    );
-    assert_eq!(commit(call, b"late"), ak_status::AK_STATUS_OK);
 
     let seen = host.recorder.await_terminal();
     assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED));
     assert!(seen.message_payloads().is_empty(), "nothing was sent");
+    support::await_call_reclaimed(call);
+    fixture.close();
+}
+
+/// A call whose deadline passes while its host holds the buffer of its request ends at the
+/// deadline: the commit is then refused as on any call that is over, and the buffer stays the
+/// host's to give back.
+#[test]
+fn a_call_whose_deadline_passes_before_its_commit_refuses_the_commit() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    let call = start_call_flagged_within(
+        channel,
+        ECHO,
+        &[],
+        AK_CALL_ONE_REQUEST,
+        Duration::from_secs(1),
+    );
+    let (status, buffer) = lend(call, 4);
+    assert_eq!(status, ak_status::AK_STATUS_OK);
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED));
+    assert_eq!(
+        unsafe { ak_call_send_message(call, buffer, buffer.len, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_INVALID_STATE
+    );
+    unsafe { ak_return_call_buffer(buffer) };
+    assert!(seen.message_payloads().is_empty(), "nothing was sent");
+    support::await_call_reclaimed(call);
+    fixture.close();
+}
+
+/// A call whose deadline comes before those its channel already watches ends at its own: the
+/// watcher is told of an earlier deadline than the one it sleeps towards.
+#[test]
+fn a_deadline_earlier_than_the_ones_watched_ends_its_call_first() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    let later = start_call_flagged_within(
+        channel,
+        ECHO,
+        &[],
+        AK_CALL_ONE_REQUEST,
+        Duration::from_secs(60),
+    );
+    let sooner = start_call_flagged_within(
+        channel,
+        ECHO,
+        &[],
+        AK_CALL_ONE_REQUEST,
+        Duration::from_millis(100),
+    );
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED));
+    support::await_call_reclaimed(sooner);
+    assert_eq!(
+        unsafe { ak_call_cancel(later, std::ptr::null_mut()) },
+        ak_status::AK_STATUS_OK,
+        "the call with the later deadline is still open"
+    );
+    host.recorder.await_terminals(2);
+    support::await_call_reclaimed(later);
+    fixture.close();
+}
+
+/// A deadline already passed at the start ends the call at once, whatever the host does next.
+#[test]
+fn a_call_started_past_its_deadline_ends_without_a_commit() {
+    let fixture = Host::connected();
+    let (host, channel) = (&fixture.host, fixture.channel);
+
+    let call = start_call_flagged_within(channel, ECHO, &[], AK_CALL_ONE_REQUEST, Duration::ZERO);
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED));
     support::await_call_reclaimed(call);
     fixture.close();
 }

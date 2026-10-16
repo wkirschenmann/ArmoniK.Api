@@ -59,6 +59,11 @@ impl Waiter {
     pub(crate) fn is_waiting(&self) -> bool {
         self.len.load(Ordering::Acquire) != 0
     }
+
+    /// The length the send waits on, zero while none waits.
+    pub(crate) fn waits_on(&self) -> usize {
+        self.len.load(Ordering::Acquire)
+    }
 }
 
 /// One count of bytes over what is sent and what is received, and two thresholds over it.

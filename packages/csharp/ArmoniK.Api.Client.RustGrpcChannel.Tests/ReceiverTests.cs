@@ -49,12 +49,12 @@ public class ReceiverTests
        };
 
   /// <remarks>
-  ///   The prologue leaves the head in the ring when the call is ending before the terminal is in,
-  ///   and a send that failed ends it so with no drain owed: the reader takes the head. That head
-  ///   said no response came, and whoever takes it, the terminal answers the headers the same way.
+  ///   A send that failed ends the call with no drain owed, so the head stays the prologue's: one
+  ///   that said no response came waits for the terminal behind it, which answers the headers, and
+  ///   a read started meanwhile waits for the prologue and then takes the terminal.
   /// </remarks>
   [Test]
-  public async Task AHeadTheReaderTakesAnswersTheHeadersAsTheProloguesWould()
+  public async Task AHeadThatSaidNoResponseCameIsAnsweredByTheTerminalBehindIt()
   {
     var call = new EndingCall();
     var receiver = new Receiver<EchoReply>(call,
@@ -63,12 +63,10 @@ public class ReceiverTests
                                                                          EchoReply.Parser.ParseFrom));
     receiver.StartPrologue();
 
-    // Ended before the head lands, so the prologue finds no terminal behind it and leaves.
     call.EndCall();
     receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
                      default,
                      (int)ak_head_origin.AK_HEAD_NO_RESPONSE);
-    await receiver.PrologueFinished.ConfigureAwait(false);
 
     var reading = receiver.MoveNext(CancellationToken.None);
     receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
@@ -82,12 +80,108 @@ public class ReceiverTests
   }
 
   /// <remarks>
-  ///   A terminal nobody can decode leaves no trailers to answer with, so a head that left the
-  ///   headers to it fails them rather than answering an empty set as a success, whether a read or
-  ///   the drain consumes it.
+  ///   The headers a caller asks for are answered without a read on a call a failed send ended,
+  ///   which owes no drain: the headers task is the model's <c>HeadersTaskTakesHead</c>, owed by
+  ///   the binding whatever the application does. Asked before the end or after it, and with a head
+  ///   that answers them or one whose terminal does.
   /// </remarks>
   [Test]
-  public async Task AnUnreadableTerminalFailsTheHeadersItWasToAnswer([Values] bool drained)
+  public async Task TheHeadersOfACallItsSendEndedAreAnsweredWithoutARead([Values] bool askedFirst,
+                                                                       [Values] bool noResponse)
+  {
+    var call = new EndingCall();
+    var receiver = Replies(call,
+                           1);
+
+    var headers = askedFirst
+                    ? receiver.ResponseHeadersAsync
+                    : null;
+    call.EndCall();
+    headers ??= receiver.ResponseHeadersAsync;
+
+    receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                     default,
+                     (int)(noResponse
+                             ? ak_head_origin.AK_HEAD_NO_RESPONSE
+                             : ak_head_origin.AK_HEAD_RECEIVED));
+    if (noResponse)
+    {
+      // The prologue still waits here, for the terminal behind the head.
+      await Task.WhenAny(receiver.PrologueFinished,
+                         Task.Delay(TimeSpan.FromMilliseconds(200)))
+                .ConfigureAwait(false);
+      Assert.That(receiver.PrologueFinished.IsCompleted,
+                  Is.False,
+                  "the prologue waits for the terminal behind a head that said no response came");
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                       default,
+                       (int)StatusCode.Unavailable);
+    }
+
+    Assert.That(await Task.WhenAny(headers,
+                                   Task.Delay(TimeSpan.FromSeconds(10)))
+                          .ConfigureAwait(false),
+                Is.SameAs(headers),
+                "the headers are answered with nobody reading");
+    if (noResponse)
+    {
+      var failed = Assert.ThrowsAsync<RpcException>(async () => await headers.ConfigureAwait(false));
+      Assert.That(failed!.StatusCode,
+                  Is.EqualTo(StatusCode.Unavailable));
+    }
+    else
+    {
+      Assert.That(await headers.ConfigureAwait(false),
+                  Is.Empty);
+    }
+  }
+
+  /// <remarks>
+  ///   A call disposed while its headers are pending faults them <c>Cancelled</c>, as the model's
+  ///   <c>BeginDisposeCall</c> does, whatever the reader is doing: from an idle reader, the drain
+  ///   would otherwise answer them with the head it consumes. With the head in the ring before the
+  ///   dispose, and arriving after it.
+  /// </remarks>
+  [Test]
+  public async Task DisposingACallFaultsItsPendingHeadersCancelled([Values] bool headFirst)
+  {
+    var receiver = Replies(4);
+    if (headFirst)
+    {
+      receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                       default,
+                       (int)ak_head_origin.AK_HEAD_RECEIVED);
+    }
+
+    receiver.CancelAndDrain();
+    if (!headFirst)
+    {
+      receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                       default,
+                       (int)ak_head_origin.AK_HEAD_RECEIVED);
+    }
+
+    receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                     default,
+                     (int)StatusCode.OK);
+    Assert.That(await Task.WhenAny(receiver.Settled,
+                                   Task.Delay(TimeSpan.FromSeconds(10)))
+                          .ConfigureAwait(false),
+                Is.SameAs(receiver.Settled),
+                "the drain took the terminal");
+
+    var headers = Assert.ThrowsAsync<RpcException>(async () => await receiver.ResponseHeadersAsync.ConfigureAwait(false));
+    Assert.That(headers!.StatusCode,
+                Is.EqualTo(StatusCode.Cancelled));
+  }
+
+  /// <remarks>
+  ///   A terminal nobody can decode leaves no trailers to answer with, so a head that left the
+  ///   headers to it fails them rather than answering an empty set as a success, whether the
+  ///   prologue or a read took that head. A disposed call's headers are faulted at the dispose.
+  /// </remarks>
+  [Test]
+  public async Task AnUnreadableTerminalFailsTheHeadersItWasToAnswer([Values] bool prologue)
   {
     // An empty reason, then one trailer whose key Metadata refuses.
     var blob = new List<byte>();
@@ -110,36 +204,77 @@ public class ReceiverTests
                    memory,
                    blob.Count);
 
-      var call = new EndingCall();
-      var receiver = new Receiver<EchoReply>(call,
-                                             1,
-                                             Marshallers.Create<EchoReply>(reply => reply.ToByteArray(),
-                                                                           EchoReply.Parser.ParseFrom));
-      receiver.StartPrologue();
+      var receiver = Replies(1);
+      if (prologue)
+      {
+        receiver.StartPrologue();
+      }
 
-      call.EndCall();
+      var reading = receiver.MoveNext(CancellationToken.None);
       receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
                        default,
                        (int)ak_head_origin.AK_HEAD_TRAILERS_ONLY);
-      await receiver.PrologueFinished.ConfigureAwait(false);
-
-      var reading = drained
-                      ? null
-                      : receiver.MoveNext(CancellationToken.None);
       receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
                        Payload(memory,
                                blob.Count),
                        (int)StatusCode.OK);
 
-      if (reading is null)
-      {
-        receiver.CancelAndDrain();
-        await receiver.Settled.ConfigureAwait(false);
-      }
-      else
-      {
-        Assert.ThrowsAsync<RpcException>(async () => await reading.ConfigureAwait(false));
-      }
+      Assert.ThrowsAsync<RpcException>(async () => await reading.ConfigureAwait(false));
+
+      var headers = Assert.ThrowsAsync<RpcException>(async () => await receiver.ResponseHeadersAsync.ConfigureAwait(false));
+      Assert.That(headers!.StatusCode,
+                  Is.EqualTo(StatusCode.Internal));
+    }
+    finally
+    {
+      Marshal.FreeHGlobal(memory);
+    }
+  }
+
+  /// <remarks>
+  ///   A head a read cannot decode fails the headers with why, as one the prologue cannot decode
+  ///   does, and not with the cancellation the failure causes.
+  /// </remarks>
+  [Test]
+  public async Task AHeadAReadCannotDecodeFailsTheHeadersWithWhy()
+  {
+    // One header whose key Metadata refuses.
+    var blob = new List<byte>();
+    void Chunk(byte[] bytes)
+    {
+      blob.AddRange(BitConverter.GetBytes((uint)bytes.Length));
+      blob.AddRange(bytes);
+    }
+
+    blob.AddRange(BitConverter.GetBytes(1u));
+    Chunk(Encoding.ASCII.GetBytes("Bad Key"));
+    Chunk(Encoding.ASCII.GetBytes("v"));
+
+    var memory = Marshal.AllocHGlobal(blob.Count);
+    try
+    {
+      Marshal.Copy(blob.ToArray(),
+                   0,
+                   memory,
+                   blob.Count);
+
+      var receiver = Replies(1);
+      var reading = receiver.MoveNext(CancellationToken.None);
+      receiver.Publish(ak_event_kind.AK_EVENT_INITIAL_METADATA,
+                       Payload(memory,
+                               blob.Count),
+                       (int)ak_head_origin.AK_HEAD_RECEIVED);
+      Assert.That(async () => await reading.ConfigureAwait(false),
+                  Throws.Exception);
+
+      receiver.Publish(ak_event_kind.AK_EVENT_STATUS,
+                       default,
+                       (int)StatusCode.OK);
+      Assert.That(await Task.WhenAny(receiver.Settled,
+                                     Task.Delay(TimeSpan.FromSeconds(10)))
+                            .ConfigureAwait(false),
+                  Is.SameAs(receiver.Settled),
+                  "the drain took the terminal");
 
       var headers = Assert.ThrowsAsync<RpcException>(async () => await receiver.ResponseHeadersAsync.ConfigureAwait(false));
       Assert.That(headers!.StatusCode,
@@ -152,7 +287,12 @@ public class ReceiverTests
   }
 
   private static Receiver<EchoReply> Replies(int deliveryCredits)
-    => new(new EndingCall(),
+    => Replies(new EndingCall(),
+               deliveryCredits);
+
+  private static Receiver<EchoReply> Replies(ICallState call,
+                                             int        deliveryCredits)
+    => new(call,
            deliveryCredits,
            Marshallers.Create<EchoReply>(reply => reply.ToByteArray(),
                                          EchoReply.Parser.ParseFrom));

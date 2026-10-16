@@ -112,7 +112,8 @@ pub(crate) fn start_on(
     // list without this call - which would then be a live call on a closing channel, which the
     // header says cannot be. Listing it takes the lock the release took, so exactly one of the
     // two cancels it.
-    if !channel.enlist(handle) {
+    let enlisted = channel.enlist(handle);
+    if !enlisted {
         state.cancel();
     }
 
@@ -120,8 +121,12 @@ pub(crate) fn start_on(
     // back.
     joined.kept();
     // A call that sends one request is spawned by its commit, or by what needs its task before.
+    // Its deadline runs from the start whatever the host does: the channel watches it, listed
+    // first, so that a deadline already past ends a call its channel knows.
     if !one_request {
         state.spawn_task();
+    } else if let (true, Some(at)) = (enlisted, state.watched) {
+        channel.deadlines.watch(at, handle, Arc::downgrade(&state));
     }
     Ok(handle)
 }

@@ -6,6 +6,7 @@ use armonik_transport::grpc::GrpcChannel;
 
 use crate::abi::{ak_channel_state, ak_error_kind, ak_handle, ak_status};
 use crate::config;
+use crate::deadlines::Deadlines;
 use crate::held::Held;
 use crate::refusal::Refusal;
 use crate::registry::Spread;
@@ -24,6 +25,8 @@ pub(crate) struct AkChannel {
     pub(crate) spares: Arc<Spares>,
     /// Its thread's runtime, where its connection and its calls run.
     pub(crate) spawner: tokio::runtime::Handle,
+    /// The deadlines of its calls not spawned yet.
+    pub(crate) deadlines: Arc<Deadlines>,
     /// Dropped with the channel, which is what stops its thread: a channel goes once the host
     /// has released it and the last of its calls has been reclaimed.
     _stop: tokio::sync::oneshot::Sender<()>,
@@ -241,6 +244,8 @@ pub(crate) fn create(
     config.metrics = Some(owner.metrics_of(&key));
     let grpc = GrpcChannel::new(config, spawner.clone()).map_err(Refusal::channel)?;
     let dialled = grpc.clone();
+    let deadlines = Deadlines::new();
+    let watcher = Arc::clone(&deadlines);
 
     let handle = tables::channels()
         .insert_with(|handle| {
@@ -252,6 +257,7 @@ pub(crate) fn create(
                 max_sends_in_flight,
                 spares: Spares::new(owner.ledger(), SPARES_PER_SEND * max_sends_in_flight),
                 spawner: spawner.clone(),
+                deadlines,
                 _stop: stop,
                 handle,
                 members: Mutex::new(Members::open()),
@@ -260,6 +266,7 @@ pub(crate) fn create(
         })
         .map(|(handle, ())| handle)
         .ok_or(CHANNELS_SPENT)?;
+    spawner.spawn(watcher.run());
 
     // Spawned once the channel is the host's, so a refused creation dials nothing. Its failure is
     // the first call's to report: nothing caches a failed dial, so that call dials again, or

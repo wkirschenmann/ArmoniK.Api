@@ -20,9 +20,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Google.Protobuf;
+
 using Grpc.Core;
 
 using NUnit.Framework;
+
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
@@ -170,4 +174,165 @@ public class DuplexStreamingTests : EchoServerFixture
     Assert.That(refused!.Status.StatusCode,
                 Is.EqualTo(StatusCode.Cancelled));
   }
+
+  /// <summary>A write parked against the memory ceiling ends when its call does, with nobody reading.</summary>
+  /// <remarks>
+  ///   The application awaits its write before it reads, as a duplex caller may, so the terminal
+  ///   lands in the ring and nothing consumes it. No lend of the call can succeed any more and no
+  ///   BUDGET_WAKE comes for a call that is over, so the wait has to end on the terminal's arrival,
+  ///   as the model's <c>BudgetWaitEndsWhenHopeless</c> promises. The ceiling is held by a
+  ///   serializer on another channel, and no call reads while it is, so the call's deadline is the
+  ///   only terminal that comes.
+  /// </remarks>
+  [Test]
+  public async Task AWriteParkedAgainstTheCeilingEndsWithItsCallUnread()
+  {
+    const int ceiling = 64 * 1024;
+
+    var runtime = await RestartAsync(memoryCeiling: ceiling)
+                    .ConfigureAwait(false);
+
+    await using var holder = runtime.Channel(Endpoint);
+    await using var parked = runtime.Channel(Endpoint);
+
+    using var holding = new ManualResetEventSlim(false);
+    using var release = new ManualResetEventSlim(false);
+    using var serializing = new ManualResetEventSlim(false);
+
+    var wholeCeiling = Requests((request,
+                                 context) =>
+                                {
+                                  context.SetPayloadLength(ceiling);
+                                  holding.Set();
+                                  release.Wait();
+                                  context.Complete(request.ToByteArray());
+                                });
+    var announces = Requests((request,
+                              context) =>
+                             {
+                               serializing.Set();
+                               context.Complete(request.ToByteArray());
+                             });
+
+    using var holdsTheCeiling = holder.CreateCallInvoker()
+                                      .AsyncClientStreamingCall(Method(MethodType.ClientStreaming,
+                                                                       "Collect",
+                                                                       wholeCeiling),
+                                                                null,
+                                                                new CallOptions());
+    var lending = Task.Run(() => holdsTheCeiling.RequestStream.WriteAsync(new EchoRequest
+                                                                         {
+                                                                           Text = "the ceiling",
+                                                                         }));
+    Assert.That(holding.Wait(TimeSpan.FromSeconds(30)),
+                Is.True,
+                "the ceiling is lent and held");
+
+    var call = parked.CreateCallInvoker()
+                     .AsyncDuplexStreamingCall(Method(MethodType.DuplexStreaming,
+                                                      "Chat",
+                                                      announces),
+                                               null,
+                                               new CallOptions(deadline: DateTime.UtcNow + TimeSpan.FromSeconds(2)));
+    try
+    {
+      var parkedWrite = Task.Run(() => call.RequestStream.WriteAsync(new EchoRequest
+                                                                    {
+                                                                      Text = "no room for this",
+                                                                    }));
+      Assert.That(serializing.Wait(TimeSpan.FromSeconds(30)),
+                  Is.True,
+                  "the call reached its lend, which the ceiling refuses");
+
+      // Awaited through its outcome rather than by an assertion that awaits: what the missing
+      // wake-up costs is a wait, and an unbounded assertion would hang the run instead of naming it.
+      var outcome = Task.Run(async () =>
+                             {
+                               try
+                               {
+                                 await parkedWrite.ConfigureAwait(false);
+                                 return null as Exception;
+                               }
+                               catch (Exception raised)
+                               {
+                                 return raised;
+                               }
+                             });
+
+      Assert.That(outcome.Wait(TimeSpan.FromSeconds(30)),
+                  Is.True,
+                  "the parked write hears that its call is over, with nobody reading the call");
+      Assert.That(outcome.Result,
+                  Is.InstanceOf<RpcException>()
+                    .With.Property(nameof(RpcException.StatusCode))
+                    .EqualTo(StatusCode.DeadlineExceeded),
+                  "the write hears the status its call ended with, as grpc-dotnet's does");
+    }
+    finally
+    {
+      call.Dispose();
+      release.Set();
+      await lending.ConfigureAwait(false);
+      await holdsTheCeiling.RequestStream.CompleteAsync()
+                           .ConfigureAwait(false);
+      await holdsTheCeiling.ResponseAsync.ConfigureAwait(false);
+    }
+  }
+
+#if DEBUG
+  /// <summary>A write after its call is disposed answers <c>Cancelled</c>, as grpc-dotnet's does.</summary>
+  /// <remarks>
+  ///   The engine's terminal is held on its way to the ring, so the write is refused before anything
+  ///   consumed it: what it answers cannot depend on how soon the drain runs, which differs between
+  ///   the frameworks. The hook is Debug-only and process-wide.
+  /// </remarks>
+  [Test]
+  [NonParallelizable]
+  public async Task AWriteAfterItsCallIsDisposedIsCancelled()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+    using var publishing = new ManualResetEventSlim(false);
+    using var release = new ManualResetEventSlim(false);
+    TestHooks.PublishingTerminal = () =>
+                                   {
+                                     publishing.Set();
+                                     release.Wait();
+                                   };
+    try
+    {
+      var call = Client(channel)
+        .Chat();
+      call.Dispose();
+      Assert.That(publishing.Wait(TimeSpan.FromSeconds(30)),
+                  Is.True,
+                  "the engine publishes the cancelled call's terminal");
+
+      var refused = Assert.ThrowsAsync<RpcException>(() => call.RequestStream.WriteAsync(new EchoRequest
+                                                                                         {
+                                                                                           Text = "late",
+                                                                                         }));
+      Assert.That(refused!.StatusCode,
+                  Is.EqualTo(StatusCode.Cancelled));
+    }
+    finally
+    {
+      TestHooks.PublishingTerminal = null;
+      release.Set();
+    }
+  }
+#endif
+
+  private static Marshaller<EchoRequest> Requests(Action<EchoRequest, SerializationContext> write)
+    => Marshallers.Create(write,
+                          context => EchoRequest.Parser.ParseFrom(context.PayloadAsNewBuffer()));
+
+  private static Method<EchoRequest, EchoReply> Method(MethodType             type,
+                                                       string                 name,
+                                                       Marshaller<EchoRequest> requests)
+    => new(type,
+           "armonik.transport.ffi.test.Echo",
+           name,
+           requests,
+           Marshallers.Create(reply => reply.ToByteArray(),
+                              EchoReply.Parser.ParseFrom));
 }

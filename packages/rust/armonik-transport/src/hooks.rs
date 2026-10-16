@@ -119,9 +119,11 @@ pub type AttemptHook = Arc<dyn Fn(&Attempt) + Send + Sync>;
 static IN_DRIVER: Mutex<Option<Hook>> = Mutex::new(None);
 static AFTER_REQUEST_GIVEN: Mutex<Option<Hook>> = Mutex::new(None);
 static IN_DIAL: Mutex<Option<Hook>> = Mutex::new(None);
+static OFF_THE_RUNTIME: Mutex<Option<Hook>> = Mutex::new(None);
 static WHEN_READ_WAITS: Mutex<Option<Hook>> = Mutex::new(None);
 static ON_ATTEMPT: Mutex<Option<AttemptHook>> = Mutex::new(None);
 static WRITES: AtomicUsize = AtomicUsize::new(0);
+static BYTES_WRITTEN: AtomicUsize = AtomicUsize::new(0);
 static HELD_WRITES: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS: AtomicUsize = AtomicUsize::new(0);
 static DELIVERY_ROUNDS_ANSWERED: AtomicUsize = AtomicUsize::new(0);
@@ -133,8 +135,15 @@ pub fn writes() -> usize {
     WRITES.load(Ordering::SeqCst)
 }
 
-pub(crate) fn count_write() {
+/// How many bytes those writes have taken, in all: on a connection in the clear and alone in the
+/// process, the offset on the wire the client has written to.
+pub fn bytes_written() -> usize {
+    BYTES_WRITTEN.load(Ordering::SeqCst)
+}
+
+pub(crate) fn count_write(bytes: usize) {
     WRITES.fetch_add(1, Ordering::SeqCst);
+    BYTES_WRITTEN.fetch_add(bytes, Ordering::SeqCst);
 }
 
 /// How many times a write of this process's HTTP/2 connections has waited a round of the runtime
@@ -206,6 +215,12 @@ pub(crate) fn attempt_ended(origin: &Origin, code: GrpcStatusCode, pushback: Pus
     }
 }
 
+/// Runs `hook` on the blocking thread that compresses a large message, before it compresses.
+/// `None` removes it.
+pub fn off_the_runtime(hook: Option<Hook>) {
+    set(&OFF_THE_RUNTIME, hook);
+}
+
 /// Runs `hook` in every give of a call's one request, once the request is given and its driver
 /// woken. `None` removes it.
 pub fn after_request_given(hook: Option<Hook>) {
@@ -224,6 +239,10 @@ pub(crate) fn run_in_driver() {
 
 pub(crate) fn run_after_request_given() {
     run(&AFTER_REQUEST_GIVEN);
+}
+
+pub(crate) fn run_off_the_runtime() {
+    run(&OFF_THE_RUNTIME);
 }
 
 pub(crate) fn run_in_dial() {

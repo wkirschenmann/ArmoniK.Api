@@ -65,9 +65,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         ///  server-streaming method. ak_call_send_message also ends the sending, ak_call_end_send is
         ///  refused with AK_STATUS_INVALID_STATE, and no AK_EVENT_WRITE_DONE comes: the send is settled
         ///  when it is committed, and an ak_get_call_buffer after it answers AK_STATUS_INVALID_STATE. The
-        ///  call sends nothing until its commit, and nothing watches its deadline before: a commit past it
-        ///  is accepted and the call ends DEADLINE_EXCEEDED, and a call never committed ends at its
-        ///  cancellation.
+        ///  call sends nothing until its commit, and its deadline runs from ak_call_start all the same: a
+        ///  call not committed by then ends DEADLINE_EXCEEDED having sent nothing, and a commit after its
+        ///  end is refused with AK_STATUS_INVALID_STATE. One with no deadline stays open until committed or
+        ///  cancelled.
         /// </summary>
         internal const uint AK_CALL_ONE_REQUEST = 4;
         /// <summary>
@@ -1145,9 +1146,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         AK_RUNTIME_QUIESCENT = 4,
         /// <summary>
         ///  Quiescence impossible, destroy refused. Reported when the status itself cannot be read,
-        ///  when the task driving the shutdown dies, and when that shutdown cannot get a thread of its
-        ///  own: the three ways the step to QUIESCENT stops being reachable. A shutdown that is merely
-        ///  slow stays GRPC_STOPPING.
+        ///  and from GRPC_STOPPING when the task driving the shutdown dies or that shutdown cannot get
+        ///  a thread of its own: the ways the step to QUIESCENT stops being reachable. Never from
+        ///  GRPC_STOPPED, where that thread finishes the shutdown. A shutdown that is merely slow
+        ///  stays where it is.
         /// </summary>
         AK_RUNTIME_FAILED_UNQUIESCED = 5,
     }

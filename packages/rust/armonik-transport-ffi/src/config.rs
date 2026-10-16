@@ -424,10 +424,26 @@ mod tests {
             stated("/$defs/Http2SendOptions/properties/StreamBufferKiB/description") * 1024.0,
             http2.send_buffer as f64
         );
-        assert_eq!(
-            stated("/$defs/Http2SendOptions/properties/FramesPerWrite/description"),
-            http2.frames_per_write as f64
+        // The description states a default for each build, and only a patched build takes more
+        // than one frame per write.
+        let frames_per_write = schema
+            .pointer("/$defs/Http2SendOptions/properties/FramesPerWrite/description")
+            .and_then(serde_json::Value::as_str)
+            .expect("FramesPerWrite's description");
+        assert!(
+            frames_per_write.contains(
+                "Defaults to 16 in an engine built against the patch, and to 1 in any other."
+            ),
+            "{frames_per_write}"
         );
+        let patched = match parse(br#"{"Http2": {"Send": {"FramesPerWrite": 2}}}"#) {
+            Ok(_) => true,
+            Err(refusal) => {
+                assert!(refusal.to_string().contains("h2-batch"), "{refusal}");
+                false
+            }
+        };
+        assert_eq!(http2.frames_per_write, if patched { 16 } else { 1 });
         let retry = config.retry.expect("a retry policy by default");
         for (option, applied) in [
             ("MaxAttempts", f64::from(retry.max_attempts)),

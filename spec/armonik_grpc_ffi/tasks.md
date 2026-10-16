@@ -1492,6 +1492,15 @@ package no job publishes, and a consumer restoring one fails:
   (`NativeEngine.targets`, the second under `target/metrics`); CI builds, lints and tests both for
   every identifier, passes both to the pack, and checks that the package lists the second folder
   for each identifier it lists the first for;
+- the patch: the binding builds its engine against h2-batch's patch unless `NativeEngineH2Batch`
+  is `false`, through `packages/rust/patches/h2-batch/build.sh`, whose README says what it needs;
+  the Rust workspace's builds and the crates on crates.io stay on stock h2. CI supplies bash, tar,
+  patch and sha256sum on every runner that builds the engine, with Git Bash first on the PATH on
+  Windows and `sha256sum`, or a change to the recipe, on macOS; a cross toolchain that runs as a
+  cargo subcommand (`cargo zigbuild`), since the recipe runs `cargo` alone; and a .NET leg on the
+  stock build, which no job runs. The default already builds patched, before this task: the ten
+  legs of `test-rust-grpc-channel`, eight of them on Windows, and the `ArmoniK.Api.Client` leg of
+  `publish.yml`'s `csharp` job, which reaches the binding through its project reference;
 - the package: `ArmoniK.Api.Client.RustGrpcChannel.csproj` is not in the job's matrix, and the
   `ArmoniK.Api.Client` package depends on it at the same version, so it has to be pushed first or
   the restore of a consumer fails until the index has it; the matrix legs run in parallel, and a

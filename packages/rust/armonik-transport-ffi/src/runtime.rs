@@ -47,6 +47,15 @@ pub(crate) struct AkRuntime {
     options: RuntimeOptions,
 }
 
+/// The teardown thread, parked until `start`.
+pub(crate) struct Teardown(std::sync::mpsc::Sender<()>);
+
+impl Teardown {
+    pub(crate) fn start(self) {
+        let _ = self.0.send(());
+    }
+}
+
 /// A channel's thread, from the channel's side: where its work runs, and what stops it when the
 /// channel goes.
 pub(crate) struct ChannelThread {
@@ -291,6 +300,21 @@ impl AkRuntime {
         self.state.store(state as i32, Ordering::Release);
     }
 
+    /// GRPC_STOPPING -> FAILED_UNQUIESCED, and nothing from any other state: the model fails a
+    /// runtime only while it runs or stops.
+    pub(crate) fn fail_while_stopping(&self) {
+        let _ = self.state.compare_exchange(
+            ak_runtime_state::AK_RUNTIME_GRPC_STOPPING as i32,
+            ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED as i32,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.state.load(Ordering::Acquire) == ak_runtime_state::AK_RUNTIME_GRPC_STOPPED as i32
+    }
+
     pub(crate) fn start_stopping(&self) -> bool {
         self.state
             .compare_exchange(
@@ -318,37 +342,41 @@ impl AkRuntime {
         ));
     }
 
-    /// Hands the rest of the shutdown to a thread of its own.
+    /// The thread that finishes the shutdown, parked until it is started, or None when the system
+    /// gives none.
     ///
-    /// Everything after this happens outside tokio: the last event goes out, and then tokio is
-    /// shut down, which it refuses from inside itself. What the thread finishing means is that
-    /// there is nothing left of this runtime, which is what `state` reports as QUIESCENT - so
-    /// putting the shutdown here rather than in a task is what makes that word true.
-    pub(crate) fn tear_down(self: &Arc<Self>, owed: bool) {
+    /// Everything it does happens outside tokio: it waits for the host to give back what it
+    /// owes, the last event goes out, and then tokio is shut down, which it refuses from inside
+    /// itself. What the thread finishing means is that there is nothing left of this runtime,
+    /// which is what `state` reports as QUIESCENT - so putting the shutdown here rather than in a
+    /// task is what makes that word true. It goes on only from GRPC_STOPPED: started, or let go
+    /// by a shutdown that panicked after the store; let go before it, it ends at once.
+    pub(crate) fn prepare_teardown(self: &Arc<Self>, owed: bool) -> Option<Teardown> {
+        #[cfg(feature = "test-hooks")]
+        if crate::hooks::refuses_teardown_thread() {
+            return None;
+        }
+        let (start, started) = std::sync::mpsc::channel::<()>();
         let runtime = Arc::clone(self);
         let thread = std::thread::Builder::new()
             .name("armonik-teardown".to_owned())
             .spawn(move || {
+                let _ = started.recv();
+                if !runtime.is_stopped() {
+                    return;
+                }
                 if owed {
+                    runtime.spawner.block_on(runtime.ledger.drained());
                     runtime.host.signal_runtime(
                         ak_event_kind::AK_EVENT_RESOURCES_RELEASED,
                         ak_host_debt::AK_HOST_NOTHING_TO_RETURN,
                     );
                 }
                 runtime.release_threads();
-            });
-
-        // QUIESCENT is this thread having finished, so a runtime that cannot get one will never
-        // reach it, and the state says so rather than leaving a host to wait for a step nobody
-        // takes. Not QUIESCENT, which would promise it may unload a library whose workers are
-        // still running, and no RESOURCES_RELEASED either: a failure suspends what is owed.
-        match thread {
-            Ok(thread) => {
-                *Held::new(self.teardown.lock().unwrap_or_else(PoisonError::into_inner)) =
-                    Some(thread);
-            }
-            Err(_) => self.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED),
-        }
+            })
+            .ok()?;
+        *Held::new(self.teardown.lock().unwrap_or_else(PoisonError::into_inner)) = Some(thread);
+        Some(Teardown(start))
     }
 
     /// Waits for every worker to stop, which only a thread outside tokio may do.

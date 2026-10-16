@@ -46,6 +46,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   it. The -h2c transports speak HTTP/2 in the clear, which tells TLS's share of a call from the
 ///   rest; grpc-dotnet speaks it in the clear only on .NET. The server runs with
 ///   <c>--plain-say</c>: its <c>Say</c> answers with the reply and <c>x-answered</c> alone.
+///   The pinned and shared scenarios measure only the unary latency, on a native channel held to
+///   one connection, without and with a streamed upload beside it through the whole measurement.
 /// </remarks>
 public static class Program
 {
@@ -57,6 +59,14 @@ public static class Program
   private const int UploadSize    = 150 * 1024 * 1024;
   private const int BusyWorkers   = 2;
 
+  /// <summary>Far more calls than a pinned or shared run has in flight, so that a call whose
+  /// predecessor's claim outlives its await still finds room, and the channel, which places a call
+  /// on the fullest connection with room, keeps them all on one.</summary>
+  private const int PinnedCallsPerConnection = 16;
+
+  /// <summary>How long the upload of a shared run goes before the measured calls.</summary>
+  private static readonly TimeSpan UploadLead = TimeSpan.FromSeconds(1);
+
   private const int CalibrationTries = 5;
   private const int CalibrationSteps = 4_000_000;
 
@@ -67,9 +77,12 @@ public static class Program
   {
     if (args.Length is < 1 or > 2 ||
         (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
-         args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy"))
+         args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy" && args[1] != "pinned" && args[1] != "shared") ||
+        (args.Length == 2 && args[1] != "busy" && !args[0].StartsWith("native",
+                                                                       StringComparison.Ordinal)))
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy]");
+      Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared");
       return 2;
     }
 
@@ -85,7 +98,10 @@ public static class Program
 #endif
     Placement.Apply(Process.GetCurrentProcess());
     var transport = args[0];
-    var busy      = args.Length == 2;
+    var scenario  = args.Length == 2
+                      ? args[1]
+                      : "idle";
+    var busy = scenario == "busy";
     // Before the server and the load exist, so that nothing competes with it.
     var calibration = Calibration();
     using var server = Server.Start(!transport.EndsWith("-h2c",
@@ -101,10 +117,15 @@ public static class Program
         load = Occupy(occupied.Token);
       }
 
-      line = await Measure(transport,
-                           server,
-                           busy)
-               .ConfigureAwait(false);
+      line = scenario is "pinned" or "shared"
+               ? await MeasureShared(transport,
+                                     server,
+                                     scenario == "shared")
+                   .ConfigureAwait(false)
+               : await Measure(transport,
+                               server,
+                               busy)
+                   .ConfigureAwait(false);
     }
     finally
     {
@@ -128,7 +149,8 @@ public static class Program
   {
     var before = Footprint.Read();
     var (channel, release) = Open(transport,
-                                  server);
+                                  server,
+                                  pinned: false);
     try
     {
       var client = new Echo.EchoClient(channel);
@@ -236,6 +258,137 @@ public static class Program
     }
   }
 
+  /// <summary>
+  ///   The unary latency on a channel held to one connection, alone on it or beside a streamed
+  ///   upload of chunks that starts before the measured calls and stops after them, and the MiB
+  ///   per second that upload hands to the channel meanwhile.
+  /// </summary>
+  private static async Task<string> MeasureShared(string transport,
+                                                  Server server,
+                                                  bool   uploading)
+  {
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: true);
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+      for (var call = 0; call < WarmupCalls; call++)
+      {
+        await client.SayAsync(new EchoRequest
+                              {
+                                Text = "x",
+                              });
+      }
+
+      using var stop     = new CancellationTokenSource();
+      var       uploaded = new StrongBox<long>();
+      var upload = uploading
+                     ? UploadUntil(client,
+                                   uploaded,
+                                   stop.Token)
+                     : Task.CompletedTask;
+      var    latencies = new double[MeasuredCalls];
+      double beside;
+      var    measured = false;
+      try
+      {
+        if (uploading)
+        {
+          await Task.Delay(UploadLead)
+                    .ConfigureAwait(false);
+        }
+
+        var clock  = new Stopwatch();
+        var span   = Stopwatch.StartNew();
+        var before = Interlocked.Read(ref uploaded.Value);
+        for (var call = 0; call < MeasuredCalls; call++)
+        {
+          clock.Restart();
+          await client.SayAsync(new EchoRequest
+                                {
+                                  Text = "x",
+                                });
+          latencies[call] = clock.Elapsed.TotalMilliseconds * 1000;
+        }
+
+        beside   = (Interlocked.Read(ref uploaded.Value) - before) / span.Elapsed.TotalSeconds / (1024 * 1024);
+        measured = true;
+      }
+      finally
+      {
+        stop.Cancel();
+        // A measurement that failed reports its own exception, not the upload's.
+        try
+        {
+          await upload.ConfigureAwait(false);
+        }
+        catch (Exception) when (!measured)
+        {
+        }
+      }
+
+      Array.Sort(latencies);
+      var line = string.Format(CultureInfo.InvariantCulture,
+                               "{0} {1} {2} p50_us={3:F0} p95_us={4:F0} p99_us={5:F0}",
+                               transport,
+                               Framework(),
+                               uploading
+                                 ? "shared"
+                                 : "pinned",
+                               Percentile(latencies,
+                                          0.50),
+                               Percentile(latencies,
+                                          0.95),
+                               Percentile(latencies,
+                                          0.99));
+      if (uploading)
+      {
+        line += string.Format(CultureInfo.InvariantCulture,
+                              " upload_beside_mib_s={0:F0}",
+                              beside);
+      }
+
+      return line;
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Streams chunks to the server until <paramref name="stop" />, adding each one's bytes
+  /// to <paramref name="sent" /> once the channel has taken it.</summary>
+  /// <remarks>
+  ///   <paramref name="stop" /> cancels the call, so that a write that waits for the channel to
+  ///   take it ends too: .NET Framework's stream writer takes no token. A write that fails once
+  ///   <paramref name="stop" /> is set ends the upload, whatever status the transport gives it.
+  /// </remarks>
+  private static async Task UploadUntil(Echo.EchoClient   client,
+                                        StrongBox<long>   sent,
+                                        CancellationToken stop)
+  {
+    var chunk = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[ChunkSize]),
+                };
+    using var upload = client.Upload(cancellationToken: stop);
+    try
+    {
+      while (!stop.IsCancellationRequested)
+      {
+        await upload.RequestStream.WriteAsync(chunk)
+                    .ConfigureAwait(false);
+        Interlocked.Add(ref sent.Value,
+                        ChunkSize);
+      }
+    }
+    catch (Exception) when (stop.IsCancellationRequested)
+    {
+    }
+  }
+
   /// <summary>Thread-pool workers kept running, as in an application whose pool is never idle.</summary>
   /// <remarks>Each computes for 50 us and yields, so a completion may find a worker awake.</remarks>
   private static Task[] Occupy(CancellationToken stop)
@@ -255,13 +408,17 @@ public static class Program
                                        }))
                  .ToArray();
 
+  /// <summary>The transport's channel to the server; a native one held to one connection when
+  /// <paramref name="pinned" />.</summary>
   private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
-                                                               Server server)
+                                                               Server server,
+                                                               bool   pinned)
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
-      // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
-      // by any other. native-metrics loads the build with the engine's counters, which is
+      // native takes the build's frames per write, 16 against h2-batch's patch, the binding's
+      // default, and 1 with -p:NativeEngineH2Batch=false; native-batch states 16, which a stock
+      // build refuses. native-metrics loads the build with the engine's counters, which is
       // selected before the first runtime exists. native-spin has the channel's thread poll for
       // work for the spin's default window after each callback into the host before it sleeps.
       // native-h2c reaches a server with no authority, so its channel states no Tls.
@@ -276,6 +433,21 @@ public static class Program
                                                BeforeSleep = new BeforeSleep.Spin(),
                                              })
                       : NativeRuntime.Create();
+      var http2 = transport == "native-batch"
+                    ? new Http2Options
+                      {
+                        Send = new Http2SendOptions
+                               {
+                                 FramesPerWrite = 16,
+                               },
+                      }
+                    : null;
+      if (pinned)
+      {
+        http2                                ??= new Http2Options();
+        http2.SimultaneousCallsPerConnection =   new CallsPerConnection.Limit(PinnedCallsPerConnection);
+      }
+
       var channel = runtime.Channel(server.Endpoint,
                                     new ChannelOptions
                                     {
@@ -288,15 +460,7 @@ public static class Program
                                                                 ServerCertificates = new ServerCertificates.CaPem(server.Authority),
                                                               },
                                                       },
-                                      Http2 = transport == "native-batch"
-                                                ? new Http2Options
-                                                  {
-                                                    Send = new Http2SendOptions
-                                                           {
-                                                             FramesPerWrite = 16,
-                                                           },
-                                                  }
-                                                : null,
+                                      Http2 = http2,
                                     });
       return (channel, async () =>
                        {

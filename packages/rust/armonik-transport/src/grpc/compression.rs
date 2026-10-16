@@ -60,8 +60,14 @@ impl Encoding {
         message: &[u8],
         budget: Option<&dyn CompressionBudget>,
     ) -> Option<FramedMessage> {
+        charged(self.build(message)?, budget)
+    }
+
+    /// The compressed form of `message` behind room for its prefix, uncharged, or None when it is
+    /// not smaller.
+    fn build(self, message: &[u8]) -> Option<Vec<u8>> {
         // Each encoder writes into a vector, which does not fail.
-        let mut framed = match self {
+        let framed = match self {
             Self::Gzip => {
                 let mut encoder =
                     GzEncoder::new(Self::prefixed(message), flate2::Compression::default());
@@ -90,18 +96,24 @@ impl Encoding {
         if framed.len() - FRAME_PREFIX >= message.len() {
             return None;
         }
-        // Charged once made, at the size the allocation keeps, and given back when the message is
-        // dropped, written or not. A copy refused is dropped: the one being built is outside the
-        // budget.
-        let charge = match budget {
-            Some(budget) => {
-                framed.shrink_to_fit();
-                Some(budget.charge(framed.len())?)
-            }
-            None => None,
-        };
-        FramedMessage::compressed_in_place(framed, charge)
+        Some(framed)
     }
+}
+
+/// The message a copy `Encoding::build` made, its bytes charged to `budget`; None when the budget
+/// has no room for them.
+///
+/// Charged at the size the allocation keeps, and given back when the message is dropped, written
+/// or not.
+fn charged(mut framed: Vec<u8>, budget: Option<&dyn CompressionBudget>) -> Option<FramedMessage> {
+    let charge = match budget {
+        Some(budget) => {
+            framed.shrink_to_fit();
+            Some(budget.charge(framed.len())?)
+        }
+        None => None,
+    };
+    FramedMessage::compressed_in_place(framed, charge)
 }
 
 /// What a message's compressed copy is counted against: the caller's memory ceiling, when it has
@@ -290,13 +302,27 @@ pub(crate) async fn compressed(
             .unwrap_or(message);
     };
     let whole: Bytes = message.body();
-    let budget = budget.cloned();
+    let shrink = budget.is_some();
     let done = runtime
-        .spawn_blocking(move || encoding.compress(&whole[FRAME_PREFIX..], budget.as_deref()))
+        .spawn_blocking(move || {
+            #[cfg(feature = "test-hooks")]
+            crate::hooks::run_off_the_runtime();
+            // Shrunk here, so the charge below finds it done and does not reallocate.
+            encoding.build(&whole[FRAME_PREFIX..]).map(|mut framed| {
+                if shrink {
+                    framed.shrink_to_fit();
+                }
+                framed
+            })
+        })
         .await;
-    // A task that did not finish leaves the message as it was, which is a valid answer.
+    // Charged here and not on the blocking thread: a call that has ended no longer waits for the
+    // copy, so nothing is charged after its terminal. A task that did not finish leaves the
+    // message as it was, which is a valid answer.
     match done {
-        Ok(compressed) => compressed.unwrap_or(message),
+        Ok(built) => built
+            .and_then(|framed| charged(framed, budget.map(|budget| &**budget)))
+            .unwrap_or(message),
         Err(error) => {
             tracing::warn!(%error, "a message goes uncompressed: its compression did not finish");
             message

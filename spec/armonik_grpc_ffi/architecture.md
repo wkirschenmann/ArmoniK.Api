@@ -281,7 +281,9 @@ teardown, and buys no safety in exchange.
 
 **Failure.** A runtime fails when its shutdown can no longer finish: the task that drives
 the shutdown panicked, or the thread that drops the tokio runtime from outside it could not be
-started. Both happen during a shutdown. Elsewhere a panic is contained where it happens - a
+started. Both happen while the runtime is `AK_RUNTIME_GRPC_STOPPING`: the thread is obtained
+before `AK_RUNTIME_GRPC_STOPPED` is stored, and from there that thread finishes the shutdown
+whatever the task does, so no failure leaves `AK_RUNTIME_GRPC_STOPPED`. Elsewhere a panic is contained where it happens - a
 downcall answers `AK_STATUS_INTERNAL`, a call's own task ends that call with a status - and
 the runtime goes on. Two defensive readings report it too: `ak_runtime_status` itself
 faulting, and a stored state it cannot read. The state is then `AK_RUNTIME_FAILED_UNQUIESCED`:

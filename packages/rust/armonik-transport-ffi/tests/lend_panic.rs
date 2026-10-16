@@ -455,6 +455,43 @@ fn a_panic_after_the_send_is_recorded_as_waiting_takes_the_record_back() {
     assert_shuts_down_clean(&fixture, call, "the second charge");
 }
 
+/// A panic in the second try of a charge, on a call whose send already waits for room from an
+/// earlier refusal, leaves that wait standing: the lend it refuses is no step, and a refused lend's
+/// wait stands until a lend succeeds or the call ends.
+#[test]
+fn a_panic_in_a_lend_leaves_the_wait_an_earlier_refusal_recorded() {
+    let _turn = take_turn();
+    let (fixture, call, other, held) = with_the_budget_taken();
+    let (status, _) = lend(call, ASKED);
+    assert_eq!(status, ak_status::AK_STATUS_BUDGET_BUSY);
+    assert_eq!(hooks::is_waiting_for_room(call), Some(true));
+
+    // The first charge of the second lend is refused for the budget, and its second try panics.
+    let charges = Arc::new(AtomicUsize::new(0));
+    hooks::at_each_charge_step(Some(Arc::new(move |reached| {
+        if reached == ChargeStep::Begun && charges.fetch_add(1, Ordering::SeqCst) == 1 {
+            panic!("injected in the second charge");
+        }
+    })));
+    let (status, _) = lend(call, ASKED);
+    hooks::at_each_charge_step(None);
+
+    assert_eq!(status, ak_status::AK_STATUS_INTERNAL);
+    assert_eq!(
+        hooks::is_waiting_for_room(call),
+        Some(true),
+        "the earlier refusal's wait stands"
+    );
+
+    unsafe { ak_return_call_buffer(held) };
+    fixture.host.recorder.await_budget_wake();
+    assert_lendable_again(&fixture, call, "after the wake-up");
+    for call in [call, other] {
+        cancel(&fixture, call);
+    }
+    assert_shuts_down_clean(&fixture, call, "the second charge");
+}
+
 /// Past the size a channel keeps its arenas from.
 const LARGE: usize = 128 * 1024;
 

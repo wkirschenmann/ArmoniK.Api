@@ -39,6 +39,7 @@ struct Unhook;
 impl Drop for Unhook {
     fn drop(&mut self) {
         hooks::before_copy_charge(None);
+        armonik_transport::hooks::off_the_runtime(None);
     }
 }
 
@@ -154,6 +155,81 @@ fn a_copy_that_does_not_fit_is_sent_uncompressed() {
         host.recorder.await_terminals(2);
         host.recorder.consume_all();
         support::await_call_reclaimed(other);
+        ak_channel_release(channel);
+        host.stop();
+    }
+}
+
+/// Past the size the engine compresses on a blocking thread rather than on the call's.
+const LARGE: usize = 100 * 1024;
+
+/// A large message whose compression is under way when its call ends charges nothing for its copy,
+/// on a stream as on a call that sends one request: the engine takes bytes for an active call only,
+/// and a compression the call no longer waits for is abandoned.
+#[test]
+fn a_compression_its_call_outlived_charges_nothing() {
+    let _turn = TURN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for one_request in [true, false] {
+        let server = TestServer::start();
+        let host = Host::with_ceiling(4 * LARGE as u64);
+        let channel = host.channel_with(&server.endpoint, GZIP);
+
+        let (reached, compressing) = std::sync::mpsc::channel();
+        let (go, held) = std::sync::mpsc::channel::<()>();
+        let held = Mutex::new(held);
+        armonik_transport::hooks::off_the_runtime(Some(Arc::new(move || {
+            let _ = reached.send(());
+            let _ = held
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .recv();
+        })));
+        let charged_after_the_end = Arc::new(AtomicBool::new(false));
+        let late = Arc::clone(&charged_after_the_end);
+        let recorder = Arc::clone(&host.recorder);
+        hooks::before_copy_charge(Some(Arc::new(move || {
+            if recorder.kinds().contains(&ak_event_kind::AK_EVENT_STATUS) {
+                late.store(true, Ordering::SeqCst);
+            }
+        })));
+        let unhook = Unhook;
+
+        let call = if one_request {
+            start_call_flagged(channel, FRAMES, &[], AK_CALL_ONE_REQUEST)
+        } else {
+            start_call(channel, FRAMES, &[])
+        };
+        let written = b"abc".repeat(LARGE / 3);
+        let (status, buffer) = lend(call, written.len());
+        assert_eq!(status, ak_status::AK_STATUS_OK);
+        unsafe { std::ptr::copy_nonoverlapping(written.as_ptr(), buffer.ptr, written.len()) };
+        assert_eq!(
+            unsafe { ak_call_send_message(call, buffer, written.len(), std::ptr::null_mut()) },
+            ak_status::AK_STATUS_OK
+        );
+        compressing
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the message is compressed on a blocking thread");
+
+        assert_eq!(
+            unsafe { ak_call_cancel(call, std::ptr::null_mut()) },
+            ak_status::AK_STATUS_OK
+        );
+        host.recorder.await_terminal();
+        go.send(()).expect("the compression waits");
+        // Long past what the compression of this message takes, so a charge it made would be made.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        drop(unhook);
+
+        assert!(
+            !charged_after_the_end.load(Ordering::SeqCst),
+            "the copy was charged after its call had ended, one request: {one_request}"
+        );
+        host.recorder.consume_all();
+        support::await_call_reclaimed(call);
+        assert_eq!(memory_usage(host.runtime).bytes_used, 0);
         ak_channel_release(channel);
         host.stop();
     }

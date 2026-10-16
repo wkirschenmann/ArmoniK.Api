@@ -57,6 +57,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
   private readonly CancellationTokenSource ending_ = new();
 
+  // The code of the terminal the engine published, -1 before, which a write refused on an ended
+  // call reports when nothing has consumed the terminal; and the wait for it, made only by such a
+  // write. Each side writes its own with a full fence before it reads the other's.
+  private int endedCode_ = -1;
+  private TaskCompletionSource<StatusCode>? endedWith_;
+
   private static readonly uint StartOptionsSize = (uint)Marshal.SizeOf<ak_call_start_options>();
 
   private static readonly ConditionalWeakTable<string, byte[]> MethodNames = new();
@@ -95,6 +101,27 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
   public CancellationToken Ending
     => ending_.Token;
+
+  internal Task<StatusCode> EndedWith
+  {
+    get
+    {
+      var waiting = new TaskCompletionSource<StatusCode>(TaskCreationOptions.RunContinuationsAsynchronously);
+      var ended = Interlocked.CompareExchange(ref endedWith_,
+                                              waiting,
+                                              null) ?? waiting;
+      var code = Volatile.Read(ref endedCode_);
+      if (code >= 0)
+      {
+        ended.TrySetResult((StatusCode)code);
+      }
+
+      return ended.Task;
+    }
+  }
+
+  internal bool CancelledHere
+    => receiving_.CancelledHere;
 
   public void EndCall()
     => ending_.Cancel();
@@ -243,9 +270,29 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
       return false;
     }
 
-    return receiving_.Store(kind,
-                           payload,
+#if DEBUG
+    if (kind == ak_event_kind.AK_EVENT_STATUS)
+    {
+      TestHooks.PublishingTerminal?.Invoke();
+    }
+#endif
+    var owed = receiving_.Store(kind,
+                                payload,
+                                statusCode);
+
+    // No BUDGET_WAKE follows a terminal, so a send parked against the ceiling is woken here, to be
+    // refused as a call that ended whether or not anyone reads the terminal. After the store, so
+    // the terminal is in the ring when the send ends the call.
+    if (kind == ak_event_kind.AK_EVENT_STATUS)
+    {
+      Interlocked.Exchange(ref endedCode_,
                            statusCode);
+      Volatile.Read(ref endedWith_)
+              ?.TrySetResult((StatusCode)statusCode);
+      sending_.Woken();
+    }
+
+    return owed;
   }
 
   public void Arrived()
@@ -367,10 +414,7 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
   {
     await receiving_.Settled.ConfigureAwait(false);
 
-    // Before the wait below and not after. A send parked against the memory ceiling watches this
-    // token, and what it waits for is room to serialize a message into a call that is over - room
-    // other calls have to give up, on a schedule this one does not control. Cancelled afterwards,
-    // the wait for that sender would be waiting on the sender it is there to release.
+    // The call is over: whatever watches the token stops waiting.
     ending_.Cancel();
 
     await sending_.HandedEverythingBackAsync()
@@ -387,8 +431,8 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
     registration.Dispose();
 
-    // This terminates: a terminal cannot be consumed until the prologue has let go, and the
-    // cancel above is what ends one still waiting on a call that published nothing.
+    // This terminates: the terminal is consumed, which no consumer does while the prologue holds
+    // the ring, and a prologue started after it ends at once.
     await receiving_.PrologueFinished.ConfigureAwait(false);
   }
 

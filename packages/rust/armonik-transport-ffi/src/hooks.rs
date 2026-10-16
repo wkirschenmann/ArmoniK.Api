@@ -8,6 +8,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// What a hook runs on the thread that reaches it.
 pub type Hook = Arc<dyn Fn() + Send + Sync>;
 
+/// What a hook runs where the library asks the system for something, answering whether the
+/// request is refused.
+pub type Refusing = Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// What a step hook runs, told the step an entry point has reached.
 pub type StepHook<S = ResizeStep> = Arc<dyn Fn(S) + Send + Sync>;
 
@@ -114,6 +118,8 @@ static REPAY_STEP: Mutex<Option<StepHook<RepayStep>>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
+static TEARDOWN_SPAWN: Mutex<Option<Refusing>> = Mutex::new(None);
+static AFTER_STOPPED: Mutex<Option<Hook>> = Mutex::new(None);
 static CHANNEL_THREADS: AtomicUsize = AtomicUsize::new(0);
 static NEW_ARENAS: AtomicUsize = AtomicUsize::new(0);
 
@@ -227,6 +233,32 @@ pub fn channel_thread_ending(hook: Option<Hook>) {
     *CHANNEL_THREAD_ENDING
         .lock()
         .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` where a shutdown is about to spawn its teardown thread, which is refused as the
+/// system would refuse it when the hook answers true. `None` removes it.
+pub fn at_teardown_spawn(hook: Option<Refusing>) {
+    *TEARDOWN_SPAWN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+/// Runs `hook` in a shutdown once it has stored AK_RUNTIME_GRPC_STOPPED, which a test makes panic
+/// to see that no failure leaves that state. `None` removes it.
+pub fn after_stopped(hook: Option<Hook>) {
+    *AFTER_STOPPED.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
+pub(crate) fn run_after_stopped() {
+    run(&AFTER_STOPPED);
+}
+
+pub(crate) fn refuses_teardown_thread() -> bool {
+    let hook = TEARDOWN_SPAWN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    hook.is_some_and(|hook| hook())
 }
 
 /// Runs `hook` at each step of every send of a buffer, which a test makes panic to see what a

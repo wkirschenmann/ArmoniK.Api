@@ -48,7 +48,15 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
   private readonly TaskCompletionSource<bool> disposed_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+  private readonly TaskCompletionSource<bool> startsSettled_ =
+    new(TaskCreationOptions.RunContinuationsAsynchronously);
+
   private int disposing_;
+
+  // Starts in flight, counted before they read `disposing_`, which the sweep waits for: the
+  // disposal sets the flag before it reads the count, so one of the two sees the other.
+  private int starting_;
+
   private volatile ChannelDisposeState state_ = ChannelDisposeState.Active;
 
   /// <summary>The delivery window every call of the channel sizes its ring from.</summary>
@@ -304,26 +312,42 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                                                       bool                  waitForReady = false)
     where TResponse : class
   {
-    if (Volatile.Read(ref disposing_) != 0)
+    // The check, the start and the tracking are one step against the disposal: a call is in
+    // `live_` before the sweep reads it, or refused.
+    Interlocked.Increment(ref starting_);
+    try
     {
-      throw new RpcException(new Status(StatusCode.Unavailable,
-                                        "the channel is being disposed and takes no new calls"));
-    }
+      if (Volatile.Read(ref disposing_) != 0)
+      {
+        throw new RpcException(new Status(StatusCode.Unavailable,
+                                          "the channel is being disposed and takes no new calls"));
+      }
 
-    var call = NativeCall<TResponse>.Start(handle_,
-                                           deliveryCredits_,
-                                           method,
-                                           metadata,
-                                           marshaller,
-                                           deadline,
-                                           oneRequest,
-                                           oneResponse,
-                                           waitForReady);
-    // The settlement and not the response: a server stream has no single response, and what the
-    // drain has to wait for is the terminal consumed with nothing owed either way.
-    Track(call,
-          call.Settled);
-    return call;
+      var call = NativeCall<TResponse>.Start(handle_,
+                                             deliveryCredits_,
+                                             method,
+                                             metadata,
+                                             marshaller,
+                                             deadline,
+                                             oneRequest,
+                                             oneResponse,
+                                             waitForReady);
+#if DEBUG
+      TestHooks.StartedNotTracked?.Invoke();
+#endif
+      // The settlement and not the response: a server stream has no single response, and what the
+      // drain has to wait for is the terminal consumed with nothing owed either way.
+      Track(call,
+            call.Settled);
+      return call;
+    }
+    finally
+    {
+      if (Interlocked.Decrement(ref starting_) == 0 && Volatile.Read(ref disposing_) != 0)
+      {
+        startsSettled_.TrySetResult(true);
+      }
+    }
   }
 
   private void Track(ICallSink call,
@@ -339,13 +363,6 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
                              },
                              (live_, call),
                              TaskContinuationOptions.ExecuteSynchronously);
-
-    // Read again, because `StartCall`'s read and this line straddle the start: a disposal that
-    // began between them drained a `live_` this call was not in yet.
-    if (Volatile.Read(ref disposing_) != 0)
-    {
-      call.Cancel();
-    }
   }
 
   /// <summary>Cancels what is still running, then releases this channel's handle.</summary>
@@ -364,6 +381,11 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
 
     try
     {
+      if (Volatile.Read(ref starting_) != 0)
+      {
+        await startsSettled_.Task.ConfigureAwait(false);
+      }
+
       while (!live_.IsEmpty)
       {
         // One snapshot, because `Keys` and `Values` are two of them and a call may leave between.
@@ -386,11 +408,8 @@ public sealed class NativeChannel : ChannelBase, IAsyncDisposable
         {
         }
 
-        // Removed here rather than left to the continuation `Track` registered. A task runs its
-        // continuations in order, on the thread that completed it; when `Track` was preempted
-        // between the add and the ContinueWith, the removal is registered behind this loop's own
-        // await and cannot run while this loop is on that thread - and the loop would spin on a
-        // `live_` nothing can empty. Exact because a key is added once and its task never
+        // Removed here as well as by the continuation `Track` registered, which may not have run
+        // when the await above resumes. Exact because a key is added once and its task never
         // changes: what was just awaited is what is being removed.
         foreach (var entry in live)
         {
