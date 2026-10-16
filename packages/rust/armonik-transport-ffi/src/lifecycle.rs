@@ -6,7 +6,6 @@ use armonik_transport::options::RuntimeOptions;
 use crate::abi::{ak_event_kind, ak_handle, ak_host_debt, ak_runtime_state, ak_status};
 use crate::channel::AkChannel;
 use crate::host::Host;
-use crate::ledger::Ledger;
 use crate::log::{self, Sink};
 use crate::refusal::Refusal;
 use crate::runtime::{AkRuntime, Claim};
@@ -108,26 +107,22 @@ pub(crate) fn begin_shutdown(runtime: &Arc<AkRuntime>) {
 
     let weak = Arc::downgrade(runtime);
     let host = Arc::clone(runtime.host());
-    let ledger = Arc::clone(runtime.ledger());
 
     runtime.spawner().spawn(async move {
         let failed = Weak::clone(&weak);
-        if crate::guarded(shutting_down(weak, host, ledger))
-            .await
-            .is_none()
-        {
-            // Nothing else can finish this shutdown: no SHUTDOWN_COMPLETE went out and no
-            // teardown thread was started, so the runtime would answer STOPPED for the life of
-            // the process and refuse every destroy. That is what AK_RUNTIME_FAILED_UNQUIESCED
-            // names - "quiescence impossible, destroy refused".
+        if crate::guarded(shutting_down(weak, host)).await.is_none() {
+            // Before GRPC_STOPPED nothing else can finish this shutdown, so the runtime would
+            // answer STOPPING for the life of the process and refuse every destroy. That is what
+            // AK_RUNTIME_FAILED_UNQUIESCED names - "quiescence impossible, destroy refused". From
+            // GRPC_STOPPED on, the teardown thread finishes it, and the state stays.
             if let Some(runtime) = failed.upgrade() {
-                runtime.set_state(ak_runtime_state::AK_RUNTIME_FAILED_UNQUIESCED);
+                runtime.fail_while_stopping();
             }
         }
     });
 }
 
-async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledger>) {
+async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>) {
     let reached = |act: fn(&AkRuntime)| {
         if let Some(runtime) = weak.upgrade() {
             act(&runtime);
@@ -154,33 +149,39 @@ async fn shutting_down(weak: Weak<AkRuntime>, host: Arc<Host>, ledger: Arc<Ledge
         call.finished().await;
     }
 
-    let debt = if ledger.empty() {
+    let Some(runtime) = weak.upgrade() else {
+        return;
+    };
+    let debt = if runtime.ledger().empty() {
         ak_host_debt::AK_HOST_NOTHING_TO_RETURN
     } else {
         ak_host_debt::AK_HOST_MUST_RETURN
     };
 
+    // The rest is a thread's, not a task's: it waits for the host to give back what it owes,
+    // emits RESOURCES_RELEASED, and shuts tokio down, and QUIESCENT is that thread having
+    // finished. Obtained while the runtime is still stopping, where a runtime that cannot get one
+    // fails: GRPC_STOPPED is level 0's RELEASED, which no failure leaves.
+    let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
+    let Some(teardown) = runtime.prepare_teardown(owed) else {
+        runtime.fail_while_stopping();
+        return;
+    };
+    drop(runtime);
+
     // Two signals, because the host may still hold payloads and buffers when the gRPC side
-    // stops: this one says whether it does, and RESOURCES_RELEASED below says it has given
-    // them all back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
+    // stops: this one says whether it does, and RESOURCES_RELEASED says it has given them all
+    // back. Only then is the runtime quiescent and `ak_runtime_destroy` accepted.
     //
     // STOPPED once the callback has returned, as level 1's RuntimeRelease has it, so a host
     // that reads the status from inside the callback reads STOPPING. QUIESCENT is derived from
-    // STOPPED and the teardown thread's end, so the store comes before `tear_down` below.
+    // STOPPED and the teardown thread's end, so the store comes before the thread goes on; a
+    // panic past the store lets it go all the same.
     host.signal_runtime(ak_event_kind::AK_EVENT_SHUTDOWN_COMPLETE, debt);
     reached(|runtime| runtime.set_state(ak_runtime_state::AK_RUNTIME_GRPC_STOPPED));
-
-    let owed = debt == ak_host_debt::AK_HOST_MUST_RETURN;
-    if owed {
-        ledger.drained().await;
-    }
-
-    // The rest is a thread's, not a task's. It emits RESOURCES_RELEASED and then shuts tokio
-    // down, and QUIESCENT is that thread having finished - so the host reads it when there is
-    // nothing left rather than when this task got here.
-    if let Some(runtime) = weak.upgrade() {
-        runtime.tear_down(owed);
-    }
+    #[cfg(feature = "test-hooks")]
+    crate::hooks::run_after_stopped();
+    teardown.start();
 }
 
 pub(crate) fn release_channel(handle: ak_handle) {

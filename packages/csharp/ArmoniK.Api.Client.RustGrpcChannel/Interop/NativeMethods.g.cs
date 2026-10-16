@@ -1145,9 +1145,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
         AK_RUNTIME_QUIESCENT = 4,
         /// <summary>
         ///  Quiescence impossible, destroy refused. Reported when the status itself cannot be read,
-        ///  when the task driving the shutdown dies, and when that shutdown cannot get a thread of its
-        ///  own: the three ways the step to QUIESCENT stops being reachable. A shutdown that is merely
-        ///  slow stays GRPC_STOPPING.
+        ///  and from GRPC_STOPPING when the task driving the shutdown dies or that shutdown cannot get
+        ///  a thread of its own: the ways the step to QUIESCENT stops being reachable. Never from
+        ///  GRPC_STOPPED, where that thread finishes the shutdown. A shutdown that is merely slow
+        ///  stays where it is.
         /// </summary>
         AK_RUNTIME_FAILED_UNQUIESCED = 5,
     }

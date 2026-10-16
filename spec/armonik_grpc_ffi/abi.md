@@ -246,7 +246,8 @@ Stopped and destructible are two facts - the first about the runtime's own activ
 about what the host has given back - and one value cannot carry both, so there are two.
 `AK_RUNTIME_GRPC_STOPPED` is the functional shutdown: no channels, no connections, no gRPC task
 running, and it needs nothing back from the host. It does not mean no thread is left: the
-teardown thread survives to carry `AK_EVENT_RESOURCES_RELEASED` when that is owed.
+teardown thread, obtained before the state is stored, is left to carry
+`AK_EVENT_RESOURCES_RELEASED` when that is owed, and to finish what QUIESCENT needs.
 `AK_RUNTIME_QUIESCENT` is stopped plus an empty ledger: every payload consumed, every buffer
 given back and released.
 
@@ -756,5 +757,6 @@ What is still owed:
 five-field struct: its three categories need each buffer's position in its lifecycle
 tracked, and it is an observability tool rather than one a retry needs. `AK_RUNTIME_FAILED_UNQUIESCED` has two producers, a shutdown
 task that dies under its guard and a shutdown that cannot get the thread quiescence is
-defined as, and two defensive readings: `ak_runtime_status` faulting, and a stored state it
+defined as, both from `AK_RUNTIME_GRPC_STOPPING`, since `AK_RUNTIME_GRPC_STOPPED` is not left;
+and two defensive readings: `ak_runtime_status` faulting, and a stored state it
 cannot read.
