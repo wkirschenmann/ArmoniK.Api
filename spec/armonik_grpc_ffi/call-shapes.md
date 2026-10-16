@@ -1,7 +1,7 @@
 # Call shapes: what a call carries one of
 
 **Status**: decided 2026-10-03 and 2026-10-04, the deadline revised 2026-10-16; built, steps 1
-to 5, the deadline revision with the engine change that makes it.
+to 5 and the deadline revision.
 
 A gRPC method has one of four cardinalities, and each direction of a call carries either exactly
 one message or a stream of them. The ABI treats every call as a bidirectional stream: the host
@@ -93,13 +93,14 @@ the binding reports a unary call answered with more than one message.
 - On a one-request call, `ak_call_start` registers the call and spawns nothing. The commit spawns
   the call's one task with the request as its argument: the host wakes the channel's thread once
   for the whole request. Any other call has its one task spawned at `ak_call_start`, as today.
-- A call that needs its task before the commit has it spawned then, without its request. That is
-  a cancellation, a channel release or a shutdown, which then end the call through the paths they
-  have today; the call's deadline passing, which the engine watches from `ak_call_start` by a
-  mechanism of its own and which ends the call `DEADLINE_EXCEEDED`; and a lend refused for the
-  budget, since the AK_EVENT_BUDGET_WAKE it waits for is raised by the task. Such a task takes
-  its request later from a one-shot slot in the call's state - one hand-off, not a queue of
-  commands - and sends nothing, not even the request's
+- A call that needs its task before the commit has it spawned then, without its request. That is a
+  cancellation, a channel release or a shutdown, which then end the call through the paths they
+  have today; the call's deadline passing, which one watcher per channel (`deadlines.rs`) holds
+  from `ak_call_start` for the calls whose task is not spawned yet, and whose task then ends the
+  call `DEADLINE_EXCEEDED` at once; and a lend refused for the budget, since the
+  AK_EVENT_BUDGET_WAKE it waits for is raised by the task. Such a task takes its request later
+  from a one-shot slot in the call's state - one hand-off, not a queue of commands - and sends
+  nothing, not even the request's
   head, until the slot is filled. One transition of the call's state decides which of a commit
   and those paths spawns the task. If one of the paths wins, the commit fills the slot, or is
   refused once the call has ended; if the commit wins, the path finds the task spawned and
@@ -393,7 +394,8 @@ Taken on 2026-10-03:
 3. **Reversed on 2026-10-16: the deadline runs from `ak_call_start` on every call**, as the
    deadline paragraph says. The decision of 2026-10-03 checked the deadline of a call not yet
    committed at its commit, so that the hot path, where the deadline never fires, saved its
-   wake-up; that wake-up is the revision's cost.
+   wake-up. The channel's watcher saves the per-call wake-up, at the cost of an entry per call
+   with a deadline, inserted at its start and removed at its spawn.
 4. **The request body is swapped below tonic**, in the engine's HTTP/2 service, tonic's client
    keeping the request head and the response. Whether the response leaves tonic too, to slice a
    message out of its DATA frame without a copy, is a later decision.
