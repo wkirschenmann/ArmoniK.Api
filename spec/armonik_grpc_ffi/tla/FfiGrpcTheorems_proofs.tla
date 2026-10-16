@@ -104,7 +104,7 @@ LEMMA FfiOnlyStutters == NextSafeFfiOnly => UNCHANGED l0_vars
     BY SMTT(60) DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
            EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
            ResourcesReleasedCallbackReturns, RuntimeDestroy,
-           RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
+           RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
            HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
            WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -130,7 +130,7 @@ LEMMA FfiOnlyStepsKeepL0 ==
     BY DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -149,7 +149,7 @@ LEMMA RuntimeAndChannelStepsKeepCalls ==
         ChannelCreate, ChannelStartClosing,
         L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
         L0!ChannelCreate, L0!ChannelStartClosing,
-        RequestCancellationOfActiveCalls, L0!CallVars
+        L0!CallVars
 
 \* Failure and the two explicit stutters leave the calls alone as well:
 \* a failed runtime is unconstrained afterwards, not retroactively.
@@ -161,8 +161,8 @@ LEMMA FailAndStutterStepsKeepCalls ==
         RemainReleased, L0!RuntimeFail, L0!RemainFailed, L0!RemainReleased,
         L0!vars, L0!CallVars
 
-\* Neither do they touch the delivery flag: the closing paths write the
-\* cancel latch and nothing else of the FFI state.
+\* Neither do they touch the delivery flag: the closing paths write nothing
+\* of the FFI state.
 LEMMA RuntimeAndChannelStepsKeepDeliveryFlags ==
     ASSUME \/ NextSafeRuntimeOnly
            \/ NextSafeRuntimeChannel
@@ -187,7 +187,7 @@ LEMMA FfiOnlyStepsNeverStartDelivery ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -258,7 +258,7 @@ LEMMA OnlySendMessageWritesBufferSend ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
+        CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -267,7 +267,7 @@ LEMMA OnlySendMessageWritesBufferSend ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -295,7 +295,7 @@ LEMMA OnlyEngineStepsWriteEngineHeld ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -304,7 +304,7 @@ LEMMA OnlyEngineStepsWriteEngineHeld ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer,
         FreeReturnedBuffer, ResizeSendBuffer,
@@ -339,7 +339,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
+        CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -352,7 +352,7 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
           ResourcesReleasedCallbackReturns, RuntimeDestroy
     <3>2. QED BY <3>1
   <2>2. CASE NextSafeCallFfi
-    BY <2>2, SMT DEF NextSafeCallFfi, RequestCallCancellation,
+    BY <2>2, SMT DEF NextSafeCallFfi, RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel,
         ReleaseCallHandle, EmitWriteDone, WriteDoneReturns,
         DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         RefuseLendTooLarge, RefuseLendForSlot, RefuseLendForBudget
@@ -368,9 +368,14 @@ LEMMA OnlyBufferStepsWriteBufferStates ==
     BY <1>1, <1>2, <1>3, <1>4, <1>5, NextDecomposition
     DEF NextByFootprint, NextSafe
 
+\* The two steps that take a cancellation into account, the downcall's or the
+\* deadline's and the channel close's, move the same variables.
+IsCancelLatchStep(cId) ==
+    RequestCallCancellation(cId) \/ CancelCallOfClosingChannel(cId)
+
 \* The budget's writers: on the send side the lend that may exhaust it and
 \* the free that relieves it, on the receive side the arrival that charges a
-\* message, the consumption that gives one back and the cancellation that
+\* message, the consumption that gives one back and the cancellation latch that
 \* drops what was never delivered.  Every other step leaves it alone, which is
 \* what lets the interlock be read off one framing fact instead of an action
 \* alphabet.  The writers stay opaque here - they are the disjuncts being
@@ -383,7 +388,7 @@ LEMMA OnlyBudgetStepsWriteBudget ==
                  ln \in Sizes, ch \in Sizes : ResizeSendBuffer(c, b, nb, ln, ch)
            \/ \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
            \/ \E c \in CallIds : HostConsumesEvent(c)
-           \/ \E c \in CallIds : DeliverCancelled(c)
+           \/ \E c \in CallIds : IsCancelLatchStep(c)
            \/ \E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n)
            \/ \E n \in Sizes : EngineGivesBackBytes(n)
            \/ UNCHANGED <<buffer_charge, memory_used, engine_held>>
@@ -393,10 +398,10 @@ LEMMA OnlyBudgetStepsWriteBudget ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        HandPayloadToHost, EndWaitOf,
+        DeliverCancelled, HandPayloadToHost, EndWaitOf,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars,
         l0_vars, ffi_vars
 <1>2. CASE NextSafeFfiOnly
@@ -404,7 +409,8 @@ LEMMA OnlyBudgetStepsWriteBudget ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        IsCancelLatchStep,
+        ReleaseCallHandle, EmitWriteDone,
         HostReturnsBuffer, WriteDoneReturns, DeliveryCallbackReturns,
         AdmitRead, EmitBudgetWake, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, l0_vars, L0!vars
@@ -554,14 +560,15 @@ LEMMA ReceivedBytesFrame ==
 <1>3. QED BY <1>1, <1>2, Zenon DEF BytesReceived
 
 \* The receive side's writers, each named; every other step keeps what the
-\* received total reads.  A call's held messages stop where they did unless it
-\* ends: ending by its status it has delivered everything, so the stop does
-\* not move either, and only a cancellation drops anything.
+\* received total reads.  A call's held messages stop where they did unless its
+\* task takes a cancellation into account: ending by its status it has
+\* delivered everything, ending cancelled it took the latch first, so the stop
+\* does not move then, and only the latch drops anything.
 LEMMA OnlyReceiveStepsMoveReceivedBytes ==
     ASSUME TypeOK, [Next]_vars
     PROVE  \/ \E c \in CallIds, m \in Messages : NetworkReceive(c, m)
            \/ \E c \in CallIds : HostConsumesEvent(c)
-           \/ \E c \in CallIds : DeliverCancelled(c)
+           \/ \E c \in CallIds : IsCancelLatchStep(c)
            \/ /\ UNCHANGED <<received, payloads_consumed_by_host>>
               /\ \A c \in CallIds : HeldReceivedTop(c)' = HeldReceivedTop(c)
 <1>1. CASE NextSafeRefining
@@ -570,16 +577,17 @@ LEMMA OnlyReceiveStepsMoveReceivedBytes ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
-        HandPayloadToHost, EndWaitOf, HeldReceivedTop,
+        DeliverCancelled, HandPayloadToHost, EndWaitOf, HeldReceivedTop,
+        IsCancelRequested,
         L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
         L0!CallStart, L0!SendMessage, L0!EndSend, L0!NetworkSend,
         L0!ReceiveStatus, L0!DeliverInitialMetadata, L0!DeliverMessage,
-        L0!DeliverStatus, L0!IsActiveCall, L0!IsTerminalCall, L0!IsUnusedCall,
-        L0!ActiveCallStates, L0!CallsOf,
+        L0!DeliverStatus, L0!CallCancel, L0!IsActiveCall, L0!IsTerminalCall,
+        L0!IsUnusedCall, L0!ActiveCallStates, L0!CallsOf,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars,
         l0_vars, ffi_vars, TypeOK, L0!TypeOK
 <1>2. CASE NextSafeFfiOnly
@@ -587,7 +595,8 @@ LEMMA OnlyReceiveStepsMoveReceivedBytes ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        IsCancelLatchStep, IsCancelRequested,
+        ReleaseCallHandle, EmitWriteDone,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns,
         AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge,
@@ -620,6 +629,8 @@ LEMMA ReceiveAddsItsMessage ==
 <1>2. /\ L0!IsActiveCall(c)
       /\ received' = [received EXCEPT ![c] = Append(@, m)]
       /\ UNCHANGED <<delivered, payloads_consumed_by_host, call_state>>
+      /\ UNCHANGED cancel_requested
+      /\ ~IsCancelRequested(c)
     BY Zenon DEF NetworkReceive, L0!NetworkReceive
 <1>3. MessagesReleased(c) <= Len(received[c])
   <2>1. /\ payloads_consumed_by_host[c] <= Len(events_delivered[c])
@@ -633,7 +644,7 @@ LEMMA ReceiveAddsItsMessage ==
       /\ ReceivedPairs' = ReceivedPairs \union {<<c, Len(received[c]) + 1>>}
     BY <1>2, <1>3, SMTT(300)
     DEF ReceivedPairs, HeldReceivedTop, MessagesReleased, L0!IsTerminalCall,
-        L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK
+        IsCancelRequested, L0!IsActiveCall, L0!ActiveCallStates, TypeOK, L0!TypeOK
 <1>5. \A q \in ReceivedPairs : ReceivedLength'[q] = ReceivedLength[q]
   <2>1. SUFFICES ASSUME NEW q \in ReceivedPairs
                  PROVE  ReceivedLength'[q] = ReceivedLength[q]
@@ -688,6 +699,7 @@ LEMMA ConsumeGivesItsMessageBack ==
 <1>2. /\ payloads_consumed_by_host' =
              [payloads_consumed_by_host EXCEPT ![c] = @ + 1]
       /\ UNCHANGED <<received, delivered, call_state>>
+      /\ UNCHANGED cancel_requested
     BY Zenon DEF HostConsumesEvent, l0_vars, L0!vars
 <1>3. ReceivedLength' = ReceivedLength
     BY <1>2, Zenon DEF ReceivedLength
@@ -697,7 +709,7 @@ LEMMA ConsumeGivesItsMessageBack ==
         /\ ReceivedPairs' = ReceivedPairs \ {<<c, payloads_consumed_by_host[c]>>}
     BY <1>2, <1>4, SMTT(300)
     DEF ReceivedPairs, MessagesReleased, HeldReceivedTop, L0!IsTerminalCall,
-        TypeOK, L0!TypeOK
+        IsCancelRequested, TypeOK, L0!TypeOK
   <2>2. \A q \in ReceivedPairs : ReceivedLength[q] \in Int
     BY HeldLengthsAreInt
   <2>3. SumFunctionOnSet(ReceivedLength,
@@ -714,31 +726,34 @@ LEMMA ConsumeGivesItsMessageBack ==
   <2>1. ReceivedPairs' = ReceivedPairs
     BY <1>2, <1>5, SMTT(300)
     DEF ReceivedPairs, MessagesReleased, HeldReceivedTop, L0!IsTerminalCall,
-        TypeOK, L0!TypeOK
+        IsCancelRequested, TypeOK, L0!TypeOK
   <2>2. NextConsumedLength(c) = 0
     BY <1>5, Zenon DEF NextConsumedLength
   <2>3. QED
     BY <1>3, <2>1, <2>2, BytesReceivedType, SMT DEF BytesReceived
 <1>6. QED BY <1>4, <1>5
 
-\* A cancellation drops the pairs past the call's deliveries.
+\* The latch drops the pairs past the call's deliveries; once it has been
+\* taken, or once the call ended, there are none to drop.
 LEMMA CancelDropsTheUndelivered ==
-    ASSUME TypeOK, ReceiveAccountingInv, NEW c \in CallIds, DeliverCancelled(c)
+    ASSUME TypeOK, ReceiveAccountingInv, NEW c \in CallIds, IsCancelLatchStep(c)
     PROVE  BytesReceived' = BytesReceived - UndeliveredBytes(c)
-<1>1. /\ L0!IsActiveCall(c)
-      /\ call_state' = [call_state EXCEPT ![c] = "terminal"]
-      /\ UNCHANGED <<received, delivered, payloads_consumed_by_host>>
-    BY Zenon DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost
-\* Before, the call held up to what it received; after, up to what it
-\* delivered, which is no more.  Every other call keeps its stop.
-<1>15. /\ HeldReceivedTop(c) = Len(received[c])
+<1>1. /\ cancel_requested' = [cancel_requested EXCEPT ![c] = TRUE]
+      /\ UNCHANGED <<call_state, received, delivered, payloads_consumed_by_host>>
+    BY Zenon DEF IsCancelLatchStep, RequestCallCancellation,
+       CancelCallOfClosingChannel, LatchCancellationOf, l0_vars, L0!vars,
+       L0!CallVars
+\* Before, the call held up to what it received, or what it delivered; after,
+\* up to what it delivered, which is no more.  Every other call keeps its stop.
+<1>15. /\ HeldReceivedTop(c) <= Len(received[c])
+       /\ Len(delivered[c]) <= HeldReceivedTop(c)
        /\ HeldReceivedTop(c)' = Len(delivered[c])
        /\ \A d \in CallIds \ {c} : HeldReceivedTop(d)' = HeldReceivedTop(d)
        /\ \A d \in CallIds : MessagesReleased(d)' = MessagesReleased(d)
        /\ Len(delivered[c]) <= Len(received[c])
     BY <1>1, SMTT(300)
-    DEF HeldReceivedTop, MessagesReleased, L0!IsTerminalCall, L0!IsActiveCall,
-        L0!ActiveCallStates, ReceiveAccountingInv, DeliveredWithinReceived,
+    DEF HeldReceivedTop, MessagesReleased, IsCancelRequested, L0!IsTerminalCall,
+        ReceiveAccountingInv, DeliveredWithinReceived,
         TypeOK, L0!TypeOK
 <1>2. /\ UndeliveredPairs(c) \subseteq ReceivedPairs
       /\ ReceivedPairs' = ReceivedPairs \ UndeliveredPairs(c)
@@ -751,16 +766,23 @@ LEMMA CancelDropsTheUndelivered ==
                 <=> (MessagesReleased(c) < q[2] /\ q[2] <= Len(delivered[c]))
         BY <3>1, <1>15, Zenon DEF ReceivedPairs
       <4>2. q \in ReceivedPairs
-                <=> (MessagesReleased(c) < q[2] /\ q[2] <= Len(received[c]))
+                <=> (MessagesReleased(c) < q[2] /\ q[2] <= HeldReceivedTop(c))
         BY <3>1, <1>15, Zenon DEF ReceivedPairs
       <4>3. q \in UndeliveredPairs(c)
                 <=> /\ MessagesReleased(c) < q[2]
                     /\ Len(delivered[c]) < q[2]
                     /\ q[2] <= Len(received[c])
+                    /\ q[2] <= HeldReceivedTop(c)
         <5>1. q = <<c, q[2]>> /\ q[2] \in Nat
           BY <3>1, IsaT(120)
         <5>2. QED BY <5>1, IsaT(120) DEF UndeliveredPairs
-      <4>4. QED BY <4>1, <4>2, <4>3, <1>15, SMT DEF TypeOK, L0!TypeOK
+      <4>35. /\ q[2] \in Nat
+             /\ Len(delivered[c]) \in Nat
+             /\ Len(received[c]) \in Nat
+             /\ MessagesReleased(c) \in Int
+             /\ HeldReceivedTop(c) \in Int
+        BY <3>1, SMT DEF TypeOK, L0!TypeOK, MessagesReleased, HeldReceivedTop
+      <4>4. QED BY <4>1, <4>2, <4>3, <4>35, <1>15, SMT
     <3>2. CASE q[1] # c
       BY <3>2, <1>15, SMTT(300) DEF UndeliveredPairs, ReceivedPairs
     <3>3. QED BY <3>1, <3>2
@@ -1071,7 +1093,7 @@ LEMMA NextPreservesReceiveAccountingInv ==
       DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
           EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
           ResourcesReleasedCallbackReturns, RuntimeDestroy,
-          RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+          RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
           HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
           WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent,
           EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge, RefuseLendForSlot,
@@ -1231,17 +1253,21 @@ LEMMA NextPreservesAccounting ==
   <2>6. QED
     BY <1>0, <2>2, <2>3, <2>4, <2>5, <2>60, SMT
     DEF MemoryAccountingExact, BytesHeldByEngine
-<1>5. CASE \E c \in CallIds : DeliverCancelled(c)
-  <2>1. PICK c \in CallIds : DeliverCancelled(c)
+<1>5. CASE \E c \in CallIds : IsCancelLatchStep(c)
+  <2>1. PICK c \in CallIds : IsCancelLatchStep(c)
     BY <1>5
   <2>2. BytesReceived' = BytesReceived - UndeliveredBytes(c)
     BY <2>1, CancelDropsTheUndelivered
   <2>3. BytesOutstanding' = BytesOutstanding
-    BY <2>1, SendBytesFrame, Zenon DEF DeliverCancelled
+    BY <2>1, SendBytesFrame, Zenon
+    DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel
   <2>4. memory_used' = memory_used - UndeliveredBytes(c)
-    BY <2>1, Zenon DEF DeliverCancelled
+    BY <2>1, Zenon
+    DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel,
+        LatchCancellationOf
   <2>50. engine_held' = engine_held
-    BY <2>1, Zenon DEF DeliverCancelled
+    BY <2>1, Zenon
+    DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel
   <2>5. QED
     BY <1>0, <2>2, <2>3, <2>4, <2>50, BytesReceivedType, SMT
     DEF MemoryAccountingExact, BytesHeldByEngine
@@ -1404,7 +1430,7 @@ LEMMA NextPreservesAccounting ==
                  ln \in Sizes, ch \in Sizes : ResizeSendBuffer(c, b, nb, ln, ch)
            /\ ~\E c \in CallIds, m \in Messages : NetworkReceive(c, m)
            /\ ~\E c \in CallIds : HostConsumesEvent(c)
-           /\ ~\E c \in CallIds : DeliverCancelled(c)
+           /\ ~\E c \in CallIds : IsCancelLatchStep(c)
            /\ ~\E c \in CallIds, b \in BufferIds : HostReturnsBuffer(c, b)
            /\ ~\E c \in CallIds, m \in Messages, b \in BufferIds :
                   SendMessage(c, m, b)
@@ -1497,13 +1523,15 @@ LEMMA NextPreservesCeiling ==
     BY <2>1, Zenon DEF HostConsumesEvent
   <2>4. QED
     BY <1>0, <2>2, <2>3, SMT DEF MemoryWithinHardCeiling
-<1>5. CASE \E c \in CallIds : DeliverCancelled(c)
-  <2>1. PICK c \in CallIds : DeliverCancelled(c)
+<1>5. CASE \E c \in CallIds : IsCancelLatchStep(c)
+  <2>1. PICK c \in CallIds : IsCancelLatchStep(c)
     BY <1>5
   <2>2. UndeliveredBytes(c) \in Nat
     BY BytesReceivedType
   <2>3. memory_used' = memory_used - UndeliveredBytes(c)
-    BY <2>1, Zenon DEF DeliverCancelled
+    BY <2>1, Zenon
+    DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel,
+        LatchCancellationOf
   <2>4. QED
     BY <1>0, <2>2, <2>3, SMT DEF MemoryWithinHardCeiling
 <1>6. CASE UNCHANGED <<buffer_charge, memory_used, engine_held>>
@@ -1637,7 +1665,7 @@ LEMMA OnlyReleaseStepsWriteReleaseFlags ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1648,7 +1676,7 @@ LEMMA OnlyReleaseStepsWriteReleaseFlags ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -1675,7 +1703,7 @@ LEMMA OnlyShutdownStepsWriteShutdownFlags ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1692,7 +1720,7 @@ LEMMA OnlyShutdownStepsWriteShutdownFlags ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -1725,7 +1753,7 @@ LEMMA OnlyChannelStepsWriteChannelState ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -1765,7 +1793,7 @@ LEMMA OnlyChannelCreateWritesOwnership ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost,
@@ -2083,13 +2111,12 @@ LEMMA RefiningPreservesFfiTypes ==
     BY <2>0, <2>1, UnchangedFfiPreservesFfiTypes
     DEF NextSafeRuntimeOnly, RuntimeCreate, RuntimeRelease
   <2>2. CASE NextSafeRuntimeChannel
-    BY <2>0, <2>2, SMT
-    DEF NextSafeRuntimeChannel, RuntimeBeginShutdown, RequestCancellationOfActiveCalls,
-        FfiTypes, L0!ChannelsOf, L0!IsActiveCall, L0!ActiveCallStates
+    BY <2>0, <2>2, UnchangedFfiPreservesFfiTypes
+    DEF NextSafeRuntimeChannel, RuntimeBeginShutdown
   <2>3. CASE NextSafeChannelOnly
     BY <2>0, <2>3, SMT
     DEF NextSafeChannelOnly, ChannelCreate, ChannelStartClosing,
-        RequestCancellationOfActiveCalls, ffi_vars,
+        ffi_vars,
         FfiTypes, L0!IsActiveCall, L0!ActiveCallStates
   <2>4. CASE NextSafeChannelCall
     BY <2>0, <2>4, UnchangedFfiPreservesFfiTypes
@@ -2135,16 +2162,16 @@ LEMMA RefiningPreservesFfiTypes ==
     <3>10. CASE \E cId \in CallIds : DeliverCancelled(cId)
       <4>1. PICK cId \in CallIds : DeliverCancelled(cId)
         BY <3>10
-      <4>2. UndeliveredBytes(cId) \in Nat
-        BY <1>1, BytesReceivedType
       \* The three receive-side variables first, one at a time: together with
       \* the delivery's own, they are more than one solver call sorts out.
       <4>3. memory_used' \in Int
-        BY <1>1, <4>1, <4>2, SMT DEF DeliverCancelled, FfiTypes, TypeOK
+        <5>1. memory_used' = memory_used
+          BY <4>1, Zenon DEF DeliverCancelled
+        <5>2. QED BY <2>0, <5>1, Zenon DEF FfiTypes
       <4>4. lend_waiting' \in [CallIds -> Nat]
-        BY <1>1, <4>1, SMT DEF DeliverCancelled, FfiTypes, TypeOK
+        BY <1>1, <4>1, SMT DEF DeliverCancelled, EndWaitOf, FfiTypes, TypeOK
       <4>5. budget_wake_owed' \in [CallIds -> BOOLEAN]
-        BY <1>1, <4>1, SMT DEF DeliverCancelled, FfiTypes, TypeOK
+        BY <1>1, <4>1, SMT DEF DeliverCancelled, EndWaitOf, FfiTypes, TypeOK
       <4>55. delivery_callback_running' \in [CallIds -> BOOLEAN]
         BY <1>1, <4>1, SMT DEF DeliverCancelled, HandPayloadToHost, FfiTypes, TypeOK
       <4>56. UNCHANGED <<buffers_held_by_host, write_dones_emitted,
@@ -2176,7 +2203,23 @@ LEMMA FfiOnlyPreservesFfiTypes ==
         RuntimeDestroy, IsRuntimeDrained, FfiTypes
   <2>2. CASE NextSafeCallFfi
     <3>1. CASE \E cId \in CallIds : RequestCallCancellation(cId)
-      BY <1>1, <3>1, SMT DEF RequestCallCancellation, FfiTypes
+      <4>1. PICK cId \in CallIds : RequestCallCancellation(cId)
+        BY <3>1
+      <4>2. UndeliveredBytes(cId) \in Nat
+        BY <1>1, BytesReceivedType
+      <4>3. QED
+        BY <1>1, <4>1, <4>2, SMT
+        DEF RequestCallCancellation, LatchCancellationOf,
+            OweBudgetWakeToWaitingCalls, FfiTypes
+    <3>1c. CASE \E cId \in CallIds : CancelCallOfClosingChannel(cId)
+      <4>1. PICK cId \in CallIds : CancelCallOfClosingChannel(cId)
+        BY <3>1c
+      <4>2. UndeliveredBytes(cId) \in Nat
+        BY <1>1, BytesReceivedType
+      <4>3. QED
+        BY <1>1, <4>1, <4>2, SMT
+        DEF CancelCallOfClosingChannel, LatchCancellationOf,
+            OweBudgetWakeToWaitingCalls, FfiTypes
     <3>2. CASE \E cId \in CallIds : ReleaseCallHandle(cId)
       BY <1>1, <3>2, SMT DEF ReleaseCallHandle, FfiTypes
     <3>3. CASE \E cId \in CallIds : EmitWriteDone(cId)
@@ -2289,7 +2332,7 @@ LEMMA FfiOnlyPreservesFfiTypes ==
         BY <4>1 DEF EngineGivesBackBytes
       <4>5. QED
         BY <1>1, <4>2, <4>3, <4>4, SMT DEF FfiTypes
-    <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
+    <3>7. QED BY <1>1, <2>2, <3>1, <3>1c, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
                   <3>61, <3>62, <3>63, <3>64, <3>65, <3>66, <3>67, <3>68,
                   <3>69 DEF NextSafeCallFfi
   <2>3. QED BY <1>1, <2>1, <2>2 DEF NextSafeFfiOnly
@@ -2575,7 +2618,7 @@ LEMMA DeliveryFlagReadingsFrame ==
     BY SMT
 
 LEMMA CancelRequestTransfers ==
-    ASSUME NEW cId \in CallIds, TypeOK, RequestCallCancellation(cId)
+    ASSUME NEW cId \in CallIds, TypeOK, IsCancelLatchStep(cId)
     PROVE  /\ ~IsHandleReleased(cId)
            /\ ~L0!IsUnusedCall(cId)
            /\ \A c \in CallIds :
@@ -2609,8 +2652,10 @@ LEMMA CancelRequestTransfers ==
                      write_done_callback_running,
                      delivery_callback_running,
                      payloads_consumed_by_host, handle_released>>
-    BY SMT DEF RequestCallCancellation, l0_vars, L0!vars, L0!RuntimeVars,
-        L0!ChannelVars, L0!CallVars
+    BY SMT DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel,
+        LatchCancellationOf, l0_vars, L0!vars, L0!RuntimeVars,
+        L0!ChannelVars, L0!CallVars, L0!IsActiveCall, L0!ActiveCallStates,
+        L0!IsUnusedCall
 <1>15. cancel_requested \in [CallIds -> BOOLEAN]
     BY Zenon DEF TypeOK
 <1>2. \A c \in CallIds :
@@ -3228,7 +3273,7 @@ THEOREM DestroyedRuntimeRejectsHandles ==
 <1>2. IsRuntimeOfCallDestroyed(cId)
     BY Zenon DEF IsRuntimeOfCallDestroyed
 <1>3. ~ReleaseCallHandle(cId) /\ ~RequestCallCancellation(cId)
-    BY <1>2, Zenon DEF ReleaseCallHandle, RequestCallCancellation
+    BY <1>2, Zenon DEF ReleaseCallHandle, RequestCallCancellation, LatchCancellationOf
 \* An active call hangs off an active channel, and an active channel
 \* hangs off a runtime that is not released.
 <1>4. ~L0!IsActiveCall(cId)
@@ -3824,7 +3869,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
                    write_done_callback_running,
                    delivery_callback_running, payloads_consumed_by_host,
                    handle_released, cancel_requested>>
-    /\ UNCHANGED <<call_state, call_channel, channel_state,
+    /\ UNCHANGED <<call_state, call_channel,
                    events_delivered, submitted, received>>
     /\ UNCHANGED buffer_state
     => FfiCallInv'
@@ -3834,7 +3879,7 @@ LEMMA FfiFramePreservesFfiCallInv ==
                          delivery_callback_running,
                          payloads_consumed_by_host,
                          handle_released, cancel_requested>>,
-             UNCHANGED <<call_state, call_channel, channel_state,
+             UNCHANGED <<call_state, call_channel,
                          events_delivered, submitted, received>>,
              UNCHANGED buffer_state
       PROVE  FfiCallInv'
@@ -3876,16 +3921,12 @@ LEMMA FfiFramePreservesFfiCallInv ==
                /\ (events_delivered[c])' = events_delivered[c]
                /\ Len((submitted[c])') = Len(submitted[c])
                /\ (call_channel[c])' = call_channel[c]
-        /\ \A chan \in ChannelIds :
-               (IsClosingChannel(chan))' = IsClosingChannel(chan)
     BY <1>1, SMT DEF L0!IsActiveCall, L0!IsTerminalCall, L0!IsUnusedCall,
         L0!HasStatus
   <2>3. (/\ UnusedCallsAreFfiClean
-         /\ ReleasedCallIsClean
-         /\ ClosingChannelCallsCancelRequested)'
+         /\ ReleasedCallIsClean)'
     BY <1>1, <2>1, <2>2, SMT DEF FfiCallInv, UnusedCallsAreFfiClean,
-        ReleasedCallIsClean, ClosingChannelCallsCancelRequested,
-        IsReturnedBuffer, HasNoSendInFlight, SendWindowOccupancy,
+        ReleasedCallIsClean, IsReturnedBuffer, HasNoSendInFlight, SendWindowOccupancy,
         IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
         IsHandleReleased, HostHoldsNoBuffer
   <2>4. (/\ SendsInFlightWithinLimit
@@ -3931,206 +3972,21 @@ LEMMA RuntimeOnlyPreservesFfiCallInv ==
         L0!RuntimeCreate, L0!RuntimeRelease, L0!ChannelVars, L0!CallVars,
         ffi_vars
 
-\* The two closing paths - shutdown closes a runtime's channels, a close
-\* closes one - differ only in which channels move.  Both latch
-\* cancellation on the active calls of those channels and leave every
-\* other FFI variable alone, so they share this argument: cancellation
-\* only ever goes on, and a call that finds its channel newly closing is
-\* one the same step just latched.
-LEMMA CancelLatchPreservesFfiCallInv ==
-    ASSUME FfiCallInv, TypeOK, NEW chs,
-           RequestCancellationOfActiveCalls(chs),
-           UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                       write_done_callback_running,
-                       delivery_callback_running,
-                       payloads_consumed_by_host, handle_released>>,
-           UNCHANGED <<call_state, call_channel, events_delivered,
-                       submitted, received>>,
-           UNCHANGED buffer_state,
-           \A chan \in ChannelIds :
-               IsClosingChannel(chan)' =>
-                   (IsClosingChannel(chan) \/ chan \in chs)
-    PROVE  FfiCallInv'
-<1>1. \A c \in CallIds :
-          /\ (write_dones_emitted[c])' = write_dones_emitted[c]
-          /\ (IsWriteDoneCallbackRunning(c))' =
-                 IsWriteDoneCallbackRunning(c)
-          /\ (HasNoSendInFlight(c))' = HasNoSendInFlight(c)
-          /\ (SendWindowOccupancy(c))' = SendWindowOccupancy(c)
-          /\ (HostHoldsNoBuffer(c))' = HostHoldsNoBuffer(c)
-          /\ (HostHoldsSomeBuffer(c))' = HostHoldsSomeBuffer(c)
-          /\ (IsHandleReleased(c))' = IsHandleReleased(c)
-          /\ (IsDeliveryCallbackRunning(c))' = IsDeliveryCallbackRunning(c)
-          /\ (payloads_consumed_by_host[c])' = payloads_consumed_by_host[c]
-          /\ (HostOwnsNoPayload(c))' = HostOwnsNoPayload(c)
-          /\ (HostOwnsAtMostCredits(c))' = HostOwnsAtMostCredits(c)
-          /\ (HostOwnsAtMostCreditsPlusOne(c))' =
-                 HostOwnsAtMostCreditsPlusOne(c)
-    BY SendReadingsFrame, BufferReadingsFrame, SendWindowFrame,
-       PayloadReadingsFrame, HandleFlagReadingsFrame,
-       DeliveryFlagReadingsFrame, Zenon
-<1>2. \A c \in CallIds :
-          /\ (L0!IsActiveCall(c))' = L0!IsActiveCall(c)
-          /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
-          /\ (L0!IsUnusedCall(c))' = L0!IsUnusedCall(c)
-          /\ (L0!HasStatus(c))' = L0!HasStatus(c)
-          /\ (HasNoDeliveredEvents(c))' = HasNoDeliveredEvents(c)
-          /\ (events_delivered[c])' = events_delivered[c]
-          /\ Len((submitted[c])') = Len(submitted[c])
-          /\ (call_channel[c])' = call_channel[c]
-    BY SMT DEF L0!IsActiveCall, L0!IsTerminalCall, L0!IsUnusedCall,
-        L0!HasStatus
-\* Cancellation is latched exactly on the active calls of chs, so it can
-\* only turn on, and it is on for every call the closing reaches.
-<1>3. \A c \in CallIds :
-          /\ (IsCancelRequested(c) => (IsCancelRequested(c))')
-          /\ (call_channel[c] \in chs /\ L0!IsActiveCall(c) =>
-                  (IsCancelRequested(c))')
-    <2>1. cancel_requested \in [CallIds -> BOOLEAN]
-      BY Zenon DEF TypeOK
-    <2>2. QED
-      BY <2>1, SMT DEF RequestCancellationOfActiveCalls, IsCancelRequested
-<1>4. \A c \in CallIds : L0!IsUnusedCall(c) => ~L0!IsActiveCall(c)
-    BY SMT DEF L0!IsUnusedCall, L0!IsActiveCall, L0!ActiveCallStates
-<1>5. \A c \in CallIds :
-          L0!IsUnusedCall(c) => ~(IsCancelRequested(c))'
-    <2>1. cancel_requested \in [CallIds -> BOOLEAN]
-      BY Zenon DEF TypeOK
-    <2>2. QED
-      BY <1>4, <2>1, SMT
-      DEF FfiCallInv, UnusedCallsAreFfiClean,
-          RequestCancellationOfActiveCalls, IsCancelRequested
-<1>55. \A c \in CallIds, b \in BufferIds :
-           (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
-    BY SMT DEF IsReturnedBuffer
-<1>6. (/\ UnusedCallsAreFfiClean
-       /\ ReleasedCallIsClean)'
-    BY <1>1, <1>2, <1>5, <1>55, SMT
-    DEF FfiCallInv, UnusedCallsAreFfiClean, ReleasedCallIsClean,
-        IsReturnedBuffer, HasNoSendInFlight, SendWindowOccupancy,
-        IsDeliveryCallbackRunning, HostOwnsNoPayload, OwedPayloads,
-        IsHandleReleased, HostHoldsNoBuffer,
-        RequestCancellationOfActiveCalls
-<1>7. ClosingChannelCallsCancelRequested'
-    BY <1>1, <1>2, <1>3, SMT
-    DEF FfiCallInv, ClosingChannelCallsCancelRequested
-<1>8. (/\ SendsInFlightWithinLimit
-       /\ WriteDonesNeverExceedSends
-       /\ RunningWriteDoneWasEmitted
-       /\ TerminalCallHasNoSendInFlight)'
-    BY <1>1, <1>2, SMT DEF FfiCallInv, SendsInFlightWithinLimit,
-        WriteDonesNeverExceedSends, RunningWriteDoneWasEmitted,
-        TerminalCallHasNoSendInFlight
-<1>9. (/\ ReleasesNeverExceedDeliveries
-       /\ ActiveCallPayloadsWithinCredits
-       /\ PayloadsOwnedWithinCreditsPlusOne
-       /\ NoDeliveryImpliesNoDebt
-       /\ ActiveCallHasNoStatus
-       /\ UnusedCallHasNoEvents)'
-    BY <1>1, <1>2, SMT DEF FfiCallInv,
-        ReleasesNeverExceedDeliveries, ActiveCallPayloadsWithinCredits,
-        PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt,
-        ActiveCallHasNoStatus, UnusedCallHasNoEvents
-<1>95. (/\ SubmittedOccurrencesGloballyUnique
-        /\ ReceivedOccurrencesGloballyUnique
-        /\ DirectionsShareNoToken)'
-  <2>1. /\ SubmittedOccurrencesGloballyUnique
-          /\ ReceivedOccurrencesGloballyUnique
-          /\ DirectionsShareNoToken
-    BY <1>1, Zenon DEF FfiCallInv
-  <2>2. /\ submitted' = submitted
-        /\ received' = received
-    BY <1>1, Zenon
-  <2>3. QED BY <2>1, <2>2, SMT
-        DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
-            DirectionsShareNoToken
-<1>10. QED
-    BY <1>6, <1>7, <1>8, <1>9, <1>95, Zenon DEF FfiCallInv
-
 LEMMA RuntimeChannelPreservesFfiCallInv ==
     FfiCallInv /\ TypeOK /\ NextSafeRuntimeChannel => FfiCallInv'
-<1>1. ASSUME FfiCallInv, TypeOK, NEW rtId \in RuntimeIds,
-             RuntimeBeginShutdown(rtId)
-      PROVE  FfiCallInv'
-  <2>1. /\ RequestCancellationOfActiveCalls(L0!ChannelsOf(rtId))
-        /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                       write_done_callback_running,
-                       delivery_callback_running,
-                       payloads_consumed_by_host, handle_released>>
-        /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                       submitted, received>>
-        /\ UNCHANGED buffer_state
-    BY <1>1, SMT DEF RuntimeBeginShutdown, L0!RuntimeBeginShutdown,
-        L0!CallVars
-\* A channel only ever becomes closing when it belongs to the runtime
-\* that is stopping, which is exactly the set the same step latches.
-  <2>2. \A chan \in ChannelIds :
-            IsClosingChannel(chan)' =>
-                (IsClosingChannel(chan) \/ chan \in L0!ChannelsOf(rtId))
-    BY <1>1, SMT DEF RuntimeBeginShutdown, L0!RuntimeBeginShutdown,
-        L0!ChannelsOf, IsClosingChannel
-  <2>3. QED
-    BY <1>1, <2>1, <2>2, CancelLatchPreservesFfiCallInv
-<1>2. QED
-    BY <1>1 DEF NextSafeRuntimeChannel
+<1>1. QED
+    BY FfiFramePreservesFfiCallInv, SMT
+    DEF NextSafeRuntimeChannel, RuntimeBeginShutdown, L0!RuntimeBeginShutdown,
+        L0!CallVars, ffi_vars
 
+\* Creating, closing and closed channels move channel state alone at level 1.
 LEMMA ChannelOnlyPreservesFfiCallInv ==
     FfiCallInv /\ TypeOK /\ NextSafeChannelOnly => FfiCallInv'
-<1>1. ASSUME FfiCallInv, TypeOK, NextSafeChannelOnly
-      PROVE  FfiCallInv'
-\* Creating a channel latches nothing, which is the empty case of the
-\* same argument: no channel becomes closing, so no call needs latching.
-  <2>1. ASSUME NEW chId \in ChannelIds, NEW rtId \in RuntimeIds,
-               ChannelCreate(chId, rtId)
-        PROVE  FfiCallInv'
-    <3>0. channel_state \in [ChannelIds -> L0!ChannelStates]
-      BY <1>1, Zenon DEF TypeOK, L0!TypeOK
-    <3>1. /\ channel_state' = [channel_state EXCEPT ![chId] = "open"]
-          /\ UNCHANGED cancel_requested
-          /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                         write_done_callback_running,
-                         delivery_callback_running,
-                         payloads_consumed_by_host, handle_released>>
-          /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                         submitted, received>>
-          /\ UNCHANGED buffer_state
-      BY <2>1, SMT DEF ChannelCreate, L0!ChannelCreate, L0!RuntimeVars,
-          L0!CallVars, ffi_vars
-    <3>2. \A chan \in ChannelIds :
-              IsClosingChannel(chan)' =>
-                  (IsClosingChannel(chan) \/ chan \in {})
-      BY <3>0, <3>1, SMT DEF IsClosingChannel
-    <3>3. RequestCancellationOfActiveCalls({})
-      <4>1. cancel_requested \in [CallIds -> BOOLEAN]
-        BY <1>1, Zenon DEF TypeOK
-      <4>2. QED
-        BY <3>1, <4>1, SMT
-        DEF RequestCancellationOfActiveCalls, IsCancelRequested
-    <3>4. QED
-      BY <1>1, <3>1, <3>2, <3>3, CancelLatchPreservesFfiCallInv
-  <2>2. ASSUME NEW chId \in ChannelIds, ChannelStartClosing(chId)
-        PROVE  FfiCallInv'
-    <3>0. channel_state \in [ChannelIds -> L0!ChannelStates]
-      BY <1>1, Zenon DEF TypeOK, L0!TypeOK
-    <3>1. /\ RequestCancellationOfActiveCalls({chId})
-          /\ channel_state' = [channel_state EXCEPT ![chId] = "closing"]
-          /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
-                         write_done_callback_running,
-                         delivery_callback_running,
-                         payloads_consumed_by_host, handle_released>>
-          /\ UNCHANGED <<call_state, call_channel, events_delivered,
-                         submitted, received>>
-          /\ UNCHANGED buffer_state
-      BY <2>2, SMT DEF ChannelStartClosing, L0!ChannelStartClosing,
-          L0!CallVars
-    <3>2. \A chan \in ChannelIds :
-              IsClosingChannel(chan)' =>
-                  (IsClosingChannel(chan) \/ chan \in {chId})
-      BY <3>0, <3>1, SMTT(120) DEF IsClosingChannel
-    <3>3. QED
-      BY <1>1, <3>1, <3>2, CancelLatchPreservesFfiCallInv
-  <2>3. QED BY <1>1, <2>1, <2>2 DEF NextSafeChannelOnly, ChannelCreate
-<1>2. QED BY <1>1
+<1>1. QED
+    BY FfiFramePreservesFfiCallInv, SMT
+    DEF NextSafeChannelOnly, ChannelCreate, ChannelStartClosing,
+        L0!ChannelCreate, L0!ChannelStartClosing, L0!RuntimeVars,
+        L0!CallVars, ffi_vars
 
 \* The close completes only once no call of the channel is active, so
 \* every level-0 comprehension is the identity and nothing moves.
@@ -4142,7 +3998,6 @@ LEMMA ChannelCallPreservesFfiCallInv ==
   <2>0. /\ channel_state \in [ChannelIds -> L0!ChannelStates]
         /\ call_state \in [CallIds -> L0!CallStates]
         /\ events_delivered \in [CallIds -> Seq(L0!EventKinds)]
-        /\ cancel_requested \in [CallIds -> BOOLEAN]
     BY <1>1, Zenon DEF TypeOK, L0!TypeOK
   <2>05. \A cId \in L0!CallsOf(chId) : ~L0!IsActiveCall(cId)
     BY <1>1, Zenon DEF ChannelFinishClosing
@@ -4150,25 +4005,17 @@ LEMMA ChannelCallPreservesFfiCallInv ==
 \* entry to itself and the close moves nothing but the channel.
   <2>1. /\ UNCHANGED <<call_state, call_channel, events_delivered,
                        submitted, received>>
-  /\ UNCHANGED buffer_state
-        /\ UNCHANGED cancel_requested
+        /\ UNCHANGED buffer_state
         /\ UNCHANGED <<buffers_held_by_host, write_dones_emitted,
                        write_done_callback_running,
                        delivery_callback_running,
-                       payloads_consumed_by_host, handle_released>>
-        /\ channel_state' = [channel_state EXCEPT ![chId] = "closed"]
+                       payloads_consumed_by_host, handle_released,
+                       cancel_requested>>
     BY <1>1, <2>0, <2>05, SMT
     DEF ChannelFinishClosing, L0!ChannelFinishClosing, L0!CallsOf,
         L0!RuntimeVars, ffi_vars
-  <2>2. \A chan \in ChannelIds :
-            IsClosingChannel(chan)' =>
-                (IsClosingChannel(chan) \/ chan \in {})
-    BY <2>0, <2>1, SMT DEF IsClosingChannel
-  <2>3. RequestCancellationOfActiveCalls({})
-    BY <2>0, <2>1, SMT
-    DEF RequestCancellationOfActiveCalls, IsCancelRequested
-  <2>4. QED
-    BY <1>1, <2>1, <2>2, <2>3, CancelLatchPreservesFfiCallInv
+  <2>2. QED
+    BY <1>1, <2>1, FfiFramePreservesFfiCallInv
 <1>2. QED
     BY <1>1 DEF NextSafeChannelCall
 
@@ -4288,15 +4135,14 @@ LEMMA ReceiveKeepsFfiCallInv ==
         RunningWriteDoneWasEmitted, TerminalCallHasNoSendInFlight,
         HasNoSendInFlight, SendWindowOccupancy, IsWriteDoneCallbackRunning,
         WriteDonesReturned, L0!IsTerminalCall
-<1>33. (/\ ClosingChannelCallsCancelRequested
-        /\ ActiveCallPayloadsWithinCredits
+<1>33. (/\ ActiveCallPayloadsWithinCredits
         /\ PayloadsOwnedWithinCreditsPlusOne
         /\ ReleasesNeverExceedDeliveries
         /\ NoDeliveryImpliesNoDebt
         /\ ActiveCallHasNoStatus
         /\ UnusedCallHasNoEvents)'
     BY <1>25, SMTT(120)
-    DEF FfiCallInv, ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+    DEF FfiCallInv, ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, ReleasesNeverExceedDeliveries,
         NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         HostOwnsAtMostCredits, HostOwnsAtMostCreditsPlusOne, OwedPayloads,
@@ -4374,13 +4220,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
             HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
             ffi_vars, TypeOK, L0!TypeOK
       <4>1. (/\ ReleasedCallIsClean
-             /\ ClosingChannelCallsCancelRequested
              /\ NoDeliveryImpliesNoDebt
              /\ ActiveCallHasNoStatus
              /\ UnusedCallHasNoEvents)'
         BY <1>1, <4>0, <4>10, <4>11, <4>12, Zenon
         DEF FfiCallInv, ReleasedCallIsClean,
-            ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+            NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
       <4>20. HostOwnsAtMostCredits(cId) /\ HostOwnsAtMostCreditsPlusOne(cId)
         BY <1>1, <4>0, DeliveryCreditsArePositive, SMT
@@ -4488,13 +4333,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
             HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
             TypeOK, L0!TypeOK
       <4>1. (/\ ReleasedCallIsClean
-             /\ ClosingChannelCallsCancelRequested
              /\ NoDeliveryImpliesNoDebt
              /\ ActiveCallHasNoStatus
              /\ UnusedCallHasNoEvents)'
         BY <1>1, <4>0, <4>11, <4>12, Zenon
         DEF FfiCallInv, ReleasedCallIsClean,
-            ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+            NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
       <4>2. (/\ ActiveCallPayloadsWithinCredits
              /\ PayloadsOwnedWithinCreditsPlusOne
@@ -4621,13 +4465,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
             HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
             ffi_vars, TypeOK, L0!TypeOK
       <4>1. (/\ ReleasedCallIsClean
-             /\ ClosingChannelCallsCancelRequested
              /\ NoDeliveryImpliesNoDebt
              /\ ActiveCallHasNoStatus
              /\ UnusedCallHasNoEvents)'
         BY <1>1, <4>0, <4>12, Zenon
         DEF FfiCallInv, ReleasedCallIsClean,
-            ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+            NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
       <4>2. (/\ ActiveCallPayloadsWithinCredits
              /\ PayloadsOwnedWithinCreditsPlusOne
@@ -4775,13 +4618,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
             HasNoSendInFlight, SendWindowOccupancy, IsReturnedBuffer,
             ffi_vars, TypeOK, L0!TypeOK
       <4>80. (/\ ReleasedCallIsClean
-              /\ ClosingChannelCallsCancelRequested
               /\ NoDeliveryImpliesNoDebt
               /\ ActiveCallHasNoStatus
               /\ UnusedCallHasNoEvents)'
         BY <1>1, <4>3, <4>30, <4>4, <4>5, <4>6, <4>7, <4>75, <4>76, SMT
         DEF FfiCallInv, ReleasedCallIsClean,
-            ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+            NoDeliveryImpliesNoDebt,
             ActiveCallHasNoStatus, UnusedCallHasNoEvents
       <4>810. ActiveCallPayloadsWithinCredits'
         BY <1>1, <4>3, <4>30, <4>5, SMT
@@ -4868,14 +4710,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>7, <4>1
-    <3>1. (/\ ClosingChannelCallsCancelRequested
-           /\ NoDeliveryImpliesNoDebt
+    <3>1. (/\ NoDeliveryImpliesNoDebt
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>7, StatusKindsExpansion, SMTT(120)
       DEF DeliverInitialMetadata, L0!DeliverInitialMetadata, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
-          ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
           UnusedCallHasNoEvents,
           L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
@@ -4969,14 +4809,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>8, <4>1
-    <3>1. (/\ ClosingChannelCallsCancelRequested
-           /\ NoDeliveryImpliesNoDebt
+    <3>1. (/\ NoDeliveryImpliesNoDebt
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>8, StatusKindsExpansion, SMTT(120)
       DEF DeliverMessage, L0!DeliverMessage, HandPayloadToHost, HasFreeDeliverySlot, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
-          ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
           UnusedCallHasNoEvents,
           L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
@@ -5070,14 +4908,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>9, <4>1
-    <3>1. (/\ ClosingChannelCallsCancelRequested
-           /\ NoDeliveryImpliesNoDebt
+    <3>1. (/\ NoDeliveryImpliesNoDebt
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>9, StatusKindsExpansion, SMTT(120)
       DEF DeliverStatus, L0!DeliverStatus, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
-          ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
           UnusedCallHasNoEvents,
           L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
@@ -5171,14 +5007,12 @@ LEMMA CallOnlyPreservesFfiCallInv ==
         <5>2. QED
           BY <1>1, <5>1, ActiveCallStepKeepsReleasedClean
       <4>2. QED BY <2>10, <4>1
-    <3>1. (/\ ClosingChannelCallsCancelRequested
-           /\ NoDeliveryImpliesNoDebt
+    <3>1. (/\ NoDeliveryImpliesNoDebt
            /\ ActiveCallHasNoStatus
            /\ UnusedCallHasNoEvents)'
       BY <1>1, <2>10, StatusKindsExpansion, SMTT(120)
       DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HasFreeDeliverySlotForTerminal, L0!RuntimeVars, L0!ChannelVars,
           TypeOK, L0!TypeOK, FfiCallInv,
-          ClosingChannelCallsCancelRequested,
           NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus,
           UnusedCallHasNoEvents,
           L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
@@ -5257,7 +5091,7 @@ LEMMA CallOnlyPreservesFfiCallInv ==
 
 LEMMA CancelRequestKeepsFfiCallInv ==
     ASSUME NEW cId \in CallIds, TypeOK, FfiCallInv,
-           RequestCallCancellation(cId)
+           IsCancelLatchStep(cId)
     PROVE  FfiCallInv'
 <1> HIDE DEF HasNoSendInFlight, SendWindowOccupancy, HasFreeSendSlot,
          IsAwaitingWriteDone, IsWriteDoneCallbackRunning,
@@ -5265,7 +5099,8 @@ LEMMA CancelRequestKeepsFfiCallInv ==
          IsDeliveryCallbackRunning, IsCancelRequested,
          IsHandleReleased, HasNoDeliveredEvents, IsClosingChannel
 <1>1. UNCHANGED l0_vars
-    BY SMT DEF RequestCallCancellation
+    BY SMT DEF IsCancelLatchStep, RequestCallCancellation,
+       CancelCallOfClosingChannel, LatchCancellationOf
 <1>2. /\ \A c \in CallIds :
              /\ (L0!IsActiveCall(c))' = L0!IsActiveCall(c)
              /\ (L0!IsTerminalCall(c))' = L0!IsTerminalCall(c)
@@ -5301,15 +5136,15 @@ LEMMA CancelRequestKeepsFfiCallInv ==
     BY CancelRequestTransfers, Zenon
 <1>35. \A c \in CallIds, b \in BufferIds :
            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
-    BY SMT DEF RequestCallCancellation, IsReturnedBuffer
+    BY SMT DEF IsCancelLatchStep, RequestCallCancellation,
+       CancelCallOfClosingChannel, LatchCancellationOf, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -5335,8 +5170,9 @@ LEMMA CancelRequestKeepsFfiCallInv ==
     BY Zenon DEF FfiCallInv
   <2>2. /\ submitted' = submitted
         /\ received' = received
-    BY SMT DEF RequestCallCancellation, l0_vars, L0!vars, L0!RuntimeVars,
-       L0!ChannelVars, L0!CallVars
+    BY SMT DEF IsCancelLatchStep, RequestCallCancellation,
+       CancelCallOfClosingChannel, LatchCancellationOf, l0_vars, L0!vars,
+       L0!RuntimeVars, L0!ChannelVars, L0!CallVars
   <2>3. QED BY <2>1, <2>2, SMT
         DEF SubmittedOccurrencesGloballyUnique, ReceivedOccurrencesGloballyUnique,
             DirectionsShareNoToken
@@ -5427,13 +5263,12 @@ LEMMA ReleaseKeepsFfiCallInv ==
     <3>3. QED BY <1>37, <2>2, <3>2, <1>2, <1>3, <1>35, Zenon
   <2>3. QED BY <2>1, <2>2
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>37, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -5512,13 +5347,12 @@ LEMMA DeliveryReturnKeepsFfiCallInv ==
            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
     BY SMT DEF DeliveryCallbackReturns, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -5608,13 +5442,12 @@ LEMMA EmitWriteDoneKeepsFfiCallInv ==
            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
     BY SMT DEF EmitWriteDone, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -5723,13 +5556,12 @@ LEMMA WriteDoneReturnKeepsFfiCallInv ==
            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
     BY SMT DEF WriteDoneReturns, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>35, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -5858,12 +5690,10 @@ LEMMA ConsumeKeepsFfiCallInv ==
            (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
     BY SMT DEF HostConsumesEvent, IsReturnedBuffer
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>35, <1>32, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>40. NoDeliveryImpliesNoDebt'
     BY <1>2, <1>3, <1>32, Zenon
@@ -5973,13 +5803,12 @@ LEMMA LendBufferKeepsFfiCallInv ==
     BY <1>1, SMT
     DEF LendSendBuffer, IsFreshBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>37, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -6087,13 +5916,12 @@ LEMMA ReturnBufferKeepsFfiCallInv ==
                (IsReturnedBuffer(c, b))' = IsReturnedBuffer(c, b)
     BY SMT DEF HostReturnsBuffer, IsReturnedBuffer, TypeOK, L0!TypeOK
 <1>4. (/\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
        /\ NoDeliveryImpliesNoDebt
        /\ ActiveCallHasNoStatus
        /\ UnusedCallHasNoEvents)'
     BY <1>2, <1>3, <1>31, <1>38, Zenon
     DEF FfiCallInv, ReleasedCallIsClean,
-        ClosingChannelCallsCancelRequested, NoDeliveryImpliesNoDebt,
+        NoDeliveryImpliesNoDebt,
         ActiveCallHasNoStatus, UnusedCallHasNoEvents, IsHandleReleased
 <1>5. (/\ ActiveCallPayloadsWithinCredits
        /\ PayloadsOwnedWithinCreditsPlusOne
@@ -6150,7 +5978,7 @@ LEMMA UnchangedFfiKeepsFfiCallInv ==
         ReleasedCallIsClean,
         SendsInFlightWithinLimit, WriteDonesNeverExceedSends,
         RunningWriteDoneWasEmitted, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, ReleasesNeverExceedDeliveries,
         NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         HasNoSendInFlight, HostHoldsNoBuffer, IsDeliveryCallbackRunning,
@@ -6183,7 +6011,7 @@ LEMMA UnchangedFfiKeepsFfiCallInvOffReleased ==
         ReleasedCallIsClean,
         SendsInFlightWithinLimit, WriteDonesNeverExceedSends,
         RunningWriteDoneWasEmitted, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, ReleasesNeverExceedDeliveries,
         NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         HasNoSendInFlight, HostHoldsNoBuffer, IsDeliveryCallbackRunning,
@@ -6218,7 +6046,9 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
       BY <1>1, <3>1, FfiFramePreservesFfiCallInv
   <2>2. CASE NextSafeCallFfi
     <3>1. CASE \E cId \in CallIds : RequestCallCancellation(cId)
-      BY <1>1, <3>1, CancelRequestKeepsFfiCallInv
+      BY <1>1, <3>1, CancelRequestKeepsFfiCallInv DEF IsCancelLatchStep
+    <3>1c. CASE \E cId \in CallIds : CancelCallOfClosingChannel(cId)
+      BY <1>1, <3>1c, CancelRequestKeepsFfiCallInv DEF IsCancelLatchStep
     <3>2. CASE \E cId \in CallIds : ReleaseCallHandle(cId)
       BY <1>1, <3>2, ReleaseKeepsFfiCallInv
     <3>3. CASE \E cId \in CallIds : EmitWriteDone(cId)
@@ -6327,7 +6157,7 @@ LEMMA FfiOnlyPreservesFfiCallInv ==
             L0!TypeOK
       <4>2. QED
         BY <1>1, <4>1, UnchangedFfiKeepsFfiCallInvOffReleased
-    <3>7. QED BY <1>1, <2>2, <3>1, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
+    <3>7. QED BY <1>1, <2>2, <3>1, <3>1c, <3>2, <3>3, <3>4, <3>5, <3>6, <3>60,
                   <3>61, <3>62, <3>63, <3>64, <3>65, <3>66, <3>67 DEF NextSafeCallFfi
   <2>3. QED BY <1>1, <2>1, <2>2 DEF NextSafeFfiOnly
 <1>2. QED BY <1>1
@@ -6610,12 +6440,12 @@ LEMMA EveryStepEitherDeliversOrKeepsEvents ==
   <2>21. CASE NextSafeRuntimeChannel
     BY <2>21, SMT
     DEF NextSafeRuntimeChannel, RuntimeBeginShutdown,
-        RequestCancellationOfActiveCalls, L0!RuntimeBeginShutdown,
+        L0!RuntimeBeginShutdown,
         L0!ChannelVars, L0!CallVars, L0!ChannelsOf
   <2>22. CASE NextSafeChannelOnly
     BY <2>22, SMT
     DEF NextSafeChannelOnly, ChannelCreate, ChannelStartClosing,
-        RequestCancellationOfActiveCalls, L0!ChannelCreate,
+        L0!ChannelCreate,
         L0!ChannelStartClosing, L0!RuntimeVars, L0!CallVars, L0!CallsOf
 \* Closing a channel cancels its active calls at level 0, which would
 \* append terminals - but level 1 only lets it fire once none is active,
@@ -6640,7 +6470,7 @@ LEMMA EveryStepEitherDeliversOrKeepsEvents ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
@@ -6670,7 +6500,7 @@ LEMMA EveryStepEitherConsumesOrKeepsReleases ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6679,7 +6509,7 @@ LEMMA EveryStepEitherConsumesOrKeepsReleases ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -6708,7 +6538,7 @@ LEMMA EveryStepEitherEmitsOrKeepsWriteDones ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6717,7 +6547,7 @@ LEMMA EveryStepEitherEmitsOrKeepsWriteDones ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, WriteDoneReturns, DeliveryCallbackReturns,
         HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -6743,7 +6573,7 @@ LEMMA EveryStepEitherAcquitsOrKeepsWriteDoneFlag ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendMessage, SendEmptyMessage, EndSend,
+        CallStart, SendMessage, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6752,7 +6582,7 @@ LEMMA EveryStepEitherAcquitsOrKeepsWriteDoneFlag ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
 <1>3. CASE NextFail
@@ -6780,7 +6610,7 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
         L0!RuntimeCreate, L0!RuntimeBeginShutdown, L0!RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
+        CallStart, SendEmptyMessage, EndSend,
         L0!CallStart, L0!EndSend, NetworkSend, L0!NetworkSend,
         NetworkReceive, EndCallPastHardCeiling, L0!NetworkReceive, ReceiveStatus, L0!ReceiveStatus,
         DeliverInitialMetadata, L0!DeliverInitialMetadata,
@@ -6792,7 +6622,7 @@ LEMMA EveryStepEitherSubmitsOrKeepsSubmitted ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, EmitWriteDone, WriteDoneReturns,
         DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, l0_vars, L0!vars
@@ -6825,7 +6655,7 @@ LEMMA EveryStepEitherLendsOrKeepsBuffers ==
         NextSafeChannelOnly, NextSafeChannelCall, NextSafeCallOnly,
         RuntimeCreate, RuntimeBeginShutdown, RuntimeRelease,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        RequestCancellationOfActiveCalls, CallStart, SendEmptyMessage, EndSend,
+        CallStart, SendEmptyMessage, EndSend,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, HandPayloadToHost, ffi_vars
@@ -6834,7 +6664,7 @@ LEMMA EveryStepEitherLendsOrKeepsBuffers ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes
@@ -7801,14 +7631,12 @@ LEMMA OnlyCallStartWritesCallChannel ==
     DEF NextSafeRuntimeOnly, NextSafeRuntimeChannel,
         RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
         L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
-        RequestCancellationOfActiveCalls,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
 <1>2. CASE NextSafeChannelOnly \/ NextSafeChannelCall
     BY <1>2, SMT
     DEF NextSafeChannelOnly, NextSafeChannelCall,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
         L0!ChannelCreate, L0!ChannelStartClosing, L0!ChannelFinishClosing,
-        RequestCancellationOfActiveCalls,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
 <1>3. CASE NextSafeCallOnly
     BY <1>3, SMT
@@ -8386,7 +8214,7 @@ LEMMA NextPreservesDestroyedClean ==
         ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeDestroy,
         RuntimeFail, RemainFailed, RemainReleased,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, RequestCallCancellation, ReleaseCallHandle,
+        CallStart, RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
         SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
@@ -8400,8 +8228,7 @@ LEMMA NextPreservesDestroyedClean ==
         L0!NetworkReceive, EndCallPastHardCeiling, L0!ReceiveStatus, L0!DeliverInitialMetadata,
         L0!DeliverMessage, L0!DeliverStatus, L0!CallCancel,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
-        vars, ffi_vars, RequestCancellationOfActiveCalls,
-        HandPayloadToHost, HasFreeDeliverySlot,
+        vars, ffi_vars, HandPayloadToHost, HasFreeDeliverySlot,
         HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         IsRuntimeDestroyed, TypeOK, L0!TypeOK
   <2>2. IsRuntimeQuiescent(rtId)
@@ -8445,15 +8272,15 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
         L0!CallStates
   <2>2. CASE NextSafeRuntimeChannel
     BY <1>1, <2>2, SMT
-    DEF NextSafeRuntimeChannel, RuntimeBeginShutdown,
-        L0!RuntimeBeginShutdown, RequestCancellationOfActiveCalls, L0!CallVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
+    DEF NextSafeRuntimeChannel, RuntimeBeginShutdown, ffi_vars,
+        L0!RuntimeBeginShutdown, L0!CallVars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
         L0!UnusedCallsAreEmpty, L0!ChannelLifecycleInv,
@@ -8462,7 +8289,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8470,8 +8297,7 @@ LEMMA NextPreservesShutdownSignal ==
   <2>3. CASE NextSafeChannelOnly
     BY <1>1, <2>3, SMT
     DEF NextSafeChannelOnly, ChannelCreate, ChannelStartClosing,
-        L0!ChannelCreate, L0!ChannelStartClosing, RequestCancellationOfActiveCalls,
-        L0!RuntimeVars, L0!CallVars, ffi_vars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
+        L0!ChannelCreate, L0!ChannelStartClosing, L0!RuntimeVars, L0!CallVars, ffi_vars, ShutdownSignalInv, ShutdownSignalCore, IsRuntimeDrained, L0!ChannelsOf,
         StrongInv, L0!StrongInv, L0!StructuralInv, L0!SingleRuntime,
         L0!ChannelSentinelEquivalence, L0!CallSentinelEquivalence,
         L0!UnusedCallsAreEmpty, L0!ChannelLifecycleInv,
@@ -8480,7 +8306,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8498,7 +8324,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8516,7 +8342,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8742,7 +8568,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8759,7 +8585,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8776,7 +8602,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8793,7 +8619,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8810,7 +8636,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8827,7 +8653,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8844,7 +8670,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8861,7 +8687,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8878,7 +8704,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -8899,14 +8725,14 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
         L0!CallStates
   <2>7. CASE NextSafeCallFfi
     BY <1>1, <2>7, SMT
-    DEF NextSafeCallFfi, RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+    DEF NextSafeCallFfi, RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
@@ -8919,7 +8745,7 @@ LEMMA NextPreservesShutdownSignal ==
         L0!ActiveChannelStates, L0!NotFailed, L0!HasStatus,
         TypeOK, L0!TypeOK, FfiCallInv, UnusedCallsAreFfiClean,
         ReleasedCallIsClean, TerminalCallHasNoSendInFlight,
-        ClosingChannelCallsCancelRequested, ActiveCallPayloadsWithinCredits,
+        ActiveCallPayloadsWithinCredits,
         PayloadsOwnedWithinCreditsPlusOne, NoDeliveryImpliesNoDebt, ActiveCallHasNoStatus, UnusedCallHasNoEvents,
         L0!IsUnusedCall, L0!IsTerminalCall, L0!IsActiveCall,
         L0!ActiveCallStates, L0!RuntimeStates, L0!ChannelStates,
@@ -9047,9 +8873,8 @@ THEOREM InitEstablishesIndInv == Init => IndInv
         HostHoldsNoBuffer, HostOwnsNoPayload, OwedPayloads,
         IsDeliveryCallbackRunning, IsHandleReleased, IsCancelRequested
 <1>40. /\ ReleasedCallIsClean
-       /\ ClosingChannelCallsCancelRequested
     BY <1>38, Zenon
-    DEF ReleasedCallIsClean, ClosingChannelCallsCancelRequested
+    DEF ReleasedCallIsClean
 <1>41. /\ SendsInFlightWithinLimit
        /\ WriteDonesNeverExceedSends
        /\ RunningWriteDoneWasEmitted
@@ -9641,14 +9466,14 @@ LEMMA CancelMonotone ==
         ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeFail,
         RemainFailed, RemainReleased,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, RequestCallCancellation, ReleaseCallHandle,
+        CallStart, RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle,
         SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
+        HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, L0!ChannelsOf, L0!CallsOf,
         L0!IsActiveCall, L0!IsUnusedCall, L0!IsTerminalCall,
@@ -9669,7 +9494,9 @@ LEMMA CancelMonotone ==
         <5>4. QED BY <4>1, <5>1, <5>2, <5>3, <5>35, <5>36 DEF NextSafeShutdownFfi
       <4>2. CASE NextSafeCallFfi
         <5>1. CASE \E c \in CallIds : RequestCallCancellation(c)
-          BY <1>1, <5>1, SMT DEF RequestCallCancellation, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+          BY <1>1, <5>1, SMT DEF RequestCallCancellation, LatchCancellationOf, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+        <5>1c. CASE \E c \in CallIds : CancelCallOfClosingChannel(c)
+          BY <1>1, <5>1c, SMT DEF CancelCallOfClosingChannel, LatchCancellationOf, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>2. CASE \E c \in CallIds : ReleaseCallHandle(c)
           BY <1>1, <5>2, SMT DEF ReleaseCallHandle, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>3. CASE \E c \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
@@ -9704,7 +9531,7 @@ LEMMA CancelMonotone ==
                     \/ (\E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n))
                     \/ (\E n \in Sizes : EngineGivesBackBytes(n))
           BY <1>1, <5>13, SMT DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
+        <5>9. QED BY <4>2, <5>1, <5>1c, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
     <3>3. CASE NextFail
       BY <1>1, <2>1, <3>3, SMTT(45) DEF NextFail, NextExplicitStutter, RuntimeFail, IsRuntimeDrained, L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars, vars, ffi_vars, TypeOK, L0!TypeOK
@@ -9753,14 +9580,14 @@ LEMMA CallbackFrame ==
         ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeFail,
         RemainFailed, RemainReleased,
         ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-        CallStart, RequestCallCancellation, ReleaseCallHandle,
+        CallStart, RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle,
         SendMessage, SendEmptyMessage, EndSend, EmitWriteDone, WriteDoneReturns,
         NetworkSend, NetworkReceive, EndCallPastHardCeiling, ReceiveStatus,
         DeliverInitialMetadata, DeliverMessage, DeliverStatus,
         DeliverCancelled, DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
         LendSendBuffer, RefuseLendTooLarge,
         RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer,
-        RequestCancellationOfActiveCalls, HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
+        HandPayloadToHost, HasFreeDeliverySlot, HasFreeDeliverySlotForTerminal, IsRuntimeDrained,
         L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
         vars, ffi_vars, L0!ChannelsOf, L0!CallsOf,
         L0!IsActiveCall, L0!IsUnusedCall, L0!IsTerminalCall,
@@ -9781,7 +9608,9 @@ LEMMA CallbackFrame ==
         <5>4. QED BY <4>1, <5>1, <5>2, <5>3, <5>35, <5>36 DEF NextSafeShutdownFfi
       <4>2. CASE NextSafeCallFfi
         <5>1. CASE \E c \in CallIds : RequestCallCancellation(c)
-          BY <1>1, <5>1, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RequestCallCancellation, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+          BY <1>1, <5>1, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF RequestCallCancellation, LatchCancellationOf, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
+        <5>1c. CASE \E c \in CallIds : CancelCallOfClosingChannel(c)
+          BY <1>1, <5>1c, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF CancelCallOfClosingChannel, LatchCancellationOf, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>2. CASE \E c \in CallIds : ReleaseCallHandle(c)
           BY <1>1, <5>2, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF ReleaseCallHandle, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
         <5>3. CASE \E c \in CallIds, bb \in BufferIds, ln \in Sizes, ch \in Sizes :
@@ -9816,7 +9645,7 @@ LEMMA CallbackFrame ==
                     \/ (\E c \in CallIds, n \in Sizes : EngineTakesBytes(c, n))
                     \/ (\E n \in Sizes : EngineGivesBackBytes(n))
           BY <1>1, <5>13, SubscriptCollapses, DeliverySubscriptCollapses, SMT DEF AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, IsCancelRequested, IsHandleReleased, IsDeliveryCallbackRunning, IsWriteDoneCallbackRunning, IsAwaitingWriteDone, HasNoSendInFlight, WriteDonesReturned, HostOwnsNoPayload, HostOwnsSomePayload, OwedPayloads, HostHoldsNoBuffer, HostHoldsSomeBuffer, HasNoDeliveredEvents, IsClosingChannel, IsRuntimeDestroyed, SendWindowOccupancy, ffi_vars, TypeOK, L0!TypeOK
-        <5>9. QED BY <4>2, <5>1, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
+        <5>9. QED BY <4>2, <5>1, <5>1c, <5>2, <5>3, <5>4, <5>45, <5>46, <5>5, <5>6, <5>7, <5>8, <5>10, <5>11, <5>12, <5>13 DEF NextSafeCallFfi
       <4>3. QED BY <3>2, <4>1, <4>2 DEF NextSafeFfiOnly
     <3>3. CASE NextFail
       BY <1>1, <2>1, <3>3, SMTT(45) DEF NextFail, NextExplicitStutter, RuntimeFail, IsRuntimeDrained, L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars, vars, ffi_vars, TypeOK, L0!TypeOK
@@ -10271,7 +10100,7 @@ LEMMA StatusReadyStable ==
         BY <1>1, <4>2, SMTT(45)
         DEF NextSafeChannelCall, ChannelFinishClosing,
             L0!ChannelFinishClosing, L0!ChannelsOf, L0!CallsOf,
-            RequestCancellationOfActiveCalls, L0!RuntimeVars,
+            L0!RuntimeVars,
             L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
             StatusReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!IsUnusedCall,
@@ -11634,7 +11463,7 @@ LEMMA MsgReadyStable ==
         BY <1>1, <4>2, SMTT(45)
         DEF NextSafeChannelCall, ChannelFinishClosing,
             L0!ChannelFinishClosing, L0!ChannelsOf, L0!CallsOf,
-            RequestCancellationOfActiveCalls, L0!RuntimeVars,
+            L0!RuntimeVars,
             L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
             MsgReady, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!HasStatus, L0!StatusKinds,
@@ -11713,7 +11542,7 @@ LEMMA SlotFreeStableUnderCancel ==
           NextSafeChannelOnly, NextSafeChannelCall,
           RuntimeCreate, RuntimeRelease, RuntimeBeginShutdown,
           ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
-          RequestCancellationOfActiveCalls, L0!RuntimeCreate, L0!RuntimeRelease,
+          L0!RuntimeCreate, L0!RuntimeRelease,
           L0!RuntimeBeginShutdown, L0!ChannelCreate,
           L0!ChannelStartClosing, L0!ChannelFinishClosing,
           L0!ChannelsOf, L0!CallsOf, L0!IsActiveCall,
@@ -11739,7 +11568,7 @@ LEMMA SlotFreeStableUnderCancel ==
       DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
           EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
           ResourcesReleasedCallbackReturns, RuntimeDestroy,
-          RequestCallCancellation, ReleaseCallHandle, EmitWriteDone, WriteDoneReturns,
+          RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone, WriteDoneReturns,
           DeliveryCallbackReturns, HostConsumesEvent, AdmitRead, EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes,
           LendSendBuffer, RefuseLendTooLarge,
           RefuseLendForSlot, RefuseLendForBudget, HostReturnsBuffer, FreeReturnedBuffer, IsRuntimeDrained, L0!ChannelsOf,
@@ -12186,7 +12015,7 @@ LEMMA EventsMonotone ==
         BY <1>1, <4>2, SMTT(45)
         DEF NextSafeChannelCall, ChannelFinishClosing,
             L0!ChannelFinishClosing, L0!ChannelsOf, L0!CallsOf,
-            RequestCancellationOfActiveCalls, L0!RuntimeVars,
+            L0!RuntimeVars,
             L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
             TypeOK, L0!TypeOK, L0!CallStates
       <4>3. CASE NextSafeCallOnly
@@ -12431,17 +12260,67 @@ LEMMA CFC1KillsClosing ==
         L0!CallsOf, L0!HasStatus, L0!IsActiveCall, L0!ActiveCallStates,
         TypeOK, L0!TypeOK
 
-\* Cancellation is already latched on every active call of a closing
-\* channel: the invariant, instantiated.
-LEMMA ClosingCancelsAt ==
+\* An active call of a closing channel whose task has not yet taken the close
+\* into account can: the step is enabled.  A released call is over, so the
+\* active one holds its handle.
+LEMMA CloseCancelEnabled ==
     ASSUME NEW chId \in ChannelIds, NEW cId \in CallIds
-    PROVE  /\ FfiCallInv
+    PROVE  /\ TypeOK
+           /\ FfiCallInv
            /\ IsClosingChannel(chId)
            /\ call_channel[cId] = chId
            /\ L0!IsActiveCall(cId)
-           => IsCancelRequested(cId)
+           /\ ~IsCancelRequested(cId)
+           => ENABLED <<CancelCallOfClosingChannel(cId)>>_vars
+<1>1. SUFFICES ASSUME TypeOK, FfiCallInv, IsClosingChannel(chId),
+                      call_channel[cId] = chId, L0!IsActiveCall(cId),
+                      ~IsCancelRequested(cId)
+               PROVE  ENABLED <<CancelCallOfClosingChannel(cId)>>_vars
+    OBVIOUS
+<1>2. ~IsHandleReleased(cId)
+    BY <1>1, SMT
+    DEF FfiCallInv, ReleasedCallIsClean, L0!IsTerminalCall, L0!IsActiveCall,
+        L0!ActiveCallStates, TypeOK, L0!TypeOK
+<1>3. IsOnClosingChannel(cId)
+    BY <1>1, Zenon DEF IsOnClosingChannel
+\* The step changes the state, said without a prime so it survives into the
+\* expanded ENABLED as a hypothesis - the latch turns the flag on.
+<1>4. [cancel_requested EXCEPT ![cId] = TRUE] # cancel_requested
+  <2>1. cancel_requested[cId] = FALSE
+    BY <1>1, SMT DEF IsCancelRequested, TypeOK, L0!TypeOK
+  <2>2. [cancel_requested EXCEPT ![cId] = TRUE][cId] = TRUE
+    BY <1>1, SMT DEF TypeOK, L0!TypeOK
+  <2>3. QED BY <2>1, <2>2, Zenon
+<1>5. QED
+    BY <1>1, <1>2, <1>3, <1>4, ExpandENABLED, SMTT(120)
+    DEF CancelCallOfClosingChannel, LatchCancellationOf,
+        OweBudgetWakeToWaitingCalls, l0_vars, L0!vars, vars, ffi_vars
+
+\* The step latches the call's cancellation.
+LEMMA CloseCancelLatches ==
+    ASSUME NEW cId \in CallIds
+    PROVE  TypeOK /\ <<CancelCallOfClosingChannel(cId)>>_vars =>
+               (IsCancelRequested(cId))'
 <1>1. QED
-    BY Zenon DEF FfiCallInv, ClosingChannelCallsCancelRequested
+    BY SMT DEF CancelCallOfClosingChannel, LatchCancellationOf,
+        IsCancelRequested, TypeOK
+
+\* A started call stays on its channel: only a start writes it, and a start
+\* needs an unused call.
+LEMMA ActiveCallKeepsItsChannel ==
+    ASSUME NEW cId \in CallIds
+    PROVE  TypeOK /\ L0!IsActiveCall(cId) /\ [Next]_vars =>
+               call_channel'[cId] = call_channel[cId]
+<1>1. SUFFICES ASSUME TypeOK, L0!IsActiveCall(cId), [Next]_vars
+               PROVE  call_channel'[cId] = call_channel[cId]
+    OBVIOUS
+<1>2. CASE \E c \in CallIds, ch \in ChannelIds : CallStart(c, ch)
+    BY <1>1, <1>2, SMT
+    DEF CallStart, L0!CallStart, L0!IsUnusedCall, L0!IsActiveCall,
+        L0!ActiveCallStates, TypeOK, L0!TypeOK
+<1>3. CASE UNCHANGED call_channel
+    BY <1>3
+<1>4. QED BY <1>1, <1>2, <1>3, OnlyCallStartWritesCallChannel
 
 \* The per-call goal of the close: off the channel or inactive.  Stable
 \* while the channel is closing: a new call cannot start on it.
@@ -12472,7 +12351,7 @@ LEMMA OffOrDeadStable ==
         BY <1>1, <4>2, SMTT(45)
         DEF NextSafeChannelCall, ChannelFinishClosing,
             L0!ChannelFinishClosing, L0!ChannelsOf, L0!CallsOf,
-            RequestCancellationOfActiveCalls, L0!RuntimeVars,
+            L0!RuntimeVars,
             L0!ChannelVars, L0!CallVars, L0!vars, l0_vars,
             IsClosingChannel, TypeOK, L0!TypeOK, L0!IsActiveCall,
               L0!ActiveCallStates, L0!ChannelStates, L0!CallStates
@@ -12525,18 +12404,32 @@ THEOREM CallLeavesChannelFor ==
            /\ WF_vars(DeliveryCallbackReturns(cId))
            /\ WF_vars(EmitWriteDone(cId))
            /\ WF_vars(WriteDoneReturns(cId))
+           /\ WF_vars(CancelCallOfClosingChannel(cId))
            /\ [](IsClosingChannel(chId))
            => <>[](call_channel[cId] = chId => ~L0!IsActiveCall(cId))
 
-<1>10. [](FfiCallInv /\ IsClosingChannel(chId) /\
-              call_channel[cId] = chId /\ L0!IsActiveCall(cId) =>
-                  IsCancelRequested(cId))
-    BY ClosingCancelsAt, PTL
+<1>10. [](TypeOK /\ FfiCallInv /\ IsClosingChannel(chId) /\
+              call_channel[cId] = chId /\ L0!IsActiveCall(cId) /\
+              ~IsCancelRequested(cId) =>
+                  ENABLED <<CancelCallOfClosingChannel(cId)>>_vars)
+    BY CloseCancelEnabled, PTL
 <1>11. [](TypeOK /\ IsClosingChannel(chId) /\
               (call_channel[cId] = chId => ~L0!IsActiveCall(cId)) /\
               [Next]_vars =>
                   (call_channel[cId] = chId => ~L0!IsActiveCall(cId))')
     BY OffOrDeadStable, PTL
+<1>12. [](TypeOK /\ <<CancelCallOfClosingChannel(cId)>>_vars =>
+              (IsCancelRequested(cId))')
+    BY CloseCancelLatches, PTL
+<1>13. [](TypeOK /\ L0!IsActiveCall(cId) /\ call_channel[cId] = chId /\
+              [Next]_vars => (call_channel[cId] = chId)')
+  <2>1. TypeOK /\ L0!IsActiveCall(cId) /\ call_channel[cId] = chId /\
+            [Next]_vars => (call_channel[cId] = chId)'
+    BY ActiveCallKeepsItsChannel
+  <2>2. QED BY <2>1, PTL
+<1>14. [](TypeOK /\ IsCancelRequested(cId) /\ [Next]_vars =>
+              IsCancelRequested(cId)')
+    BY CancelMonotone, PTL
 <1>1. ASSUME []IndInv,
              [][Next]_vars,
              WF_vars(DeliverCancelled(cId)),
@@ -12544,6 +12437,7 @@ THEOREM CallLeavesChannelFor ==
              WF_vars(DeliveryCallbackReturns(cId)),
              WF_vars(EmitWriteDone(cId)),
              WF_vars(WriteDoneReturns(cId)),
+             WF_vars(CancelCallOfClosingChannel(cId)),
              [](IsClosingChannel(chId))
       PROVE  <>[](call_channel[cId] = chId => ~L0!IsActiveCall(cId))
   <2>1. [](TypeOK /\ FfiCallInv)
@@ -12561,8 +12455,18 @@ THEOREM CallLeavesChannelFor ==
   <2>3. (L0!IsActiveCall(cId) /\ IsCancelRequested(cId)) ~>
             ~L0!IsActiveCall(cId)
     BY <1>1, <2>2, PTL
-  <2>4. QED
-    BY <1>1, <2>1, <2>3, <1>10, <1>11, PTL
+\* The call's task takes the close into account: weak fairness on the one
+\* step that does, enabled for as long as the call is active on the channel
+\* and not yet cancelled.
+  <2>4. (call_channel[cId] = chId /\ L0!IsActiveCall(cId) /\
+            ~IsCancelRequested(cId)) ~>
+            (IsCancelRequested(cId) \/ ~L0!IsActiveCall(cId))
+    BY <1>1, <2>1, <1>10, <1>12, <1>13, PTL
+  <2>5. (call_channel[cId] = chId /\ L0!IsActiveCall(cId)) ~>
+            ~L0!IsActiveCall(cId)
+    BY <2>3, <2>4, <1>1, <2>1, <1>14, PTL
+  <2>6. QED
+    BY <1>1, <2>1, <2>5, <1>11, PTL
 <1>2. QED BY <1>1, PTL
 
 \* The accumulated form over the finite CallIds.
@@ -12670,6 +12574,18 @@ THEOREM BoxedWRFairness ==
     BY PTL
 <1>3. QED BY <1>1, <1>2, IsaT(600), PTL
 
+THEOREM BoxedCCCFairness ==
+    (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
+    <=> [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
+<1>1. [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
+      <=> \A cId \in CallIds : [](WF_vars(CancelCallOfClosingChannel(cId)))
+    OBVIOUS
+<1>2. ASSUME NEW cId \in CallIds
+      PROVE [](WF_vars(CancelCallOfClosingChannel(cId)))
+            <=> WF_vars(CancelCallOfClosingChannel(cId))
+    BY PTL
+<1>3. QED BY <1>1, <1>2, IsaT(600), PTL
+
 \* The collected drain: while the channel keeps closing, every call ends
 \* off it or inactive, jointly.
 THEOREM AllCallsDrainFor ==
@@ -12681,6 +12597,7 @@ THEOREM AllCallsDrainFor ==
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            /\ [](IsClosingChannel(chId))
            => <>[](\A cId \in CallIds :
                        call_channel[cId] = chId => ~L0!IsActiveCall(cId))
@@ -12691,6 +12608,7 @@ THEOREM AllCallsDrainFor ==
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)),
              [](IsClosingChannel(chId))
       PROVE  <>[](\A cId \in CallIds :
                       call_channel[cId] = chId => ~L0!IsActiveCall(cId))
@@ -12703,6 +12621,7 @@ THEOREM AllCallsDrainFor ==
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
+          /\ WF_vars(CancelCallOfClosingChannel(cId))
           /\ [](IsClosingChannel(chId))
           => <>[](call_channel[cId] = chId => ~L0!IsActiveCall(cId))
       BY CallLeavesChannelFor, PTL
@@ -12724,6 +12643,7 @@ THEOREM AllCallsDrainForBoxed ==
            /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            => []([](IsClosingChannel(chId)) =>
                      <>[](\A cId \in CallIds :
                               call_channel[cId] = chId =>
@@ -12734,7 +12654,8 @@ THEOREM AllCallsDrainForBoxed ==
              [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))),
              [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))),
              [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId))),
-             [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+             [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId))),
+             [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
       PROVE  []([](IsClosingChannel(chId)) =>
                     <>[](\A cId \in CallIds :
                              call_channel[cId] = chId =>
@@ -12753,6 +12674,8 @@ THEOREM AllCallsDrainForBoxed ==
     BY <1>1, BoxedEWFairness, PTL
   <2>6. [][](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
     BY <1>1, BoxedWRFairness, PTL
+  <2>65. [][](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
+    BY <1>1, BoxedCCCFairness, PTL
   <2>7. /\ []IndInv
         /\ [][Next]_vars
         /\ (\A cId \in CallIds : WF_vars(DeliverCancelled(cId)))
@@ -12760,12 +12683,13 @@ THEOREM AllCallsDrainForBoxed ==
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         /\ [](IsClosingChannel(chId))
         => <>[](\A cId \in CallIds :
                     call_channel[cId] = chId => ~L0!IsActiveCall(cId))
     BY AllCallsDrainFor, PTL
   <2>8. QED
-    BY <2>1, <2>2, <2>3, <2>35, <2>4, <2>5, <2>6, <2>7, PTL
+    BY <2>1, <2>2, <2>3, <2>35, <2>4, <2>5, <2>6, <2>65, <2>7, PTL
 <1>2. QED BY <1>1
 
 THEOREM ChannelCloseLift ==
@@ -12778,6 +12702,7 @@ THEOREM ChannelCloseLift ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => WF_l0_vars(L0!ChannelFinishClosing(chId))
 
 <1>10. [](TypeOK /\ ENABLED <<L0!ChannelFinishClosing(chId)>>_l0_vars =>
@@ -12801,7 +12726,8 @@ THEOREM ChannelCloseLift ==
              \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
-             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
       PROVE  WF_l0_vars(L0!ChannelFinishClosing(chId))
   <2>1. []TypeOK
     BY <1>1, IndInvParts, PTL
@@ -12812,6 +12738,7 @@ THEOREM ChannelCloseLift ==
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         => []([](IsClosingChannel(chId)) =>
                   <>[](\A cId \in CallIds :
                            call_channel[cId] = chId =>
@@ -12822,7 +12749,7 @@ THEOREM ChannelCloseLift ==
                         call_channel[cId] = chId =>
                             ~L0!IsActiveCall(cId)))
     BY <1>1, <2>2, BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness,
-       BoxedEWFairness, BoxedWRFairness, PTL
+       BoxedEWFairness, BoxedWRFairness, BoxedCCCFairness, PTL
   <2>4. QED
     BY <1>1, <2>1, <2>3, <1>10, <1>11, <1>12, <1>13, PTL
 <1>2. QED BY <1>1, PTL
@@ -12911,10 +12838,10 @@ LEMMA QuietStable ==
         <5>3. QED
           BY <1>1, <5>1, <5>2, OnlyChannelCreateWritesOwnership, Zenon
 \* No call of a released-ready runtime is active, so no delivery can
-\* start on one; the closing paths write the cancel latch and nothing
-\* else of the FFI state.  Split into three questions - the flag, the
-\* call's channel, the runtime's channels - because one call over all of
-\* them sits at its time budget rather than inside it.
+\* start on one; the closing paths write nothing of the FFI state.  Split
+\* into three questions - the flag, the call's channel, the runtime's
+\* channels - because one call over all of them sits at its time budget
+\* rather than inside it.
       <4>1. CASE \/ NextSafeRuntimeOnly
                  \/ NextSafeRuntimeChannel
                  \/ NextSafeChannelOnly
@@ -12929,8 +12856,7 @@ LEMMA QuietStable ==
               ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
               L0!RuntimeCreate, L0!RuntimeRelease, L0!RuntimeBeginShutdown,
               L0!ChannelCreate, L0!ChannelStartClosing,
-              L0!ChannelFinishClosing, RequestCancellationOfActiveCalls,
-              L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
+              L0!ChannelFinishClosing, L0!RuntimeVars, L0!ChannelVars, L0!CallVars, L0!vars, l0_vars
         <5>3. QED
           BY <1>1, <4>0, <5>1, <5>2, Zenon
       <4>2. CASE NextSafeCallOnly
@@ -13515,6 +13441,7 @@ LEMMA FairnessAtCall ==
            /\ WF_vars(WriteDoneReturns(cId))
            /\ WF_vars(HostConsumesEvent(cId))
            /\ WF_vars(ReleaseCallHandle(cId))
+           /\ WF_vars(CancelCallOfClosingChannel(cId))
 BY IsaT(600) DEF Fairness
 
 LEMMA FairnessAtRuntime ==
@@ -13551,6 +13478,7 @@ LEMMA FairnessEverywhere ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            /\ \A cId \in CallIds : WF_vars(HostConsumesEvent(cId))
            /\ \A cId \in CallIds, b \in BufferIds :
                   WF_vars(HostReturnsBuffer(cId, b))
@@ -13616,6 +13544,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(DeliverCancelled(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
+          /\ WF_vars(CancelCallOfClosingChannel(cId))
       BY <2>0, FairnessAtCall, IsaT(600)
     <3>2. /\ []IndInv
           /\ [][Next]_vars
@@ -13626,6 +13555,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(DeliverCancelled(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
+          /\ WF_vars(CancelCallOfClosingChannel(cId))
           => WF_l0_vars(L0!DeliverMessage(cId))
       BY MessageDeliveryLift, IsaT(600)
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, IsaT(600)
@@ -13635,6 +13565,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
+          /\ WF_vars(CancelCallOfClosingChannel(cId))
           /\ WF_vars(DeliverCancelled(cId))
       BY <2>0, FairnessAtCall, IsaT(600)
     <3>2. /\ []IndInv
@@ -13643,6 +13574,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ WF_vars(DeliveryCallbackReturns(cId))
           /\ WF_vars(EmitWriteDone(cId))
           /\ WF_vars(WriteDoneReturns(cId))
+          /\ WF_vars(CancelCallOfClosingChannel(cId))
           /\ WF_vars(DeliverCancelled(cId))
           => WF_l0_vars(L0!DeliverStatus(cId))
       BY StatusDeliveryLift, PTL
@@ -13671,6 +13603,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+          /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
       BY <2>0, FairnessAtChannel, FairnessEverywhere, IsaT(600)
     <3>2. /\ []IndInv
           /\ [][Next]_vars
@@ -13680,6 +13613,7 @@ THEOREM RefinesSpec == Spec => L0!Spec
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+          /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
           => WF_l0_vars(L0!ChannelFinishClosing(chId))
       BY ChannelCloseLift, PTL
     <3>3. QED BY <2>0, <2>1, <3>1, <3>2, IsaT(600)
@@ -14250,8 +14184,7 @@ LEMMA ClosingUnlessClosed ==
           ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
           RuntimeBeginShutdown, L0!ChannelCreate, L0!ChannelStartClosing,
           L0!ChannelFinishClosing, L0!RuntimeBeginShutdown,
-          L0!ChannelsOf, L0!CallsOf, RequestCancellationOfActiveCalls,
-          IsClosingChannel, IsClosedChannel,
+          L0!ChannelsOf, L0!CallsOf, IsClosingChannel, IsClosedChannel,
           TypeOK, L0!TypeOK, L0!ChannelStates
     <3>2. QED
       BY <1>1, <3>1, OnlyChannelStepsWriteChannelState, Zenon
@@ -14278,8 +14211,7 @@ LEMMA ClosedSticky ==
           ChannelCreate, ChannelStartClosing, ChannelFinishClosing,
           RuntimeBeginShutdown, L0!ChannelCreate, L0!ChannelStartClosing,
           L0!ChannelFinishClosing, L0!RuntimeBeginShutdown,
-          L0!ChannelsOf, L0!CallsOf, RequestCancellationOfActiveCalls,
-          IsClosingChannel, IsClosedChannel,
+          L0!ChannelsOf, L0!CallsOf, IsClosingChannel, IsClosedChannel,
           TypeOK, L0!TypeOK, L0!ChannelStates
     <3>2. QED
       BY <1>1, <3>1, OnlyChannelStepsWriteChannelState, Zenon
@@ -14301,6 +14233,7 @@ THEOREM ChannelEventuallyCloses ==
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            => ((IsClosingChannel(chId)) ~>
                    (IsClosedChannel(chId)))
 <1>10. [](TypeOK /\ IsClosingChannel(chId) /\ [Next]_vars =>
@@ -14332,7 +14265,8 @@ THEOREM ChannelEventuallyCloses ==
              \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
-             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
       PROVE  (IsClosingChannel(chId)) ~>
                  (IsClosedChannel(chId))
   <2>1. []TypeOK
@@ -14344,6 +14278,7 @@ THEOREM ChannelEventuallyCloses ==
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         => []([](IsClosingChannel(chId)) =>
                   <>[](\A cId \in CallIds :
                            call_channel[cId] = chId =>
@@ -14354,7 +14289,7 @@ THEOREM ChannelEventuallyCloses ==
                         call_channel[cId] = chId =>
                             ~L0!IsActiveCall(cId)))
     BY <1>1, <2>2, BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness,
-       BoxedEWFairness, BoxedWRFairness, PTL
+       BoxedEWFairness, BoxedWRFairness, BoxedCCCFairness, PTL
   <2>4. ASSUME <>(IsClosingChannel(chId) /\
                       [](~(IsClosedChannel(chId))))
         PROVE  FALSE
@@ -14444,6 +14379,7 @@ THEOREM ChannelSettlesForL1 ==
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            /\ [](IsStoppingRuntime(rtId))
            => <>[](channel_runtime[chId] = rtId =>
                        IsClosedChannel(chId))
@@ -14501,6 +14437,7 @@ THEOREM ChannelSettlesForL1 ==
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)),
              [](IsStoppingRuntime(rtId))
       PROVE  <>[](channel_runtime[chId] = rtId =>
                       IsClosedChannel(chId))
@@ -14516,6 +14453,7 @@ THEOREM ChannelSettlesForL1 ==
           /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
           /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
           /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+          /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
           => ((IsClosingChannel(chId)) ~>
                   (IsClosedChannel(chId)))
       BY ChannelEventuallyCloses, IsaT(600)
@@ -14716,6 +14654,7 @@ THEOREM AllChannelsSettleCollected ==
            /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            /\ [](IsStoppingRuntime(rtId))
            => <>[](\A chId \in ChannelIds :
                        channel_runtime[chId] = rtId =>
@@ -14729,6 +14668,7 @@ THEOREM AllChannelsSettleCollected ==
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
              \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)),
              [](IsStoppingRuntime(rtId))
       PROVE  <>[](\A chId \in ChannelIds :
                       channel_runtime[chId] = rtId =>
@@ -14745,6 +14685,7 @@ THEOREM AllChannelsSettleCollected ==
           /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
           /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
           /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+          /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
           /\ [](IsStoppingRuntime(rtId))
           => <>[](channel_runtime[chId] = rtId =>
                       IsClosedChannel(chId))
@@ -14769,6 +14710,7 @@ THEOREM AllChannelsSettleBoxed ==
            /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
            /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
            /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+           /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
            => []([](IsStoppingRuntime(rtId)) =>
                      <>[](\A chId \in ChannelIds :
                               channel_runtime[chId] = rtId =>
@@ -14782,7 +14724,8 @@ THEOREM AllChannelsSettleBoxed ==
              [](\A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId))),
              [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))),
              [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId))),
-             [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+             [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId))),
+             [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
       PROVE  []([](IsStoppingRuntime(rtId)) =>
                     <>[](\A chId \in ChannelIds :
                              channel_runtime[chId] = rtId =>
@@ -14806,6 +14749,8 @@ THEOREM AllChannelsSettleBoxed ==
     BY <1>1, BoxedEWFairness, PTL
   <2>8. [][](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
     BY <1>1, BoxedWRFairness, PTL
+  <2>85. [][](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
+    BY <1>1, BoxedCCCFairness, PTL
   <2>9. /\ []IndInv
         /\ []StrongInv
         /\ [][Next]_vars
@@ -14815,13 +14760,14 @@ THEOREM AllChannelsSettleBoxed ==
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         /\ [](IsStoppingRuntime(rtId))
         => <>[](\A chId \in ChannelIds :
                     channel_runtime[chId] = rtId =>
                         IsClosedChannel(chId))
     BY AllChannelsSettleCollected, PTL
   <2>10. QED
-    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>55, <2>6, <2>7, <2>8, <2>9, PTL
+    BY <2>1, <2>2, <2>3, <2>4, <2>5, <2>55, <2>6, <2>7, <2>8, <2>85, <2>9, PTL
 <1>2. QED BY <1>1
 
 THEOREM ShutdownEmitProgressSafeFor ==
@@ -14835,6 +14781,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => ((IsStoppingRuntime(rtId)) ~>
                    IsShutdownEventEmitted(rtId))
 <1>10. [](StrongInv => IndInv)
@@ -14887,7 +14834,8 @@ THEOREM ShutdownEmitProgressSafeFor ==
              \A cId \in CallIds : WF_vars(DeliverInitialMetadata(cId)),
              \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)),
              \A cId \in CallIds : WF_vars(EmitWriteDone(cId)),
-             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+             \A cId \in CallIds : WF_vars(WriteDoneReturns(cId)),
+             \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
       PROVE  (IsStoppingRuntime(rtId)) ~>
                  IsShutdownEventEmitted(rtId)
   <2>1. []IndInv
@@ -14906,6 +14854,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
         /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         => []([](IsStoppingRuntime(rtId)) =>
                   <>[](\A chId \in ChannelIds :
                            channel_runtime[chId] = rtId =>
@@ -14916,7 +14865,7 @@ THEOREM ShutdownEmitProgressSafeFor ==
                         channel_runtime[chId] = rtId =>
                             IsClosedChannel(chId)))
     BY <1>1, <2>1, <2>2, <2>4, BoxedCFCFairness, BoxedDCFairness,
-       BoxedDIMFairness, BoxedCBRFairness, BoxedEWFairness, BoxedWRFairness,
+       BoxedDIMFairness, BoxedCBRFairness, BoxedEWFairness, BoxedWRFairness, BoxedCCCFairness,
        PTL
   <2>6. /\ []IndInv
         /\ [][Next]_vars
@@ -14956,6 +14905,7 @@ THEOREM ShutdownEmitFairnessRequirement ==
            /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
            /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
            /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+           /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
            => ((IsStoppingRuntime(rtId)) ~>
                    IsShutdownEventEmitted(rtId))
 <1>1. /\ Init
@@ -15197,6 +15147,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
           /\ \A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId))
           /\ \A cId \in CallIds : WF_vars(EmitWriteDone(cId))
           /\ \A cId \in CallIds : WF_vars(WriteDoneReturns(cId))
+          /\ \A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId))
       BY <2>0, FairnessAtRuntime, FairnessEverywhere, IsaT(600), PTL
     <3>10. [](TypeOK /\ ~L0!NotFailed /\ [Next]_vars =>
                   (~L0!NotFailed)')
@@ -15244,6 +15195,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
             /\ [](\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
             /\ [](\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
             /\ [](\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+            /\ [](\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
             => []([](IsStoppingRuntime(rtId)) =>
                       <>[](\A chId \in ChannelIds :
                                channel_runtime[chId] = rtId =>
@@ -15255,7 +15207,7 @@ THEOREM ShutdownEventEmittedHolds == Spec => ShutdownEventEmitted
                                 IsClosedChannel(chId)))
         BY <2>0, <2>1, <3>0, <4>2, <4>4, BoxedCFCFairness,
            BoxedDCFairness, BoxedDIMFairness, BoxedCBRFairness, BoxedEWFairness,
-           BoxedWRFairness, PTL
+           BoxedWRFairness, BoxedCCCFairness, PTL
       <4>6. <>[](\A chId \in ChannelIds :
                      channel_runtime[chId] = rtId =>
                          IsClosedChannel(chId))
@@ -18592,7 +18544,7 @@ LEMMA UnadmittedStaysUnadmitted ==
     DEF NextSafeFfiOnly, NextSafeShutdownFfi, NextSafeCallFfi,
         EmitShutdownComplete, ShutdownCallbackReturns, EmitResourcesReleased,
         ResourcesReleasedCallbackReturns, RuntimeDestroy,
-        RequestCallCancellation, ReleaseCallHandle, EmitWriteDone,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, EmitWriteDone,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, LendSendBuffer,
         WriteDoneReturns, DeliveryCallbackReturns, HostConsumesEvent,
         EmitBudgetWake, EngineTakesBytes, EngineGivesBackBytes, RefuseLendTooLarge, RefuseLendForSlot,
@@ -18647,11 +18599,20 @@ LEMMA HeldFallsWithoutArrival ==
     BY <2>2, SMT
     DEF HostConsumesEvent, HeldReceivedTop, L0!IsTerminalCall, l0_vars,
         L0!vars, TypeOK, L0!TypeOK
-  <2>3. CASE \E c \in CallIds : DeliverCancelled(c)
-    BY <2>3, SMTT(120)
-    DEF DeliverCancelled, L0!CallCancel, HandPayloadToHost, HeldReceivedTop,
-        L0!IsTerminalCall, L0!IsActiveCall, L0!ActiveCallStates,
-        ReceiveAccountingInv, DeliveredWithinReceived, TypeOK, L0!TypeOK
+  <2>3. CASE \E c \in CallIds : IsCancelLatchStep(c)
+    <3>1. PICK c \in CallIds : IsCancelLatchStep(c)
+      BY <2>3
+    <3>2. /\ UNCHANGED <<received, delivered, payloads_consumed_by_host, call_state>>
+          /\ cancel_requested' = [cancel_requested EXCEPT ![c] = TRUE]
+      BY <3>1, Zenon
+      DEF IsCancelLatchStep, RequestCallCancellation, CancelCallOfClosingChannel,
+          LatchCancellationOf, l0_vars, L0!vars, L0!RuntimeVars, L0!ChannelVars,
+          L0!CallVars
+    <3>3. Len(delivered[cId]) <= Len(received[cId])
+      BY DEF ReceiveAccountingInv, DeliveredWithinReceived
+    <3>4. QED
+      BY <1>t, <3>2, <3>3, SMT
+      DEF HeldReceivedTop, IsCancelRequested, L0!IsTerminalCall, TypeOK
   <2>4. CASE /\ UNCHANGED <<received, payloads_consumed_by_host>>
              /\ \A c \in CallIds : HeldReceivedTop(c)' = HeldReceivedTop(c)
     <3>1. payloads_consumed_by_host'[cId] = payloads_consumed_by_host[cId]
@@ -18749,7 +18710,7 @@ LEMMA DeliveredOnlyGrows ==
         ResourcesReleasedCallbackReturns, RuntimeRelease, RuntimeDestroy,
         RuntimeFail, RemainFailed, RemainReleased, ChannelCreate,
         ChannelStartClosing, ChannelFinishClosing, CallStart,
-        RequestCallCancellation, ReleaseCallHandle, LendSendBuffer,
+        RequestCallCancellation, LatchCancellationOf, CancelCallOfClosingChannel, ReleaseCallHandle, LendSendBuffer,
         RefuseLendTooLarge, RefuseLendForSlot, RefuseLendForBudget,
         HostReturnsBuffer, FreeReturnedBuffer, ResizeSendBuffer, SendMessage, SendEmptyMessage, EndSend,
         EmitWriteDone, WriteDoneReturns, NetworkSend, AdmitRead,
@@ -18825,7 +18786,7 @@ THEOREM RungOwed ==
       OBVIOUS
     <3>21. HostConsumesEvent(cId)
       BY <3>1
-    <3>22. UNCHANGED <<received, delivered, call_state>>
+    <3>22. UNCHANGED <<received, delivered, call_state, cancel_requested>>
       BY <3>21, Zenon DEF HostConsumesEvent, l0_vars, L0!vars
     <3>23. payloads_consumed_by_host'[cId] = payloads_consumed_by_host[cId] + 1
       BY <3>1, <3>21, SMT DEF RungStep, HostConsumesEvent, TypeOK
@@ -18833,7 +18794,7 @@ THEOREM RungOwed ==
           /\ UNCHANGED <<received, delivered, call_state>>
       BY <3>22, <3>23
     <3>24. HeldReceivedTop(cId)' = HeldReceivedTop(cId)
-      BY <3>2, Zenon DEF HeldReceivedTop, L0!IsTerminalCall
+      BY <3>2, <3>22, Zenon DEF HeldReceivedTop, L0!IsTerminalCall, IsCancelRequested
     <3>25. /\ payloads_consumed_by_host[cId] \in Nat
            /\ payloads_consumed_by_host[cId] >= 1
            /\ HeldReceivedTop(cId) \in Nat
@@ -18916,7 +18877,7 @@ THEOREM RungMeta ==
       OBVIOUS
     <3>21. HostConsumesEvent(cId)
       BY <3>1
-    <3>22. UNCHANGED <<received, delivered, call_state>>
+    <3>22. UNCHANGED <<received, delivered, call_state, cancel_requested>>
       BY <3>21, Zenon DEF HostConsumesEvent, l0_vars, L0!vars
     <3>23. payloads_consumed_by_host'[cId] = 1
       BY <3>1, <3>21, SMT DEF RungStep, PhaseMeta, HostConsumesEvent, TypeOK
@@ -18926,8 +18887,9 @@ THEOREM RungMeta ==
     <3>24. /\ HeldReceivedTop(cId)' = HeldReceivedTop(cId)
            /\ MessagesReleased(cId)' = MessagesReleased(cId)
            /\ delivered'[cId] = delivered[cId]
-      BY <3>1, <3>2, SMT
-      DEF PhaseMeta, HeldReceivedTop, L0!IsTerminalCall, MessagesReleased
+      BY <3>1, <3>2, <3>22, SMT
+      DEF PhaseMeta, HeldReceivedTop, L0!IsTerminalCall, IsCancelRequested,
+          MessagesReleased
     <3>25. HeldCount(cId)' = HeldCount(cId)
       BY <3>24, Zenon DEF HeldCount
     <3>26. /\ HeldCount(cId) \in Nat
@@ -19010,10 +18972,9 @@ THEOREM RungUndelivered ==
       <4>2. ~L0!HasStatus(cId)
         BY <3>1, <3>2, Zenon DEF FfiCallInv, ActiveCallHasNoStatus
       <4>3. Len(delivered[cId]) < Len(received[cId])
-        <5>1. HeldReceivedTop(cId) = Len(received[cId])
-          BY <3>2, SMT
-          DEF HeldReceivedTop, L0!IsTerminalCall, L0!IsActiveCall,
-              L0!ActiveCallStates
+        <5>1. \/ HeldReceivedTop(cId) = Len(received[cId])
+              \/ HeldReceivedTop(cId) = Len(delivered[cId])
+          BY DEF HeldReceivedTop
         <5>2. /\ payloads_consumed_by_host[cId] \in Nat
               /\ payloads_consumed_by_host[cId] >= 1
               /\ payloads_consumed_by_host[cId] > Len(delivered[cId])
@@ -19642,6 +19603,7 @@ THEOREM EventualChannelClosedHolds ==
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
     BY <2>0, FairnessEverywhere, IsaT(600)
   <2>4. /\ []IndInv
         /\ [][Next]_vars
@@ -19651,6 +19613,7 @@ THEOREM EventualChannelClosedHolds ==
         /\ (\A cId \in CallIds : WF_vars(DeliveryCallbackReturns(cId)))
         /\ (\A cId \in CallIds : WF_vars(EmitWriteDone(cId)))
         /\ (\A cId \in CallIds : WF_vars(WriteDoneReturns(cId)))
+        /\ (\A cId \in CallIds : WF_vars(CancelCallOfClosingChannel(cId)))
         => ((IsClosingChannel(chId)) ~>
                 (IsClosedChannel(chId)))
     BY ChannelEventuallyCloses, PTL
