@@ -180,8 +180,8 @@ impl AkRuntime {
                 let _alive = crate::hooks::ChannelThreadAlive::new();
                 let mut builder = tokio::runtime::Builder::new_current_thread();
                 builder.enable_all();
-                if let Some(spin) = spin.clone() {
-                    builder.on_thread_park(move || spin.before_park());
+                if let Some(spin) = &spin {
+                    spin.install(&mut builder);
                 }
                 let tokio = match builder.build() {
                     Ok(tokio) => tokio,
@@ -434,16 +434,14 @@ mod tests {
     /// to `CHANNEL_WIND_DOWN` for every task to end.
     #[test]
     fn a_spinning_channel_thread_stops_without_waiting_out_its_wind_down() {
+        let options: RuntimeOptions =
+            serde_json::from_str(r#"{"BeforeSleep":{"Spin":{}}}"#).expect("valid options");
         let runtime = AkRuntime::new(
-            RuntimeOptions::default(),
+            options,
             (0, 0),
             Host::new(never_called, std::ptr::null_mut()),
         )
         .unwrap_or_else(|_| panic!("a runtime"));
-        assert!(
-            runtime.options().spin_window().is_some(),
-            "the default spins"
-        );
         let thread = runtime
             .start_channel_thread()
             .unwrap_or_else(|_| panic!("a channel thread"));

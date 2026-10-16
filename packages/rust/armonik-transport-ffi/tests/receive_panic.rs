@@ -53,16 +53,6 @@ fn echo_hello(channel: ak_handle) -> ak_handle {
     call
 }
 
-fn send_one_request(call: ak_handle, message: &[u8]) {
-    let (status, buffer) = lend(call, message.len());
-    assert_eq!(status, ak_status::AK_STATUS_OK);
-    unsafe { std::ptr::copy_nonoverlapping(message.as_ptr(), buffer.ptr, message.len()) };
-    assert_eq!(
-        unsafe { ak_call_send_message(call, buffer, message.len(), std::ptr::null_mut()) },
-        ak_status::AK_STATUS_OK
-    );
-}
-
 /// What a runtime comes to once it has been shut down: quiescent, with nothing owed by the host,
 /// nothing charged, and the call reclaimed.
 fn assert_shuts_down_clean(fixture: &Connected, call: ak_handle, context: &str) {

@@ -44,9 +44,10 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   One transport per process, so that what one leaves allocated is not counted against the
 ///   other. TLS by default for both, because grpc-dotnet on .NET Framework speaks HTTP/2 only over
 ///   it. The -h2c transports speak HTTP/2 in the clear, which tells TLS's share of a call from the
-///   rest; grpc-dotnet speaks it in the clear only on .NET. The pinned and shared scenarios measure
-///   only the unary latency, on a native channel held to one connection, without and with a
-///   streamed upload beside it through the whole measurement.
+///   rest; grpc-dotnet speaks it in the clear only on .NET. The server runs with
+///   <c>--plain-say</c>: its <c>Say</c> answers with the reply and <c>x-answered</c> alone.
+///   The pinned and shared scenarios measure only the unary latency, on a native channel held to
+///   one connection, without and with a streamed upload beside it through the whole measurement.
 /// </remarks>
 public static class Program
 {
@@ -75,13 +76,13 @@ public static class Program
   public static async Task<int> Main(string[] args)
   {
     if (args.Length is < 1 or > 2 ||
-        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-nospin" && args[0] != "native-h2c" &&
+        (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
          args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy" && args[1] != "pinned" && args[1] != "shared") ||
         (args.Length == 2 && args[1] != "busy" && !args[0].StartsWith("native",
                                                                        StringComparison.Ordinal)))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-nospin|native-h2c|managed|managed-h2c [busy]");
-      Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-nospin|native-h2c pinned|shared");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy]");
+      Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared");
       return 2;
     }
 
@@ -397,22 +398,22 @@ public static class Program
                                                                Server server,
                                                                bool   pinned)
   {
-    if (transport is "native" or "native-batch" or "native-metrics" or "native-nospin" or "native-h2c")
+    if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
       // native-batch needs the engine built with -p:NativeEngineH2Batch=true, and is refused
       // by any other. native-metrics loads the build with the engine's counters, which is
-      // selected before the first runtime exists. native-nospin has the channel's thread sleep
-      // as soon as it runs out of work. native-h2c reaches a server with no authority, so its
-      // channel states no Tls.
+      // selected before the first runtime exists. native-spin has the channel's thread poll for
+      // work for the spin's default window after each callback into the host before it sleeps.
+      // native-h2c reaches a server with no authority, so its channel states no Tls.
       if (transport == "native-metrics")
       {
         NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
       }
 
-      var runtime = transport == "native-nospin"
+      var runtime = transport == "native-spin"
                       ? NativeRuntime.Create(new RuntimeOptions
                                              {
-                                               BeforeSleep = new BeforeSleep.None(),
+                                               BeforeSleep = new BeforeSleep.Spin(),
                                              })
                       : NativeRuntime.Create();
       var http2 = transport == "native-batch"
@@ -727,8 +728,8 @@ public static class Program
                                                      .Value!);
       var process = Process.Start(new ProcessStartInfo("dotnet",
                                                        tls
-                                                         ? $"\"{assembly}\" --tls"
-                                                         : $"\"{assembly}\"")
+                                                         ? $"\"{assembly}\" --plain-say --tls"
+                                                         : $"\"{assembly}\" --plain-say")
                                   {
                                     RedirectStandardInput  = true,
                                     RedirectStandardOutput = true,

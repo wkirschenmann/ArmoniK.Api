@@ -108,8 +108,8 @@ public sealed class RuntimeOptions
   ///   comes. Ignored by a Rust host, whose channels run on its own runtime.
   /// </summary>
   /// <remarks>
-  ///   Defaults to <c>{"Spin": {}}</c>: it polls for new work for 100 microseconds after it last called
-  ///   the host.
+  ///   Defaults to <c>"None"</c>: it sleeps as soon as it runs out of work. <c>{"Spin": {}}</c> has it poll
+  ///   for new work for 100 microseconds after it last called the host.
   /// </remarks>
   [JsonPropertyName("BeforeSleep")]
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

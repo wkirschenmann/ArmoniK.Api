@@ -15,7 +15,9 @@ mod echo;
 // Which method names a given test binary needs is a fact about that binary, not about the
 // fixture that serves all of them.
 #[allow(unused_imports)]
-pub use echo::{flaky_seen, CHAT, COLLECT, ECHO, FAIL, FAN, FLAKY, FRAMES, SLOW};
+pub use echo::{
+    flaky_seen, release_paced_part, CHAT, COLLECT, ECHO, FAIL, FAN, FLAKY, FRAMES, SLOW,
+};
 pub use server::TestServer;
 
 use std::collections::HashMap;

@@ -60,6 +60,8 @@ impl<T> Coalescing<T> {
             self.state = State::Sending;
             return false;
         }
+        #[cfg(feature = "test-hooks")]
+        crate::hooks::count_held_write();
         self.state = State::Held(len);
         // Polled once and dropped: that queues this task's wake-up behind the tasks already
         // ready, including those woken from another thread, whose frames the next attempt brings.

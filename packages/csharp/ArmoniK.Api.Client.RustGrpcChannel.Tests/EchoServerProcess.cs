@@ -38,16 +38,26 @@ internal sealed class EchoServerProcess : IDisposable
   internal string Endpoint { get; }
 
   /// <summary>Starts the server, listening at <paramref name="port" /> or at one the system
-  /// picks when it is zero.</summary>
-  internal static EchoServerProcess Start(int port = 0)
+  /// picks when it is zero, its <c>Say</c> plain when <paramref name="plainSay" /> is set.</summary>
+  internal static EchoServerProcess Start(int  port     = 0,
+                                          bool plainSay = false)
   {
     var assembly = BuiltServer.Assembly("TestServerAssembly");
+    var arguments = $"\"{assembly}\"";
+    if (port != 0)
+    {
+      arguments += $" --port {port}";
+    }
+
+    if (plainSay)
+    {
+      arguments += " --plain-say";
+    }
+
     var process = new Process
                   {
                     StartInfo = new ProcessStartInfo("dotnet",
-                                                     port == 0
-                                                       ? $"\"{assembly}\""
-                                                       : $"\"{assembly}\" --port {port}")
+                                                     arguments)
                                 {
                                   RedirectStandardOutput = true,
                                   RedirectStandardError  = true,

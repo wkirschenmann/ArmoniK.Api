@@ -30,11 +30,23 @@ using Microsoft.AspNetCore.Http.Features;
 
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
+/// <summary>How the server's <c>Say</c> answers.</summary>
+/// <param name="Plain">
+///   <c>Say</c> answers with the reply and the head entry <c>x-answered</c> alone, without the head
+///   entries and the trailer that say what the request stated and what the reply was sent in.
+/// </param>
+public sealed record SayShape(bool Plain);
+
 public class EchoService : Echo.EchoBase
 {
   // Request entries under this prefix come back in Say's head, and Say's reply lists them as it
   // read them.
   private const string ReflectedPrefix = "x-reflect-";
+
+  private readonly SayShape say_;
+
+  public EchoService(SayShape say)
+    => say_ = say;
 
   public override async Task<EchoReply> Say(EchoRequest request,
                                             ServerCallContext context)
@@ -55,9 +67,13 @@ public class EchoService : Echo.EchoBase
     // What the request stated of its encodings and how many bytes its body held on the wire, and a
     // reply compressed when the request asks: grpc-dotnet compresses only for a client that
     // accepts the encoding. The reply's own encoding comes back in a trailer, once it is chosen.
-    http.Response.Headers["x-saw-encoding"]        = http.Request.Headers["grpc-encoding"].ToString();
-    http.Response.Headers["x-saw-accept-encoding"] = http.Request.Headers["grpc-accept-encoding"].ToString();
-    http.Response.Headers["x-saw-content-length"]  = http.Request.ContentLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    if (!say_.Plain)
+    {
+      http.Response.Headers["x-saw-encoding"]        = http.Request.Headers["grpc-encoding"].ToString();
+      http.Response.Headers["x-saw-accept-encoding"] = http.Request.Headers["grpc-accept-encoding"].ToString();
+      http.Response.Headers["x-saw-content-length"]  = http.Request.ContentLength?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
     var head = new Metadata
                {
                  {
@@ -75,8 +91,11 @@ public class EchoService : Echo.EchoBase
 
     await context.WriteResponseHeadersAsync(head)
                  .ConfigureAwait(false);
-    context.ResponseTrailers.Add("x-sent-encoding",
-                                 http.Response.Headers["grpc-encoding"].ToString());
+    if (!say_.Plain)
+    {
+      context.ResponseTrailers.Add("x-sent-encoding",
+                                   http.Response.Headers["grpc-encoding"].ToString());
+    }
 
     return new EchoReply
            {
