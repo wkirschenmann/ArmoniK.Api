@@ -41,17 +41,22 @@ one. The other `Say` adds what the compression tests read: three head entries (`
 transports decode on every call: about 450 B more allocation per call for the native engine, 360 B
 for grpc-dotnet. The figures per call - latency, CPU and allocation per call - of "Results", "T6.13
 and h2-batch" and "A whole request's write, unheld" use the plain `Say`; those of "After
-integration", "What the metrics build costs", "h2-batch, where it acts" and "The channel thread's
-spin, TLS's share, and the driver's trim" use the other. The downloads and uploads call no `Say`.
+integration", "What the metrics build costs", "h2-batch, where it acts", "The channel thread's
+spin, TLS's share, and the driver's trim" and "h2-batch, what it costs" use the other. The
+downloads and uploads call no `Say`.
 
-Every transport option is left at its default, the runtime's ceilings included. `native` is the
+Every transport option is left at its default, the runtime's ceilings included, but where a
+transport or a scenario states one: `native-batch` sets `Http2.Send.FramesPerWrite` to 16, and
+`pinned` and `shared` set `Http2.SimultaneousCallsPerConnection` to `{"Limit": 16}`. `native` is the
 engine as a host gets it, a channel's thread sleeping as soon as it runs out of work (`BeforeSleep`
 `"None"`), and `native-spin` the same engine with `{"Spin": {}}`. `native` ran `"None"` too in
 every campaign whose engine predates the option, those of `bf86fece3` and `21a0b7807` among them.
-In the campaigns of 2026-10-15, whose engines had the spin as their default, the native
-transports ran the spin, and `native-nospin`, a name the benchmark no longer takes, ran `"None"`.
+In the campaigns of 2026-10-15, and in that of 2026-10-16 in "h2-batch, what it costs", whose
+engines had the spin as their default, the native transports ran the spin, `native-batch` among
+them, and `native-nospin`, a name the benchmark no longer takes, ran `"None"`.
 
-Every measurement runs in two scenarios. **Idle**: the benchmark is all the process does, so the
+The full measurement runs in two scenarios; `pinned` and `shared` measure the unary latency
+alone ("h2-batch, what it costs"). **Idle**: the benchmark is all the process does, so the
 .NET thread pool sleeps between calls. **Busy**: two pool workers compute for 50 us and yield,
 over and over, as in an application whose pool is never idle. A busy run reports no CPU and no
 memory, and the allocation it reports counts the load's too: the tables leave it out.
@@ -510,7 +515,9 @@ patched connection has queued; and above one frame per write, a reset call sends
 reset. Three engines here: stock h2, which takes one frame per write; the build against the patch
 at one (`patched, 1`); and that build at 16 (`patched, 16`, `native-batch`). The engine is
 that of `e24169ad3`, the benchmark that of `b38f87e34`, the Rust test `h2_batch_costs` of
-`36364eacf`; the last subsection measures the engine once its queue is bounded.
+`36364eacf`; the last subsections measure the engine once its queue is bounded. Every engine of
+this section predates `fe3b6e09f`, so `BeforeSleep` defaulted to the spin and every native row ran
+it, `native` and `native-batch` among them; run again, those transports do not.
 
 One campaign on 2026-10-15, 16:48 to 17:08: five passes, the eight runs of a pass interleaved and
 their order rotated from one pass to the next, on the performance cores at AboveNormal priority.
@@ -574,13 +581,13 @@ brackets; every PING of every pass was acknowledged.
 
 ### DATA after a cancel
 
-`h2_batch_costs`'s `data_after_a_cancel`: a streamed upload of 64 KiB chunks to a server that, at
-the first DATA frame, reads nothing more; once the client has written nothing for 300 ms, the call
-is cancelled, and 200 ms later the server reads again, to the stream's RST_STREAM. The test hooks
-count the bytes the client has written, so the server tells which DATA frames end past the offset
-the client had written to when it cancelled, and their bytes past it. The server's windows are
-those above and never updated. Ten trials a pass, five passes, 50 trials a cell: the median, the
-range in brackets.
+`h2_batch_costs`'s cancels, as its ignored `data_after_ten_cancels` runs them: a streamed upload
+of 64 KiB chunks to a server that, at the first DATA frame, reads nothing more; once the client
+has written nothing for 300 ms, the call is cancelled, and 200 ms later the server reads again, to
+the stream's RST_STREAM. The test hooks count the bytes the client has written, so the server
+tells which DATA frames end past the offset the client had written to when it cancelled, and their
+bytes past it. The server's windows are those above and never updated. Ten trials a pass, five
+passes, 50 trials a cell: the median, the range in brackets.
 
 | Windows | Engine | DATA frames after the cancel | Their bytes | Offset at the cancel |
 |---------|--------|-----------------------------:|------------:|---------------------:|
@@ -702,11 +709,11 @@ DATA after a cancel, 50 trials a cell:
 - **The gain remains, smaller than measured before**: the streamed upload is 1.26 times as fast
   (605 against 480 MiB/s) for 23 % less CPU per MiB, the unary upload 1.17 times (417 against 357)
   for 36 % less, every range clear of stock's; P50 and the CPU per call are a tie. "h2-batch, where
-  it acts" measured 1.55 times for both, for 25 and 43 % less CPU per MiB, with stock h2 uploading
-  at 219 MiB/s streamed where it uploads at 480 here; whether the bound or the machine accounts for
-  the difference is answered in the next subsection, which runs both builds. The
-  patched row keeps three passes, two left out for their calibration, and stock's streamed uploads
-  read 263 and 288 MiB/s in two passes, 480 to 491 in the other three.
+  it acts", which ran without the spin, measured 1.55 times for both, for 25 and 43 % less CPU per
+  MiB, with stock h2 uploading at 219 MiB/s streamed where it uploads at 480 here; whether the
+  bound or the machine accounts for the difference is answered in the next subsection, which runs
+  both builds. The patched row keeps three passes, two left out for their calibration, and stock's
+  streamed uploads read 263 and 288 MiB/s in two passes, 480 to 491 in the other three.
 - **DATA after a cancel is bounded**: under the largest windows by the queue, at most 1 052 160
   bytes, 256 messages of 4 KiB at one and at 16 frames per write, or 16 of 64 KiB at 16 (1 049 376),
   in every trial, against 33 580 032 before the bound; under 768 KiB windows by the window, at most
@@ -758,7 +765,7 @@ pass 2 at 14 920 us; the runs kept read 7 528 to 7 544 us.
 - **The download is a tie**: the three ranges overlap.
 - **The bound does not account for the smaller gain of the campaign before**: unbounded, the
   build here uploads 1.25 times as fast as stock streamed and 1.36 times unary, also below the
-  1.55 of "h2-batch, where it acts". What does is not measured.
+  1.55 of "h2-batch, where it acts", which ran without the spin. What does is not measured.
 - Stock's streamed upload reads 271 MiB/s here and 480 in the campaign before, the same build, and
   the bounded build's 386 and 605; the ratios differ too, 1.42 against 1.26 streamed and 1.35
   against 1.17 unary. The cause is not measured.
@@ -1002,7 +1009,8 @@ cargo test -p armonik-transport --features test-hooks --release --test h2_batch_
 packages/rust/patches/h2-batch/build.sh test -p armonik-transport --features test-hooks --release --test h2_batch_costs -- --include-ignored --nocapture --test-threads 1
 ```
 
-A single run is the benchmark itself, with the transport and `busy` for the busy scenario:
+A single run is the benchmark itself, with the transport and `busy` for the busy scenario, or
+`pinned` or `shared` for the unary latency alone on one connection:
 
 ```bash
 bin/Release/net8.0/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native busy
