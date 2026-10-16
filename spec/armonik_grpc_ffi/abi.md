@@ -188,8 +188,13 @@ server-streaming method. Its commit also ends the sending, `ak_call_end_send` is
 WRITE_DONE comes: the send is settled at the commit, and a lend after it is refused with
 `AK_STATUS_INVALID_STATE` rather than `SLOT_BUSY`. The call sends nothing before its commit - the
 lent buffer keeps room for the gRPC prefix ahead of what the host writes, and the commit makes it
-the request's whole body - and nothing watches its deadline before it: a commit past the deadline
-is accepted, and the call ends `DEADLINE_EXCEEDED`.
+the request's whole body. Its deadline runs from `ak_call_start` all the same: a call its host has
+not committed when the deadline passes ends `DEADLINE_EXCEEDED`. A lend after that is refused with
+`AK_STATUS_INVALID_STATE`, and so is the commit, as on any call that is over; a buffer the host
+already holds stays lent and the host's, to give back with `ak_return_call_buffer`. The peer has
+nothing to answer before the commit, so a call with no deadline, its own or its channel's default,
+that the host neither commits nor cancels stays open until its channel is released or the runtime
+shut down: the host is to commit or cancel every one-request call it starts.
 
 `AK_CALL_ONE_RESPONSE` declares that the response is at most one message, as on a unary or a
 client-streaming method. A second one ends the call `INTERNAL` before anything decodes it or the

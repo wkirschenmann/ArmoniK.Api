@@ -1093,7 +1093,10 @@ SerializationSettles(cId) ==
 RuntimeOwedFairness ==
     \* accepted sends reach the wire, so a committed write can be acquitted
     /\ \A cId \in CallIds : WF_vars(PassNetworkSend(cId))
-    \* a terminal arrives at all, so every call has an end to deliver
+    \* a terminal arrives at all, so every call has an end to deliver; on a
+    \* call that declared one request and is not committed, only once the
+    \* binding commits or cancels it or its deadline passes: level 1's host
+    \* obligation
     /\ \A cId \in CallIds : WF_vars(PassReceiveStatus(cId))
     \* the header reaches the ring, so the prologue can resolve the headers
     /\ \A cId \in CallIds : WF_vars(PassDeliverInitialMetadata(cId))

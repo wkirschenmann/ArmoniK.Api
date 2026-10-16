@@ -1,6 +1,7 @@
 # Call shapes: what a call carries one of
 
-**Status**: decided 2026-10-03 and 2026-10-04; built, steps 1 to 5.
+**Status**: decided 2026-10-03 and 2026-10-04, the deadline revised 2026-10-16; built, steps 1
+to 5, the deadline revision with the engine change that makes it.
 
 A gRPC method has one of four cardinalities, and each direction of a call carries either exactly
 one message or a stream of them. The ABI treats every call as a bidirectional stream: the host
@@ -94,9 +95,11 @@ the binding reports a unary call answered with more than one message.
   for the whole request. Any other call has its one task spawned at `ak_call_start`, as today.
 - A call that needs its task before the commit has it spawned then, without its request. That is
   a cancellation, a channel release or a shutdown, which then end the call through the paths they
-  have today; and a lend refused for the budget, since the AK_EVENT_BUDGET_WAKE it waits for is
-  raised by the task. Such a task takes its request later from a one-shot slot in the call's
-  state - one hand-off, not a queue of commands - and sends nothing, not even the request's
+  have today; the call's deadline passing, which the engine watches from `ak_call_start` by a
+  mechanism of its own and which ends the call `DEADLINE_EXCEEDED`; and a lend refused for the
+  budget, since the AK_EVENT_BUDGET_WAKE it waits for is raised by the task. Such a task takes
+  its request later from a one-shot slot in the call's state - one hand-off, not a queue of
+  commands - and sends nothing, not even the request's
   head, until the slot is filled. One transition of the call's state decides which of a commit
   and those paths spawns the task. If one of the paths wins, the commit fills the slot, or is
   refused once the call has ended; if the commit wins, the path finds the task spawned and
@@ -123,21 +126,20 @@ the binding reports a unary call answered with more than one message.
   with a plain `Bytes` has it framed by a copy.
 
 **Deadline.** The deadline is an instant fixed at `ak_call_start`, so `grpc-timeout` carries what
-is left of it when the request leaves, as it does today. A call spawned before its commit has its
-task, which ends the call at its deadline as today, and a later commit is refused. A call not
-spawned has nothing watching its deadline: its commit checks it and, past it, is accepted, spawns
-the task, and ends the call `DEADLINE_EXCEEDED` without sending. A call never committed ends at
-its cancellation, release or shutdown. So a late commit is refused on a call spawned early, as
-after a budget refusal, and accepted then ended on one that was not: a host handles both, as it
-handles today a send racing its call's deadline.
+is left of it when the request leaves, as it does today. It is watched from the start, whether the
+call's task is spawned or not: a call its host has not committed when the deadline passes ends
+`DEADLINE_EXCEEDED` without sending. A lend after that is refused with `AK_STATUS_INVALID_STATE`,
+and so is the commit, as on any call that is over; a buffer the host already holds stays lent and
+the host's, to give back with `ak_return_call_buffer`. A late commit is thus refused alike on a
+call spawned early and on one that was not, as a host handles today a send racing its call's
+deadline. A call with no deadline that is never committed ends at its cancellation, its
+channel's release or the shutdown.
 
-That serves the call that goes well, which is almost every call and has a deadline that never
-fires, at the cost of the one that does not, for a host that holds an uncommitted call past its
-deadline: the status comes at the commit, the lent buffer stays charged until then, and a
-`timeout_ns` of zero still never reaches the server but ends the call only at the commit or the
-cancellation. Requirement 2.5 holds, for a one-request call, from its commit. The binding commits
-right after its serializer returns, so for it the window is a serialization's. Deadlines are not
-modelled at levels 0 and 1.
+A host that holds an uncommitted call past its deadline reads the status then rather than at its
+commit, and a `timeout_ns` of zero ends the call at once, before anything reaches the server.
+Requirement 2.5 holds for a one-request call from its start. The binding commits right after its
+serializer returns, so for it the race with the deadline is a serialization's. At levels 0 and 1
+the deadline is the engine's cancellation, `CallCancel` and `RequestCallCancellation`.
 
 **The .NET binding** keeps its sequence: start at the call's creation, lend at the serializer's
 announcement, commit. It sets the flags, no longer ends the sending, and no longer waits for an
@@ -157,7 +159,7 @@ acquittal is the engine's:
 `SendMessage` and `EndSend` both need the sending open and no status pending (`~status_pending`).
 Before its commit a call sends nothing - no task, or a task holding back even the request's head
 - so no answer can arrive; a status the engine raises itself ends the call, and the commit is
-then refused, except a deadline past on a call not yet spawned, as the deadline paragraph says.
+then refused, a deadline past included, as the deadline paragraph says.
 Otherwise `SendMessage` and `EndSend` linearize together at the commit, on the call's state, which
 no other step of the call holds between them. The engine takes `EmitWriteDone` and
 `WriteDoneReturns` before the call's terminal, which needs them (`HasNoSendInFlight`). The empty
@@ -388,9 +390,10 @@ Taken on 2026-10-03:
 2. **The delivery window applies to one-response calls** as to every call. With one credit, head
    and message cannot share a batch and the response takes two callbacks; the default of four
    makes the case rare.
-3. **The deadline of a call not yet committed is checked at its commit**, as in the deadline
-   paragraph: the hot path, where the deadline never fires, saves its wake-up, and a host that
-   holds its buffer past its deadline is the one that sees the difference.
+3. **Reversed on 2026-10-16: the deadline runs from `ak_call_start` on every call**, as the
+   deadline paragraph says. The decision of 2026-10-03 checked the deadline of a call not yet
+   committed at its commit, so that the hot path, where the deadline never fires, saved its
+   wake-up; that wake-up is the revision's cost.
 4. **The request body is swapped below tonic**, in the engine's HTTP/2 service, tonic's client
    keeping the request head and the response. Whether the response leaves tonic too, to slice a
    message out of its DATA frame without a copy, is a later decision.
@@ -481,8 +484,9 @@ the one exception: its new steps are proved, not reworded, so it came last, at s
    per request and of `content-length`. Done: `AK_CALL_ONE_REQUEST`, which the binding sets on
    unary and server-streaming calls; the transport's `FramedMessage` and `OneRequest`, a slot the
    commit fills only while the call takes it, so a refused commit leaves the host its buffer whole;
-   the call's task spawned by the commit, or earlier by a cancellation or a lend refused for the
-   budget; the body swapped in the engine's HTTP/2 service and kept, the same buffer, for a replay.
+   the call's task spawned by the commit, or earlier by a cancellation, the deadline or a lend
+   refused for the budget; the body swapped in the engine's HTTP/2 service and kept, the same
+   buffer, for a replay.
    Measured: hyper states a framed body's length in a `content-length`, which a stream's request
    has none of, and the test server and Kestrel take it, every one-request call of their suites
    carrying one; the socket writes per request are what they were, one with the writes gathered and
