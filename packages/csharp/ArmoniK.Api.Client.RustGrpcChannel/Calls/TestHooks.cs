@@ -33,6 +33,10 @@ internal static class TestHooks
   /// <summary>Run by a channel on the starting thread, once the engine has started a call and
   /// before the channel tracks it.</summary>
   internal static Action? StartedNotTracked;
+
+  /// <summary>Run on the engine's callback thread as a call's terminal is published, before it is
+  /// stored.</summary>
+  internal static Action? PublishingTerminal;
 }
 
 internal enum RingConsumer

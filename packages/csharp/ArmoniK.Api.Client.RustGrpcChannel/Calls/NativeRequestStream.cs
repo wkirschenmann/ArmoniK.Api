@@ -67,19 +67,28 @@ internal sealed class NativeRequestStream<TRequest, TResponse> : IClientStreamWr
     {
       await written.ConfigureAwait(false);
     }
-    catch (CallEnded ended)
+    catch (CallEnded)
     {
-      // The engine refused the write because the call had already ended. What a caller hears here
-      // is an `RpcException` as it would over grpc-dotnet, and not a type of this binding's own.
-      //
-      // The terminal only if a read has already consumed it: awaiting it here would wait on a read
-      // this caller may never make - a writer that only writes would hang instead of hearing why.
+      // The engine refused the write because the call had already ended, and the caller hears the
+      // status grpc-dotnet's call holds by then: the terminal a read consumed, Cancelled for a call
+      // cancelled or disposed this side, otherwise the code of the terminal the engine published,
+      // which it does for every call that ends whether or not anyone reads it.
       var terminal = call_.TerminalAsync;
-      throw new RpcException(terminal.IsCompleted
-                               ? terminal.Result
-                               : new Status(StatusCode.Unavailable,
-                                            ended.Message),
-                             call_.Trailers);
+      if (terminal.IsCompleted)
+      {
+        throw new RpcException(terminal.Result,
+                               call_.Trailers);
+      }
+
+      if (call_.CancelledHere)
+      {
+        throw new RpcException(new Status(StatusCode.Cancelled,
+                                          "the call was cancelled"));
+      }
+
+      var code = await call_.EndedWith.ConfigureAwait(false);
+      throw new RpcException(new Status(code,
+                                        "the call ended before the write"));
     }
   }
 

@@ -57,6 +57,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
   private readonly CancellationTokenSource ending_ = new();
 
+  // The code of the terminal the engine published, -1 before, which a write refused on an ended
+  // call reports when nothing has consumed the terminal; and the wait for it, made only by such a
+  // write. Each side writes its own with a full fence before it reads the other's.
+  private int endedCode_ = -1;
+  private TaskCompletionSource<StatusCode>? endedWith_;
+
   private static readonly uint StartOptionsSize = (uint)Marshal.SizeOf<ak_call_start_options>();
 
   private static readonly ConditionalWeakTable<string, byte[]> MethodNames = new();
@@ -95,6 +101,27 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
 
   public CancellationToken Ending
     => ending_.Token;
+
+  internal Task<StatusCode> EndedWith
+  {
+    get
+    {
+      var waiting = new TaskCompletionSource<StatusCode>(TaskCreationOptions.RunContinuationsAsynchronously);
+      var ended = Interlocked.CompareExchange(ref endedWith_,
+                                              waiting,
+                                              null) ?? waiting;
+      var code = Volatile.Read(ref endedCode_);
+      if (code >= 0)
+      {
+        ended.TrySetResult((StatusCode)code);
+      }
+
+      return ended.Task;
+    }
+  }
+
+  internal bool CancelledHere
+    => receiving_.CancelledHere;
 
   public void EndCall()
     => ending_.Cancel();
@@ -243,6 +270,12 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
       return false;
     }
 
+#if DEBUG
+    if (kind == ak_event_kind.AK_EVENT_STATUS)
+    {
+      TestHooks.PublishingTerminal?.Invoke();
+    }
+#endif
     var owed = receiving_.Store(kind,
                                 payload,
                                 statusCode);
@@ -252,6 +285,10 @@ internal sealed class NativeCall<TResponse> : ICallSink, ICallState
     // the terminal is in the ring when the send ends the call.
     if (kind == ak_event_kind.AK_EVENT_STATUS)
     {
+      Interlocked.Exchange(ref endedCode_,
+                           statusCode);
+      Volatile.Read(ref endedWith_)
+              ?.TrySetResult((StatusCode)statusCode);
       sending_.Woken();
     }
 

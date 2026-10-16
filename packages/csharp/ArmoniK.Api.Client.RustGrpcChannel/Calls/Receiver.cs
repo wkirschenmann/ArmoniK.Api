@@ -202,6 +202,11 @@ internal sealed class Receiver<TResponse>
   /// <summary>A drain is owed, and takes the ring as soon as no read holds a slot.</summary>
   private int drainOwed_;
 
+  /// <summary>The call was cancelled this side: disposed, its token or a read's fired, or a read
+  /// failed.</summary>
+  internal bool CancelledHere
+    => Volatile.Read(ref drainOwed_) != 0;
+
   private readonly TaskCompletionSource<bool> settled_ =
     new(TaskCreationOptions.RunContinuationsAsynchronously);
 

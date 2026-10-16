@@ -26,6 +26,8 @@ using Grpc.Core;
 
 using NUnit.Framework;
 
+using ArmoniK.Api.Client.RustGrpcChannel.Calls;
+
 namespace ArmoniK.Api.Client.RustGrpcChannel.Tests;
 
 /// <summary>Bidi streaming: sends and answers interleaved on one call.</summary>
@@ -261,7 +263,10 @@ public class DuplexStreamingTests : EchoServerFixture
                   Is.True,
                   "the parked write hears that its call is over, with nobody reading the call");
       Assert.That(outcome.Result,
-                  Is.InstanceOf<RpcException>());
+                  Is.InstanceOf<RpcException>()
+                    .With.Property(nameof(RpcException.StatusCode))
+                    .EqualTo(StatusCode.DeadlineExceeded),
+                  "the write hears the status its call ended with, as grpc-dotnet's does");
     }
     finally
     {
@@ -273,6 +278,49 @@ public class DuplexStreamingTests : EchoServerFixture
       await holdsTheCeiling.ResponseAsync.ConfigureAwait(false);
     }
   }
+
+#if DEBUG
+  /// <summary>A write after its call is disposed answers <c>Cancelled</c>, as grpc-dotnet's does.</summary>
+  /// <remarks>
+  ///   The engine's terminal is held on its way to the ring, so the write is refused before anything
+  ///   consumed it: what it answers cannot depend on how soon the drain runs, which differs between
+  ///   the frameworks. The hook is Debug-only and process-wide.
+  /// </remarks>
+  [Test]
+  [NonParallelizable]
+  public async Task AWriteAfterItsCallIsDisposedIsCancelled()
+  {
+    await using var channel = Runtime.Channel(Endpoint);
+    using var publishing = new ManualResetEventSlim(false);
+    using var release = new ManualResetEventSlim(false);
+    TestHooks.PublishingTerminal = () =>
+                                   {
+                                     publishing.Set();
+                                     release.Wait();
+                                   };
+    try
+    {
+      var call = Client(channel)
+        .Chat();
+      call.Dispose();
+      Assert.That(publishing.Wait(TimeSpan.FromSeconds(30)),
+                  Is.True,
+                  "the engine publishes the cancelled call's terminal");
+
+      var refused = Assert.ThrowsAsync<RpcException>(() => call.RequestStream.WriteAsync(new EchoRequest
+                                                                                         {
+                                                                                           Text = "late",
+                                                                                         }));
+      Assert.That(refused!.StatusCode,
+                  Is.EqualTo(StatusCode.Cancelled));
+    }
+    finally
+    {
+      TestHooks.PublishingTerminal = null;
+      release.Set();
+    }
+  }
+#endif
 
   private static Marshaller<EchoRequest> Requests(Action<EchoRequest, SerializationContext> write)
     => Marshallers.Create(write,

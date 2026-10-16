@@ -335,11 +335,8 @@ internal sealed class Sender
                 .ConfigureAwait(false);
     }
 
-    if (ending.IsCancellationRequested)
-    {
-      throw new RpcException(new Status(StatusCode.Cancelled,
-                                        "the call ended while its send waited for room against the ceiling"));
-    }
+    // Either way the send tries again: a call that ended refuses the lend, and the refusal reports
+    // the status the call ended with.
   }
 
   private static RpcException Failed(string reason)

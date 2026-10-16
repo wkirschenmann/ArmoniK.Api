@@ -23,8 +23,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Calls;
 
 /// <summary>Raised where the engine refuses a send because the call is already over.</summary>
 ///
-/// It is not the answer, only the signal that the answer is elsewhere: the terminal says why the
-/// call ended, and the reader is what carries it. Never leaves the binding.
+/// It is not the answer, only the signal that the answer is elsewhere: the status the call ended
+/// with, which whoever catches it reports. Never leaves the binding.
 internal sealed class CallEnded : Exception
 {
   internal CallEnded(ak_status status)
