@@ -275,7 +275,7 @@ public static class Program
                   };
       if (requireClient_)
       {
-        https.ClientCertificateMode = ClientCertificateMode.RequireCertificate;
+        https.ClientCertificateMode       = ClientCertificateMode.RequireCertificate;
         https.ClientCertificateValidation = (presented,
                                              _,
                                              _) =>
