@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -50,7 +51,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   one connection, without and with a streamed upload beside it through the whole measurement.
 ///   The gzip and zstd scenarios send and receive compressible text in that encoding, concurrent
 ///   runs 16 and then 64 unary calls in flight, and large sends unary messages of 4 and 16 MiB;
-///   zstd needs a server built to accept it, which ARMONIK_BENCH_SERVER names.
+///   zstd needs a server built to accept it, which ARMONIK_BENCH_SERVER names. mixed runs large
+///   client-streaming uploads beside small unary calls on one channel, over mutual TLS.
 /// </remarks>
 public static class Program
 {
@@ -78,18 +80,26 @@ public static class Program
 
   public static async Task<int> Main(string[] args)
   {
-    if (args.Length is < 1 or > 2 ||
+    // mixed takes its parameters after it, as key=value.
+    var mixed = args.Length >= 2 && args[1] == "mixed"
+                  ? Mixed.Parse(args.Skip(2),
+                                args[0].StartsWith("managed",
+                                                   StringComparison.Ordinal))
+                  : null;
+    if (args.Length < 1 || (args.Length > 2 && args[1] != "mixed") ||
         (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
          args[0] != "managed" && args[0] != "managed-h2c") ||
-        (args.Length == 2 && args[1] is not ("busy" or "pinned" or "shared" or "gzip" or "zstd" or "concurrent" or "large")) ||
+        (args.Length >= 2 && args[1] is not ("busy" or "pinned" or "shared" or "gzip" or "zstd" or "concurrent" or "large" or "mixed")) ||
         (args.Length == 2 && (args[1] is "pinned" or "shared") && !args[0].StartsWith("native",
                                                                                        StringComparison.Ordinal)) ||
         // grpc-dotnet's channel has no zstd provider.
         (args.Length == 2 && args[1] == "zstd" && args[0].StartsWith("managed",
-                                                                      StringComparison.Ordinal)))
+                                                                      StringComparison.Ordinal)) ||
+        (args.Length >= 2 && args[1] == "mixed" && mixed is null))
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
       Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
+      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N]   (pool: native only)");
       return 2;
     }
 
@@ -105,14 +115,17 @@ public static class Program
 #endif
     Placement.ApplyToBenchmark(Process.GetCurrentProcess());
     var transport = args[0];
-    var scenario  = args.Length == 2
+    var scenario  = args.Length >= 2
                       ? args[1]
                       : "idle";
     var busy = scenario == "busy";
     // Before the server and the load exist, so that nothing competes with it.
     var calibration = Calibration();
+    // mixed runs over mutual TLS, the client presenting a certificate the server requires, or in
+    // the clear for an -h2c transport, as every scenario does.
     using var server = Server.Start(!transport.EndsWith("-h2c",
-                                                        StringComparison.Ordinal));
+                                                        StringComparison.Ordinal),
+                                    mixed is not null);
 
     using var occupied = new CancellationTokenSource();
     var load = Array.Empty<Task>();
@@ -139,6 +152,10 @@ public static class Program
                                  .ConfigureAwait(false),
                "large" => await MeasureLarge(transport,
                                              server)
+                            .ConfigureAwait(false),
+               "mixed" => await MeasureMixed(transport,
+                                             server,
+                                             mixed!)
                             .ConfigureAwait(false),
                _ => await Measure(transport,
                                   server,
@@ -778,6 +795,460 @@ public static class Program
     }
   }
 
+  private const int MixedWarmupCalls = 2_000;
+  private const int MixedWarmupMiB   = 16;
+  private const int MixedTextLength  = 256;
+
+  /// <summary>How much the uploads of a run send in all, at the least: a run of one upload in
+  /// flight then lasts several uploads.</summary>
+  private const int MixedLeastMiB = 2_048;
+
+  /// <summary>How long the unary calls run alone before the window, so the window opens on calls
+  /// already in flight.</summary>
+  private static readonly TimeSpan MixedLead = TimeSpan.FromMilliseconds(500);
+
+  /// <summary>The window of a run without uploads.</summary>
+  private static readonly TimeSpan MixedUnaryAlone = TimeSpan.FromSeconds(5);
+
+  private static readonly TimeSpan ConnectionSampling = TimeSpan.FromMilliseconds(250);
+
+  /// <summary>
+  ///   Large client-streaming uploads and small unary calls on one channel at once, as an
+  ///   application's two loops would make them: K upload workers taking uploads from one count, each
+  ///   starting the next when its last ends, and M unary workers likewise. The window runs from the
+  ///   uploads' start to the last one's end, or five seconds without uploads; what it reports is
+  ///   measured over it, the calls and latencies those of the unary calls that end in it.
+  /// </summary>
+  /// <remarks>
+  ///   The CPU figures are the process's over the window, both tasks' and the sampling's together,
+  ///   per MiB uploaded, per unary call (the _both figures) and in cores; the server's likewise,
+  ///   which tells a run the server held back. The connections established to the server and the
+  ///   process's private bytes are sampled every 250 ms, the most of each reported: the process's
+  ///   own peak would count the warm-up's.
+  /// </remarks>
+  private static async Task<string> MeasureMixed(string transport,
+                                                 Server server,
+                                                 Mixed  mixed)
+  {
+    var request = new EchoRequest
+                  {
+                    Text = new string('x',
+                                      MixedTextLength),
+                  };
+    var chunk = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[mixed.ChunkKiB * 1024]),
+                };
+    var chunks     = (int)((long)mixed.SizeMiB * 1024 / mixed.ChunkKiB);
+    var serverWarm = await WarmServer(transport,
+                                      server,
+                                      request,
+                                      chunk)
+                       .ConfigureAwait(false);
+
+    var before = Footprint.Read();
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: false,
+                                  pool: mixed.Pool == 0
+                                          ? null
+                                          : new CallsPerConnection.Limit(mixed.Pool));
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+
+      // Both kinds of call at the run's own concurrency, so that the connections the channel opens
+      // for them are open before the window.
+      await Task.WhenAll(new[]
+                         {
+                           SayMany(client,
+                                   request,
+                                   mixed.Callers,
+                                   MixedWarmupCalls),
+                         }.Concat(Enumerable.Range(0,
+                                                   mixed.Uploads)
+                                            .Select(_ => Task.Run(() => StreamUpload(client,
+                                                                                     chunk,
+                                                                                     Math.Max(1,
+                                                                                              MixedWarmupMiB * 1024 / mixed.ChunkKiB),
+                                                                                     null)))))
+                .ConfigureAwait(false);
+
+      using var stop = new CancellationTokenSource();
+      var callers = Enumerable.Range(0,
+                                     mixed.Callers)
+                              .Select(_ => Task.Run(() => Caller(client,
+                                                                 request,
+                                                                 stop.Token)))
+                              .ToArray();
+      var       measured = false;
+      var       port     = new Uri(server.Endpoint).Port;
+      var       most     = 0;
+      var       peak     = 0L;
+      var       sampled  = new object();
+      using var sampler = new Timer(_ =>
+                                    {
+                                      // A sample that fails is skipped: an exception here would end
+                                      // the process mid-window.
+                                      try
+                                      {
+                                        var       now  = Connections(port);
+                                        using var self = Process.GetCurrentProcess();
+                                        lock (sampled)
+                                        {
+                                          most = Math.Max(most,
+                                                          now);
+                                          peak = Math.Max(peak,
+                                                          self.PrivateMemorySize64);
+                                        }
+                                      }
+                                      catch (Exception)
+                                      {
+                                      }
+                                    });
+      try
+      {
+        if (mixed.Callers > 0)
+        {
+          await Task.Delay(MixedLead)
+                    .ConfigureAwait(false);
+        }
+
+        var uploads = mixed.Uploads == 0
+                        ? 0
+                        : Math.Max(mixed.Uploads,
+                                   (int)Math.Ceiling(Math.Max(MixedLeastMiB,
+                                                              8.0 * mixed.SizeMiB) / mixed.SizeMiB));
+        var taken = 0;
+        var cpu       = CpuNow();
+        var serverCpu = server.Cpu;
+        var start     = Stopwatch.GetTimestamp();
+        sampler.Change(TimeSpan.Zero,
+                       ConnectionSampling);
+        var uploaders = Enumerable.Range(0,
+                                         mixed.Uploads)
+                                  .Select(_ => Task.Run(() => UploadLoop(client,
+                                                                         chunk,
+                                                                         chunks,
+                                                                         () => Interlocked.Increment(ref taken) <= uploads)))
+                                  .ToArray();
+        if (mixed.Uploads == 0)
+        {
+          await Task.Delay(MixedUnaryAlone)
+                    .ConfigureAwait(false);
+        }
+
+        var uploaded = await Task.WhenAll(uploaders)
+                                 .ConfigureAwait(false);
+        var end = Stopwatch.GetTimestamp();
+        var used = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
+        sampler.Change(Timeout.InfiniteTimeSpan,
+                       Timeout.InfiniteTimeSpan);
+        stop.Cancel();
+        var calls = await Task.WhenAll(callers)
+                              .ConfigureAwait(false);
+        measured = true;
+
+        var seconds = (end - start) / (double)Stopwatch.Frequency;
+        var line = string.Format(CultureInfo.InvariantCulture,
+                                 "{0} {1} {2}",
+                                 transport,
+                                 Framework(),
+                                 mixed.Label);
+        if (mixed.Uploads > 0)
+        {
+          var durations = uploaded.SelectMany(worker => worker.Select(upload => upload.Seconds))
+                                  .OrderBy(duration => duration)
+                                  .ToArray();
+          var mib = uploaded.Sum(worker => worker.Sum(upload => upload.Bytes)) / (1024.0 * 1024);
+          line += string.Format(CultureInfo.InvariantCulture,
+                                " l_mib_s={0:F0} l_up_p50_s={1:F2} l_up_max_s={2:F2} cpu_us_mib_both={3:F0} srv_us_mib_both={4:F0}",
+                                mib / seconds,
+                                Percentile(durations,
+                                           0.50),
+                                durations[durations.Length - 1],
+                                used / mib,
+                                serverUsed / mib);
+        }
+
+        if (mixed.Callers > 0)
+        {
+          // The calls that end in the window, a call the uploads' start held included.
+          var latencies = calls.SelectMany(worker => worker.Where(call => call.End >= start && call.End <= end)
+                                                           .Select(call => (call.End - call.Start) * 1e6 / Stopwatch.Frequency))
+                               .OrderBy(latency => latency)
+                               .ToArray();
+          line += string.Format(CultureInfo.InvariantCulture,
+                                " u_calls_s={0:F0}",
+                                latencies.Length / seconds);
+          // None ends when the uploads hold every call for the whole window.
+          if (latencies.Length > 0)
+          {
+            line += string.Format(CultureInfo.InvariantCulture,
+                                  " u_p50_us={0:F0} u_p99_us={1:F0} u_p999_us={2:F0} u_max_us={3:F0} cpu_us_call_both={4:F1} srv_us_call_both={5:F1}",
+                                  Percentile(latencies,
+                                             0.50),
+                                  Percentile(latencies,
+                                             0.99),
+                                  Percentile(latencies,
+                                             0.999),
+                                  latencies[latencies.Length - 1],
+                                  used / latencies.Length,
+                                  serverUsed / latencies.Length);
+          }
+        }
+
+        int  connections;
+        long privateBytes;
+        lock (sampled)
+        {
+          connections  = most;
+          privateBytes = peak;
+        }
+
+        return line + string.Format(CultureInfo.InvariantCulture,
+                                    " cpu_cores={0:F2} srv_cpu_cores={1:F2} conns={2} peak_above_mib={3:F0} base_private_mib={4:F0} window_s={5:F1} srv_warm_us_call={6:F1}",
+                                    used / 1e6 / seconds,
+                                    serverUsed / 1e6 / seconds,
+                                    connections,
+                                    (privateBytes - before.PrivateBytes) / (1024.0 * 1024),
+                                    before.PrivateBytes / (1024.0 * 1024),
+                                    seconds,
+                                    serverWarm);
+      }
+      finally
+      {
+        stop.Cancel();
+        // A measurement that failed reports its own exception, not the callers'.
+        try
+        {
+          await Task.WhenAll(callers)
+                    .ConfigureAwait(false);
+        }
+        catch (Exception) when (!measured)
+        {
+        }
+      }
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
+  private const int ServerWarmupCalls     = 40_000;
+  private const int ServerSettledCalls    = 10_000;
+  private const int ServerWarmupInFlight  = 64;
+  private const int ServerWarmupUploads   = 4;
+  private const int ServerWarmupUploadMiB = 64;
+
+  /// <summary>
+  ///   Warms the server on a channel of its own, closed before the run's opens, with unary calls
+  ///   and then uploads in the run's chunks. The server's CPU per call over the last calls, which
+  ///   tells a server still compiling from a settled one.
+  /// </summary>
+  /// <remarks>
+  ///   Its just-in-time compiler tiers a method up only after it has run a while: a server warmed
+  ///   by a few thousand calls still spends several times its settled CPU per call. The run's own
+  ///   channel then warms at the run's concurrency, which opens the connections it uses; this one
+  ///   would hold others open beside them.
+  /// </remarks>
+  private static async Task<double> WarmServer(string      transport,
+                                               Server      server,
+                                               EchoRequest request,
+                                               Chunk       chunk)
+  {
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: false);
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+      await SayMany(client,
+                    request,
+                    ServerWarmupInFlight,
+                    ServerWarmupCalls)
+        .ConfigureAwait(false);
+      var cpu = server.Cpu;
+      await SayMany(client,
+                    request,
+                    ServerWarmupInFlight,
+                    ServerSettledCalls)
+        .ConfigureAwait(false);
+      var perCall = (server.Cpu - cpu).TotalMilliseconds * 1000 / ServerSettledCalls;
+      await Task.WhenAll(Enumerable.Range(0,
+                                          ServerWarmupUploads)
+                                   .Select(_ => Task.Run(() => StreamUpload(client,
+                                                                            chunk,
+                                                                            ServerWarmupUploadMiB * 1024 * 1024 / chunk.Data.Length,
+                                                                            null))))
+                .ConfigureAwait(false);
+      return perCall;
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary><paramref name="calls" /> unary calls made by <paramref name="workers" /> workers,
+  /// each starting its next once its last ends.</summary>
+  private static Task SayMany(Echo.EchoClient client,
+                              EchoRequest     request,
+                              int             workers,
+                              int             calls)
+  {
+    var next = 0;
+    return Task.WhenAll(Enumerable.Range(0,
+                                         workers)
+                                  .Select(_ => Task.Run(async () =>
+                                                        {
+                                                          while (Interlocked.Increment(ref next) <= calls)
+                                                          {
+                                                            await client.SayAsync(request)
+                                                                        .ConfigureAwait(false);
+                                                          }
+                                                        })));
+  }
+
+  /// <summary>Unary calls one after the other until <paramref name="stop" />: each one's start and
+  /// end, in <see cref="Stopwatch" /> ticks.</summary>
+  private static async Task<List<(long Start, long End)>> Caller(Echo.EchoClient   client,
+                                                                 EchoRequest       request,
+                                                                 CancellationToken stop)
+  {
+    var calls = new List<(long Start, long End)>();
+    while (!stop.IsCancellationRequested)
+    {
+      var start = Stopwatch.GetTimestamp();
+      await client.SayAsync(request)
+                  .ConfigureAwait(false);
+      calls.Add((start, Stopwatch.GetTimestamp()));
+    }
+
+    return calls;
+  }
+
+  /// <summary>Client-streaming uploads one after the other while <paramref name="another" /> says
+  /// so: each one's seconds, and the bytes the server says it read.</summary>
+  private static async Task<List<(double Seconds, long Bytes)>> UploadLoop(Echo.EchoClient client,
+                                                                           Chunk           chunk,
+                                                                           int             chunks,
+                                                                           Func<bool>      another)
+  {
+    var done  = new List<(double Seconds, long Bytes)>();
+    var clock = new Stopwatch();
+    while (another())
+    {
+      clock.Restart();
+      var reply = await StreamUpload(client,
+                                     chunk,
+                                     chunks,
+                                     null)
+                    .ConfigureAwait(false);
+      done.Add((clock.Elapsed.TotalSeconds, long.Parse(reply.Text,
+                                                       CultureInfo.InvariantCulture)));
+    }
+
+    return done;
+  }
+
+  /// <summary>The TCP connections established to <paramref name="port" /> on this machine.</summary>
+  /// <remarks>The server's own ends have the port as their local one, so only the client's count.</remarks>
+  private static int Connections(int port)
+    => IPGlobalProperties.GetIPGlobalProperties()
+                         .GetActiveTcpConnections()
+                         .Count(connection => connection.State == TcpState.Established && connection.RemoteEndPoint.Port == port);
+
+  /// <summary>The parameters of a mixed run, from its key=value arguments.</summary>
+  private sealed class Mixed
+  {
+    /// <summary>K, the uploads in flight.</summary>
+    internal int Uploads { get; private set; } = 1;
+
+    /// <summary>M, the unary calls in flight.</summary>
+    internal int Callers { get; private set; } = 16;
+
+    internal int SizeMiB  { get; private set; } = 128;
+    internal int ChunkKiB { get; private set; } = 64;
+
+    /// <summary>The calls a native channel's connection carries at most; 0 for as many as the
+    /// server allows, the engine's default.</summary>
+    internal int Pool { get; private set; }
+
+    internal string Label
+      => string.Format(CultureInfo.InvariantCulture,
+                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}",
+                       Uploads,
+                       Callers,
+                       SizeMiB,
+                       ChunkKiB,
+                       Pool == 0
+                         ? "S"
+                         : Pool.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>Null for an argument it does not know, a value out of range, or a pool on a
+    /// managed channel, which has none.</summary>
+    internal static Mixed? Parse(IEnumerable<string> args,
+                                 bool                managed)
+    {
+      var mixed = new Mixed();
+      foreach (var arg in args)
+      {
+        var parts = arg.Split('=');
+        if (parts.Length != 2)
+        {
+          return null;
+        }
+
+        if (parts[0] == "pool" && parts[1] == "server")
+        {
+          mixed.Pool = 0;
+          continue;
+        }
+
+        if (!int.TryParse(parts[1],
+                          NumberStyles.None,
+                          CultureInfo.InvariantCulture,
+                          out var value))
+        {
+          return null;
+        }
+
+        switch (parts[0])
+        {
+          case "k":
+            mixed.Uploads = value;
+            break;
+          case "m":
+            mixed.Callers = value;
+            break;
+          case "size":
+            mixed.SizeMiB = value;
+            break;
+          case "chunk":
+            mixed.ChunkKiB = value;
+            break;
+          case "pool" when value > 0:
+            mixed.Pool = value;
+            break;
+          default:
+            return null;
+        }
+      }
+
+      // A chunk divides the upload, and stays within a message the engine sends by default.
+      var valid = mixed.Uploads + mixed.Callers > 0 && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
+                  mixed.ChunkKiB is > 0 and <= 4096 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 && !(managed && mixed.Pool != 0);
+      return valid
+               ? mixed
+               : null;
+    }
+  }
+
   /// <summary>Streams chunks to the server until <paramref name="stop" />, adding each one's bytes
   /// to <paramref name="sent" /> once the channel has taken it.</summary>
   /// <remarks>
@@ -830,14 +1301,17 @@ public static class Program
 
   /// <summary>The transport's channel to the server; a native one held to one connection when
   /// <paramref name="pinned" />, compressing both ways in <paramref name="compression" />, and
-  /// accepting messages past 4 MiB when <paramref name="large" />.</summary>
-  /// <remarks>A managed channel takes neither: grpc-dotnet compresses per call, and its channel's
-  /// receive limit is the factory's.</remarks>
-  private static (ChannelBase Channel, Func<Task> Release) Open(string  transport,
-                                                               Server  server,
-                                                               bool    pinned,
-                                                               string? compression = null,
-                                                               bool    large       = false)
+  /// accepting messages past 4 MiB when <paramref name="large" />, its connections each carrying
+  /// at most <paramref name="pool" /> calls when given. Either presents the server's client
+  /// certificate when the server has one.</summary>
+  /// <remarks>A managed channel takes none of the native options: grpc-dotnet compresses per call,
+  /// its channel's receive limit is the factory's, and GrpcClient has no calls per connection.</remarks>
+  private static (ChannelBase Channel, Func<Task> Release) Open(string              transport,
+                                                               Server              server,
+                                                               bool                pinned,
+                                                               string?             compression = null,
+                                                               bool                large       = false,
+                                                               CallsPerConnection? pool        = null)
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
@@ -873,6 +1347,12 @@ public static class Program
         http2.SimultaneousCallsPerConnection =   new CallsPerConnection.Limit(PinnedCallsPerConnection);
       }
 
+      if (pool is not null)
+      {
+        http2                                ??= new Http2Options();
+        http2.SimultaneousCallsPerConnection =   pool;
+      }
+
       var channel = runtime.Channel(server.Endpoint,
                                     new ChannelOptions
                                     {
@@ -883,6 +1363,10 @@ public static class Program
                                                         Tls = new TlsOptions
                                                               {
                                                                 ServerCertificates = new ServerCertificates.CaPem(server.Authority),
+                                                                ClientCertificate = server.Client is null
+                                                                                      ? null
+                                                                                      : new ClientCertificate.Pem(server.Client.Value.Certificate,
+                                                                                                                  server.Client.Value.Key),
                                                               },
                                                       },
                                       Http2 = http2,
@@ -929,6 +1413,8 @@ public static class Program
                                                    {
                                                      Endpoint = server.Endpoint,
                                                      CaCert   = server.Authority ?? "",
+                                                     CertPem  = server.Client?.Certificate ?? "",
+                                                     KeyPem   = server.Client?.Key         ?? "",
                                                    });
     return (managed, () =>
                      {
@@ -1183,24 +1669,36 @@ public static class Program
   {
     // What the test server prints, which this host cannot take from it: the server is a net8.0
     // process, not an assembly a net4.8 host could reference.
-    private const string EndpointPrefix  = "ENDPOINT ";
-    private const string AuthorityPrefix = "CA ";
+    private const string EndpointPrefix          = "ENDPOINT ";
+    private const string AuthorityPrefix         = "CA ";
+    private const string ClientCertificatePrefix = "CLIENT_CERT ";
+    private const string ClientKeyPrefix         = "CLIENT_KEY ";
 
     private readonly Process process_;
 
-    private Server(Process process,
-                   string  endpoint,
-                   string? authority)
+    private Server(Process                           process,
+                   string                            endpoint,
+                   string?                           authority,
+                   (string Certificate, string Key)? client)
     {
       process_  = process;
       Endpoint  = endpoint;
       Authority = authority;
+      Client    = client;
     }
 
     internal string Endpoint { get; }
 
     /// <summary>The authority's file, or none for a server in the clear.</summary>
     internal string? Authority { get; }
+
+    /// <summary>The files of the certificate and key a client presents, for a server that
+    /// requires one.</summary>
+    internal (string Certificate, string Key)? Client { get; }
+
+    /// <summary>The server process's CPU time so far, every thread's.</summary>
+    internal TimeSpan Cpu
+      => process_.TotalProcessorTime;
 
     /// <summary>Closes the server's stdin, which stops a TLS server and has it remove what it made;
     /// one in the clear made nothing, and is killed.</summary>
@@ -1221,10 +1719,14 @@ public static class Program
       }
 
       process_.Dispose();
-      File.Delete(Authority);
+      Delete(Authority,
+             Client?.Certificate,
+             Client?.Key);
     }
 
-    internal static Server Start(bool tls)
+    /// <param name="mtls">Over TLS, the server also requires a client certificate, which it issues.</param>
+    internal static Server Start(bool tls,
+                                 bool mtls = false)
     {
       // ARMONIK_BENCH_SERVER names another build of the server, and ARMONIK_BENCH_SERVER_HOST the
       // dotnet that runs it.
@@ -1237,9 +1739,11 @@ public static class Program
                    ? dotnet
                    : "dotnet";
       var process = Process.Start(new ProcessStartInfo(host,
-                                                       tls
-                                                         ? $"\"{assembly}\" --plain-say --tls"
-                                                         : $"\"{assembly}\" --plain-say")
+                                                       !tls
+                                                         ? $"\"{assembly}\" --plain-say"
+                                                         : mtls
+                                                           ? $"\"{assembly}\" --plain-say --mtls"
+                                                           : $"\"{assembly}\" --plain-say --tls")
                                   {
                                     RedirectStandardInput  = true,
                                     RedirectStandardOutput = true,
@@ -1252,7 +1756,9 @@ public static class Program
                                      null,
                                      TimeSpan.FromMinutes(1),
                                      Timeout.InfiniteTimeSpan);
-      string? authority = null;
+      string? authority   = null;
+      string? certificate = null;
+      string? key         = null;
       try
       {
         Placement.ApplyToServer(process);
@@ -1263,6 +1769,16 @@ public static class Program
           {
             authority = line.Substring(AuthorityPrefix.Length);
           }
+          else if (line.StartsWith(ClientCertificatePrefix,
+                                   StringComparison.Ordinal))
+          {
+            certificate = line.Substring(ClientCertificatePrefix.Length);
+          }
+          else if (line.StartsWith(ClientKeyPrefix,
+                                   StringComparison.Ordinal))
+          {
+            key = line.Substring(ClientKeyPrefix.Length);
+          }
           else if (line.StartsWith(EndpointPrefix,
                                    StringComparison.Ordinal))
           {
@@ -1271,6 +1787,10 @@ public static class Program
                               line.Substring(EndpointPrefix.Length),
                               tls
                                 ? authority ?? throw new InvalidOperationException("the server named no authority")
+                                : null,
+                              tls && mtls
+                                ? (certificate ?? throw new InvalidOperationException("the server named no client certificate"),
+                                   key ?? throw new InvalidOperationException("the server named no client key"))
                                 : null);
           }
         }
@@ -1281,13 +1801,22 @@ public static class Program
       {
         Kill(process);
         process.Dispose();
-        // Killed, it did not remove the authority's file itself.
-        if (authority is not null)
-        {
-          File.Delete(authority);
-        }
-
+        // Killed, it did not remove its files itself.
+        Delete(authority,
+               certificate,
+               key);
         throw;
+      }
+    }
+
+    private static void Delete(params string?[] files)
+    {
+      foreach (var file in files)
+      {
+        if (file is not null)
+        {
+          File.Delete(file);
+        }
       }
     }
 
