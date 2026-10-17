@@ -958,11 +958,45 @@ the median of the passes kept, the range in brackets.
 
 ## The processor levels, on LTO engines
 
-Are builds of the engine for higher x86 levels worth shipping? A campaign of 2026-10-16, not
-recorded in this file, measured the default workloads (unary latency, CPU per call, uploads
-without compression) on engines without LTO and found no level moving a figure beyond the
-spread. This one looks where the engine's own code may be a larger share: compression, many calls
-in flight, large messages, and HTTP/2 in the clear.
+Are builds of the engine for higher x86 levels worth shipping? A first campaign, on 2026-10-16,
+measured the default workloads on engines without fat LTO, and found no level moving a figure
+beyond the spread on more than one host; a second, on 2026-10-17, on fat-LTO engines, looks
+where the engine's own code may be a larger share: compression, many calls in flight, large
+messages, and HTTP/2 in the clear.
+
+### The default workloads, without fat LTO
+
+Five passes on 2026-10-16 from 22:34 to 23:34, on `1251a2907`, with the engine built in Cargo's
+default release profile against h2-batch's patch, and again with `-C target-cpu=x86-64-v2`,
+`x86-64-v3` and `native`; for i686, the default and the same two levels. The full measurement of
+"What is measured", idle, over TLS, against the server built here with the plain `Say`; the runs
+interleaved, the order rotated by seven each pass, on the performance cores at AboveNormal
+priority, each started on AC power with no build or test running, and no prover seen at the end
+of any run; the System log shows no Kernel-Power 42, 105, 506 or 507 and no Power-Troubleshooter
+1 from 22:00. Most first calibrations, and every last one, ran about 20 % slower than the 7 500
+to 8 000 us the sections above keep: 31 of the 140 x64 runs started under 8 000 us. Every run is
+kept, since filtering on the calibration leaves too few pairs, and each level's run is paired
+with the default build's of the same pass; the change in %, the median of the five pairs, their
+range in brackets:
+
+| Host | Engine | P50 | CPU per call | Download | Upload, stream | Upload, unary |
+|---|---|---:|---:|---:|---:|---:|
+| .NET 8 | v2 | +1.5 (-20.9 to +24.1) | -9.3 (-30.2 to +27.0) | -17.2 (-25.0 to +10.5) | -3.3 (-15.2 to -2.2) | -1.1 (-15.8 to +4.1) |
+| .NET 8 | v3 | -2.1 (-22.8 to +16.9) | -9.3 (-28.4 to +29.0) | +2.9 (-33.5 to +14.6) | +4.2 (-4.3 to +17.0) | -2.9 (-9.8 to +35.5) |
+| .NET 8 | native | -6.3 (-24.6 to +14.0) | -15.9 (-26.8 to +22.1) | +7.6 (-28.3 to +39.4) | +7.1 (-13.2 to +32.8) | +6.3 (-8.8 to +27.8) |
+| .NET 8 AOT | v2 | +2.1 (-11.9 to +7.7) | +1.2 (-13.5 to +6.7) | +1.1 (-8.0 to +26.4) | -3.0 (-15.5 to +8.6) | -5.1 (-12.3 to +24.7) |
+| .NET 8 AOT | v3 | -0.3 (-12.9 to +15.1) | -7.3 (-27.1 to +41.8) | +3.1 (-7.2 to +45.5) | -8.0 (-35.6 to -2.4) | -1.9 (-9.6 to +5.6) |
+| .NET 8 AOT | native | +3.9 (-13.8 to +15.1) | +2.1 (-24.9 to +29.3) | +3.4 (-18.9 to +23.1) | -14.4 (-22.9 to +17.4) | +14.2 (+3.5 to +38.6) |
+| .NET Framework x86 | i686 v2 | -2.3 (-11.1 to +1.9) | -2.2 (-16.6 to +5.9) | -3.6 (-17.4 to +2.3) | -1.9 (-7.4 to +3.8) | +2.5 (-17.2 to +27.4) |
+| .NET Framework x86 | i686 v3 | -4.3 (-9.6 to +1.1) | -0.6 (-13.0 to +4.0) | +6.5 (-21.3 to +14.8) | -10.1 (-21.0 to +6.8) | +11.2 (-16.2 to +30.9) |
+
+Every range holds zero but three: two against a level, the upload as a stream at v2 on .NET 8
+(-3.3 %) and at v3 ahead-of-time (-8.0 %), and one for it, `native`'s unary upload
+ahead-of-time (+14.2 %); none repeats on another host with a range clear of zero. The absolute
+figures, at that night's slower calibrations, do not compare with the sections above, and are
+left out.
+
+### Compression, calls in flight, large messages, and in the clear
 
 The engines are all built from `fcfbcfd64` with the workspace's release profile, fat LTO in one
 codegen unit, and the patched h2 the binding builds by default: for x64, `x86-64` (v1, the
