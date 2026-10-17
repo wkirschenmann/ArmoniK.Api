@@ -103,7 +103,7 @@ public static class Program
     // What allocation counts on .NET Framework, which has no GC.GetTotalAllocatedBytes.
     AppDomain.MonitoringIsEnabled = true;
 #endif
-    Placement.Apply(Process.GetCurrentProcess());
+    Placement.ApplyToBenchmark(Process.GetCurrentProcess());
     var transport = args[0];
     var scenario  = args.Length == 2
                       ? args[1]
@@ -1070,36 +1070,74 @@ public static class Program
   /// <remarks>
   ///   A hybrid processor's two kinds of core run a call at very different speeds, and a run the
   ///   scheduler spreads over both measures where its threads landed. ARMONIK_BENCH_AFFINITY, a
-  ///   mask of logical processors in hexadecimal, holds both processes to them;
+  ///   mask of logical processors in hexadecimal, holds the benchmark to them, and its server too
+  ///   unless ARMONIK_BENCH_SERVER_AFFINITY gives the server a mask of its own. That mask must share
+  ///   no processor with the benchmark's, so that the two never compete for one. It is refused
+  ///   without ARMONIK_BENCH_AFFINITY, which would leave the benchmark unpinned.
   ///   ARMONIK_BENCH_PRIORITY, a <see cref="ProcessPriorityClass" /> name, sets both priorities,
   ///   which a child does not inherit.
   /// </remarks>
   private static class Placement
   {
-    internal static void Apply(Process process)
-    {
-      if (Environment.GetEnvironmentVariable("ARMONIK_BENCH_AFFINITY") is { Length: > 0 } mask)
-      {
-        var digits = mask.StartsWith("0x",
-                                     StringComparison.OrdinalIgnoreCase)
-                       ? mask.Substring(2)
-                       : mask;
-        if (!long.TryParse(digits,
-                           NumberStyles.HexNumber,
-                           CultureInfo.InvariantCulture,
-                           out var processors))
-        {
-          throw new ArgumentException($"ARMONIK_BENCH_AFFINITY is {mask}, not a mask of logical processors in hexadecimal");
-        }
+    private const string AffinityVariable       = "ARMONIK_BENCH_AFFINITY";
+    private const string ServerAffinityVariable = "ARMONIK_BENCH_SERVER_AFFINITY";
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-          process.ProcessorAffinity = new IntPtr(processors);
-        }
-        else
-        {
-          throw new PlatformNotSupportedException("ARMONIK_BENCH_AFFINITY is set, and only Windows and Linux pin a process");
-        }
+    /// <summary>Pins the benchmark, once both masks are known to be usable together.</summary>
+    internal static void ApplyToBenchmark(Process process)
+    {
+      var mask       = Mask(AffinityVariable);
+      var serverMask = Mask(ServerAffinityVariable);
+      if (serverMask is not null && mask is null)
+      {
+        throw new ArgumentException($"{ServerAffinityVariable} is set without {AffinityVariable}, which would leave the benchmark unpinned");
+      }
+
+      if ((mask & serverMask) is { } shared && shared != 0)
+      {
+        throw new ArgumentException($"{AffinityVariable} and {ServerAffinityVariable} share the logical processors 0x{shared:X}");
+      }
+
+      Apply(process,
+            mask);
+    }
+
+    internal static void ApplyToServer(Process process)
+      => Apply(process,
+               Mask(ServerAffinityVariable) ?? Mask(AffinityVariable));
+
+    private static long? Mask(string variable)
+    {
+      if (Environment.GetEnvironmentVariable(variable) is not { Length: > 0 } mask)
+      {
+        return null;
+      }
+
+      var digits = mask.StartsWith("0x",
+                                   StringComparison.OrdinalIgnoreCase)
+                     ? mask.Substring(2)
+                     : mask;
+      if (!long.TryParse(digits,
+                         NumberStyles.HexNumber,
+                         CultureInfo.InvariantCulture,
+                         out var processors))
+      {
+        throw new ArgumentException($"{variable} is {mask}, not a mask of logical processors in hexadecimal");
+      }
+
+      if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+      {
+        throw new PlatformNotSupportedException($"{variable} is set, and only Windows and Linux pin a process");
+      }
+
+      return processors;
+    }
+
+    private static void Apply(Process process,
+                              long?   mask)
+    {
+      if (mask is { } processors)
+      {
+        process.ProcessorAffinity = new IntPtr(processors);
       }
 
       if (Environment.GetEnvironmentVariable("ARMONIK_BENCH_PRIORITY") is { Length: > 0 } priority)
@@ -1208,7 +1246,6 @@ public static class Program
                                     UseShellExecute        = false,
                                     CreateNoWindow         = true,
                                   }) ?? throw new InvalidOperationException($"`dotnet {assembly}` did not start");
-      Placement.Apply(process);
 
       // A server that prints neither line in a minute is killed, which ends the read below.
       using var deadline = new Timer(_ => Kill(process),
@@ -1218,6 +1255,7 @@ public static class Program
       string? authority = null;
       try
       {
+        Placement.ApplyToServer(process);
         while (process.StandardOutput.ReadLine() is { } line)
         {
           if (line.StartsWith(AuthorityPrefix,

@@ -4,7 +4,9 @@
 # Run from a Visual Studio x64 developer PowerShell; -Out is relative to the current directory, the
 # rest to this script's. On a hybrid processor, pass the performance cores as -Affinity (0xFF where
 # they are logical processors 0-7): a run the scheduler spreads over both kinds of core measures
-# where its threads landed.
+# where its threads landed. -ServerAffinity gives the server cores of its own, sharing none with
+# -Affinity so that client and server never compete for one; it needs -Affinity. Without
+# -ServerAffinity the server takes -Affinity.
 param(
   [int] $Passes = 3,
   [string[]] $Frameworks = @("net4.8", "net8.0", "net10.0"),
@@ -17,6 +19,7 @@ param(
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
   [string] $Affinity = "",
+  [string] $ServerAffinity = "",
   [string] $Priority = "",
   # The dotnet that builds; it has to know every framework in -Frameworks.
   [string] $Dotnet = "dotnet",
@@ -35,6 +38,22 @@ param(
 )
 # Not Stop: Windows PowerShell turns what a native tool writes to stderr into a terminating error.
 # Exit codes are checked instead.
+
+# Every run would refuse these masks; refuse them once, before the build.
+function Read-Mask([string] $name, [string] $mask) {
+  $number = 0L
+  if (-not [long]::TryParse(($mask -replace '^0x', ''), [Globalization.NumberStyles]::HexNumber, [Globalization.CultureInfo]::InvariantCulture, [ref] $number)) {
+    throw "$name is $mask, not a mask of logical processors in hexadecimal"
+  }
+  $number
+}
+if ($ServerAffinity) {
+  if (-not $Affinity) { throw "-ServerAffinity needs -Affinity, or the benchmark runs unpinned" }
+  if ((Read-Mask "-Affinity" $Affinity) -band (Read-Mask "-ServerAffinity" $ServerAffinity)) {
+    throw "-Affinity $Affinity and -ServerAffinity $ServerAffinity share logical processors"
+  }
+}
+
 $here = $PSScriptRoot
 $project = Join-Path $here "ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.csproj"
 $name = "ArmoniK.Api.Client.RustGrpcChannel.Benchmarks"
@@ -68,6 +87,7 @@ foreach ($variant in $variants) {
 # Put back once the runs are done, so the shell's next run is not pinned by this one.
 $saved = @{
   ARMONIK_BENCH_AFFINITY = $env:ARMONIK_BENCH_AFFINITY
+  ARMONIK_BENCH_SERVER_AFFINITY = $env:ARMONIK_BENCH_SERVER_AFFINITY
   ARMONIK_BENCH_PRIORITY = $env:ARMONIK_BENCH_PRIORITY
   DOTNET_ROOT = $env:DOTNET_ROOT
 }
@@ -75,9 +95,10 @@ function Set-Environment([string] $name, [string] $value) {
   if ($value) { Set-Item "Env:$name" $value } else { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
 }
 
-Set-Content -Path $Out -Encoding UTF8 -Value "# campaign $(Get-Date -Format s) affinity=$Affinity priority=$Priority"
+Set-Content -Path $Out -Encoding UTF8 -Value "# campaign $(Get-Date -Format s) affinity=$Affinity server_affinity=$ServerAffinity priority=$Priority"
 try {
   Set-Environment ARMONIK_BENCH_AFFINITY $Affinity
+  Set-Environment ARMONIK_BENCH_SERVER_AFFINITY $ServerAffinity
   Set-Environment ARMONIK_BENCH_PRIORITY $Priority
   for ($pass = 1; $pass -le $Passes; $pass++) {
     foreach ($scenario in $Scenarios) {

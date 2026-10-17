@@ -1242,6 +1242,9 @@ the ahead-of-time variants, runs the passes interleaved and prints the medians:
 ```
 
 `-Affinity` takes a mask of logical processors, the performance cores on a hybrid processor.
+`-ServerAffinity` gives the server a mask of its own, which shares no processor with `-Affinity`,
+so that client and server never compete for a core; it needs `-Affinity`. Without
+`-ServerAffinity` the server takes `-Affinity`.
 `-Dotnet` names the SDK that builds, and `-DotnetRoot` the install that holds the .NET 10 and .NET
 11 runtimes when the system-wide one does not, which `-DotnetRootFor` lists. A developer prompt's
 linker is passed to the ahead-of-time publish with `-PublishArgs -p:IlcUseEnvironmentalTools=true`.
@@ -1287,8 +1290,9 @@ bin/Release/net8.0/ArmoniK.Api.Client.RustGrpcChannel.Benchmarks.exe native busy
 It prints one line: the latencies, the download and the two uploads, the allocation per call and
 on .NET the thread pool work items, and for an idle run the CPU per call and per MiB uploaded and
 the memory before and after the uploads. `ARMONIK_BENCH_AFFINITY` and `ARMONIK_BENCH_PRIORITY` set
-where it and its server run. The benchmark starts its test server, a `net8.0` program, with
-`--plain-say` and the `dotnet` the system finds first, which has to be an install with a .NET 8
-runtime; `ARMONIK_BENCH_SERVER` names another build of the server instead, and
-`ARMONIK_BENCH_SERVER_HOST` the `dotnet` that runs it. Every run's line ends with the two
-calibrations.
+where it and its server run; `ARMONIK_BENCH_SERVER_AFFINITY` pins the server to a mask of its
+own, which shares no processor with `ARMONIK_BENCH_AFFINITY`, which pins the benchmark itself.
+The benchmark starts its test server, a `net8.0` program, with `--plain-say` and the `dotnet` the
+system finds first, which has to be an install with a .NET 8 runtime; `ARMONIK_BENCH_SERVER`
+names another build of the server instead, and `ARMONIK_BENCH_SERVER_HOST` the `dotnet` that
+runs it. Every run's line ends with the two calibrations.
