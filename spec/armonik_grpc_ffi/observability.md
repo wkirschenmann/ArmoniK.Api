@@ -456,11 +456,12 @@ OpenTelemetry collector of its own. What is decided here goes to the host's pipe
 
 ## What the logs cost
 
-Measured on a Windows laptop, in release, by
-`cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each figure the
-minimum and the median of fifteen repetitions of ten million events (a tenth for the delivered
-ones), net of the empty loop. Another process on the machine moves the median more than the
-minimum, which is the better figure.
+Measured on a Windows laptop, in Cargo's default release profile, before the workspace's fat
+LTO, by `cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each
+figure the minimum and the median of fifteen repetitions of ten million events (a tenth for the
+delivered ones), net of the empty loop. Another process on the machine moves the median more
+than the minimum, which is the better figure. The same command builds in that profile again with
+`--config profile.release.lto=false` and `--config profile.release.codegen-units=16`.
 
 | What | ns per event |
 |------|--------------|
@@ -479,11 +480,13 @@ process has registered.
 
 ## What the metrics cost
 
-Measured on a Windows laptop, in release, by `cargo bench -p armonik-transport --bench metrics
---features test-hooks,metrics` and the same without `metrics`: the counting points alone, each the
-best of five runs of two million operations per thread, timed in the threads from when all are
-ready, with counters of their own per thread and a registry they share. Three runs of each build;
-the table gives the least and the most of the three, taken while other builds ran on the machine.
+Measured on a Windows laptop, in Cargo's default release profile, before the workspace's fat
+LTO, by `cargo bench -p armonik-transport --bench metrics --features test-hooks,metrics` and the
+same without `metrics`: the counting points alone, each the best of five runs of two million
+operations per thread, timed in the threads from when all are ready, with counters of their own
+per thread and a registry they share. Three runs of each build; the table gives the least and the
+most of the three, taken while other builds ran on the machine. The two `--config` flags given
+under "What the logs cost" build in that profile again.
 
 | What | 1 thread | 8 threads |
 |------|----------|-----------|

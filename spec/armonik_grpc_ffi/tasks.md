@@ -1514,7 +1514,13 @@ package no job publishes, and a consumer restoring one fails:
   the restore of a consumer fails until the index has it; the matrix legs run in parallel, and a
   release cannot be fixed by pushing the version again;
 - the time: pre-release legs are capped at 10 minutes, which a cargo build of eleven targets does
-  not fit in.
+  not fit in. The release profile's fat LTO (decisions.md, "How the engine is built for release")
+  lengthens every engine build: a clean release build of the x64 Windows engine took 2 min 35 s
+  against 1 min 47 s with Cargo's default profile on the benchmark machine, and 3 min 30 s
+  against 2 min 36 s with four jobs, one build each. The binding builds the engine twice per
+  identifier, with and without `metrics`, so the `ArmoniK.Api.Client` leg of `publish.yml`'s
+  `csharp` job, which reaches the binding through its project reference, pays it twice under
+  that cap; no Linux build was timed.
 
 **Deliverable**: a package that works on every runtime identifier it claims, built and checked by
 CI.

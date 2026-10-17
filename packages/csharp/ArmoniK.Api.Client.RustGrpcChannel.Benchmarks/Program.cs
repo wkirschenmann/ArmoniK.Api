@@ -48,6 +48,9 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   <c>--plain-say</c>: its <c>Say</c> answers with the reply and <c>x-answered</c> alone.
 ///   The pinned and shared scenarios measure only the unary latency, on a native channel held to
 ///   one connection, without and with a streamed upload beside it through the whole measurement.
+///   The gzip and zstd scenarios send and receive compressible text in that encoding, concurrent
+///   runs 16 and then 64 unary calls in flight, and large sends unary messages of 4 and 16 MiB;
+///   zstd needs a server built to accept it, which ARMONIK_BENCH_SERVER names.
 /// </remarks>
 public static class Program
 {
@@ -77,12 +80,16 @@ public static class Program
   {
     if (args.Length is < 1 or > 2 ||
         (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
-         args[0] != "managed" && args[0] != "managed-h2c") || (args.Length == 2 && args[1] != "busy" && args[1] != "pinned" && args[1] != "shared") ||
-        (args.Length == 2 && args[1] != "busy" && !args[0].StartsWith("native",
-                                                                       StringComparison.Ordinal)))
+         args[0] != "managed" && args[0] != "managed-h2c") ||
+        (args.Length == 2 && args[1] is not ("busy" or "pinned" or "shared" or "gzip" or "zstd" or "concurrent" or "large")) ||
+        (args.Length == 2 && (args[1] is "pinned" or "shared") && !args[0].StartsWith("native",
+                                                                                       StringComparison.Ordinal)) ||
+        // grpc-dotnet's channel has no zstd provider.
+        (args.Length == 2 && args[1] == "zstd" && args[0].StartsWith("managed",
+                                                                      StringComparison.Ordinal)))
     {
-      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy]");
-      Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared");
+      Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
+      Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
       return 2;
     }
 
@@ -117,15 +124,27 @@ public static class Program
         load = Occupy(occupied.Token);
       }
 
-      line = scenario is "pinned" or "shared"
-               ? await MeasureShared(transport,
-                                     server,
-                                     scenario == "shared")
-                   .ConfigureAwait(false)
-               : await Measure(transport,
-                               server,
-                               busy)
-                   .ConfigureAwait(false);
+      line = scenario switch
+             {
+               "pinned" or "shared" => await MeasureShared(transport,
+                                                           server,
+                                                           scenario == "shared")
+                                         .ConfigureAwait(false),
+               "gzip" or "zstd" => await MeasureCompressed(transport,
+                                                           server,
+                                                           scenario)
+                                     .ConfigureAwait(false),
+               "concurrent" => await MeasureConcurrent(transport,
+                                                       server)
+                                 .ConfigureAwait(false),
+               "large" => await MeasureLarge(transport,
+                                             server)
+                            .ConfigureAwait(false),
+               _ => await Measure(transport,
+                                  server,
+                                  busy)
+                      .ConfigureAwait(false),
+             };
     }
     finally
     {
@@ -167,8 +186,7 @@ public static class Program
       var clock     = new Stopwatch();
       var allocated = Allocated();
       var poolItems = PoolItems();
-      var cpu       = Process.GetCurrentProcess()
-                             .TotalProcessorTime;
+      var cpu       = CpuNow();
       for (var call = 0; call < MeasuredCalls; call++)
       {
         clock.Restart();
@@ -181,8 +199,7 @@ public static class Program
 
       var allocatedPerCall = (Allocated() - allocated) / (double)MeasuredCalls;
       var poolItemsPerCall = (PoolItems() - poolItems) / (double)MeasuredCalls;
-      var cpuPerCall = (Process.GetCurrentProcess()
-                               .TotalProcessorTime - cpu).TotalMilliseconds * 1000 / MeasuredCalls;
+      var cpuPerCall       = (CpuNow() - cpu).TotalMilliseconds * 1000 / MeasuredCalls;
 
       Array.Sort(latencies);
 
@@ -358,6 +375,409 @@ public static class Program
     }
   }
 
+  private const int CompressedChunks = 1_024;
+  private const int CompressedWhole  = 64 * 1024 * 1024;
+  private const int ConcurrentWarmup = 2_000;
+  private const int ConcurrentCalls  = 40_000;
+  private const int LargeBytes       = 512 * 1024 * 1024;
+  private const int LargeWarmupCalls = 2;
+
+  /// <summary>The process's CPU time so far, every thread's.</summary>
+  private static TimeSpan CpuNow()
+    => Process.GetCurrentProcess()
+              .TotalProcessorTime;
+
+  /// <summary>
+  ///   Compressible text sent streamed in 64 KiB chunks and as one 64 MiB message, and received in
+  ///   64 KiB chunks the server compresses, with <paramref name="encoding" /> both ways: MiB per
+  ///   second, the median of five runs of 64 MiB, and the process's CPU per MiB over them.
+  /// </summary>
+  private static async Task<string> MeasureCompressed(string transport,
+                                                      Server server,
+                                                      string encoding)
+  {
+    var managed = transport.StartsWith("managed",
+                                       StringComparison.Ordinal);
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: false,
+                                  compression: managed
+                                                 ? null
+                                                 : encoding);
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+      // grpc-dotnet compresses a call's messages in the encoding this entry names.
+      var compressed = managed
+                         ? new Metadata
+                           {
+                             {
+                               "grpc-internal-encoding-request", encoding
+                             },
+                           }
+                         : null;
+      var asked = new Metadata
+                  {
+                    {
+                      "x-compress-response", encoding
+                    },
+                  };
+      var text = new byte[ChunkSize];
+      Corpus.Fill(text);
+      var chunk = new Chunk
+                  {
+                    Data = Google.Protobuf.ByteString.CopyFrom(text),
+                  };
+      var wholeText = new byte[CompressedWhole];
+      Corpus.Fill(wholeText);
+      var whole = new Chunk
+                  {
+                    Data = Google.Protobuf.ByteString.CopyFrom(wholeText),
+                  };
+
+      await StreamUpload(client,
+                         chunk,
+                         16,
+                         compressed)
+        .ConfigureAwait(false);
+      await client.UploadWholeAsync(chunk,
+                                    compressed)
+                  .ConfigureAwait(false);
+      await Download(client,
+                     16,
+                     ChunkSize,
+                     asked)
+        .ConfigureAwait(false);
+
+      // What the server saw of each measured upload and sent each measured download in: a run that
+      // did not compress fails rather than report figures for plain text.
+      void RequireEncoding(string? seen,
+                           string  leg)
+      {
+        if (seen != encoding)
+        {
+          var went = string.IsNullOrEmpty(seen)
+                       ? "identity"
+                       : seen;
+          throw new InvalidOperationException($"the {leg} went as {went}, not {encoding}");
+        }
+      }
+
+      var clock    = new Stopwatch();
+      var cpu      = CpuNow();
+      var streamed = new List<double>();
+      for (var run = 0; run < StreamRuns; run++)
+      {
+        clock.Restart();
+        var reply = await StreamUpload(client,
+                                       chunk,
+                                       CompressedChunks,
+                                       compressed)
+                      .ConfigureAwait(false);
+        streamed.Add(Throughput(reply,
+                                clock));
+        RequireEncoding(reply.SawMetadata,
+                        "streamed upload");
+      }
+
+      var streamedCpu = PerMib(ref cpu,
+                               StreamRuns * (double)CompressedChunks * ChunkSize);
+      var unary = new List<double>();
+      for (var run = 0; run < StreamRuns; run++)
+      {
+        clock.Restart();
+        var reply = await client.UploadWholeAsync(whole,
+                                                  compressed)
+                                .ConfigureAwait(false);
+        unary.Add(Throughput(reply,
+                             clock));
+        RequireEncoding(reply.SawMetadata,
+                        "unary upload");
+      }
+
+      var unaryCpu = PerMib(ref cpu,
+                            StreamRuns * (double)CompressedWhole);
+      var received = new List<double>();
+      for (var run = 0; run < StreamRuns; run++)
+      {
+        clock.Restart();
+        var sent = await Download(client,
+                                  CompressedChunks,
+                                  ChunkSize,
+                                  asked)
+                     .ConfigureAwait(false);
+        received.Add(CompressedChunks * (double)ChunkSize / clock.Elapsed.TotalSeconds / (1024 * 1024));
+        RequireEncoding(sent,
+                        "download");
+      }
+
+      var receivedCpu = PerMib(ref cpu,
+                               StreamRuns * (double)CompressedChunks * ChunkSize);
+      streamed.Sort();
+      unary.Sort();
+      received.Sort();
+      return string.Format(CultureInfo.InvariantCulture,
+                           "{0} {1} {2} up_stream_mib_s={3:F0} up_stream_cpu_us_mib={4:F0} up_unary_mib_s={5:F0} up_unary_cpu_us_mib={6:F0} down_mib_s={7:F0} down_cpu_us_mib={8:F0}",
+                           transport,
+                           Framework(),
+                           encoding,
+                           streamed[StreamRuns / 2],
+                           streamedCpu,
+                           unary[StreamRuns / 2],
+                           unaryCpu,
+                           received[StreamRuns / 2],
+                           receivedCpu);
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>Sends <paramref name="chunks" /> chunks as one client stream; the server's reply.</summary>
+  private static async Task<EchoReply> StreamUpload(Echo.EchoClient client,
+                                                    Chunk           chunk,
+                                                    int             chunks,
+                                                    Metadata?       headers)
+  {
+    using var upload = client.Upload(headers);
+    for (var sent = 0; sent < chunks; sent++)
+    {
+      await upload.RequestStream.WriteAsync(chunk)
+                  .ConfigureAwait(false);
+    }
+
+    await upload.RequestStream.CompleteAsync()
+                .ConfigureAwait(false);
+    return await upload.ResponseAsync.ConfigureAwait(false);
+  }
+
+  /// <summary>Reads <paramref name="chunks" /> chunks of <paramref name="size" /> bytes; the
+  /// encoding the server says it sent them in.</summary>
+  private static async Task<string?> Download(Echo.EchoClient client,
+                                              int             chunks,
+                                              int             size,
+                                              Metadata?       headers)
+  {
+    using var stream = client.Stream(new StreamRequest
+                                     {
+                                       Count = chunks,
+                                       Size  = size,
+                                     },
+                                     headers);
+    long received = 0;
+    while (await stream.ResponseStream.MoveNext()
+                       .ConfigureAwait(false))
+    {
+      received += stream.ResponseStream.Current.Data.Length;
+    }
+
+    if (received != (long)chunks * size)
+    {
+      throw new InvalidOperationException($"read {received} bytes of {(long)chunks * size}");
+    }
+
+    return stream.GetTrailers()
+                 .GetValue("x-sent-encoding");
+  }
+
+  /// <summary>The CPU microseconds per MiB of <paramref name="bytes" /> since <paramref name="since" />,
+  /// which then moves to now.</summary>
+  private static double PerMib(ref TimeSpan since,
+                               double       bytes)
+  {
+    var now  = CpuNow();
+    var used = (now - since).TotalMilliseconds * 1000 / (bytes / (1024 * 1024));
+    since = now;
+    return used;
+  }
+
+  /// <summary>
+  ///   Unary calls with 16 and then 64 in flight on one channel, each worker starting its next call
+  ///   once its last ends: calls a second, the process's CPU per call, and the latencies.
+  /// </summary>
+  private static async Task<string> MeasureConcurrent(string transport,
+                                                      Server server)
+  {
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: false);
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+      var line = string.Format(CultureInfo.InvariantCulture,
+                               "{0} {1} concurrent",
+                               transport,
+                               Framework());
+      foreach (var inFlight in new[]
+                               {
+                                 16, 64,
+                               })
+      {
+        await Calls(client,
+                    inFlight,
+                    ConcurrentWarmup,
+                    null)
+          .ConfigureAwait(false);
+        var latencies = new double[ConcurrentCalls];
+        var cpu       = CpuNow();
+        var clock     = Stopwatch.StartNew();
+        await Calls(client,
+                    inFlight,
+                    ConcurrentCalls,
+                    latencies)
+          .ConfigureAwait(false);
+        var elapsed = clock.Elapsed.TotalSeconds;
+        var used    = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        Array.Sort(latencies);
+        line += string.Format(CultureInfo.InvariantCulture,
+                              " c{0}_calls_s={1:F0} c{0}_cpu_us_call={2:F1} c{0}_p50_us={3:F0} c{0}_p99_us={4:F0}",
+                              inFlight,
+                              ConcurrentCalls / elapsed,
+                              used / ConcurrentCalls,
+                              Percentile(latencies,
+                                         0.50),
+                              Percentile(latencies,
+                                         0.99));
+      }
+
+      return line;
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary><paramref name="calls" /> unary calls made by <paramref name="workers" /> workers,
+  /// each call's latency in <paramref name="latencies" /> when given.</summary>
+  private static Task Calls(Echo.EchoClient client,
+                            int             workers,
+                            int             calls,
+                            double[]?       latencies)
+  {
+    var next = -1;
+    return Task.WhenAll(Enumerable.Range(0,
+                                         workers)
+                                  .Select(_ => Task.Run(async () =>
+                                                        {
+                                                          var clock = new Stopwatch();
+                                                          int call;
+                                                          while ((call = Interlocked.Increment(ref next)) < calls)
+                                                          {
+                                                            clock.Restart();
+                                                            await client.SayAsync(new EchoRequest
+                                                                                  {
+                                                                                    Text = "x",
+                                                                                  })
+                                                                        .ConfigureAwait(false);
+                                                            if (latencies is not null)
+                                                            {
+                                                              latencies[call] = clock.Elapsed.TotalMilliseconds * 1000;
+                                                            }
+                                                          }
+                                                        })));
+  }
+
+  /// <summary>
+  ///   512 MiB sent as unary messages of 4 MiB and of 16 MiB, one call at a time, and on a native
+  ///   channel received as server-streaming calls of one such message: MiB per second and the
+  ///   process's CPU per MiB. grpc-dotnet's channel refuses a message past 4 MiB, so a managed run
+  ///   only sends.
+  /// </summary>
+  private static async Task<string> MeasureLarge(string transport,
+                                                 Server server)
+  {
+    var native = transport.StartsWith("native",
+                                      StringComparison.Ordinal);
+    var (channel, release) = Open(transport,
+                                  server,
+                                  pinned: false,
+                                  large: true);
+    try
+    {
+      var client = new Echo.EchoClient(channel);
+      var line = string.Format(CultureInfo.InvariantCulture,
+                               "{0} {1} large",
+                               transport,
+                               Framework());
+      foreach (var mib in new[]
+                          {
+                            4, 16,
+                          })
+      {
+        var size  = mib * 1024 * 1024;
+        var count = LargeBytes / size;
+        var message = new Chunk
+                      {
+                        Data = Google.Protobuf.ByteString.CopyFrom(new byte[size]),
+                      };
+        for (var call = 0; call < LargeWarmupCalls; call++)
+        {
+          await client.UploadWholeAsync(message)
+                      .ConfigureAwait(false);
+        }
+
+        var cpu   = CpuNow();
+        var clock = Stopwatch.StartNew();
+        for (var call = 0; call < count; call++)
+        {
+          await client.UploadWholeAsync(message)
+                      .ConfigureAwait(false);
+        }
+
+        var elapsed = clock.Elapsed.TotalSeconds;
+        line += string.Format(CultureInfo.InvariantCulture,
+                              " l{0}_up_mib_s={1:F0} l{0}_up_cpu_us_mib={2:F0}",
+                              mib,
+                              LargeBytes / (1024.0 * 1024) / elapsed,
+                              PerMib(ref cpu,
+                                     LargeBytes));
+        if (!native)
+        {
+          continue;
+        }
+
+        for (var call = 0; call < LargeWarmupCalls; call++)
+        {
+          await Download(client,
+                         1,
+                         size,
+                         null)
+            .ConfigureAwait(false);
+        }
+
+        cpu = CpuNow();
+        clock.Restart();
+        for (var call = 0; call < count; call++)
+        {
+          await Download(client,
+                         1,
+                         size,
+                         null)
+            .ConfigureAwait(false);
+        }
+
+        elapsed = clock.Elapsed.TotalSeconds;
+        line += string.Format(CultureInfo.InvariantCulture,
+                              " l{0}_down_mib_s={1:F0} l{0}_down_cpu_us_mib={2:F0}",
+                              mib,
+                              LargeBytes / (1024.0 * 1024) / elapsed,
+                              PerMib(ref cpu,
+                                     LargeBytes));
+      }
+
+      return line;
+    }
+    finally
+    {
+      await release()
+        .ConfigureAwait(false);
+    }
+  }
+
   /// <summary>Streams chunks to the server until <paramref name="stop" />, adding each one's bytes
   /// to <paramref name="sent" /> once the channel has taken it.</summary>
   /// <remarks>
@@ -409,10 +829,15 @@ public static class Program
                  .ToArray();
 
   /// <summary>The transport's channel to the server; a native one held to one connection when
-  /// <paramref name="pinned" />.</summary>
-  private static (ChannelBase Channel, Func<Task> Release) Open(string transport,
-                                                               Server server,
-                                                               bool   pinned)
+  /// <paramref name="pinned" />, compressing both ways in <paramref name="compression" />, and
+  /// accepting messages past 4 MiB when <paramref name="large" />.</summary>
+  /// <remarks>A managed channel takes neither: grpc-dotnet compresses per call, and its channel's
+  /// receive limit is the factory's.</remarks>
+  private static (ChannelBase Channel, Func<Task> Release) Open(string  transport,
+                                                               Server  server,
+                                                               bool    pinned,
+                                                               string? compression = null,
+                                                               bool    large       = false)
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
@@ -461,6 +886,35 @@ public static class Program
                                                               },
                                                       },
                                       Http2 = http2,
+                                      // A compressed run sends and accepts its encoding; a large
+                                      // one accepts a message past the 4 MiB default.
+                                      Grpc = compression is null && !large
+                                               ? null
+                                               : new GrpcOptions
+                                                 {
+                                                   Send = compression is null
+                                                            ? null
+                                                            : new GrpcSendOptions
+                                                              {
+                                                                Compression = compression == "gzip"
+                                                                                ? SendCompression.Gzip
+                                                                                : SendCompression.Zstd,
+                                                              },
+                                                   Receive = new GrpcReceiveOptions
+                                                             {
+                                                               Compression = compression is null
+                                                                               ? null
+                                                                               : new List<MessageEncoding>
+                                                                                 {
+                                                                                   compression == "gzip"
+                                                                                     ? MessageEncoding.Gzip
+                                                                                     : MessageEncoding.Zstd,
+                                                                                 },
+                                                               MessageSizeKiB = large
+                                                                                  ? new ReceiveMessageSizeKiB.Max(32768)
+                                                                                  : null,
+                                                             },
+                                                 },
                                     });
       return (channel, async () =>
                        {
@@ -496,8 +950,7 @@ public static class Program
                 {
                   Data = Google.Protobuf.ByteString.CopyFrom(new byte[UploadSize]),
                 };
-    var cpu = Process.GetCurrentProcess()
-                     .TotalProcessorTime;
+    var cpu = CpuNow();
     var streamedUploads = new List<double>();
     for (var run = 0; run < StreamRuns; run++)
     {
@@ -538,13 +991,8 @@ public static class Program
   /// <summary>The process's CPU microseconds per MiB of the uploads since <paramref name="since" />,
   /// which then moves to now.</summary>
   private static double CpuPerMib(ref TimeSpan since)
-  {
-    var now  = Process.GetCurrentProcess()
-                      .TotalProcessorTime;
-    var used = (now - since).TotalMilliseconds * 1000 / (StreamRuns * (double)UploadSize / (1024 * 1024));
-    since = now;
-    return used;
-  }
+    => PerMib(ref since,
+              StreamRuns * (double)UploadSize);
 
   /// <summary>The fewest microseconds a fixed computation takes, out of a few tries: the speed the
   /// processor runs at, which follows a power and thermal state no setting here holds.</summary>
@@ -740,10 +1188,17 @@ public static class Program
 
     internal static Server Start(bool tls)
     {
-      var assembly = Path.GetFullPath(typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-                                                     .Single(metadata => metadata.Key == "TestServerAssembly")
-                                                     .Value!);
-      var process = Process.Start(new ProcessStartInfo("dotnet",
+      // ARMONIK_BENCH_SERVER names another build of the server, and ARMONIK_BENCH_SERVER_HOST the
+      // dotnet that runs it.
+      var assembly = Environment.GetEnvironmentVariable("ARMONIK_BENCH_SERVER") is { Length: > 0 } other
+                       ? other
+                       : Path.GetFullPath(typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                                                         .Single(metadata => metadata.Key == "TestServerAssembly")
+                                                         .Value!);
+      var host = Environment.GetEnvironmentVariable("ARMONIK_BENCH_SERVER_HOST") is { Length: > 0 } dotnet
+                   ? dotnet
+                   : "dotnet";
+      var process = Process.Start(new ProcessStartInfo(host,
                                                        tls
                                                          ? $"\"{assembly}\" --plain-say --tls"
                                                          : $"\"{assembly}\" --plain-say")
