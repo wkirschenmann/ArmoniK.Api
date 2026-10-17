@@ -656,6 +656,34 @@ compile (CS8418), so a caller who forgets is told by the compiler instead of by 
 never drains. The call wrappers keep gRPC's own shape and expose `Dispose`; the binding's
 extension is the channel's asynchronous one.
 
+### Which engine file a process loads
+
+The package carries every engine under one file name, `armonik_transport_ffi.dll` on Windows and
+`libarmonik_transport_ffi.so` on Linux, in folders of a runtime identifier:
+
+| Folder | Build | Identifiers |
+|---|---|---|
+| `runtimes/<rid>/native/` | the default build, for the architecture's baseline | all |
+| `runtimes/<rid>/metrics/` | the build with its `metrics` feature (observability.md) | all |
+| `runtimes/<rid>/x86-64-v4/` | the default build, compiled for x86-64-v4 | win-x64, linux-x64 |
+| `runtimes/<rid>/metrics/x86-64-v4/` | the `metrics` build, compiled for x86-64-v4 | win-x64, linux-x64 |
+
+Only `native/` is a folder a package manager reads native assets from; a subfolder of it would be
+a second asset of the same name. The package's build file copies the others into the output of a
+.NET project under `runtimes/`. A .NET Framework project, which has no runtime identifier, gets
+the Windows baselines beside the application in a folder named for the architecture, `x64/` and
+`x64/metrics/`, and no x86-64-v4 build.
+
+`NativeLibrarySelection` chooses before the first call into the engine. The caller chooses the
+build, default or `metrics`; the binding chooses the level. Its build for .NET 8 and later loads
+the x86-64-v4 file of the build in an x64 process whose CPU has AVX-512 F, BW, CD, DQ and VL and
+whose operating system saves the AVX-512 registers, which `Avx512F`, `Avx512F.VL`, `Avx512BW`,
+`Avx512CD` and `Avx512DQ` `.IsSupported` all report, the runtime checking the OS first. Every other
+process loads the baseline, and so does one whose package lacks the file: a missing x86-64-v4 file
+is never an error, while one that is there and does not load is reported, as a `metrics` build
+that does not load is. The netstandard2.0 build, which .NET Framework and .NET before 8 load,
+always loads the baseline (decisions.md, "Which x64 engines ship", says why).
+
 ### Trampoline
 
 ```csharp

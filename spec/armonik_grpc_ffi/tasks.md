@@ -1500,6 +1500,16 @@ package no job publishes, and a consumer restoring one fails:
   (`NativeEngine.targets`, the second under `target/metrics`); CI builds, lints and tests both for
   every identifier, passes both to the pack, and checks that the package lists the second folder
   for each identifier it lists the first for;
+- the x86-64-v4 engines: win-x64 and linux-x64 ship each of those two builds again, compiled for
+  x86-64-v4 (decisions.md, "Which x64 engines ship"), in `runtimes/<rid>/x86-64-v4/` and
+  `runtimes/<rid>/metrics/x86-64-v4/`. The local build produces them on a win-x64 or linux-x64
+  host, under `target/x86-64-v4` and `target/metrics-x86-64-v4`, through
+  `--config .cargo/x86-64-v4.toml`, unless `-p:NativeEngineX64V4=false`, which builds the
+  baseline alone. CI builds and packs them for both identifiers, sets no `RUSTFLAGS`, which would
+  drop the flag and which `NativeEngine.targets` refuses, and checks that the package lists both
+  folders for each. A runner without AVX-512 runs the suites against the baseline alone; one with
+  it, which GitHub's x64 runners may or may not be, runs them against the x86-64-v4 engine, which
+  nothing else runs. No linux-x64 one has been built through the MSBuild;
 - the patch: the binding builds its engine against h2-batch's patch unless `NativeEngineH2Batch`
   is `false`, through `packages/rust/patches/h2-batch/build.sh`, whose README says what it needs;
   the Rust workspace's builds and the crates on crates.io stay on stock h2. CI supplies bash, tar,
@@ -1518,9 +1528,13 @@ package no job publishes, and a consumer restoring one fails:
   lengthens every engine build: a clean release build of the x64 Windows engine took 2 min 35 s
   against 1 min 47 s with Cargo's default profile on the benchmark machine, and 3 min 30 s
   against 2 min 36 s with four jobs, one build each. The binding builds the engine twice per
-  identifier, with and without `metrics`, so the `ArmoniK.Api.Client` leg of `publish.yml`'s
-  `csharp` job, which reaches the binding through its project reference, pays it twice under
-  that cap; no Linux build was timed.
+  identifier, with and without `metrics`, and four times for win-x64 and linux-x64, each of the
+  two again for x86-64-v4, so the `ArmoniK.Api.Client` leg of `publish.yml`'s `csharp` job, which
+  reaches the binding through its project reference, pays it four times on its linux-x64 runner
+  under that cap. On 2026-10-17, on AC, with no other build or test running before or after, a
+  clean release build of the win-x64 engine through h2-batch's recipe took 160 s for the baseline
+  and 161 s for x86-64-v4. The linux-x64 engine, built in WSL on the same machine with stock h2
+  and no check for other work, took 123 s and 136 s, which is no measure of the difference.
 
 **Deliverable**: a package that works on every runtime identifier it claims, built and checked by
 CI.

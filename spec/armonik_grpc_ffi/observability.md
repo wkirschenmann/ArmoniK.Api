@@ -421,13 +421,17 @@ silent.
   it drops from and counts is the binding's, so the instrument exists when the runtime was given
   an `ILoggerFactory`, whichever build of the library is loaded.
 - **Two builds of the library, selected before the first is loaded.** The package carries the
-  library twice, one with the feature and one without, under the same file name in two folders of
-  a runtime identifier: `runtimes/<rid>/native/` and `runtimes/<rid>/metrics/`. The second is
+  library with the feature and without it, under the same file name in two folders of a runtime
+  identifier: `runtimes/<rid>/native/` and `runtimes/<rid>/metrics/`. The second is
   outside the folders a package manager reads native assets from, which would make two files of
   one name collide, and the package's build file copies every `runtimes/*/metrics/` folder the
   package carries into the output and the publish directory of a project of any framework, as
   `runtimes/<rid>/metrics/`, and for .NET Framework into `<architecture>/metrics/`, beside the
-  default library's. The selection names the folder from the operating system, the architecture and, on Linux, the C
+  default library's. For win-x64 and linux-x64 each of the two is carried again, compiled for
+  x86-64-v4, in `runtimes/<rid>/x86-64-v4/` and `runtimes/<rid>/metrics/x86-64-v4/`, and the
+  binding's builds for .NET 8 and later pick that one on a CPU that runs it (architecture.md,
+  "Which engine file a process loads").
+  The selection names the folder from the operating system, the architecture and, on Linux, the C
   library alone - `win-x64`, `linux-musl-arm64` - as the package's folders are named, and not from
   `RuntimeInformation.RuntimeIdentifier`, which names the distribution a runtime was built for. The binding is
   told which to load before the first runtime is created, by `NativeLibrarySelection`, a public
