@@ -19,6 +19,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+#if NET8_0_OR_GREATER
+using System.Runtime.Intrinsics.X86;
+#endif
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
@@ -43,6 +46,13 @@ public enum NativeEngineBuild
 /// before the first runtime is created - the first call of the binding that reaches the engine
 /// loads it - and asking for the other build afterwards is refused. A process loads one build, since
 /// the binding does not unload the library it loaded.
+///
+/// For win-x64 and linux-x64, each build is also carried compiled for x86-64-v4 (AVX-512 F, BW, CD,
+/// DQ and VL), in an <c>x86-64-v4</c> folder: beside <c>native</c> for the default build, inside
+/// <c>metrics</c> for the other. That one is not asked for. The build of this assembly for net8.0 or
+/// later loads it in an x64 process whose CPU and operating system run AVX-512, when the package has
+/// it. Every other process loads the baseline, and so does the netstandard2.0 build, which serves
+/// .NET Framework and .NET before 8.
 public static class NativeLibrarySelection
 {
   private static readonly object Gate = new();
@@ -147,11 +157,24 @@ public static class NativeLibrarySelection
         return;
       }
 
+      string? path = null;
       try
       {
-        if (requested_ == NativeEngineBuild.Metrics)
+        var roots = Roots();
+        path = Locate(Candidates(roots,
+                                 requested_,
+                                 RunsX64V4()),
+                      File.Exists);
+        if (path is not null)
         {
-          PrepareMetrics();
+          Load(path);
+        }
+        else if (requested_ == NativeEngineBuild.Metrics)
+        {
+          throw RustEngineMissingException.ForBuild(NativeEngineBuild.Metrics,
+                                                    Folders(roots,
+                                                            NativeEngineBuild.Metrics),
+                                                    null);
         }
         else
         {
@@ -160,8 +183,9 @@ public static class NativeLibrarySelection
       }
       catch (Exception error) when (error is not RustEngineMissingException)
       {
-        // The default build is found by the platform's own search when this fails.
-        if (requested_ == NativeEngineBuild.Metrics)
+        // The default build's baseline is found by the platform's own search when this fails. A file
+        // that is there and does not load is reported: falling back would hide a broken package.
+        if (requested_ == NativeEngineBuild.Metrics || path is not null)
         {
           failure_ = RustEngineMissingException.ForBuild(requested_,
                                                          null,
@@ -227,6 +251,56 @@ public static class NativeLibrarySelection
     }
   }
 
+  /// <summary>The folder, inside the folder of each build, that holds that build compiled for x86-64-v4.</summary>
+  internal const string X64V4Folder = "x86-64-v4";
+
+  /// <summary>Whether this process can run the engine compiled for x86-64-v4: an x64 process on a CPU
+  /// with AVX-512 F, BW, CD, DQ and VL, whose operating system saves the AVX-512 registers.</summary>
+  internal static bool RunsX64V4()
+  {
+    if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+    {
+      return false;
+    }
+
+#if NET8_0_OR_GREATER
+    // The runtime reports these only once the OS has enabled the opmask and ZMM state in XCR0.
+    return Avx512F.IsSupported && Avx512F.VL.IsSupported && Avx512BW.IsSupported && Avx512CD.IsSupported && Avx512DQ.IsSupported;
+#else
+    // .NET Framework has no API that reports BW, CD, DQ or VL, and on a .NET runtime a library
+    // loaded by path loses to the one beside the application: this build loads the baseline.
+    return false;
+#endif
+  }
+
+  /// <summary>The files a build is looked for in, in order: its x86-64-v4 build when the process runs
+  /// it, then, for the metrics build, its baseline. The default build's baseline is not among them,
+  /// since the platform's own search finds it.</summary>
+  /// <param name="roots">The folders the package's layouts are looked for in.</param>
+  /// <param name="build">The build asked for.</param>
+  /// <param name="x64V4">Whether the process runs the x86-64-v4 build.</param>
+  internal static IReadOnlyList<string> Candidates(IReadOnlyList<string> roots,
+                                                   NativeEngineBuild     build,
+                                                   bool                  x64V4)
+  {
+    var folders = Folders(roots,
+                          build);
+    var levels = x64V4
+                   ? folders.Select(folder => Path.Combine(folder,
+                                                           X64V4Folder))
+                   : Enumerable.Empty<string>();
+    return (build == NativeEngineBuild.Metrics
+              ? levels.Concat(folders)
+              : levels).Select(folder => Path.Combine(folder,
+                                                      LibraryFileName()))
+                       .ToList();
+  }
+
+  /// <summary>The first of the candidates that is there, or <c>null</c> when none is.</summary>
+  internal static string? Locate(IEnumerable<string> candidates,
+                                 Func<string, bool>  exists)
+    => candidates.FirstOrDefault(exists);
+
   /// <summary>.NET Framework has no deps file and no runtime identifier: the package's targets file
   /// puts the engine in a folder named for the process architecture, loaded by its path so that the
   /// declarations find it by its name.</summary>
@@ -240,19 +314,9 @@ public static class NativeLibrarySelection
     }
   }
 
-  private static void PrepareMetrics()
+  /// <summary>Loads the build at a path, for the declarations to bind to.</summary>
+  private static void Load(string path)
   {
-    var folders = Folders();
-    var path = folders.Select(folder => Path.Combine(folder,
-                                                     LibraryFileName()))
-                      .FirstOrDefault(File.Exists);
-    if (path is null)
-    {
-      throw RustEngineMissingException.ForBuild(NativeEngineBuild.Metrics,
-                                                folders,
-                                                null);
-    }
-
 #if NET5_0_OR_GREATER
     // Loaded now rather than when the first call asks: a library that exists and will not load
     // is reported here, where the resolver could only hand the runtime's own search a miss.
@@ -265,7 +329,8 @@ public static class NativeLibrarySelection
                                                 : IntPtr.Zero);
 #else
     // Only .NET Framework, whose loader matches a module that is loaded by its name, can be told
-    // the build this way; Select refuses the other runtimes.
+    // the build this way; Select refuses the metrics build elsewhere, and this assembly never picks
+    // an x86-64-v4 build.
     if (NativeMethods.LoadLibrary(path) == IntPtr.Zero)
     {
       throw new DllNotFoundException($"`{path}` could not be loaded (error {Marshal.GetLastWin32Error()})");
@@ -279,16 +344,16 @@ public static class NativeLibrarySelection
                                                           StringComparison.Ordinal);
 #endif
 
-  private static string LibraryFileName()
+  /// <summary>The engine's file name on this operating system, the same for every build.</summary>
+  internal static string LibraryFileName()
     => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
          ? NativeMethods.Library + ".dll"
          : RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
            ? "lib" + NativeMethods.Library + ".dylib"
            : "lib" + NativeMethods.Library + ".so";
 
-  /// <summary>Where the metrics build is looked for, in order: the package's layout for .NET, the one
-  /// its targets file makes for .NET Framework, and a folder of that name beside the application.</summary>
-  private static IReadOnlyList<string> Folders()
+  /// <summary>The application's folder, and this assembly's when it is another.</summary>
+  private static IReadOnlyList<string> Roots()
   {
     var roots = new List<string>
                 {
@@ -301,18 +366,30 @@ public static class NativeLibrarySelection
     }
 
     return roots.Distinct()
-                .SelectMany(root => new[]
+                .ToList();
+  }
+
+  /// <summary>Where a build is looked for, in order: the package's layout for .NET, the one its
+  /// targets file makes for .NET Framework, and the folder beside the application. The metrics
+  /// build is in a <c>metrics</c> folder of each.</summary>
+  private static IReadOnlyList<string> Folders(IReadOnlyList<string> roots,
+                                               NativeEngineBuild     build)
+  {
+    var metrics = build == NativeEngineBuild.Metrics
+                    ? "metrics"
+                    : string.Empty;
+    return roots.SelectMany(root => new[]
                                     {
                                       Path.Combine(root,
                                                    "runtimes",
                                                    RuntimeIdentifier(),
-                                                   "metrics"),
+                                                   metrics),
                                       Path.Combine(root,
                                                    RuntimeInformation.ProcessArchitecture.ToString()
                                                                      .ToLowerInvariant(),
-                                                   "metrics"),
+                                                   metrics),
                                       Path.Combine(root,
-                                                   "metrics"),
+                                                   metrics),
                                     })
                 .ToList();
   }
