@@ -956,6 +956,222 @@ the median of the passes kept, the range in brackets.
   engine with the hold**, for less CPU per call ahead-of-time and more just-in-time; these runs do
   not say why.
 
+## The processor levels, on LTO engines
+
+Are builds of the engine for higher x86 levels worth shipping? A campaign of 2026-10-16, not
+recorded in this file, measured the default workloads (unary latency, CPU per call, uploads
+without compression) on engines without LTO and found no level moving a figure beyond the
+spread. This one looks where the engine's own code may be a larger share: compression, many calls
+in flight, large messages, and HTTP/2 in the clear.
+
+The engines are all built from `fcfbcfd64` with the workspace's release profile, fat LTO in one
+codegen unit, and the patched h2 the binding builds by default: for x64, `x86-64` (v1, the
+default), `-C target-cpu=x86-64-v2`, `x86-64-v3` and `native` (the i7-1360P, without AVX-512);
+for i686, the default (`pentium4`) and `-C target-cpu=x86-64-v3`; and the four x64 levels again
+with the `metrics` feature. The x64 engines run under .NET 8, just-in-time and ahead-of-time, the
+i686 ones under .NET Framework 4.8 in an x86 process, the `metrics` ones under .NET 8
+just-in-time, all with the native transport; one row per workload runs grpc-dotnet on .NET 8
+just-in-time as the reference.
+
+The workloads are modes of the benchmark that are not committed, and the server is the test
+server built for .NET 11 RC1 with a zstd provider over its `ZstandardStream`, also not committed:
+grpc-dotnet has no zstd before .NET 11. Its `Say` is the plain one. The figures do not compare
+with the sections above, which ran another server.
+
+- **gzip** and **zstd**: `Grpc.Send.Compression` and `Grpc.Receive.Compression` set to the
+  encoding; 64 MiB uploaded as 64 KiB chunks and as one message, and 64 MiB downloaded as 64 KiB
+  chunks the server compresses (grpc-dotnet at `CompressionLevel.Fastest`), five runs of each, the
+  median in MiB/s and the process's CPU per MiB over the five. The data is text: words drawn from
+  a fixed vocabulary of 2048, which zlib shrinks 2.3 to 2.5 times. The server answers each run with
+  the encoding it saw or sent, and every run of the campaign was compressed. The engine
+  compresses gzip at flate2's default level, 6, and zstd at level 3; grpc-dotnet's client
+  compresses gzip only, at its default level, which the benchmark does not set.
+- **concurrent**: unary calls of the plain `Say` with 16 and then 64 in flight on one channel,
+  each worker starting its next call when its last ends; 40 000 calls after 2 000 of warm-up;
+  calls a second, the process's CPU per call, and P50.
+- **large**: 512 MiB sent as unary messages of 4 MiB and of 16 MiB, one call at a time, and, on
+  the native transport only, received as server-streaming calls of one such message; MiB/s and
+  CPU per MiB. grpc-dotnet's channel refuses a message past 4 MiB, so its row only sends.
+- **h2c**: the full measurement of "What is measured", and the concurrent one, in the clear.
+
+What a level can reach differs per workload. gzip is flate2 over miniz_oxide, Rust, which the
+level recompiles. zstd is zstd-sys, C compiled by cl.exe on Windows: neither LTO nor
+`-C target-cpu` reaches it, and its runtime BMI2 dispatch is compiled for gcc and clang only, so a
+level changes only the Rust around zstd there. TLS's AES-GCM and the C runtime's `memcpy` choose
+their AVX paths at run time at every level.
+
+Five passes on 2026-10-17 from 15:21 to 16:57, 73 runs each, interleaved, the order rotated by
+seven each pass, on the performance cores (`0xFF`) at AboveNormal priority, each run started on AC
+power once no cargo, rustc, MSBuild, compiler server, test host or prover was running. No run
+failed, and none found such a process running once it ended. The System log shows no Kernel-Power
+42, 105, 506 or 507 and no Power-Troubleshooter 1 over the campaign.
+
+The first calibration takes one of two durations for nearly every x64 run, 7 525 to 7 954 us or
+about 9 270 us, three runs falling between them. 236 of the 305 x64 runs start above 8 000 us,
+so the rule of the sections above, leaving those runs out, would leave too few to pair: every
+run is kept, and each level is compared with the default build of the same pass. 34 runs
+of 365 have a calibration above 9 500 us (19 000 for .NET Framework) at the start or the end.
+Leaving those out too, some pairings keep two to four passes, and seven more cells leave the
+spread: four of the `metrics` build, against its levels, and three for a level, the 4 MiB upload
+at v3 on .NET 8 (+28 % MiB/s, -11 % CPU per MiB) and i686 v3's P50 in the clear (-1.9 %). The
+verdict below holds either way. Each cell is the median of the five passes, the range in
+brackets.
+
+gzip, both ways:
+
+| Host | Engine | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) | Download (MiB/s) | CPU per MiB, download (us) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 36 (33-39) | 30078 (27832-33350) | 38 (38-39) | 22363 (22266-22852) | 117 (117-121) | 8838 (8691-9570) |
+| .NET 8 | v2 | 36 (35-39) | 31494 (28906-32031) | 38 (36-38) | 22412 (22217-23096) | 113 (106-122) | 9082 (8350-9766) |
+| .NET 8 | v3 | 37 (36-40) | 30371 (28174-31104) | 39 (38-39) | 22021 (21826-22461) | 113 (107-116) | 8789 (8545-9180) |
+| .NET 8 | native | 37 (35-39) | 29834 (27979-31885) | 38 (37-39) | 22510 (22070-22852) | 118 (108-120) | 8594 (8350-9473) |
+| .NET 8 AOT | v1 | 37 (35-39) | 28711 (27490-30859) | 39 (38-40) | 22363 (22119-22461) | 110 (100-117) | 7910 (7568-9473) |
+| .NET 8 AOT | v2 | 37 (31-38) | 29639 (26709-32812) | 37 (37-38) | 22998 (22607-23145) | 115 (114-116) | 7617 (7568-7861) |
+| .NET 8 AOT | v3 | 38 (36-39) | 28711 (27441-30518) | 39 (38-40) | 21973 (21533-22266) | 115 (82-119) | 7861 (7373-9717) |
+| .NET 8 AOT | native | 39 (36-40) | 28955 (27197-29785) | 38 (36-39) | 22656 (22363-22900) | 112 (103-120) | 7617 (7178-8398) |
+| .NET Framework x86 | i686 v1 | 34 (31-36) | 43994 (41113-46387) | 35 (35-35) | 25244 (25049-25488) | 108 (103-116) | 17480 (16504-19873) |
+| .NET Framework x86 | i686 v3 | 34 (33-34) | 43311 (41650-44434) | 35 (35-35) | 25391 (25293-25537) | 122 (114-122) | 15283 (14990-17285) |
+| .NET 8 | managed | 58 (57-59) | 21045 (20703-21973) | 46 (45-47) | 18018 (17676-18066) | 112 (89-118) | 11328 (10693-13525) |
+
+zstd, both ways:
+
+| Host | Engine | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) | Download (MiB/s) | CPU per MiB, download (us) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 127 (115-143) | 10693 (10547-14258) | 100 (95-108) | 6885 (6543-7666) | 97 (95-97) | 4297 (4102-5176) |
+| .NET 8 | v2 | 126 (100-143) | 10840 (10596-16357) | 97 (94-108) | 7617 (6885-7764) | 94 (93-96) | 4541 (3906-5225) |
+| .NET 8 | v3 | 130 (113-149) | 11035 (9961-12451) | 98 (93-113) | 7178 (6152-7666) | 94 (91-97) | 4199 (3955-4688) |
+| .NET 8 | native | 110 (99-155) | 13330 (10205-15039) | 93 (91-94) | 7812 (7471-7959) | 96 (90-96) | 4346 (3711-4736) |
+| .NET 8 AOT | v1 | 117 (109-158) | 11523 (9033-11719) | 94 (93-101) | 7471 (6738-8203) | 96 (86-98) | 3320 (3271-4102) |
+| .NET 8 AOT | v2 | 136 (104-147) | 9326 (9131-12402) | 94 (93-97) | 7471 (7227-7715) | 95 (91-97) | 3662 (3320-3760) |
+| .NET 8 AOT | v3 | 143 (137-158) | 8936 (8838-9473) | 100 (90-112) | 7129 (6299-7715) | 95 (89-100) | 3516 (3076-3955) |
+| .NET 8 AOT | native | 111 (100-130) | 10693 (9424-14209) | 95 (90-119) | 7520 (6152-7812) | 96 (86-97) | 3564 (3125-4688) |
+| .NET Framework x86 | i686 v1 | 61 (49-69) | 29932 (25098-34961) | 70 (68-72) | 11475 (10645-11816) | 88 (75-91) | 16260 (15332-20410) |
+| .NET Framework x86 | i686 v3 | 57 (53-69) | 30420 (24609-31836) | 69 (69-71) | 11719 (10791-12158) | 88 (82-95) | 16455 (15918-18359) |
+
+Calls in flight, over TLS:
+
+| Host | Engine | 16: calls/s | 16: CPU per call (us) | 16: P50 (us) | 64: calls/s | 64: CPU per call (us) | 64: P50 (us) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 15668 (13760-15710) | 104 (90.2-116) | 1008 (1006-1109) | 21286 (18444-22837) | 64.5 (59.4-94.1) | 2946 (2757-3343) |
+| .NET 8 | v2 | 15822 (15647-15971) | 100 (94.5-106) | 998 (983-1007) | 20829 (20103-22726) | 66.8 (59.8-70.3) | 2992 (2774-3104) |
+| .NET 8 | v3 | 15805 (15231-19578) | 99.6 (78.9-104) | 996 (808-1010) | 21976 (21196-28116) | 61.3 (52-68.8) | 2828 (2224-2869) |
+| .NET 8 | native | 15961 (15856-16086) | 105 (101-108) | 991 (988-995) | 22004 (20920-22472) | 60.5 (59.4-63.3) | 2818 (2799-2967) |
+| .NET 8 AOT | v1 | 16042 (12052-20187) | 68.8 (45.3-80.9) | 989 (786-1117) | 21466 (18034-25518) | 52.7 (48-80.9) | 2918 (2502-3252) |
+| .NET 8 AOT | v2 | 15249 (13676-19845) | 68.4 (59-89.8) | 1006 (796-1061) | 20923 (20678-26655) | 55.5 (44.5-61.3) | 2987 (2350-3041) |
+| .NET 8 AOT | v3 | 15965 (13773-16141) | 73.4 (65.6-78.9) | 992 (984-1074) | 21222 (19751-21809) | 59.8 (55.5-66.4) | 2969 (2900-3120) |
+| .NET 8 AOT | native | 15921 (12602-16060) | 65.2 (62.1-77.7) | 992 (984-1068) | 21481 (17216-22016) | 59.4 (47.7-73.8) | 2965 (2893-3329) |
+| .NET Framework x86 | i686 v1 | 11244 (10395-12301) | 422 (369-428) | 1318 (1203-1423) | 13603 (12610-13721) | 364 (342-372) | 4551 (4496-4907) |
+| .NET Framework x86 | i686 v3 | 10633 (10543-12071) | 425 (398-456) | 1389 (1225-1414) | 14007 (13736-14652) | 350 (307-360) | 4362 (4179-4482) |
+| .NET 8 | managed | 18689 (17089-22044) | 210 (170-226) | 800 (681-878) | 29279 (23999-30321) | 136 (130-176) | 1990 (1937-2420) |
+
+Calls in flight, in the clear:
+
+| Host | Engine | 16: calls/s | 16: CPU per call (us) | 16: P50 (us) | 64: calls/s | 64: CPU per call (us) | 64: P50 (us) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 17599 (16200-21223) | 84.4 (80.1-103) | 878 (748-947) | 23677 (22555-27116) | 62.1 (53.1-69.5) | 2610 (2288-2774) |
+| .NET 8 | v2 | 20561 (16595-21569) | 84 (66-116) | 754 (734-947) | 23666 (21891-26034) | 68.4 (58.2-76.2) | 2634 (2414-2832) |
+| .NET 8 | v3 | 20882 (16318-21307) | 89.5 (85.5-116) | 752 (738-950) | 24481 (23275-26594) | 62.1 (53.5-66) | 2523 (2325-2703) |
+| .NET 8 | native | 16769 (15144-21335) | 106 (73.8-128) | 935 (740-961) | 23218 (21591-26319) | 60.9 (54.7-66) | 2672 (2307-2806) |
+| .NET 8 AOT | v1 | 16460 (15478-19420) | 70.3 (49.6-79.7) | 926 (786-965) | 20806 (20558-21719) | 67.6 (56.2-74.6) | 2885 (2795-2904) |
+| .NET 8 AOT | v2 | 20283 (16773-21403) | 54.3 (52.7-63.7) | 762 (745-927) | 22148 (20620-27416) | 61.3 (40.6-74.2) | 2784 (2289-2928) |
+| .NET 8 AOT | v3 | 18363 (14760-21486) | 64.8 (45.3-82.8) | 860 (740-958) | 23190 (20978-24527) | 57.4 (54.7-62.5) | 2716 (2514-2933) |
+| .NET 8 AOT | native | 20615 (16373-21487) | 55.5 (51.2-71.9) | 757 (734-930) | 24192 (20085-27813) | 53.9 (36.3-71.1) | 2455 (2260-2880) |
+| .NET Framework x86 | i686 v1 | 11517 (10492-12831) | 433 (378-451) | 1281 (1130-1412) | 14635 (14050-14662) | 329 (322-340) | 4222 (4163-4360) |
+| .NET Framework x86 | i686 v3 | 11006 (10821-13117) | 443 (359-457) | 1348 (1111-1354) | 14094 (12911-15587) | 330 (303-350) | 4335 (3970-4784) |
+| .NET 8 | managed | 24452 (19716-24977) | 165 (140-207) | 610 (599-760) | 38162 (30584-41430) | 94.5 (93.4-138) | 1497 (1338-1881) |
+
+Large messages, over TLS:
+
+| Host | Engine | Up 4 MiB (MiB/s) | CPU per MiB (us) | Up 16 MiB (MiB/s) | CPU per MiB (us) | Down 4 MiB (MiB/s) | CPU per MiB (us) | Down 16 MiB (MiB/s) | CPU per MiB (us) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 272 (204-367) | 2502 (2075-3357) | 369 (354-446) | 1862 (1495-1923) | 196 (172-213) | 3662 (3418-3937) | 230 (181-274) | 2960 (2502-3387) |
+| .NET 8 | v2 | 299 (179-320) | 2350 (2075-3510) | 374 (327-482) | 1831 (1526-2136) | 207 (152-221) | 3357 (2930-4150) | 231 (203-235) | 2991 (2686-3113) |
+| .NET 8 | v3 | 319 (264-355) | 2380 (2075-2502) | 367 (328-412) | 1923 (1556-2106) | 207 (171-223) | 3510 (3113-4425) | 229 (216-231) | 3052 (2777-3174) |
+| .NET 8 | native | 330 (186-356) | 2167 (2075-3601) | 401 (335-461) | 1801 (1282-1923) | 209 (162-223) | 3448 (2930-4456) | 219 (212-241) | 2930 (2777-3326) |
+| .NET 8 AOT | v1 | 343 (256-359) | 1434 (1282-2045) | 380 (366-394) | 1923 (1556-1984) | 207 (170-215) | 3052 (2838-3937) | 233 (184-246) | 3113 (2747-3784) |
+| .NET 8 AOT | v2 | 304 (243-370) | 1495 (1434-1770) | 387 (339-441) | 1862 (1465-2106) | 218 (200-226) | 3113 (2533-3357) | 223 (216-231) | 3052 (2991-3204) |
+| .NET 8 AOT | v3 | 289 (248-357) | 1648 (1587-1892) | 382 (297-431) | 1862 (1556-2258) | 210 (202-217) | 3113 (2808-3571) | 228 (211-254) | 2869 (2563-3143) |
+| .NET 8 AOT | native | 342 (174-347) | 1495 (1434-2686) | 408 (342-521) | 1373 (1282-2167) | 224 (207-230) | 2960 (2716-3662) | 232 (199-264) | 2991 (2563-3143) |
+| .NET Framework x86 | i686 v1 | 303 (216-335) | 2380 (2197-3296) | 353 (287-364) | 2563 (2228-2991) | 154 (149-162) | 4791 (4395-5127) | 169 (160-186) | 3876 (3723-4120) |
+| .NET Framework x86 | i686 v3 | 308 (223-352) | 2380 (2136-3052) | 348 (241-356) | 2411 (2197-3540) | 170 (152-174) | 4517 (4150-5280) | 161 (150-174) | 4150 (3845-4822) |
+| .NET 8 | managed | 100 (88-109) | 12878 (12299-15289) | 100 (91-104) | 10010 (9308-10803) | - | - | - | - |
+
+The full measurement, in the clear:
+
+| Host | Engine | P50 (us) | CPU per call (us) | Download (MiB/s) | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| .NET 8 | v1 | 406 (393-413) | 325 (297-362) | 418 (398-494) | 345 (328-385) | 2250 (1750-2354) | 142 (125-149) | 938 (875-1250) |
+| .NET 8 | v2 | 408 (399-412) | 336 (312-364) | 428 (386-470) | 360 (301-383) | 2312 (2000-3104) | 148 (136-170) | 1146 (1062-1229) |
+| .NET 8 | v3 | 410 (406-417) | 342 (303-345) | 455 (391-484) | 353 (336-441) | 2417 (2188-2562) | 147 (139-177) | 1125 (917-1208) |
+| .NET 8 | native | 408 (399-419) | 334 (298-361) | 439 (331-470) | 376 (289-443) | 2292 (1667-3312) | 147 (134-162) | 1062 (792-1167) |
+| .NET 8 AOT | v1 | 403 (398-407) | 241 (216-245) | 424 (401-543) | 389 (354-459) | 1625 (1438-1708) | 157 (136-167) | 958 (854-1083) |
+| .NET 8 AOT | v2 | 405 (394-407) | 228 (217-239) | 431 (289-481) | 392 (347-459) | 1771 (1479-2417) | 143 (116-159) | 1042 (896-1250) |
+| .NET 8 AOT | v3 | 404 (399-407) | 242 (231-262) | 438 (412-478) | 371 (302-427) | 1500 (1292-1583) | 127 (122-134) | 979 (875-1333) |
+| .NET 8 AOT | native | 407 (398-409) | 252 (230-275) | 463 (422-475) | 429 (343-500) | 1667 (1417-1708) | 143 (127-148) | 1125 (896-1146) |
+| .NET Framework x86 | i686 v1 | 424 (422-428) | 1022 (995-1094) | 324 (296-363) | 259 (238-267) | 5292 (4875-6625) | 139 (131-164) | 1146 (1063-1208) |
+| .NET Framework x86 | i686 v3 | 420 (403-423) | 988 (906-1031) | 309 (303-362) | 282 (253-294) | 4813 (4500-4938) | 136 (134-156) | 1208 (979-1271) |
+| .NET 8 | managed | 378 (366-405) | 570 (517-686) | 455 (439-493) | 188 (140-214) | 6750 (6667-8792) | 141 (116-153) | 6500 (5750-8146) |
+
+The `metrics` build, the full measurement over TLS:
+
+| Host | Engine | P50 (us) | CPU per call (us) | Download (MiB/s) | Upload, stream (MiB/s) | CPU per MiB, stream (us) | Upload, unary (MiB/s) | CPU per MiB, unary (us) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| .NET 8 | metrics v1 | 442 (438-448) | 309 (272-359) | 402 (264-483) | 457 (363-474) | 3375 (2583-3833) | 375 (367-387) | 1833 (1667-1875) |
+| .NET 8 | metrics v2 | 455 (441-475) | 291 (273-355) | 384 (330-431) | 543 (395-553) | 2792 (2146-3583) | 389 (346-481) | 1938 (1542-2062) |
+| .NET 8 | metrics v3 | 445 (441-455) | 345 (302-355) | 407 (330-444) | 460 (347-569) | 2979 (2688-3250) | 354 (316-402) | 1875 (1729-2021) |
+| .NET 8 | metrics native | 454 (438-462) | 336 (311-348) | 354 (325-380) | 564 (390-626) | 2729 (2375-3250) | 371 (345-424) | 1792 (1708-2104) |
+
+The `metrics` build, calls in flight over TLS:
+
+| Host | Engine | 16: calls/s | 16: CPU per call (us) | 16: P50 (us) | 64: calls/s | 64: CPU per call (us) | 64: P50 (us) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| .NET 8 | metrics v1 | 15740 (15436-19647) | 106 (80.9-110) | 1006 (801-1026) | 20943 (19501-27591) | 58.2 (58.2-69.5) | 2967 (2251-3091) |
+| .NET 8 | metrics v2 | 15506 (15035-15861) | 103 (98.4-112) | 1017 (993-1039) | 20975 (19922-22143) | 71.5 (63.3-77) | 2976 (2835-3092) |
+| .NET 8 | metrics v3 | 15509 (15434-15642) | 97.7 (90.2-120) | 1015 (1009-1021) | 21273 (19504-22257) | 60.2 (56.2-71.5) | 2927 (2812-3096) |
+| .NET 8 | metrics native | 15654 (15601-16057) | 107 (94.9-110) | 1007 (990-1013) | 20902 (20198-22080) | 65.2 (62.9-79.3) | 2989 (2844-3040) |
+
+Each level was also paired with the default build of its pass, per figure: 312 comparisons. In 19
+of them every pass moved the same way, about what chance gives for five passes (6.25 %, 19.5).
+In 8 the level's range and the default build's do not overlap, four for the level and four
+against it:
+
+| Workload | Host | Engine | Figure | Paired change (range) |
+|---|---|---|---|---:|
+| concurrent | .NET 8 | native | 16 in flight, calls a second | +1.9 % (+1.1 to +16.6) |
+| concurrent | .NET 8 | native | 16 in flight, P50 | -1.6 % (-10.9 to -1.1) |
+| concurrent | .NET Framework x86 | i686 v3 | 64 in flight, calls a second | +7.4 % (+0.1 to +10.3) |
+| concurrent | .NET Framework x86 | i686 v3 | 64 in flight, P50 | -7.8 % (-11.2 to -1.5) |
+| gzip | .NET 8 | v3 | download, MiB/s | -6.6 % (-8.5 to -0.9) |
+| gzip | .NET 8 AOT | v2 | upload, unary, CPU per MiB | +3.0 % (+2.2 to +4.0) |
+| h2c | .NET 8 AOT | v3 | upload, unary, MiB/s | -20.1 % (-24.0 to -1.5) |
+| zstd | .NET 8 | native | upload, unary, MiB/s | -7.0 % (-13.0 to -2.1) |
+
+What the numbers say:
+
+- **No level is worth shipping on this processor, in any of these workloads.** No level moves a
+  figure beyond the spread in the same direction on two hosts, or with TLS and in the clear; the
+  cells beyond it go both ways, by 2 to 8 % for a level and up to 20 % against.
+- **Where the engine's own code is most of the work, the levels still change nothing.**
+  Compressing with gzip costs 22 to 25 ms of CPU per MiB sent as one message, against about 1 ms
+  for the same upload uncompressed in the clear, so compression is most of it; that it is
+  miniz_oxide's deflate, which the level recompiles, is inferred, not profiled. That CPU per MiB
+  moves by -1.5 % (-3.8 to +0.4) at v3 on .NET 8, -1.3 % (-3.7 to +0.7) ahead-of-time and +0.6 %
+  (-0.8 to +1.4) for i686 v3, with ranges of 1 to 3 %; the one cell beyond the spread is against
+  a level, v2 ahead-of-time, +3.0 % (+2.2 to +4.0).
+- **zstd is the control.** Its C is the same in every build; its figures move within the spread
+  but for `native`'s unary upload, against it.
+- **Many calls in flight, and large messages, stay within the spread**, every run kept, but for
+  `native` at 16 in flight on .NET 8 (2 %), and i686 v3 at 64 with TLS (7 %), which the same
+  engine in the clear does not repeat (-1.6 %, -9.0 to +6.5).
+- **In the clear, the one cell beyond the spread is against a level**: one message uploaded at v3
+  ahead-of-time, -20.1 % (-24.0 to -1.5).
+- **The `metrics` build changes nothing either**: with every run kept, each of its cells is
+  within the spread.
+- **Beside the levels**: grpc-dotnet uploads gzip faster (58 MiB/s streamed against 36) for less
+  CPU per MiB (21 against 30 ms); no run varies either side's compression level. At 64 calls in
+  flight it makes 1.37 times as many calls a second as the engine over TLS and 1.61 times in the
+  clear.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
