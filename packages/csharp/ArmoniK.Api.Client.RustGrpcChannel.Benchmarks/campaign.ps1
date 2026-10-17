@@ -15,6 +15,8 @@ param(
   # streamed upload beside it, which the native transports alone run. gzip, zstd, concurrent and
   # large: compression both ways, 16 and 64 calls in flight, unary messages of 4 and 16 MiB; zstd
   # runs on the native transports, against a server ARMONIK_BENCH_SERVER names (benchmarks.md).
+  # mixed: large uploads and unary calls at once over mutual TLS, its parameters after it, space
+  # separated, e.g. "mixed k=4 m=64 pool=16"; a pool other than server runs on the native transports.
   [string[]] $Scenarios = @("idle", "busy"),
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
@@ -105,8 +107,9 @@ try {
       foreach ($variant in $variants) {
         foreach ($transport in $Transports) {
           if (($scenario -in @("pinned", "shared", "zstd")) -and ($transport -notlike "native*")) { continue }
+          if (($scenario -match ' pool=\d') -and ($transport -notlike "native*")) { continue }
           $arguments = @($transport)
-          if ($scenario -ne "idle") { $arguments += $scenario }
+          if ($scenario -ne "idle") { $arguments += -split $scenario }
           Set-Environment DOTNET_ROOT $(if ($variant.Root) { $variant.Root } else { $saved.DOTNET_ROOT })
           $line = & $variant.Exe @arguments 2>&1 | Select-Object -Last 1
           if ($LASTEXITCODE -ne 0) {
@@ -126,7 +129,7 @@ finally {
 }
 
 # The median of the passes, per transport, variant and scenario.
-$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent| large)? (.*)$' } | ForEach-Object {
+$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent| large| mixed-\S+)? (.*)$' } | ForEach-Object {
   # In the order the line gives them, so each scenario's table keeps the benchmark's columns.
   $fields = [ordered]@{}
   foreach ($pair in ($Matches[4] -split ' ')) {
@@ -156,7 +159,8 @@ function Median([double[]] $values) {
 $latency = "p50_us", "p95_us", "p99_us", "stream_mib_s", "upload_stream_mib_s", "upload_unary_mib_s", "alloc_b_call", "cpu_us_call",
            "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib", "upload_beside_mib_s", "calib_us", "calib_end_us"
 # One table per scenario: the others report figures of their own, in the order their lines give them.
-$runs | Group-Object Scenario | ForEach-Object {
+# The mixed runs share one, a row per set of parameters, which the line names (mixed-k4-m64-...).
+$runs | Group-Object { $_.Scenario -replace '^mixed-.*', 'mixed' } | ForEach-Object {
   # Every figure any run gave, in the order the lines first give them: a large run's downloads
   # are the native transports' alone.
   $columns = if ($_.Name -in @("idle", "busy", "pinned", "shared")) { $latency } else {
@@ -167,7 +171,7 @@ $runs | Group-Object Scenario | ForEach-Object {
   ""
   "| Variant | Scenario | Transport | " + ($columns -join " | ") + " |"
   "|---|---|---|" + (($columns | ForEach-Object { "---:" }) -join "|") + "|"
-  $_.Group | Group-Object Variant, Transport | ForEach-Object {
+  $_.Group | Group-Object Variant, Transport, Scenario | ForEach-Object {
     $first = $_.Group[0]
     if ($_.Count -lt $Passes) {
       Write-Warning "$($first.Variant) $($first.Scenario) $($first.Transport): the median of $($_.Count) runs, not $Passes"
