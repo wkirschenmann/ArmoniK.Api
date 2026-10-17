@@ -205,6 +205,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   has to outlive the runtime, which writes to it until it is disposed.
   /// </param>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="PlatformNotSupportedException">The system cannot run the engine: a Windows on Arm process
+  /// whose system reports no Armv8.1 atomic instructions.</exception>
   /// <exception cref="InvalidOperationException">
   ///   The library speaks another ABI, a runtime already lives in this process, or the second
   ///   threshold is below the first.
@@ -257,6 +259,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   ///   path, or the engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.
   /// </exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="PlatformNotSupportedException">The system cannot run the engine: a Windows on Arm process
+  /// whose system reports no Armv8.1 atomic instructions.</exception>
   /// <exception cref="Exception">
   ///   What a <see cref="System.Diagnostics.Metrics.MeterListener" /> throws as the runtime's instruments are
   ///   published, once the engine it started is stopped and destroyed again.
@@ -378,6 +382,8 @@ public sealed class NativeRuntime : IAsyncDisposable
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   /// <exception cref="InvalidOperationException">The engine refused as <see cref="Create(ulong,ulong,ILoggerFactory)" /> does.</exception>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="PlatformNotSupportedException">The system cannot run the engine: a Windows on Arm process
+  /// whose system reports no Armv8.1 atomic instructions.</exception>
   /// <exception cref="Exception">
   ///   What a <see cref="System.Diagnostics.Metrics.MeterListener" /> throws as the runtime's instruments are
   ///   published, once the engine it started is stopped and destroyed again.
@@ -579,6 +585,8 @@ public sealed class NativeRuntime : IAsyncDisposable
 
   /// <summary>The ABI the loaded library speaks.</summary>
   /// <exception cref="RustEngineMissingException">The engine could not be loaded.</exception>
+  /// <exception cref="PlatformNotSupportedException">The system cannot run the engine: a Windows on Arm process
+  /// whose system reports no Armv8.1 atomic instructions.</exception>
   public static int LibraryAbiVersion
   {
     get

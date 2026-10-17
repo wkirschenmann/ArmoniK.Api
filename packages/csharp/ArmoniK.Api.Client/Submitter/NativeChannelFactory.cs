@@ -96,7 +96,8 @@ namespace ArmoniK.Api.Client.Submitter
     /// <exception cref="RustEngineMissingException">The engine could not be loaded</exception>
     /// <exception cref="PlatformNotSupportedException">
     ///   <see cref="GrpcClient.NativeMetrics" /> asks for the build with the counters from the netstandard2.0 build of
-    ///   the binding on a runtime other than .NET Framework, which cannot select it
+    ///   the binding on a runtime other than .NET Framework, which cannot select it; or the process is a Windows on Arm
+    ///   one whose system reports no Armv8.1 atomic instructions, which the engine needs
     /// </exception>
     /// <remarks>
     ///   An empty <see cref="GrpcClient.Endpoint" /> is the <c>Endpoint</c> of the engine's options.

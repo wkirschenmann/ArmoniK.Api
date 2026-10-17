@@ -51,7 +51,8 @@ public static class NativeLibrarySelection
 
   private static bool committed_;
 
-  private static RustEngineMissingException? failure_;
+  // Why the engine is not loaded: it is missing, or this system cannot run it.
+  private static Exception? failure_;
 
   /// <summary>The build this process loaded, or <c>null</c> while it has loaded none.</summary>
   public static NativeEngineBuild? Loaded
@@ -74,7 +75,8 @@ public static class NativeLibrarySelection
   /// </exception>
   /// <exception cref="PlatformNotSupportedException">
   ///   The metrics build is asked for from the netstandard2.0 build of this assembly on a runtime
-  ///   other than .NET Framework.
+  ///   other than .NET Framework; or the engine was already refused on this system, a Windows on Arm one
+  ///   that reports no Armv8.1 atomic instructions, which the first call into the engine finds out.
   /// </exception>
   public static void Select(NativeEngineBuild build)
   {
@@ -101,6 +103,11 @@ public static class NativeLibrarySelection
     {
       if (committed_)
       {
+        if (failure_ is PlatformNotSupportedException)
+        {
+          throw failure_;
+        }
+
         if (build != requested_)
         {
           throw new InvalidOperationException($"the native engine is already loaded as the {requested_} build, and asking for the {build} build is refused: " + "a process loads one build, since a library is loaded once for the life of the process and is not unloaded. "
@@ -130,6 +137,18 @@ public static class NativeLibrarySelection
       committed_ = true;
       try
       {
+        RequireAtomics(RuntimeInformation.ProcessArchitecture,
+                       RuntimeInformation.IsOSPlatform(OSPlatform.Windows),
+                       () => NativeMethods.IsProcessorFeaturePresent(NativeMethods.PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE));
+      }
+      catch (PlatformNotSupportedException unsupported)
+      {
+        failure_ = unsupported;
+        return;
+      }
+
+      try
+      {
         if (requested_ == NativeEngineBuild.Metrics)
         {
           PrepareMetrics();
@@ -156,7 +175,47 @@ public static class NativeLibrarySelection
     }
   }
 
+  /// <summary>Refuses a Windows arm64 process whose system reports no Armv8.1 atomics (LSE), which the engine
+  /// for that platform needs: without them it stops on an illegal instruction with nothing to report it.</summary>
+  /// <param name="architecture">The architecture of the process, which is that of the engine it loads.</param>
+  /// <param name="windows">Whether the process runs on Windows.</param>
+  /// <param name="atomicsPresent">Asks the system whether it has the atomics; called for Windows arm64 only.
+  /// A probe that fails is a refusal, since the engine is not run on a guess.</param>
+  /// <remarks>The architecture is <c>RuntimeInformation.ProcessArchitecture</c>, which netstandard2.0 has
+  /// and which names the process rather than the machine: an x64 process emulated on arm64 loads the x64
+  /// engine and is never asked.</remarks>
+  /// <exception cref="PlatformNotSupportedException">The system reports no Armv8.1 atomics.</exception>
+  internal static void RequireAtomics(Architecture architecture,
+                                      bool         windows,
+                                      Func<bool>   atomicsPresent)
+  {
+    if (!windows || architecture != Architecture.Arm64)
+    {
+      return;
+    }
+
+    bool present;
+    try
+    {
+      present = atomicsPresent();
+    }
+    catch (Exception error)
+    {
+      throw new PlatformNotSupportedException("the system could not be asked whether it has the Armv8.1 atomic instructions (LSE) that the native engine for Windows on Arm needs",
+                                              error);
+    }
+
+    if (present)
+    {
+      return;
+    }
+
+    throw new PlatformNotSupportedException("the native engine for Windows on Arm needs the Armv8.1 atomic instructions (LSE), which every Windows 11 on Arm device has, and this system does not report them. "
+                                            + "It was not loaded, since it would stop on an illegal instruction.");
+  }
+
   /// <summary>Raises why the build asked for could not be found, when it could not.</summary>
+  /// <exception cref="PlatformNotSupportedException">The system cannot run the engine.</exception>
   internal static void ThrowIfNotFound()
   {
     lock (Gate)

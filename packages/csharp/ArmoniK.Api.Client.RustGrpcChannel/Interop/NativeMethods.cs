@@ -52,6 +52,13 @@ internal static unsafe partial class NativeMethods
 
   [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
   internal static extern IntPtr LoadLibrary(string path);
+
+  /// <summary>IsProcessorFeaturePresent's feature for the Armv8.1 atomic instructions (LSE).</summary>
+  internal const uint PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE = 34;
+
+  [DllImport("kernel32")]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  internal static extern bool IsProcessorFeaturePresent(uint feature);
 }
 
 internal unsafe partial struct ak_error
