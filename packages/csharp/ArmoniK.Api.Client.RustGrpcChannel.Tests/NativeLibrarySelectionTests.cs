@@ -19,6 +19,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+#if NET8_0_OR_GREATER
+using System.Runtime.Intrinsics.X86;
+#endif
 using System.Threading.Tasks;
 
 using NUnit.Framework;
@@ -100,14 +103,27 @@ public class NativeLibrarySelectionTests
                                                                                                    StringComparison.OrdinalIgnoreCase))
               .FileName;
 
+  /// <summary>Whether one of the two folders a file is in has this name: an engine is in the folder
+  /// of its build, or in an x86-64-v4 folder inside it.</summary>
+  private static bool InAFolderNamed(string file,
+                                     string folder)
+  {
+    var parent = Path.GetDirectoryName(file)!;
+    return new[]
+           {
+             Path.GetFileName(parent),
+             Path.GetFileName(Path.GetDirectoryName(parent)),
+           }.Contains(folder,
+                      StringComparer.OrdinalIgnoreCase);
+  }
+
   [Test]
   public void TheBuildTheProcessAskedForIsTheOneLoaded()
   {
     LoadTheEngine();
 
-    var inAMetricsFolder = string.Equals(new DirectoryInfo(Path.GetDirectoryName(LoadedModule())!).Name,
-                                         "metrics",
-                                         StringComparison.OrdinalIgnoreCase);
+    var inAMetricsFolder = InAFolderNamed(LoadedModule(),
+                                          "metrics");
     Assert.Multiple(() =>
                     {
                       Assert.That(NativeLibrarySelection.Loaded,
@@ -280,4 +296,187 @@ public class NativeLibrarySelectionTests
                                                                     windows,
                                                                     () => throw new AssertionException("the system was asked")));
   }
+
+  /// <summary>The x86-64-v4 build is the one loaded exactly when the process runs it and the test
+  /// build put it where the package does.</summary>
+  [Test]
+  public void TheX64V4BuildIsLoadedExactlyWhenTheProcessRunsIt()
+  {
+    LoadTheEngine();
+
+    Assert.That(InAFolderNamed(LoadedModule(),
+                               NativeLibrarySelection.X64V4Folder),
+                Is.EqualTo(NativeLibrarySelection.RunsX64V4() && X64V4BuildIsInPlace()),
+                LoadedModule());
+  }
+
+  /// <summary>Whether the test build put the x86-64-v4 build of the build this process asked for
+  /// where the package puts it.</summary>
+  private static bool X64V4BuildIsInPlace()
+    => NativeLibrarySelection.Candidates(new[]
+                                         {
+                                           AppDomain.CurrentDomain.BaseDirectory,
+                                         },
+                                         NativeEngineSelection.Wanted,
+                                         true)
+                             .Where(candidate => InAFolderNamed(candidate,
+                                                                NativeLibrarySelection.X64V4Folder))
+                             .Any(File.Exists);
+
+#if NET8_0_OR_GREATER
+  /// <summary>An x64 process that the operating system and the runtime both say runs x86-64-v4
+  /// loads that build, which the test above cannot tell from a binding that never picks it.</summary>
+  [Test]
+  public void WithX64V4TheX64V4BuildIsLoaded()
+  {
+    Assume.That(RuntimeInformation.ProcessArchitecture == Architecture.X64 && OperatingSystemReportsAvx512F() && Avx512F.IsSupported && Avx512F.VL.IsSupported &&
+                Avx512BW.IsSupported && Avx512CD.IsSupported && Avx512DQ.IsSupported,
+                Is.True,
+                "this process does not run x86-64-v4");
+    Assume.That(X64V4BuildIsInPlace(),
+                Is.True,
+                "the test build put no x86-64-v4 build for this identifier");
+    LoadTheEngine();
+
+    Assert.That(InAFolderNamed(LoadedModule(),
+                               NativeLibrarySelection.X64V4Folder),
+                Is.True,
+                LoadedModule());
+  }
+#endif
+
+  /// <summary>A CPU without AVX-512F, as the operating system or the runtime reports it, runs the
+  /// baseline, whatever the package carries.</summary>
+  /// <remarks>Both are asked, since a Windows that predates the feature's report answers false on any
+  /// CPU.</remarks>
+  [Test]
+  public void WithoutAvx512FTheBaselineIsLoaded()
+  {
+#if NET8_0_OR_GREATER
+    var runtimeReportsAvx512F = Avx512F.IsSupported;
+#else
+    var runtimeReportsAvx512F = false;
+#endif
+    Assume.That(OperatingSystemReportsAvx512F() || runtimeReportsAvx512F,
+                Is.False,
+                "this CPU has AVX-512F: the tests above check which build it loads");
+    LoadTheEngine();
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(NativeLibrarySelection.RunsX64V4(),
+                                  Is.False);
+                      Assert.That(InAFolderNamed(LoadedModule(),
+                                                 NativeLibrarySelection.X64V4Folder),
+                                  Is.False,
+                                  LoadedModule());
+                    });
+  }
+
+  private const uint PF_AVX512F_INSTRUCTIONS_AVAILABLE = 41;
+
+  /// <summary>Asked of the operating system rather than of the binding, which is what is checked.</summary>
+  private static bool OperatingSystemReportsAvx512F()
+  {
+    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+    {
+      return NativeMethods.IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE);
+    }
+
+    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+    {
+      // The kernel lists the flag only when it saves the AVX-512 state.
+      return File.ReadAllText("/proc/cpuinfo")
+                 .Split(' ',
+                        '\t',
+                        '\n')
+                 .Contains("avx512f");
+    }
+
+    Assert.Inconclusive("only Windows and Linux are asked whether they have AVX-512F");
+    return false;
+  }
+
+  private static readonly string Root = Path.Combine(Path.GetTempPath(),
+                                                     "a package");
+
+  /// <summary>The path of the engine in a folder of the package's layout for .NET.</summary>
+  private static string InThePackage(params string[] folders)
+    => Path.Combine(new[]
+                    {
+                      Root,
+                      "runtimes",
+                      NativeLibrarySelection.RuntimeIdentifier(),
+                    }.Concat(folders)
+                     .Concat(new[]
+                             {
+                               NativeLibrarySelection.LibraryFileName(),
+                             })
+                     .ToArray());
+
+  private static string? Pick(NativeEngineBuild build,
+                              bool              x64V4,
+                              params string[]   files)
+    => NativeLibrarySelection.Locate(NativeLibrarySelection.Candidates(new[]
+                                                                       {
+                                                                         Root,
+                                                                       },
+                                                                       build,
+                                                                       x64V4),
+                                     files.Contains);
+
+  [Test]
+  public void TheDefaultBuildIsTheX64V4OneWhenTheProcessRunsItAndItIsThere()
+    => Assert.That(Pick(NativeEngineBuild.Default,
+                        true,
+                        InThePackage(NativeLibrarySelection.X64V4Folder)),
+                   Is.EqualTo(InThePackage(NativeLibrarySelection.X64V4Folder)));
+
+  /// <summary>No file for the default build means the baseline, which the platform's own search finds.</summary>
+  [Test]
+  public void TheDefaultBuildIsTheBaselineWhenTheX64V4OneIsMissing()
+    => Assert.That(Pick(NativeEngineBuild.Default,
+                        true),
+                   Is.Null);
+
+  [Test]
+  public void TheDefaultBuildIsTheBaselineWhenTheProcessDoesNotRunX64V4()
+    => Assert.That(Pick(NativeEngineBuild.Default,
+                        false,
+                        InThePackage(NativeLibrarySelection.X64V4Folder)),
+                   Is.Null);
+
+  [Test]
+  public void TheMetricsBuildIsTheX64V4OneWhenTheProcessRunsItAndItIsThere()
+    => Assert.That(Pick(NativeEngineBuild.Metrics,
+                        true,
+                        InThePackage("metrics"),
+                        InThePackage("metrics",
+                                     NativeLibrarySelection.X64V4Folder)),
+                   Is.EqualTo(InThePackage("metrics",
+                                           NativeLibrarySelection.X64V4Folder)));
+
+  [Test]
+  public void TheMetricsBuildIsTheBaselineWhenTheX64V4OneIsMissing()
+    => Assert.That(Pick(NativeEngineBuild.Metrics,
+                        true,
+                        InThePackage("metrics")),
+                   Is.EqualTo(InThePackage("metrics")));
+
+  [Test]
+  public void TheMetricsBuildIsTheBaselineWhenTheProcessDoesNotRunX64V4()
+    => Assert.That(Pick(NativeEngineBuild.Metrics,
+                        false,
+                        InThePackage("metrics"),
+                        InThePackage("metrics",
+                                     NativeLibrarySelection.X64V4Folder)),
+                   Is.EqualTo(InThePackage("metrics")));
+
+#if NETFRAMEWORK
+  /// <summary>.NET Framework has no API that reports AVX-512 BW, CD, DQ or VL, and loads the baseline.</summary>
+  [Test]
+  public void NetFrameworkNeverRunsX64V4()
+    => Assert.That(NativeLibrarySelection.RunsX64V4(),
+                   Is.False);
+#endif
 }

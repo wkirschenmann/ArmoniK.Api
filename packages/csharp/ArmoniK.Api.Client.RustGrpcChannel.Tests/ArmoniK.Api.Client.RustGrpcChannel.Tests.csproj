@@ -174,4 +174,23 @@
           SourceFiles="@(BuiltMetricsEngine)" DestinationFolder="$(OutDir)$(PlatformTarget)\metrics\" SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- The x86-64-v4 builds, where the package puts them for .NET, so that a .NET host whose CPU
+       runs them runs the suites against them. None for .NET Framework, which loads the baseline. -->
+  <Target Name="CopyNativeX64V4EnginesForTests" AfterTargets="CopyNativeMetricsEngineForTests"
+          Condition="'$(SkipNativeEngine)' != 'true' AND '$(NativeEngineX64V4)' != 'false' AND '$(TargetFrameworkIdentifier)' != '.NETFramework'">
+    <PropertyGroup>
+      <X64V4EngineRid>@(HostRustTarget)</X64V4EngineRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuiltX64V4Engine Include="@(HostRustTarget->WithMetadataValue('X64V4', 'true')->'$(RustWorkspace)target\x86-64-v4\%(Triple)\$(RustProfile)\%(Library)')"
+                        Folder="x86-64-v4" />
+      <BuiltX64V4Engine Include="@(HostRustTarget->WithMetadataValue('X64V4', 'true')->'$(RustWorkspace)target\metrics-x86-64-v4\%(Triple)\$(RustProfile)\%(Library)')"
+                        Condition="'$(NativeEngineMetrics)' != 'false'"
+                        Folder="metrics\x86-64-v4" />
+    </ItemGroup>
+    <Error Condition="'@(BuiltX64V4Engine)' != '' AND !Exists('%(BuiltX64V4Engine.FullPath)')"
+           Text="no x86-64-v4 build at %(BuiltX64V4Engine.FullPath); build the binding with -p:NativeEngineRids for this architecture" />
+    <Copy SourceFiles="@(BuiltX64V4Engine)" DestinationFolder="$(OutDir)runtimes\$(X64V4EngineRid)\%(Folder)\" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
