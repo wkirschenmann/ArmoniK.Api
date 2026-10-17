@@ -1025,7 +1025,7 @@ server built here.
   chunks the server compresses (grpc-dotnet at `CompressionLevel.Fastest`), five runs of each, the
   median in MiB/s and the process's CPU per MiB over the five. The data is text: words drawn from
   a fixed vocabulary of 2048, which zlib shrinks 2.3 to 2.5 times. The server answers each run with
-  the encoding it saw or sent, and every run of the campaign was compressed. The engine
+  the encoding it saw or sent, and every run of the campaign announced its encoding. The engine
   compresses gzip at flate2's default level, 6, and zstd at level 3; grpc-dotnet's client
   compresses gzip only, at its default level, which the benchmark does not set.
 - **concurrent**: unary calls of the plain `Say` with 16 and then 64 in flight on one channel,
@@ -1207,8 +1207,8 @@ What the numbers say:
   engine in the clear does not repeat (-1.6 %, -9.0 to +6.5).
 - **In the clear, the one cell beyond the spread is against a level**: one message uploaded at v3
   ahead-of-time, -20.1 % (-24.0 to -1.5).
-- **The `metrics` build changes nothing either**: with every run kept, each of its cells is
-  within the spread.
+- **No level changes anything on the `metrics` build either**: with every run kept, each of its
+  cells is within the spread.
 - **Beside the levels**: grpc-dotnet uploads gzip faster (58 MiB/s streamed against 36) for less
   CPU per MiB (21 against 30 ms); no run varies either side's compression level. At 64 calls in
   flight it makes 1.37 times as many calls a second as the engine over TLS and 1.61 times in the
@@ -1263,7 +1263,8 @@ alone, on a native channel held to one connection, without and with a streamed u
 managed transports skip them. `gzip`, `zstd`, `concurrent` and `large` run the workloads of "The
 processor levels, on LTO engines", each summed up in a table of its own; the managed transports
 skip `zstd`, and the test server built here refuses it: that section says how to build one that
-takes it. A `gzip` or `zstd` run that finds a leg sent uncompressed fails.
+takes it. A `gzip` or `zstd` run fails if a leg's stream does not announce the encoding; a
+message the engine leaves uncompressed under that announcement, as it may, is not detected.
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:

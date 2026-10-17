@@ -106,14 +106,15 @@ finally {
 
 # The median of the passes, per transport, variant and scenario.
 $runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent| large)? (.*)$' } | ForEach-Object {
-  # In the order the line gives them; the encodings a compressed run reports are words, not figures.
+  # In the order the line gives them, so each scenario's table keeps the benchmark's columns.
   $fields = [ordered]@{}
   foreach ($pair in ($Matches[4] -split ' ')) {
     $key, $value = $pair -split '=', 2
     $number = 0.0
-    if ([double]::TryParse($value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref] $number)) {
-      $fields[$key] = $number
+    if (-not [double]::TryParse($value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref] $number)) {
+      throw "garbled field '$pair' in: $_"
     }
+    $fields[$key] = $number
   }
   [pscustomobject]@{
     Transport = $Matches[1]
