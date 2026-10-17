@@ -215,4 +215,69 @@ public class NativeLibrarySelectionTests
                                                                  .ToLowerInvariant()));
                     });
   }
+
+  /// <summary>A Windows arm64 system that reports the atomics is not refused.</summary>
+  [Test]
+  public void WindowsArm64WithTheAtomicsIsNotRefused()
+  {
+    var asked = 0;
+
+    Assert.DoesNotThrow(() => NativeLibrarySelection.RequireAtomics(Architecture.Arm64,
+                                                                    true,
+                                                                    () =>
+                                                                    {
+                                                                      asked++;
+                                                                      return true;
+                                                                    }));
+    Assert.That(asked,
+                Is.EqualTo(1));
+  }
+
+  /// <summary>Without them the engine is refused with a message that says why, before it can run.</summary>
+  [Test]
+  public void WindowsArm64WithoutTheAtomicsIsRefused()
+  {
+    var refused = Assert.Throws<PlatformNotSupportedException>(() => NativeLibrarySelection.RequireAtomics(Architecture.Arm64,
+                                                                                                          true,
+                                                                                                          () => false));
+
+    Assert.That(refused!.Message,
+                Does.Contain("Armv8.1 atomic instructions (LSE)")
+                    .And.Contain("every Windows 11 on Arm device")
+                    .And.Contain("this system does not report them"));
+  }
+
+  /// <summary>A probe that cannot be asked is a refusal that keeps its cause.</summary>
+  [Test]
+  public void AProbeThatFailsIsRefused()
+  {
+    var cause = new EntryPointNotFoundException();
+
+    var refused = Assert.Throws<PlatformNotSupportedException>(() => NativeLibrarySelection.RequireAtomics(Architecture.Arm64,
+                                                                                                          true,
+                                                                                                          () => throw cause));
+
+    Assert.That(refused!.InnerException,
+                Is.SameAs(cause));
+  }
+
+  /// <summary>Any other process is never asked: x64 and x86 have no such feature, and the answer is the
+  /// OS's to give on Windows only.</summary>
+  [TestCase(Architecture.X64,
+            true)]
+  [TestCase(Architecture.X86,
+            true)]
+  [TestCase(Architecture.Arm,
+            true)]
+  [TestCase(Architecture.Arm64,
+            false)]
+  [TestCase(Architecture.X64,
+            false)]
+  public void AnythingElseIsNeverAsked(Architecture architecture,
+                                       bool         windows)
+  {
+    Assert.DoesNotThrow(() => NativeLibrarySelection.RequireAtomics(architecture,
+                                                                    windows,
+                                                                    () => throw new AssertionException("the system was asked")));
+  }
 }

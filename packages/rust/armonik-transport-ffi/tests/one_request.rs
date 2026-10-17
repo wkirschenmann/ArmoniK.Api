@@ -123,6 +123,24 @@ fn a_call_never_committed_ends_deadline_exceeded_at_its_deadline() {
     fixture.close();
 }
 
+/// The channel's default deadline is the deadline of a call that states none, and it too runs
+/// from the call's start: such a call, never committed, ends DEADLINE_EXCEEDED when it passes.
+#[test]
+fn a_call_never_committed_ends_at_its_channels_default_deadline() {
+    let server = TestServer::start();
+    let host = Host::start();
+    let channel = host.channel_with(&server.endpoint, r#"{"Grpc":{"Deadline":{"Default":0.1}}}"#);
+
+    let call = start_call_flagged(channel, ECHO, &[], AK_CALL_ONE_REQUEST);
+
+    let seen = host.recorder.await_terminal();
+    assert_eq!(seen.status_code(), Some(DEADLINE_EXCEEDED));
+    assert!(seen.message_payloads().is_empty(), "nothing was sent");
+    support::await_call_reclaimed(call);
+    ak_channel_release(channel);
+    host.stop();
+}
+
 /// A call whose deadline passes while its host holds the buffer of its request ends at the
 /// deadline: the commit is then refused as on any call that is over, and the buffer stays the
 /// host's to give back.

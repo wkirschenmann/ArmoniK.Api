@@ -291,6 +291,10 @@ change.
 3. No additional installation (Rust runtime, external DLL) is required.
 4. If the native DLL is missing (unsupported RID), channel creation fails with an explicit
    error (no silent fallback).
+5. The win-arm64 engine is built with the Armv8.1 atomics (LSE) and needs a system that reports
+   them, as every CPU on Microsoft's Windows 11 on Arm lists does. Windows 10 on Arm on a
+   Snapdragon 835 (Armv8.0) is not supported: the .NET binding refuses to load the engine on a
+   system that does not report the atomics, with an explicit error.
 
 ---
 
