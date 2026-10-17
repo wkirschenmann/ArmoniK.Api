@@ -456,11 +456,11 @@ OpenTelemetry collector of its own. What is decided here goes to the host's pipe
 
 ## What the logs cost
 
-Measured on a Windows laptop, in release, by
-`cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each figure the
-minimum and the median of fifteen repetitions of ten million events (a tenth for the delivered
-ones), net of the empty loop. Another process on the machine moves the median more than the
-minimum, which is the better figure.
+Measured on a Windows laptop, in Cargo's default release profile, before the workspace's fat
+LTO, by `cargo run --release -p armonik-transport-ffi --example log_cost -- 10000000 15`: each
+figure the minimum and the median of fifteen repetitions of ten million events (a tenth for the
+delivered ones), net of the empty loop. Another process on the machine moves the median more
+than the minimum, which is the better figure.
 
 | What | ns per event |
 |------|--------------|

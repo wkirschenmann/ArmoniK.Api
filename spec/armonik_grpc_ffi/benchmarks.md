@@ -967,8 +967,10 @@ AboveNormal priority.
 
 Built with .NET SDK 11.0.100-rc.1; run on .NET 8.0.19, .NET 10.0.12 and .NET Framework 4.8,
 ahead-of-time with the 8.0.31 and 10.0.12 ILCompiler packages; rustc 1.94.1, the engine built
-with the release profile. The client and the server share the machine. The runs of `bf86fece3`,
-and those of 2026-10-15, used the same SDK, runtimes, ILCompiler packages and compiler.
+with Cargo's default release profile, LTO within each crate only, unless a section says
+otherwise: the workspace's own, fat LTO, dates from 2026-10-17. The client and the server share
+the machine. The runs of `bf86fece3`, and those of 2026-10-15, used the same SDK, runtimes,
+ILCompiler packages and compiler.
 
 ## Running it again
 
