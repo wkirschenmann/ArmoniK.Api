@@ -1,0 +1,15 @@
+# The engine compiled for x86-64-v4 (AVX-512 F, BW, CD, DQ and VL), a build beside the baseline
+# x86-64 one, in a target directory of its own:
+#
+#   cargo build -p armonik-transport-ffi --release --target x86_64-pc-windows-msvc \
+#     --target-dir target/x86-64-v4 --config .cargo/x86-64-v4.toml
+#
+# Given with --config rather than RUSTFLAGS, which would replace config.toml's flags instead of
+# adding to them. A RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS in the environment replaces these too, and
+# the build then succeeds at the baseline. The build machine need not have AVX-512: with --target,
+# these flags reach the engine and not the build scripts that run there.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v4"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v4"]

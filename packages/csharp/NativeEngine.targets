@@ -22,6 +22,11 @@
          replaces the other and a change to one does not rebuild the other. NativeEngineMetrics
          `false` builds the first alone. -->
     <NativeEngineMetrics Condition="'$(NativeEngineMetrics)' == ''">true</NativeEngineMetrics>
+    <!-- The identifiers RustTargets.props marks X64V4 get each of those builds again for
+         x86-64-v4, through .cargo/x86-64-v4.toml, in target directories of their own for the same
+         reason. On by default, as the metrics build is, so that a host whose CPU runs them runs the
+         tests against them; NativeEngineX64V4 `false` builds the baseline alone. -->
+    <NativeEngineX64V4 Condition="'$(NativeEngineX64V4)' == ''">true</NativeEngineX64V4>
     <!-- The engine is built against h2-batch's patch of h2, through its recipe, which needs bash:
          packages/rust/patches/h2-batch/README.md. NativeEngineH2Batch `false` builds it on stock
          h2, which refuses more than one DATA frame per write. This file sees the global
@@ -80,7 +85,13 @@
     <PropertyGroup>
       <_NativeEngineRidList>;$(NativeEngineRids.Replace(',', ';').Replace(' ', ''));</_NativeEngineRidList>
       <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
+      <RustTargetX64V4Wanted>false</RustTargetX64V4Wanted>
+      <RustTargetX64V4Wanted Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineX64V4)' != 'false' AND '%(RustTarget.X64V4)' == 'true'">true</RustTargetX64V4Wanted>
     </PropertyGroup>
+    <!-- Ahead of any build: either variable replaces the flags .cargo/x86-64-v4.toml gives, and the
+         x86-64-v4 build would succeed at the baseline under that name. -->
+    <Error Condition="'$(RustTargetX64V4Wanted)' == 'true' AND ('$(RUSTFLAGS)' != '' OR '$(CARGO_ENCODED_RUSTFLAGS)' != '')"
+           Text="RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS is set, which would drop -C target-cpu=x86-64-v4 from the x86-64-v4 build of %(RustTarget.Identity): unset it, or build with -p:NativeEngineX64V4=false." />
 
     <Exec Condition="'$(RustTargetWanted)' == 'true'"
           Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
@@ -103,6 +114,26 @@
     </Exec>
     <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true' AND '$(CargoMetricsExitCode)' != '0'"
            Text="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoMetricsExitCode)). It needs the environment the build without the feature does.$(_NativeEngineCargoNeeds)" />
+
+    <!-- The same two builds for x86-64-v4, which land in target/x86-64-v4/[triple]/ and
+         target/metrics-x86-64-v4/[triple]/. -->
+    <Exec Condition="'$(RustTargetX64V4Wanted)' == 'true'"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) --target-dir target/x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag)"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="CargoX64V4ExitCode" />
+    </Exec>
+    <Error Condition="'$(RustTargetX64V4Wanted)' == 'true' AND '$(CargoX64V4ExitCode)' != '0'"
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) --target-dir target/x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoX64V4ExitCode)). It needs the environment the baseline build does.$(_NativeEngineCargoNeeds)" />
+
+    <Exec Condition="'$(RustTargetX64V4Wanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true'"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics-x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag)"
+          WorkingDirectory="$(RustWorkspace)"
+          ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="CargoMetricsX64V4ExitCode" />
+    </Exec>
+    <Error Condition="'$(RustTargetX64V4Wanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true' AND '$(CargoMetricsX64V4ExitCode)' != '0'"
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics-x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoMetricsX64V4ExitCode)). It needs the environment the baseline build does.$(_NativeEngineCargoNeeds)" />
   </Target>
 
 </Project>

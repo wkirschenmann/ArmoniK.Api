@@ -142,6 +142,21 @@
             Pack="true"
             PackagePath="runtimes\%(NativeEngineMetricsAsset.Rid)\metrics\"
             Visible="false" />
+      <!-- The x86-64-v4 builds, for the identifiers RustTargets.props marks X64V4: in
+           runtimes\[rid]\x86-64-v4 beside native, in which a subfolder would be a second native
+           asset of the same name, and in runtimes\[rid]\metrics\x86-64-v4. -->
+      <NativeEngineX64V4Asset Include="@(RustTarget->WithMetadataValue('X64V4', 'true')->'$(RustWorkspace)target\x86-64-v4\%(Triple)\$(RustProfile)\%(Library)')"
+                              Rid="%(RustTarget.Identity)"
+                              Folder="x86-64-v4" />
+      <NativeEngineX64V4Asset Include="@(RustTarget->WithMetadataValue('X64V4', 'true')->'$(RustWorkspace)target\metrics-x86-64-v4\%(Triple)\$(RustProfile)\%(Library)')"
+                              Condition="'$(NativeEngineMetrics)' != 'false'"
+                              Rid="%(RustTarget.Identity)"
+                              Folder="metrics\x86-64-v4" />
+      <None Include="@(NativeEngineX64V4Asset)"
+            Condition="'$(NativeEngineX64V4)' != 'false' AND Exists('%(NativeEngineX64V4Asset.Identity)')"
+            Pack="true"
+            PackagePath="runtimes\%(NativeEngineX64V4Asset.Rid)\%(NativeEngineX64V4Asset.Folder)\"
+            Visible="false" />
       <None Include="build\ArmoniK.Api.Client.RustGrpcChannel.targets"
             Pack="true"
             PackagePath="build\;buildTransitive\"
