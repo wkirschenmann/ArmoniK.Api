@@ -40,10 +40,13 @@ service Echo {
   // "after the head" and before it otherwise, so a client reads the reason off the RST_STREAM.
   rpc Reset (EchoRequest) returns (EchoReply);
   // `count` chunks of `size` bytes each, so a client measures what it can read rather than what
-  // the server takes to build.
+  // the server takes to build. A request whose `x-compress-response` names an encoding gets
+  // compressible text in it, and a trailer `x-sent-encoding` that names what was sent.
   rpc Stream (StreamRequest) returns (stream Chunk);
-  // Reads chunks until the client ends, and answers with how many bytes they held.
+  // Reads chunks until the client ends, and answers with how many bytes they held, and in
+  // `saw_metadata` the request's `grpc-encoding`.
   rpc Upload (stream Chunk) returns (EchoReply);
-  // Answers with how many bytes the one chunk held.
+  // Answers with how many bytes the one chunk held, and in `saw_metadata` the request's
+  // `grpc-encoding`.
   rpc UploadWhole (Chunk) returns (EchoReply);
 }

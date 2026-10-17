@@ -10,7 +10,9 @@ param(
   [string[]] $Frameworks = @("net4.8", "net8.0", "net10.0"),
   [string[]] $Transports = @("native", "managed"),
   # idle, busy, and pinned and shared: the unary latency on one connection, without and with a
-  # streamed upload beside it, which the native transports alone run.
+  # streamed upload beside it, which the native transports alone run. gzip, zstd, concurrent and
+  # large: compression both ways, 16 and 64 calls in flight, unary messages of 4 and 16 MiB; zstd
+  # runs on the native transports, against a server ARMONIK_BENCH_SERVER names (benchmarks.md).
   [string[]] $Scenarios = @("idle", "busy"),
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
@@ -81,7 +83,7 @@ try {
     foreach ($scenario in $Scenarios) {
       foreach ($variant in $variants) {
         foreach ($transport in $Transports) {
-          if (($scenario -in @("pinned", "shared")) -and ($transport -notlike "native*")) { continue }
+          if (($scenario -in @("pinned", "shared", "zstd")) -and ($transport -notlike "native*")) { continue }
           $arguments = @($transport)
           if ($scenario -ne "idle") { $arguments += $scenario }
           Set-Environment DOTNET_ROOT $(if ($variant.Root) { $variant.Root } else { $saved.DOTNET_ROOT })
@@ -103,11 +105,15 @@ finally {
 }
 
 # The median of the passes, per transport, variant and scenario.
-$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared)? (.*)$' } | ForEach-Object {
-  $fields = @{}
+$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent| large)? (.*)$' } | ForEach-Object {
+  # In the order the line gives them; the encodings a compressed run reports are words, not figures.
+  $fields = [ordered]@{}
   foreach ($pair in ($Matches[4] -split ' ')) {
     $key, $value = $pair -split '=', 2
-    $fields[$key] = [double]::Parse($value, [Globalization.CultureInfo]::InvariantCulture)
+    $number = 0.0
+    if ([double]::TryParse($value, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref] $number)) {
+      $fields[$key] = $number
+    }
   }
   [pscustomobject]@{
     Transport = $Matches[1]
@@ -120,21 +126,33 @@ function Median([double[]] $values) {
   if ($values.Count -eq 0) { return "" }
   $sorted = @($values | Sort-Object)
   $middle = [int][math]::Floor($sorted.Count / 2)
-  if ($sorted.Count % 2 -eq 1) { return [math]::Round($sorted[$middle]) }
-  return [math]::Round(($sorted[$middle - 1] + $sorted[$middle]) / 2)
+  $median = if ($sorted.Count % 2 -eq 1) { $sorted[$middle] } else { ($sorted[$middle - 1] + $sorted[$middle]) / 2 }
+  # A tenth below 100, where a whole unit is a large share: the CPU per call of calls in flight.
+  if ([math]::Abs($median) -lt 100) { return [math]::Round($median, 1) }
+  return [math]::Round($median)
 }
-$columns = "p50_us", "p95_us", "p99_us", "stream_mib_s", "upload_stream_mib_s", "upload_unary_mib_s", "alloc_b_call", "cpu_us_call",
+$latency = "p50_us", "p95_us", "p99_us", "stream_mib_s", "upload_stream_mib_s", "upload_unary_mib_s", "alloc_b_call", "cpu_us_call",
            "upload_stream_cpu_us_mib", "upload_unary_cpu_us_mib", "upload_beside_mib_s", "calib_us", "calib_end_us"
-""
-"| Variant | Scenario | Transport | " + ($columns -join " | ") + " |"
-"|---|---|---|" + (($columns | ForEach-Object { "---:" }) -join "|") + "|"
-$runs | Group-Object Variant, Scenario, Transport | ForEach-Object {
-  $first = $_.Group[0]
-  if ($_.Count -lt $Passes) {
-    Write-Warning "$($first.Variant) $($first.Scenario) $($first.Transport): the median of $($_.Count) runs, not $Passes"
+# One table per scenario: the others report figures of their own, in the order their lines give them.
+$runs | Group-Object Scenario | ForEach-Object {
+  # Every figure any run gave, in the order the lines first give them: a large run's downloads
+  # are the native transports' alone.
+  $columns = if ($_.Name -in @("idle", "busy", "pinned", "shared")) { $latency } else {
+    $seen = [ordered]@{}
+    foreach ($run in $_.Group) { foreach ($key in $run.Fields.Keys) { $seen[$key] = $true } }
+    @($seen.Keys)
   }
-  $cells = foreach ($column in $columns) {
-    Median ($_.Group | ForEach-Object { if ($_.Fields.ContainsKey($column)) { $_.Fields[$column] } })
+  ""
+  "| Variant | Scenario | Transport | " + ($columns -join " | ") + " |"
+  "|---|---|---|" + (($columns | ForEach-Object { "---:" }) -join "|") + "|"
+  $_.Group | Group-Object Variant, Transport | ForEach-Object {
+    $first = $_.Group[0]
+    if ($_.Count -lt $Passes) {
+      Write-Warning "$($first.Variant) $($first.Scenario) $($first.Transport): the median of $($_.Count) runs, not $Passes"
+    }
+    $cells = foreach ($column in $columns) {
+      Median ($_.Group | ForEach-Object { if ($_.Fields.Contains($column)) { $_.Fields[$column] } })
+    }
+    "| $($first.Variant) | $($first.Scenario) | $($first.Transport) | " + ($cells -join " | ") + " |"
   }
-  "| $($first.Variant) | $($first.Scenario) | $($first.Transport) | " + ($cells -join " | ") + " |"
 }

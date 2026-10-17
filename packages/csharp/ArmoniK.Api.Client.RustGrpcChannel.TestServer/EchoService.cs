@@ -140,23 +140,49 @@ public class EchoService : Echo.EchoBase
     }
   }
 
-  /// <summary>`Count` chunks of `Size` zero bytes, the same chunk each time.</summary>
+  /// <summary>`Count` chunks of `Size` bytes, the same chunk each time: zeros, or text compressed in
+  /// the encoding `x-compress-response` names, which the trailer `x-sent-encoding` repeats.</summary>
   public override async Task Stream(StreamRequest              request,
                                     IServerStreamWriter<Chunk> responses,
                                     ServerCallContext          context)
   {
+    var data = new byte[request.Size];
+    var encoding = context.GetHttpContext()
+                          .Request.Headers["x-compress-response"]
+                          .ToString();
+    if (encoding.Length > 0)
+    {
+      Corpus.Fill(data);
+      await context.WriteResponseHeadersAsync(new Metadata
+                                              {
+                                                {
+                                                  "grpc-internal-encoding-request", encoding
+                                                },
+                                              })
+                   .ConfigureAwait(false);
+    }
+
     var chunk = new Chunk
                 {
-                  Data = ByteString.CopyFrom(new byte[request.Size]),
+                  Data = ByteString.CopyFrom(data),
                 };
     for (var sent = 0; sent < request.Count; sent++)
     {
       await responses.WriteAsync(chunk)
                      .ConfigureAwait(false);
     }
+
+    if (encoding.Length > 0)
+    {
+      context.ResponseTrailers.Add("x-sent-encoding",
+                                   context.GetHttpContext()
+                                          .Response.Headers["grpc-encoding"]
+                                          .ToString());
+    }
   }
 
-  /// <summary>Reads every chunk and answers with how many bytes they held.</summary>
+  /// <summary>Reads every chunk and answers with how many bytes they held, and the request's
+  /// grpc-encoding.</summary>
   public override async Task<EchoReply> Upload(IAsyncStreamReader<Chunk> requests,
                                                ServerCallContext       context)
   {
@@ -169,16 +195,22 @@ public class EchoService : Echo.EchoBase
 
     return new EchoReply
            {
-             Text = received.ToString(CultureInfo.InvariantCulture),
+             Text        = received.ToString(CultureInfo.InvariantCulture),
+             SawMetadata = context.GetHttpContext()
+                                  .Request.Headers["grpc-encoding"]
+                                  .ToString(),
            };
   }
 
-  /// <summary>Answers with how many bytes the one chunk held.</summary>
+  /// <summary>Answers with how many bytes the one chunk held, and the request's grpc-encoding.</summary>
   public override Task<EchoReply> UploadWhole(Chunk             request,
                                               ServerCallContext context)
     => Task.FromResult(new EchoReply
                        {
-                         Text = request.Data.Length.ToString(CultureInfo.InvariantCulture),
+                         Text        = request.Data.Length.ToString(CultureInfo.InvariantCulture),
+                         SawMetadata = context.GetHttpContext()
+                                              .Request.Headers["grpc-encoding"]
+                                              .ToString(),
                        });
 
   /// <summary>Reads every request message and answers once, naming what it saw.</summary>

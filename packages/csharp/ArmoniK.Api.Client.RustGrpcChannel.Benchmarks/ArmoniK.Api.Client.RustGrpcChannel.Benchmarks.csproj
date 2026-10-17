@@ -45,6 +45,8 @@
 
   <ItemGroup>
     <Protobuf Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\echo.proto" GrpcServices="Client" />
+    <!-- The text the server sends compressed, which the compressed scenarios send too. -->
+    <Compile Include="..\ArmoniK.Api.Client.RustGrpcChannel.TestServer\Corpus.cs" Link="Corpus.cs" />
   </ItemGroup>
 
   <ItemGroup>

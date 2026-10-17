@@ -973,10 +973,18 @@ i686 ones under .NET Framework 4.8 in an x86 process, the `metrics` ones under .
 just-in-time, all with the native transport; one row per workload runs grpc-dotnet on .NET 8
 just-in-time as the reference.
 
-The workloads are modes of the benchmark that are not committed, and the server is the test
-server built for .NET 11 RC1 with a zstd provider over its `ZstandardStream`, also not committed:
-grpc-dotnet has no zstd before .NET 11. Its `Say` is the plain one. The figures do not compare
-with the sections above, which ran another server.
+The workloads are the benchmark's `gzip`, `zstd`, `concurrent` and `large` scenarios and its
+`-h2c` transports. The server is the test server rebuilt for .NET 11 RC1, which the repository
+does not build: grpc-dotnet has no zstd provider, and .NET 11's `ZstandardStream` makes one. To
+build it again, copy `ArmoniK.Api.Client.RustGrpcChannel.TestServer` out of the tree, set its
+`TargetFramework` to `net11.0`, and give `AddGrpc` three `CompressionProviders`: grpc-dotnet's
+`GzipCompressionProvider` and `DeflateCompressionProvider` at `CompressionLevel.Fastest`, and one
+named `zstd` whose streams are `new ZstandardStream(stream, level ?? CompressionLevel.Fastest,
+true)` and `new ZstandardStream(stream, CompressionMode.Decompress)`. Build it with an SDK 11, and
+run the benchmark with `ARMONIK_BENCH_SERVER` naming its `.dll` and `ARMONIK_BENCH_SERVER_HOST`
+that SDK's `dotnet`. Every run of the campaign, gzip and the rest included, used that server,
+its `Say` the plain one. The figures do not compare with the sections above, which ran the
+server built here.
 
 - **gzip** and **zstd**: `Grpc.Send.Compression` and `Grpc.Receive.Compression` set to the
   encoding; 64 MiB uploaded as 64 KiB chunks and as one message, and 64 MiB downloaded as 64 KiB
@@ -1218,7 +1226,10 @@ Either build writes its engine over the other's, so a run of both builds takes a
 output directory before the second build. A run that fails is reported and left out, and a cell
 left with fewer passes says so. `pinned` and `shared`, in `-Scenarios`, measure the unary latency
 alone, on a native channel held to one connection, without and with a streamed upload beside it; the
-managed transports skip them.
+managed transports skip them. `gzip`, `zstd`, `concurrent` and `large` run the workloads of "The
+processor levels, on LTO engines", each summed up in a table of its own; the managed transports
+skip `zstd`, and the test server built here refuses it: that section says how to build one that
+takes it. A `gzip` or `zstd` run that finds a leg sent uncompressed fails.
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:
@@ -1243,4 +1254,6 @@ on .NET the thread pool work items, and for an idle run the CPU per call and per
 the memory before and after the uploads. `ARMONIK_BENCH_AFFINITY` and `ARMONIK_BENCH_PRIORITY` set
 where it and its server run. The benchmark starts its test server, a `net8.0` program, with
 `--plain-say` and the `dotnet` the system finds first, which has to be an install with a .NET 8
-runtime. Every run's line ends with the two calibrations.
+runtime; `ARMONIK_BENCH_SERVER` names another build of the server instead, and
+`ARMONIK_BENCH_SERVER_HOST` the `dotnet` that runs it. Every run's line ends with the two
+calibrations.
