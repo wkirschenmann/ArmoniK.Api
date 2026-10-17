@@ -1220,11 +1220,12 @@ The workload ArmoniK's clients weigh most is a client that presents a certificat
 payloads of 100 MiB and more as client streams, and makes many small unary calls, all on one
 channel and at the same time. The benchmark's `mixed` scenario runs it:
 
-- **Mutual TLS.** The test server, started with `--mtls`, requires a client certificate and
-  accepts one only when it chains to the authority that issued the server's own certificate. It
-  issues that client certificate at start, writes it and its key, PKCS#8, as PEM files it names on
-  stdout (`CLIENT_CERT` and `CLIENT_KEY`, beside `CA`), and removes them when it stops. The native
-  channel presents them through `Transport.Tls.ClientCertificate.Pem`, grpc-dotnet through
+- **Mutual TLS.** The test server, started with `--mtls`, requires a client certificate and accepts
+  one only when it chains to the authority that issued its own certificate; a certificate from
+  another authority was refused in a manual check when the option was added. It issues that client
+  certificate at start, writes it and its key, PKCS#8, as PEM files it names on stdout
+  (`CLIENT_CERT` and `CLIENT_KEY`, beside `CA`), and removes them when it stops. The native channel
+  presents them through `Transport.Tls.ClientCertificate.Pem`, grpc-dotnet through
   `GrpcClient.CertPem` and `KeyPem`, which `GrpcChannelFactory` hands to its handler. The `-h2c`
   transports run the scenario in the clear.
 - **The uploads**: K workers (`k=`, 1 by default) take client-streaming `Upload` calls of `size`
@@ -1236,31 +1237,34 @@ channel and at the same time. The benchmark's `mixed` scenario runs it:
 - **One channel** carries both. `pool=N` sets the native channel's
   `Http2.SimultaneousCallsPerConnection` to `{"Limit": N}`: a call goes on the fullest connection
   with room, a new one when none has. `pool=server`, the default, leaves it at `"FromServer"`, as
-  many calls on a connection as the server allows, 100 for this one. grpc-dotnet takes no such
-  option through `GrpcChannelFactory`: its handler decides, and `conns` says what it did.
+  many calls on a connection as the server allows, 100 for this one. grpc-dotnet has no such
+  option through `GrpcChannelFactory`, and the two do not compare as pools: on .NET its
+  `HttpClientHandler` sets neither `EnableMultipleHttp2Connections` nor `MaxConnectionsPerServer`,
+  so it keeps to one connection and queues the calls past the server's 100 streams, while on .NET
+  Framework `WinHttpHandler` opens connections of its own accord; `conns` says how many.
 - **The warm-up.** The server first, on a channel of its own that closes before the run's opens:
   50 000 `Say` at 64 in flight, and four uploads of 64 MiB at once in the run's chunks. The
-  server's just-in-time compiler moves a method to optimized code only once it has run a while, so
-  that a server warmed by a few thousand calls is still compiling. Its CPU per call over the last
-  10 000 of those calls is printed (`srv_warm_us_call`), so that a server still compiling shows.
-  Then the run's channel: 2 000 calls with M in flight and K uploads of 16 MiB at once, which open
-  the connections the run uses and no others.
+  server's just-in-time compiler moves a method to optimized code only once it has run a while,
+  and a server warmed by a few thousand calls is still compiling; its CPU per call over the last
+  10 000 of those calls (`srv_warm_us_call`) shows one that is. Then the run's channel: 2 000
+  calls with M in flight and K uploads of 16 MiB at once, which open the connections the run uses
+  and no others.
 - **The window.** The calls run alone for 500 ms, and the window opens as the uploads start. It
   closes when the last upload ends, or after 5 s when K is 0. M = 0 runs the uploads alone.
 
-A run's line names its parameters (`mixed-k4-m64-s128-c64-p16`, `pS` for `pool=server`). The
-uploads' figures, which a run with K = 0 leaves out, are their MiB per second over the window
-(`l_mib_s`) and the median and the longest upload in seconds (`l_up_p50_s`, `l_up_max_s`). The
-unary calls' are those that end in the window, a call held across its opening included: their
-number per second (`u_calls_s`), and their P50, P99, P99.9 and longest in microseconds
-(`u_p50_us`, `u_p99_us`, `u_p999_us`, `u_max_us`), left out when M is 0 or no call ends in the
-window. The CPU figures are the window's, both tasks' together: the client process's per MiB
-uploaded and per call (`cpu_us_mib_both`, `cpu_us_call_both`) and in cores (`cpu_cores`), and the
-server's likewise (`srv_us_mib_both`, `srv_us_call_both`, `srv_cpu_cores`), which tells a run the
-server held back. Sampled every 250 ms, since the process's own peak would count the warm-up's:
-the most TCP connections established to the server at once (`conns`), and the most private bytes
-the client held above what it held before its channel opened (`peak_above_mib`, that base being
-`base_private_mib`). `window_s` is the window's length.
+A run's line names its parameters (`mixed-k4-m64-s128-c64-p16`, `pS` for `pool=server`), then gives,
+over the window (`window_s` long): the uploads' MiB per second and their median and longest duration
+(`l_*`); the unary calls that end in the window, a call held across its opening included, per second
+and their P50, P99, P99.9 and longest (`u_*`); the CPU of the client and of the server per MiB and
+per call, both tasks' together (`*_both`), the upload figures and the CPU per MiB absent when K is
+0, the unary figures and the CPU per call when M is 0, and the latencies and the CPU per call also
+when no call ends in the window; the CPU in cores (`cpu_cores`, `srv_cpu_cores`), the server's
+telling a run it held back; and the client's busiest thread in cores (`busiest_thread_cores`), a
+native channel's engine work running on one thread. Sampled every 250 ms, since the process's own
+peak would count the warm-up's: the most connections established to the server (`conns`) and the
+most private bytes above the client's before its channel opened (`peak_above_mib`, above
+`base_private_mib`), a run none of whose samples succeeds failing, and the failed ones counted
+(`samples_failed`, which `campaign.ps1` reports for the worst pass rather than the median).
 
 ## The machine
 
@@ -1317,12 +1321,14 @@ skip `zstd`, and the test server built here refuses it: that section says how to
 takes it. A `gzip` or `zstd` run fails if a leg's stream does not announce the encoding; a
 message the engine leaves uncompressed under that announcement, as it may, is not detected.
 `mixed` runs the scenario of "Large uploads beside unary calls, over mutual TLS", its parameters
-after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB and `chunk=`
-in KiB (each at most 4 096, the chunk dividing the size), and `pool=`, `server` or a number, a
-number being refused by the managed transports. A value outside these, or an unknown key, has the
-benchmark print its usage and exit 2. In `-Scenarios` the parameters follow it after spaces, as in
-`"mixed k=4 m=64 pool=16"`; the managed transports skip a numbered pool, and the mixed runs share
-one table, a row per set of parameters, which each run's line names (`mixed-k4-m64-s128-c64-p16`).
+after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB (at most
+4 096) and `chunk=` in KiB (at most 1 GiB, dividing the size), `pool=`, `server` or a number, and
+`fpw=`, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which names the
+run with `-fN` after its pool; a numbered pool and `fpw=` are refused by the managed transports. A
+value outside these, or an unknown key, has the benchmark print its usage and exit 2. In
+`-Scenarios` the parameters follow it after spaces, as in `"mixed k=4 m=64 pool=16"`; the managed
+transports skip a numbered pool and `fpw=`, and the mixed runs share one table, a row per set of
+parameters, which each run's line names (`mixed-k4-m64-s128-c64-p16`).
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:
