@@ -1457,6 +1457,14 @@ oldest gap this document carries: T1.5's arm64, mapped and never once built or r
 and `osx-arm64` have hosted runners too. What no hosted runner covers is 32-bit armv7 - `linux-arm`
 and `linux-musl-arm` are cross-compiled and stay unexecuted, and that is the honest tier boundary.
 
+The win-arm64 leg must build with LSE (`+lse`) through `packages/rust/.cargo/config.toml`. It runs
+cargo from `packages/rust`, where cargo reads that file, and sets no `RUSTFLAGS`, since that variable
+replaces the config's flags; either mistake still builds, with load/store-exclusive loops, so the leg
+also counts `ldadd` and `cas` instructions in a disassembly of the DLL and fails when it finds none. It is the
+one engine for that identifier; the binding refuses a system without LSE before it loads it
+(decisions.md, 2026-10-17). The flag is keyed on the target, so a `cargo test` on a Windows arm64
+machine without LSE stops too, which the binding's guard does not cover.
+
 **Why every target needs a C compiler**: `rustls` reaches `ring`, which is not written in Rust
 alone - 107 C and assembly files its build script hands to `cc`. That is also the whole reason a
 Windows build needs `cl.exe`. The crypto itself is nearly freestanding, including two libc headers

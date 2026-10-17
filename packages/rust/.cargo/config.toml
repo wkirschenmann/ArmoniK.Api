@@ -8,3 +8,8 @@ rustflags = ["-C", "target-feature=-crt-static"]
 
 [target.aarch64-unknown-linux-musl]
 rustflags = ["-C", "target-feature=-crt-static"]
+
+# Every Windows 11 on Arm CPU Microsoft supports has LSE; without it each atomic RMW is an LL/SC loop.
+# A CPU without LSE stops on an illegal instruction with nothing to report it: a host checks for LSE before it loads the engine.
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+lse"]
