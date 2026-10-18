@@ -7,6 +7,9 @@
 //! [`settings::ChannelSettings`]. [`configuration::Configuration`] loads the options from files, the
 //! environment and documents.
 
+// Named for the feature its Cargo.toml turns on, which flate2 reaches.
+use zlib_rs as _;
+
 mod coalesce;
 pub mod configuration;
 mod connector;
