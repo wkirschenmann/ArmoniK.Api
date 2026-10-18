@@ -99,7 +99,7 @@ public static class Program
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
       Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
-      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=N]   (pool, fpw: native only)");
+      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256]   (pool, fpw: native only)");
       return 2;
     }
 
@@ -953,11 +953,13 @@ public static class Program
 
         var uploaded = await Task.WhenAll(uploaders)
                                  .ConfigureAwait(false);
-        var end        = Stopwatch.GetTimestamp();
-        var used       = (CpuNow()   - cpu).TotalMilliseconds       * 1000;
-        var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
+        var end = Stopwatch.GetTimestamp();
+        // Read at the close, so that the thread times end with the window; listing the threads costs
+        // CPU the process figure counts, as it counts the sampler's.
         var busiest = Busiest(threads,
                               ThreadTimes());
+        var used       = (CpuNow()   - cpu).TotalMilliseconds       * 1000;
+        var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
         sampler.Change(Timeout.InfiniteTimeSpan,
                        Timeout.InfiniteTimeSpan);
         stop.Cancel();
@@ -1250,8 +1252,7 @@ public static class Program
     /// build's default.</summary>
     internal int FramesPerWrite { get; private set; }
 
-    /// <summary>The parameters, the frames per write only when stated, so that a default run keeps
-    /// one name.</summary>
+    /// <summary>The parameters, with the -fN suffix only when the frames per write are stated.</summary>
     internal string Label
       => string.Format(CultureInfo.InvariantCulture,
                        "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}",
@@ -1313,7 +1314,7 @@ public static class Program
           case "pool" when value > 0:
             mixed.Pool = value;
             break;
-          case "fpw" when value > 0:
+          case "fpw" when value is >= 1 and <= 256:
             mixed.FramesPerWrite = value;
             break;
           default:
@@ -1321,8 +1322,8 @@ public static class Program
         }
       }
 
-      // A chunk divides the upload. At most 1 GiB, a chosen bound well within the 2 GiB that its
-      // bytes in an int, and a protobuf message, allow.
+      // A chunk divides the upload. At most 1 GiB: its byte count has to fit an int and a protobuf
+      // message (2 GiB).
       var valid = mixed.Uploads + mixed.Callers > 0        && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
                   mixed.ChunkKiB is > 0 and <= 1024 * 1024 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 &&
                   !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0));

@@ -178,8 +178,11 @@ $runs | Group-Object { $_.Scenario -replace '^mixed-.*', 'mixed' } | ForEach-Obj
     }
     $cells = foreach ($column in $columns) {
       $values = @($_.Group | ForEach-Object { if ($_.Fields.Contains($column)) { $_.Fields[$column] } })
-      # A count of failures shows its worst pass: a median would hide one pass's failures.
-      if ($column -eq "samples_failed") { ($values | Measure-Object -Maximum).Maximum } else { Median $values }
+      # A count of failures shows its worst pass: a median would hide one pass's failures. A cell
+      # whose runs printed no count is "-", so that it never reads as no failure.
+      if ($column -eq "samples_failed") {
+        if ($values.Count -eq 0) { "-" } else { ($values | Measure-Object -Maximum).Maximum }
+      } else { Median $values }
     }
     "| $($first.Variant) | $($first.Scenario) | $($first.Transport) | " + ($cells -join " | ") + " |"
   }
