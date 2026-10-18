@@ -157,6 +157,15 @@
             Pack="true"
             PackagePath="runtimes\%(NativeEngineX64V4Asset.Rid)\%(NativeEngineX64V4Asset.Folder)\"
             Visible="false" />
+      <!-- The CPU probe, which the binding asks whether the CPU runs x86-64-v4: a native asset
+           of its own name, which a package manager places as it does the baseline. -->
+      <NativeEngineCpuProbeAsset Include="@(RustTarget->WithMetadataValue('X64V4', 'true')->'$(RustWorkspace)target\%(Triple)\$(RustProfile)\%(CpuProbe)')"
+                                 Rid="%(RustTarget.Identity)" />
+      <None Include="@(NativeEngineCpuProbeAsset)"
+            Condition="'$(NativeEngineX64V4)' != 'false' AND Exists('%(NativeEngineCpuProbeAsset.Identity)')"
+            Pack="true"
+            PackagePath="runtimes\%(NativeEngineCpuProbeAsset.Rid)\native\"
+            Visible="false" />
       <None Include="build\ArmoniK.Api.Client.RustGrpcChannel.targets"
             Pack="true"
             PackagePath="build\;buildTransitive\"

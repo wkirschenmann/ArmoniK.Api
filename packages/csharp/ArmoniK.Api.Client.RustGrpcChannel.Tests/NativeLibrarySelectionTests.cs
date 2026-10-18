@@ -323,14 +323,18 @@ public class NativeLibrarySelectionTests
                                                                 NativeLibrarySelection.X64V4Folder))
                              .Any(File.Exists);
 
-#if NET8_0_OR_GREATER
-  /// <summary>An x64 process that the operating system and the runtime both say runs x86-64-v4
-  /// loads that build, which the test above cannot tell from a binding that never picks it.</summary>
+  /// <summary>An x64 process that runs x86-64-v4 loads that build, which the test above cannot tell
+  /// from a binding that never picks it. The runtime says whether it does on .NET 8 and later, and
+  /// the CPU probe, which the runtime checks there, on .NET Framework.</summary>
   [Test]
   public void WithX64V4TheX64V4BuildIsLoaded()
   {
-    Assume.That(RuntimeInformation.ProcessArchitecture == Architecture.X64 && OperatingSystemReportsAvx512F() && Avx512F.IsSupported && Avx512F.VL.IsSupported &&
-                Avx512BW.IsSupported && Avx512CD.IsSupported && Avx512DQ.IsSupported,
+#if NET8_0_OR_GREATER
+    var runsX64V4 = OperatingSystemReportsAvx512F() && RuntimeReportsX64V4();
+#else
+    var runsX64V4 = OperatingSystemReportsAvx512F() && AskTheTestBuildsCpuProbe() == true;
+#endif
+    Assume.That(RuntimeInformation.ProcessArchitecture == Architecture.X64 && runsX64V4,
                 Is.True,
                 "this process does not run x86-64-v4");
     Assume.That(X64V4BuildIsInPlace(),
@@ -343,7 +347,192 @@ public class NativeLibrarySelectionTests
                 Is.True,
                 LoadedModule());
   }
+
+#if NET8_0_OR_GREATER
+  /// <summary>Whether the runtime reports every AVX-512 subset x86-64-v4 has, which it does only once
+  /// the operating system has enabled their state.</summary>
+  private static bool RuntimeReportsX64V4()
+    => Avx512F.IsSupported && Avx512F.VL.IsSupported && Avx512BW.IsSupported && Avx512CD.IsSupported && Avx512DQ.IsSupported;
 #endif
+
+  /// <summary>The answer of the CPU probe the test build put where the package does.</summary>
+  private static bool? AskTheTestBuildsCpuProbe()
+    => NativeLibrarySelection.AskTheCpuProbe(NativeLibrarySelection.CpuProbeCandidates(new[]
+                                                                                      {
+                                                                                        AppDomain.CurrentDomain.BaseDirectory,
+                                                                                      }));
+
+  /// <summary>Whether the test build put the CPU probe where the package does.</summary>
+  private static bool CpuProbeIsInPlace()
+    => NativeLibrarySelection.CpuProbeCandidates(new[]
+                                                 {
+                                                   AppDomain.CurrentDomain.BaseDirectory,
+                                                 })
+                             .Any(File.Exists);
+
+#if NET8_0_OR_GREATER
+  /// <summary>The probe answers what the runtime reports, so .NET 8 and .NET Framework follow one rule.</summary>
+  [Test]
+  public void TheCpuProbeAnswersWhatTheRuntimeReports()
+  {
+    Assume.That(RuntimeInformation.ProcessArchitecture == Architecture.X64 && CpuProbeIsInPlace(),
+                Is.True,
+                "the test build put no CPU probe for this identifier");
+
+    Assert.That(AskTheTestBuildsCpuProbe(),
+                Is.EqualTo(RuntimeReportsX64V4()));
+  }
+#endif
+
+#if NETFRAMEWORK
+  /// <summary>On a CPU without AVX-512F the probe answers, and answers no.</summary>
+  [Test]
+  public void TheCpuProbeAnswersNoWithoutAvx512F()
+  {
+    Assume.That(RuntimeInformation.ProcessArchitecture == Architecture.X64 && CpuProbeIsInPlace(),
+                Is.True,
+                "the test build put no CPU probe for this identifier");
+    Assume.That(OperatingSystemReportsAvx512F(),
+                Is.False,
+                "this CPU has AVX-512F");
+
+    Assert.That(AskTheTestBuildsCpuProbe(),
+                Is.False);
+  }
+#endif
+
+  /// <summary>Only an x64 process asks the probe: no other architecture has an x86-64-v4 build.</summary>
+  [TestCase(Architecture.X86)]
+  [TestCase(Architecture.Arm)]
+  [TestCase(Architecture.Arm64)]
+  public void OnlyAnX64ProcessAsksTheCpuProbe(Architecture architecture)
+    => Assert.That(NativeLibrarySelection.RunsX64V4(architecture,
+                                                    () => throw new AssertionException("the probe was asked")),
+                   Is.False);
+
+  /// <summary>An x64 process runs x86-64-v4 when the probe says so, and a probe that is missing or
+  /// fails is a no.</summary>
+  [TestCase(true,
+            ExpectedResult = true)]
+  [TestCase(false,
+            ExpectedResult = false)]
+  [TestCase(null,
+            ExpectedResult = false)]
+  public bool AnX64ProcessRunsX64V4WhenTheCpuProbeSaysSo(bool? answer)
+    => NativeLibrarySelection.RunsX64V4(Architecture.X64,
+                                        () => answer);
+
+  [Test]
+  public void TheCpuProbeIsLookedForBesideTheBaselineOfEachLayout()
+  {
+    var probe = NativeLibrarySelection.LibraryFileName(NativeLibrarySelection.CpuProbeLibrary);
+
+    Assert.That(NativeLibrarySelection.CpuProbeCandidates(new[]
+                                                          {
+                                                            Root,
+                                                          }),
+                Is.EqualTo(new[]
+                           {
+                             Path.Combine(Root,
+                                          "runtimes",
+                                          NativeLibrarySelection.RuntimeIdentifier(),
+                                          "native",
+                                          probe),
+                             Path.Combine(Root,
+                                          RuntimeInformation.ProcessArchitecture.ToString()
+                                                            .ToLowerInvariant(),
+                                          probe),
+                             Path.Combine(Root,
+                                          probe),
+                           }));
+  }
+
+  [Test]
+  public void AMissingCpuProbeGivesNoAnswer()
+    => Assert.That(NativeLibrarySelection.AskTheCpuProbe(new[]
+                                                         {
+                                                           Path.Combine(Root,
+                                                                        "nowhere",
+                                                                        "armonik_cpu_probe.dll"),
+                                                         }),
+                   Is.Null);
+
+  /// <summary>A file that is not a library is no answer, and no error: the probe is an optimisation.</summary>
+  [Test]
+  public void ACpuProbeThatDoesNotLoadGivesNoAnswer()
+  {
+    var folder = Path.Combine(Path.GetTempPath(),
+                              Path.GetRandomFileName());
+    Directory.CreateDirectory(folder);
+    try
+    {
+      var file = Path.Combine(folder,
+                              "armonik_cpu_probe.dll");
+      File.WriteAllText(file,
+                        "not a library");
+
+      Assert.That(NativeLibrarySelection.AskTheCpuProbe(new[]
+                                                        {
+                                                          file,
+                                                        }),
+                  Is.Null);
+    }
+    finally
+    {
+      Directory.Delete(folder,
+                       true);
+    }
+  }
+
+  /// <summary>A library without the probe's export is no answer.</summary>
+  [Test]
+  public void ALibraryWithoutTheAnswerGivesNoAnswer()
+  {
+    Assume.That(RuntimeInformation.IsOSPlatform(OSPlatform.Windows),
+                Is.True,
+                "kernel32.dll is the library known to load");
+
+    Assert.That(NativeLibrarySelection.AskTheCpuProbe(new[]
+                                                      {
+                                                        Path.Combine(Environment.SystemDirectory,
+                                                                     "kernel32.dll"),
+                                                      }),
+                Is.Null);
+  }
+
+  /// <summary>An x86-64-v4 file that is there and will not load is reported, with the way out.</summary>
+  [Test]
+  public void AnX64V4BuildThatWillNotLoadSaysDeletingItLoadsTheBaseline()
+  {
+    var file = InThePackage(NativeLibrarySelection.X64V4Folder);
+    var missing = RustEngineMissingException.ForBuild(NativeEngineBuild.Default,
+                                                      null,
+                                                      new BadImageFormatException("an illegal instruction"),
+                                                      file);
+
+    Assert.Multiple(() =>
+                    {
+                      Assert.That(missing.Message,
+                                  Does.Contain(file));
+                      Assert.That(missing.Message,
+                                  Does.Contain("x86-64-v4"));
+                      Assert.That(missing.Message,
+                                  Does.Contain("delete it and the binding loads the baseline"));
+                    });
+  }
+
+  [Test]
+  public void AnX64V4BuildIsOneInAnX64V4Folder()
+    => Assert.Multiple(() =>
+                       {
+                         Assert.That(NativeLibrarySelection.InAnX64V4Folder(InThePackage(NativeLibrarySelection.X64V4Folder)),
+                                     Is.True);
+                         Assert.That(NativeLibrarySelection.InAnX64V4Folder(InThePackage("metrics",
+                                                                                         NativeLibrarySelection.X64V4Folder)),
+                                     Is.True);
+                         Assert.That(NativeLibrarySelection.InAnX64V4Folder(InThePackage("metrics")),
+                                     Is.False);
+                       });
 
   /// <summary>A CPU without AVX-512F, as the operating system or the runtime reports it, runs the
   /// baseline, whatever the package carries.</summary>
@@ -471,12 +660,4 @@ public class NativeLibrarySelectionTests
                         InThePackage("metrics",
                                      NativeLibrarySelection.X64V4Folder)),
                    Is.EqualTo(InThePackage("metrics")));
-
-#if NETFRAMEWORK
-  /// <summary>.NET Framework has no API that reports AVX-512 BW, CD, DQ or VL, and loads the baseline.</summary>
-  [Test]
-  public void NetFrameworkNeverRunsX64V4()
-    => Assert.That(NativeLibrarySelection.RunsX64V4(),
-                   Is.False);
-#endif
 }

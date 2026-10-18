@@ -1505,11 +1505,17 @@ package no job publishes, and a consumer restoring one fails:
   `runtimes/<rid>/metrics/x86-64-v4/`. The local build produces them on a win-x64 or linux-x64
   host, under `target/x86-64-v4` and `target/metrics-x86-64-v4`, through
   `--config .cargo/x86-64-v4.toml`, unless `-p:NativeEngineX64V4=false`, which builds the
-  baseline alone. CI builds and packs them for both identifiers, sets no `RUSTFLAGS`, which would
-  drop the flag and which `NativeEngine.targets` refuses, and checks that the package lists both
-  folders for each. A runner without AVX-512 runs the suites against the baseline alone; one with
-  it, which GitHub's x64 runners may or may not be, runs them against the x86-64-v4 engine, which
-  nothing else runs. No linux-x64 one has been built through the MSBuild;
+  baseline alone. With them comes the CPU probe the binding asks before it picks one,
+  `armonik_cpu_probe`, built for the baseline in the baseline engine's cargo run
+  (`-p armonik-cpu-probe`) and packed in `runtimes/<rid>/native/`. CI builds and packs them for
+  both identifiers, sets no `RUSTFLAGS`, which would drop the flag and which
+  `NativeEngine.targets` refuses, and checks that the package lists both folders and the probe
+  for each. The .NET Framework legs load them too, by the same rule as .NET 8, so their
+  `-p:NativeEngineX64V4` stays on. A runner without AVX-512 runs the suites against the baseline
+  alone, and its probe tests check that the probe answers what the runtime reports on .NET 8
+  and no on .NET Framework; one with it, which GitHub's x64
+  runners may or may not be, runs them against the x86-64-v4 engine, which nothing else runs. No
+  linux-x64 one has been built through the MSBuild;
 - the patch: the binding builds its engine against h2-batch's patch unless `NativeEngineH2Batch`
   is `false`, through `packages/rust/patches/h2-batch/build.sh`, whose README says what it needs;
   the Rust workspace's builds and the crates on crates.io stay on stock h2. CI supplies bash, tar,

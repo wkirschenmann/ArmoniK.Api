@@ -19,9 +19,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-#if NET8_0_OR_GREATER
-using System.Runtime.Intrinsics.X86;
-#endif
 
 using ArmoniK.Api.Client.RustGrpcChannel.Interop;
 
@@ -47,12 +44,10 @@ public enum NativeEngineBuild
 /// loads it - and asking for the other build afterwards is refused. A process loads one build, since
 /// the binding does not unload the library it loaded.
 ///
-/// For win-x64 and linux-x64, each build is also carried compiled for x86-64-v4 (AVX-512 F, BW, CD,
-/// DQ and VL), in an <c>x86-64-v4</c> folder: beside <c>native</c> for the default build, inside
-/// <c>metrics</c> for the other. That one is not asked for. The build of this assembly for net8.0 or
-/// later loads it in an x64 process whose CPU and operating system run AVX-512, when the package has
-/// it. Every other process loads the baseline, and so does the netstandard2.0 build, which serves
-/// .NET Framework and .NET before 8.
+/// For win-x64 and linux-x64 each build is also carried compiled for x86-64-v4, in an
+/// <c>x86-64-v4</c> folder, which the binding loads in its place when a CPU probe shipped beside the
+/// baseline says the CPU and the operating system run it (the repository's
+/// spec/armonik_grpc_ffi/architecture.md, "Which engine file a process loads", gives the details).
 public static class NativeLibrarySelection
 {
   private static readonly object Gate = new();
@@ -158,6 +153,7 @@ public static class NativeLibrarySelection
       }
 
       string? path = null;
+      string? x64V4File = null;
       try
       {
         var roots = Roots();
@@ -167,6 +163,9 @@ public static class NativeLibrarySelection
                       File.Exists);
         if (path is not null)
         {
+          x64V4File = InAnX64V4Folder(path)
+                        ? path
+                        : null;
           Load(path);
         }
         else if (requested_ == NativeEngineBuild.Metrics)
@@ -189,7 +188,8 @@ public static class NativeLibrarySelection
         {
           failure_ = RustEngineMissingException.ForBuild(requested_,
                                                          null,
-                                                         error);
+                                                         error,
+                                                         x64V4File);
         }
       }
       catch (RustEngineMissingException missing)
@@ -254,24 +254,118 @@ public static class NativeLibrarySelection
   /// <summary>The folder, inside the folder of each build, that holds that build compiled for x86-64-v4.</summary>
   internal const string X64V4Folder = "x86-64-v4";
 
-  /// <summary>Whether this process can run the engine compiled for x86-64-v4: an x64 process on a CPU
-  /// with AVX-512 F, BW, CD, DQ and VL, whose operating system saves the AVX-512 registers.</summary>
+  /// <summary>The library that answers whether the CPU runs x86-64-v4, carried beside the x64 baselines.</summary>
+  internal const string CpuProbeLibrary = "armonik_cpu_probe";
+
+  private const string CpuProbeExport = "armonik_cpu_probe_runs_x86_64_v4";
+
+  /// <summary>Whether this process loads the engine compiled for x86-64-v4, as the CPU probe answers.</summary>
   internal static bool RunsX64V4()
+    => RunsX64V4(RuntimeInformation.ProcessArchitecture,
+                 () => AskTheCpuProbe(CpuProbeCandidates(Roots())));
+
+  /// <summary>Whether a process of this architecture loads the engine compiled for x86-64-v4: an x64
+  /// one whose CPU probe says the CPU and the operating system run it.</summary>
+  /// <param name="architecture">The architecture of the process.</param>
+  /// <param name="probe">Asks the CPU probe; <c>null</c> when it is missing or fails, which is a no,
+  /// since the baseline runs everywhere.</param>
+  internal static bool RunsX64V4(Architecture architecture,
+                                 Func<bool?>  probe)
   {
-    if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+    if (architecture != Architecture.X64)
     {
       return false;
     }
 
-#if NET8_0_OR_GREATER
-    // The runtime reports these only once the OS has enabled the opmask and ZMM state in XCR0.
-    return Avx512F.IsSupported && Avx512F.VL.IsSupported && Avx512BW.IsSupported && Avx512CD.IsSupported && Avx512DQ.IsSupported;
+#if !NET5_0_OR_GREATER
+    // On a .NET runtime a library this build loads by its path loses to the one beside the
+    // application, so the x86-64-v4 file would be loaded and the baseline bound.
+    if (!IsNetFramework())
+    {
+      return false;
+    }
+#endif
+
+    return probe() == true;
+  }
+
+  /// <summary>Where the CPU probe is looked for, in order: beside the baseline in each layout the
+  /// engine is looked for in.</summary>
+  /// <param name="roots">The folders the package's layouts are looked for in.</param>
+  internal static IReadOnlyList<string> CpuProbeCandidates(IReadOnlyList<string> roots)
+    => roots.SelectMany(root => new[]
+                                {
+                                  Path.Combine(root,
+                                               "runtimes",
+                                               RuntimeIdentifier(),
+                                               "native"),
+                                  Path.Combine(root,
+                                               RuntimeInformation.ProcessArchitecture.ToString()
+                                                                 .ToLowerInvariant()),
+                                  root,
+                                })
+            .Select(folder => Path.Combine(folder,
+                                           LibraryFileName(CpuProbeLibrary)))
+            .ToList();
+
+  /// <summary>The first of the candidates that is there, loaded, asked, and freed.</summary>
+  /// <returns>Its answer, or <c>null</c> when none is there or the one found does not load or does
+  /// not answer.</returns>
+  internal static unsafe bool? AskTheCpuProbe(IEnumerable<string> candidates)
+  {
+    var path = Locate(candidates,
+                      File.Exists);
+    if (path is null)
+    {
+      return null;
+    }
+
+#if NET5_0_OR_GREATER
+    if (!NativeLibrary.TryLoad(path,
+                               out var library))
+    {
+      return null;
+    }
+
+    try
+    {
+      return NativeLibrary.TryGetExport(library,
+                                        CpuProbeExport,
+                                        out var answer)
+               ? ((delegate* unmanaged[Cdecl]<byte>)answer)() != 0
+               : null;
+    }
+    finally
+    {
+      NativeLibrary.Free(library);
+    }
 #else
-    // .NET Framework has no API that reports BW, CD, DQ or VL, and on a .NET runtime a library
-    // loaded by path loses to the one beside the application: this build loads the baseline.
-    return false;
+    var library = NativeMethods.LoadLibrary(path);
+    if (library == IntPtr.Zero)
+    {
+      return null;
+    }
+
+    try
+    {
+      var answer = NativeMethods.GetProcAddress(library,
+                                                CpuProbeExport);
+      return answer != IntPtr.Zero
+               ? ((delegate* unmanaged[Cdecl]<byte>)answer)() != 0
+               : null;
+    }
+    finally
+    {
+      NativeMethods.FreeLibrary(library);
+    }
 #endif
   }
+
+  /// <summary>Whether a file is in an x86-64-v4 folder, as the x86-64-v4 builds are.</summary>
+  internal static bool InAnX64V4Folder(string file)
+    => string.Equals(Path.GetFileName(Path.GetDirectoryName(file)),
+                     X64V4Folder,
+                     StringComparison.OrdinalIgnoreCase);
 
   /// <summary>The files a build is looked for in, in order: its x86-64-v4 build when the process runs
   /// it, then, for the metrics build, its baseline. The default build's baseline is not among them,
@@ -329,8 +423,8 @@ public static class NativeLibrarySelection
                                                 : IntPtr.Zero);
 #else
     // Only .NET Framework, whose loader matches a module that is loaded by its name, can be told
-    // the build this way; Select refuses the metrics build elsewhere, and this assembly never picks
-    // an x86-64-v4 build.
+    // the build this way; elsewhere Select refuses the metrics build and RunsX64V4 the x86-64-v4
+    // one.
     if (NativeMethods.LoadLibrary(path) == IntPtr.Zero)
     {
       throw new DllNotFoundException($"`{path}` could not be loaded (error {Marshal.GetLastWin32Error()})");
@@ -346,11 +440,15 @@ public static class NativeLibrarySelection
 
   /// <summary>The engine's file name on this operating system, the same for every build.</summary>
   internal static string LibraryFileName()
+    => LibraryFileName(NativeMethods.Library);
+
+  /// <summary>The file name of a library on this operating system.</summary>
+  internal static string LibraryFileName(string library)
     => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-         ? NativeMethods.Library + ".dll"
+         ? library + ".dll"
          : RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-           ? "lib" + NativeMethods.Library + ".dylib"
-           : "lib" + NativeMethods.Library + ".so";
+           ? "lib" + library + ".dylib"
+           : "lib" + library + ".so";
 
   /// <summary>The application's folder, and this assembly's when it is another.</summary>
   private static IReadOnlyList<string> Roots()

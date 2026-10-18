@@ -106,16 +106,29 @@ public class NetStandardBindingTests
                         "the refusal leaves the choice open, and nothing answers with the default build");
   }
 
-  /// <summary>The netstandard2.0 build never picks the x86-64-v4 build, whatever the CPU.</summary>
+  /// <summary>On a .NET runtime the netstandard2.0 build never picks the x86-64-v4 build, even when
+  /// the CPU probe says the CPU runs it.</summary>
   [Test]
   public void TheX64V4BuildIsNeverPickedOnADotNetRuntime()
   {
     var selection = binding_.GetType("ArmoniK.Api.Client.RustGrpcChannel.NativeLibrarySelection")!;
+    var probe     = new Func<bool?>(() => true);
 
     Assert.That(selection.GetMethod("RunsX64V4",
-                                    BindingFlags.Static | BindingFlags.NonPublic)!
+                                    BindingFlags.Static | BindingFlags.NonPublic,
+                                    null,
+                                    new[]
+                                    {
+                                      typeof(System.Runtime.InteropServices.Architecture),
+                                      typeof(Func<bool?>),
+                                    },
+                                    null)!
                          .Invoke(null,
-                                 null),
+                                 new object[]
+                                 {
+                                   System.Runtime.InteropServices.Architecture.X64,
+                                   probe,
+                                 }),
                 Is.False);
   }
 

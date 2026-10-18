@@ -108,6 +108,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "armonik-cpu-probe"
+version = "3.29.2-beta-0"
+
+[[package]]
 name = "armonik-transport"
 version = "3.29.2-beta-0"
 dependencies = [

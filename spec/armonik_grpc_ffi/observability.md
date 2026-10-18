@@ -429,8 +429,8 @@ silent.
   `runtimes/<rid>/metrics/`, and for .NET Framework into `<architecture>/metrics/`, beside the
   default library's. For win-x64 and linux-x64 each of the two is carried again, compiled for
   x86-64-v4, in `runtimes/<rid>/x86-64-v4/` and `runtimes/<rid>/metrics/x86-64-v4/`, and the
-  binding's builds for .NET 8 and later pick that one on a CPU that runs it (architecture.md,
-  "Which engine file a process loads").
+  binding picks that one on a CPU that runs it, on .NET 8 and later and on .NET Framework
+  (architecture.md, "Which engine file a process loads").
   The selection names the folder from the operating system, the architecture and, on Linux, the C
   library alone - `win-x64`, `linux-musl-arm64` - as the package's folders are named, and not from
   `RuntimeInformation.RuntimeIdentifier`, which names the distribution a runtime was built for. The binding is

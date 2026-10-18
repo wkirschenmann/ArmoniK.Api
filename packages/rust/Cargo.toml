@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["armonik", "armonik-transport", "armonik-transport-ffi", "armonik-transport-ffi-bindgen"]
+members = ["armonik", "armonik-cpu-probe", "armonik-transport", "armonik-transport-ffi", "armonik-transport-ffi-bindgen"]
 
 # Shared so that a version bump, or a change of MSRV or licence, is made once rather than drifting per
 # crate. Members opt in per field with `xxx.workspace = true`.

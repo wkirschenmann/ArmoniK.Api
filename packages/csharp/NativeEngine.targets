@@ -87,14 +87,19 @@
       <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
       <RustTargetX64V4Wanted>false</RustTargetX64V4Wanted>
       <RustTargetX64V4Wanted Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineX64V4)' != 'false' AND '%(RustTarget.X64V4)' == 'true'">true</RustTargetX64V4Wanted>
+      <!-- The library the binding asks whether the CPU runs x86-64-v4, built for the baseline in
+           the baseline engine's cargo run: it has no dependency, so it changes nothing else that
+           run builds. -->
+      <_NativeEngineCpuProbe></_NativeEngineCpuProbe>
+      <_NativeEngineCpuProbe Condition="'$(RustTargetX64V4Wanted)' == 'true'"> -p armonik-cpu-probe</_NativeEngineCpuProbe>
     </PropertyGroup>
-    <!-- Ahead of any build: either variable replaces the flags .cargo/x86-64-v4.toml gives, and the
-         x86-64-v4 build would succeed at the baseline under that name. -->
+    <!-- Ahead of the x86-64-v4 builds: either variable replaces the flags .cargo/x86-64-v4.toml
+         gives, and the x86-64-v4 build would succeed at the baseline under that name. -->
     <Error Condition="'$(RustTargetX64V4Wanted)' == 'true' AND ('$(RUSTFLAGS)' != '' OR '$(CARGO_ENCODED_RUSTFLAGS)' != '')"
            Text="RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS is set, which would drop -C target-cpu=x86-64-v4 from the x86-64-v4 build of %(RustTarget.Identity): unset it, or build with -p:NativeEngineX64V4=false." />
 
     <Exec Condition="'$(RustTargetWanted)' == 'true'"
-          Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
+          Command="$(NativeEngineCargo) build -p armonik-transport-ffi$(_NativeEngineCpuProbe) --target %(RustTarget.Triple) $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
@@ -103,7 +108,7 @@
          PATH, and a 32-bit engine needs the x64_x86 one rather than the x64 one, so a plain shell
          fails here rather than in anything a reader would connect to the C toolchain. -->
     <Error Condition="'$(RustTargetWanted)' == 'true' AND '$(CargoExitCode)' != '0'"
-           Text="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
+           Text="$(NativeEngineCargo) build -p armonik-transport-ffi$(_NativeEngineCpuProbe) --target %(RustTarget.Triple) $(RustProfileFlag) failed in $(RustWorkspace) (exit $(CargoExitCode)). On Windows this needs a Visual Studio environment: vcvars64.bat for x64, vcvarsall.bat x64_x86 for x86.$(_NativeEngineCargoNeeds)" />
 
     <!-- The build with the counters, which lands in target/metrics/[triple]/. -->
     <Exec Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true'"

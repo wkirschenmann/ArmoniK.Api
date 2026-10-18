@@ -1,0 +1,15 @@
+[package]
+name = "armonik-cpu-probe"
+description = "Reports whether this CPU and operating system run x86-64-v4 code"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+rust-version.workspace = true
+version.workspace = true
+
+# A library of its own: asking the engine would load a file of the engine's name, and a loader that
+# binds a library by its name keeps the first such file loaded.
+[lib]
+crate-type = ["cdylib"]
+name = "armonik_cpu_probe"

@@ -668,21 +668,31 @@ The package carries every engine under one file name, `armonik_transport_ffi.dll
 | `runtimes/<rid>/x86-64-v4/` | the default build, compiled for x86-64-v4 | win-x64, linux-x64 |
 | `runtimes/<rid>/metrics/x86-64-v4/` | the `metrics` build, compiled for x86-64-v4 | win-x64, linux-x64 |
 
+Beside the default baseline in `runtimes/<rid>/native/`, win-x64 and linux-x64 also carry the CPU
+probe, `armonik_cpu_probe.dll` or `libarmonik_cpu_probe.so`: a library of its own, built for the
+baseline from the workspace's `armonik-cpu-probe` crate, whose one export answers whether this
+process can run x86-64-v4 code.
+
 Only `native/` is a folder a package manager reads native assets from; a subfolder of it would be
 a second asset of the same name. The package's build file copies the others into the output of a
 .NET project under `runtimes/`. A .NET Framework project, which has no runtime identifier, gets
-the Windows baselines beside the application in a folder named for the architecture, `x64/` and
-`x64/metrics/`, and no x86-64-v4 build.
+the Windows files beside the application, in a folder named for the architecture and in the same
+subfolders: for x64, `x64/` with the baseline and the probe, `x64/metrics/`, `x64/x86-64-v4/` and
+`x64/metrics/x86-64-v4/`.
 
 `NativeLibrarySelection` chooses before the first call into the engine. The caller chooses the
-build, default or `metrics`; the binding chooses the level. Its build for .NET 8 and later loads
-the x86-64-v4 file of the build in an x64 process whose CPU has AVX-512 F, BW, CD, DQ and VL and
-whose operating system saves the AVX-512 registers, which `Avx512F`, `Avx512F.VL`, `Avx512BW`,
-`Avx512CD` and `Avx512DQ` `.IsSupported` all report, the runtime checking the OS first. Every other
-process loads the baseline, and so does one whose package lacks the file: a missing x86-64-v4 file
-is never an error, while one that is there and does not load is reported, as a `metrics` build
-that does not load is. The netstandard2.0 build, which .NET Framework and .NET before 8 load,
-always loads the baseline (decisions.md, "Which x64 engines ship", says why).
+build, default or `metrics`; the binding chooses the level, by one rule on .NET 8 and later and on
+.NET Framework. In an x64 process it loads the probe from beside the baseline, asks it once and
+frees it; the probe answers yes when the CPU has every feature x86-64-v4 compiles for, AVX-512 F,
+BW, CD, DQ and VL among them, and the operating system saves the AVX and AVX-512 registers, which
+Rust's `is_x86_feature_detected!` checks. On a yes the binding loads the x86-64-v4 file of the
+build. Every other process loads the baseline, and so does one whose probe is missing, does not
+load or does not answer, and one whose package lacks the x86-64-v4 file: neither is an error, the
+x86-64-v4 build being an optimisation. An x86-64-v4 file that is there and does not load is
+reported, as a `metrics` build that does not load is, and the message names the file and says that
+deleting it makes the binding load the baseline. The netstandard2.0 build on a .NET runtime before 8 always loads the
+baseline, since a library it loads by its path loses to the one beside the application (decisions.md,
+"Which x64 engines ship").
 
 ### Trampoline
 
