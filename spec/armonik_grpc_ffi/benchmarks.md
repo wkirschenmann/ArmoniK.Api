@@ -1425,18 +1425,23 @@ alone, on a native channel held to one connection, without and with a streamed u
 managed transports skip them. `gzip`, `zstd`, `concurrent` and `large` run the workloads of "The
 processor levels, on LTO engines", each summed up in a table of its own; the managed transports
 skip `zstd`, and the test server built here refuses it: that section says how to build one that
-takes it. A `gzip` or `zstd` run fails if a leg's stream does not announce the encoding; a
-message the engine leaves uncompressed under that announcement, as it may, is not detected.
+takes it. A `gzip` or `zstd` run first warms the server as a `mixed` run does, in its encoding, with
+64 MiB of compressed downloads besides, and gives the server's CPU per MiB of each leg
+(`*_srv_us_mib`) and its CPU per call at the end of the warm-up (`srv_warm_us_call`). It fails if a
+leg's stream does not announce the encoding; a message the engine leaves uncompressed under that
+announcement, as it may, is not detected.
 `mixed` runs the scenario of "Large uploads beside unary calls, over mutual TLS", its parameters
 after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB (at most
 4 096) and `chunk=` in KiB (at most 1 GiB, dividing the size), `pool=`, `server` or a number, and
 `fpw=`, 1 to 256, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which
-names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1; a
-numbered pool and `fpw=` are refused by the managed transports. A value outside these, or an unknown
-key, has the benchmark print its usage and exit 2. In `-Scenarios` the parameters follow it after
-spaces, as in `"mixed k=4 m=64 pool=16"`; the managed transports skip a numbered pool and `fpw=`,
-and the mixed runs share one table, a row per set of parameters, which each run's line names
-(`mixed-k4-m64-s128-c64-p16`).
+names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1, and
+`comp=`, `gzip` or `zstd`, the encoding the native channel compresses every message in both ways,
+the uploads' chunks then the text of the `gzip` and `zstd` scenarios rather than zeros, which names
+the run with the encoding last; a numbered pool, `fpw=` and `comp=` are refused by the managed
+transports. A value outside these, or an unknown key, has the benchmark print its usage and exit 2.
+In `-Scenarios` the parameters follow it after spaces, as in `"mixed k=4 m=64 pool=16"`; the
+managed transports skip a numbered pool, `fpw=` and `comp=`, and the mixed runs share one table, a
+row per set of parameters, which each run's line names (`mixed-k4-m64-s128-c64-p16`).
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:
