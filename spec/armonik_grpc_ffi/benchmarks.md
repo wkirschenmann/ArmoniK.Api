@@ -1237,11 +1237,12 @@ channel and at the same time. The benchmark's `mixed` scenario runs it:
 - **One channel** carries both. `pool=N` sets the native channel's
   `Http2.SimultaneousCallsPerConnection` to `{"Limit": N}`: a call goes on the fullest connection
   with room, a new one when none has. `pool=server`, the default, leaves it at `"FromServer"`, as
-  many calls on a connection as the server allows, 100 for this one. grpc-dotnet has no such
-  option through `GrpcChannelFactory`, and the two do not compare as pools: on .NET its
-  `HttpClientHandler` sets neither `EnableMultipleHttp2Connections` nor `MaxConnectionsPerServer`,
-  so it keeps to one connection and queues the calls past the server's 100 streams, while on .NET
-  Framework `WinHttpHandler` opens connections of its own accord; `conns` says how many.
+  many calls on a connection as the server allows, 100 for this one. grpc-dotnet has no such option
+  through `GrpcChannelFactory`, and the two do not compare as pools: on .NET its `HttpClientHandler`
+  sets neither `EnableMultipleHttp2Connections` nor `MaxConnectionsPerServer`, so it keeps to one
+  connection, as `conns` shows, and would queue calls past the server's 100 streams, which is
+  inferred, no run having more than 100 in flight; on .NET Framework `WinHttpHandler` opens
+  connections of its own accord.
 - **The warm-up.** The server first, on a channel of its own that closes before the run's opens:
   50 000 `Say` at 64 in flight, and four uploads of 64 MiB at once in the run's chunks. The
   server's just-in-time compiler moves a method to optimized code only once it has run a while,
@@ -1252,19 +1253,25 @@ channel and at the same time. The benchmark's `mixed` scenario runs it:
 - **The window.** The calls run alone for 500 ms, and the window opens as the uploads start. It
   closes when the last upload ends, or after 5 s when K is 0. M = 0 runs the uploads alone.
 
-A run's line names its parameters (`mixed-k4-m64-s128-c64-p16`, `pS` for `pool=server`), then gives,
-over the window (`window_s` long): the uploads' MiB per second and their median and longest duration
-(`l_*`); the unary calls that end in the window, a call held across its opening included, per second
-and their P50, P99, P99.9 and longest (`u_*`); the CPU of the client and of the server per MiB and
-per call, both tasks' together (`*_both`), the upload figures and the CPU per MiB absent when K is
-0, the unary figures and the CPU per call when M is 0, and the latencies and the CPU per call also
-when no call ends in the window; the CPU in cores (`cpu_cores`, `srv_cpu_cores`), the server's
-telling a run it held back; and the client's busiest thread in cores (`busiest_thread_cores`), a
-native channel's engine work running on one thread. Sampled every 250 ms, since the process's own
-peak would count the warm-up's: the most connections established to the server (`conns`) and the
-most private bytes above the client's before its channel opened (`peak_above_mib`, above
-`base_private_mib`), a run none of whose samples succeeds failing, and the failed ones counted
-(`samples_failed`, which `campaign.ps1` reports for the worst pass rather than the median).
+A run's line names its parameters (`mixed-k4-m64-s128-c64-p16`, `pS` for `pool=server`), then
+gives what it measured over the window, `window_s` long:
+
+- the uploads' MiB per second and their median and longest duration (`l_*`);
+- the unary calls that end in the window, a call held across its opening included, per second, and
+  their P50, P99, P99.9 and longest (`u_*`);
+- the CPU of the client and of the server per MiB and per call, both tasks' together (`*_both`),
+  and in cores (`cpu_cores`, `srv_cpu_cores`), the server's telling a run it held back;
+- the client's busiest thread in cores (`busiest_thread_cores`), a native channel's engine work
+  running on one thread;
+- sampled every 250 ms, since the process's own peak would count the warm-up's: the most
+  connections established to the server (`conns`), and the most private bytes above the client's
+  before its channel opened (`peak_above_mib`, above `base_private_mib`). A run none of whose
+  samples succeeds fails; the failed ones are counted (`samples_failed`), which `campaign.ps1`
+  reports for the worst pass rather than the median.
+
+A run with K = 0 prints no upload figures and no CPU per MiB. One with M = 0 prints no unary figures
+and no CPU per call, and one in which no call ends in the window prints no latencies and no CPU per
+call.
 
 ### The first campaign: one thread, one connection
 
@@ -1277,11 +1284,13 @@ once no cargo, rustc, linker, MSBuild, compiler server, test host or prover ran,
 when it ended. The System log shows no Kernel-Power 42, 105, 107, 506 or 507 and no
 Power-Troubleshooter 1 from 2026-10-17 22:00 to the end. Every run is kept whatever its first
 calibration, 7 500 to 14 300 us, most near 7 500 or 9 300. On .NET 8 the server's CPU per call over
-the warm-up's last 10 000 calls read 158 to 406 us in the final campaign, a median of 239: over
-mutual TLS on the efficiency cores, a warm server costs that much. One run of the final campaign,
-grpc-dotnet on .NET Framework with K = 0, ended on an unhandled exception and was run again once the
-campaign was over. Each cell is the median of the passes, interleaved, the order rotated each pass,
-the range in brackets; 128 MiB uploads in 64 KiB chunks.
+the warm-up's last 10 000 calls read 158 to 406 us in the final campaign, a median of 239; that
+mutual TLS and the efficiency cores account for it is inferred, not measured. One run of the final
+campaign, grpc-dotnet on .NET Framework with K = 0 and M = 16 in its third pass, ended on an
+unhandled exception after about 74 s, its cause not recorded, and was run again once the campaign
+was over. Each cell is the median of the passes, interleaved, the order rotated each pass, the range
+in brackets but in the columns of the busiest thread and of the CPU in cores, which give the median
+alone; 128 MiB uploads in 64 KiB chunks.
 
 On .NET 8 just-in-time, five passes, one connection (`FromServer`) for the native channel:
 
@@ -1328,21 +1337,21 @@ What they say:
   makes 2.2 to 3.3 times as many calls a second, at a P99 1.4 to 5.8 times lower, for 2.2 to 3.1
   times the client CPU with uploads beside the calls; at M = 64 the native upload falls to 63 MiB/s,
   half of grpc-dotnet's.
-- **The native channel's thread is the limit once the unary calls are many**: at M = 64 it reads
-  0.86 to 0.97 cores with uploads beside the calls. The binding admits one send per call in flight
-  and waits for its WRITE_DONE before the next, so each chunk of an upload makes a round trip
-  through that thread; that an upload then moves a chunk per turn of a busy thread is inferred, not
-  profiled. Fewer, larger chunks are consistent with it: with `{"Limit": 1}` at M = 64, three
-  passes, 1 MiB chunks take the uploads from 13 to 174 MiB/s at K = 1 and from 84 to 553 at
-  K = 8, and the unary calls pay for it, from 10 957 to 9 140 calls a second at K = 1 and from
-  8 949 to 3 362 at K = 8, the P99 from 11.7 to 14.5 ms and from 14.2 to 44.3 ms.
+- **At M = 64 the native channel's thread reads 0.86 to 0.97 cores** with uploads beside the calls,
+  which suggests it is the limit once the unary calls are many. The binding admits one send per call
+  in flight and waits for its WRITE_DONE before the next, so each chunk of an upload makes a round
+  trip through that thread; that an upload then moves a chunk per turn of a busy thread is inferred,
+  not profiled. Fewer, larger chunks are consistent with it: with `{"Limit": 1}` at M = 64, three
+  passes, 1 MiB chunks take the uploads from 13 to 174 MiB/s at K = 1 and from 84 to 553 at K = 8,
+  and the unary calls pay for it, from 10 957 to 9 140 calls a second at K = 1 and from 8 949 to
+  3 362 at K = 8, the P99 from 11.7 to 14.5 ms and from 14.2 to 44.3 ms.
 - **Uploads alone, more of them in flight lower the aggregate on one connection**, 358 MiB/s at
   K = 1 against 188 at K = 4; beside 16 unary calls it holds to K = 4, from 317 to 309, and falls at
-  8, to 196. Beside 64, where the thread is saturated, it rises with K, from 63 to 197. grpc-dotnet's
-  rises to K = 4, from 136 to 198 at M = 16 and from 120 to 161 at M = 64, then at K = 8 falls to
-  125 at M = 16 and holds at 158 at M = 64. On connections of their own (`{"Limit": 1}`, uploads
-  alone, three passes) the native aggregate doubles from K = 1 to 2, 377 to 680 MiB/s, and stays
-  there, the server then at 6.3 to 6.8 of its eight cores.
+  8, to 196. Beside 64, where the thread reads 0.86 to 0.97 cores, it rises with K, from 63 to 197.
+  grpc-dotnet's rises to K = 4, from 136 to 198 at M = 16 and from 120 to 161 at M = 64, then at
+  K = 8 falls to 125 at M = 16 and holds at 158 at M = 64. On connections of their own
+  (`{"Limit": 1}`, uploads alone, three passes) the native aggregate doubles from K = 1 to 2, 377 to
+  680 MiB/s, and stays there, the server then at 6.3 to 6.8 of its eight cores.
 - **The fall of uploads alone at K = 2 and 4 follows the build's 16 frames per write**: at one
   frame, or on stock h2, K = 2 and 4 stay at K = 1's level. The client's busiest thread falls with
   it, to 0.48 and 0.37 cores at K = 2 and 4, and the server to 2.9 and 2.4, which suggests both
@@ -1353,10 +1362,11 @@ What they say:
 - **Each upload more costs the unary calls on the shared connection**: at M = 16, 10 368 calls a
   second with none, 8 253 with one, 2 054 with eight, and a P99 from 2.7 to 3.2 and 30.4 ms. With
   `{"Limit": 4}`, where the uploads probably sit on connections of their own, the P99 stays at 2.7
-  to 4.2 ms there, but at M = 64 its saturated thread starves the uploads, 16 to 123 MiB/s.
-- **Neither larger uploads nor memory change the picture**: 512 MiB uploads give 259 and 278 MiB/s
-  at K = 1 and 4 beside 16 unary calls; the native client's private bytes peak 6 to 19 MiB above
-  its base on one connection, whatever K.
+  to 4.2 ms there, but at M = 64 the uploads fall to 16 to 123 MiB/s, its thread at 0.98 to 0.99
+  cores, which suggests the saturated thread starves them.
+- **512 MiB uploads give 259 and 278 MiB/s at K = 1 and 4** beside 16 unary calls, against 317 and
+  309 for 128 MiB, the unary calls at 7 188 and 4 217 a second. The native client's private bytes
+  peak 6 to 19 MiB above its base on one connection, whatever K.
 - **On .NET Framework 4.8**, at M = 16, the native channel makes 14 911 calls a second alone and
   uploads at 149 to 181 MiB/s beside them; grpc-dotnet over `WinHttpHandler` makes 957 calls a
   second, at a P99 of 33 ms, and uploads at 8 MiB/s, on up to 17 connections it opens itself. The
@@ -1420,12 +1430,13 @@ message the engine leaves uncompressed under that announcement, as it may, is no
 `mixed` runs the scenario of "Large uploads beside unary calls, over mutual TLS", its parameters
 after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB (at most
 4 096) and `chunk=` in KiB (at most 1 GiB, dividing the size), `pool=`, `server` or a number, and
-`fpw=`, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which names the
-run with `-fN` after its pool; a numbered pool and `fpw=` are refused by the managed transports. A
-value outside these, or an unknown key, has the benchmark print its usage and exit 2. In
-`-Scenarios` the parameters follow it after spaces, as in `"mixed k=4 m=64 pool=16"`; the managed
-transports skip a numbered pool and `fpw=`, and the mixed runs share one table, a row per set of
-parameters, which each run's line names (`mixed-k4-m64-s128-c64-p16`).
+`fpw=`, 1 to 256, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which
+names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1; a
+numbered pool and `fpw=` are refused by the managed transports. A value outside these, or an unknown
+key, has the benchmark print its usage and exit 2. In `-Scenarios` the parameters follow it after
+spaces, as in `"mixed k=4 m=64 pool=16"`; the managed transports skip a numbered pool and `fpw=`,
+and the mixed runs share one table, a row per set of parameters, which each run's line names
+(`mixed-k4-m64-s128-c64-p16`).
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:
