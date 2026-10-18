@@ -13,12 +13,13 @@
        something a consumer needs. -->
   <!-- Libc tells the two Linux flavours apart, which share an OS and an architecture: a shared
        object linked against glibc does not load on musl. X64V4 marks the identifiers that also
-       ship an engine built for x86-64-v4 (AVX-512), which the binding loads on a CPU that runs it. -->
+       ship an engine built for x86-64-v4 (AVX-512), which the binding loads on a CPU that runs it, and
+       CpuProbe the library it asks first whether the CPU does. -->
   <ItemGroup>
-    <RustTarget Include="win-x64" Triple="x86_64-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="x64" Libc="" X64V4="true" />
+    <RustTarget Include="win-x64" Triple="x86_64-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="x64" Libc="" X64V4="true" CpuProbe="armonik_cpu_probe.dll" />
     <RustTarget Include="win-x86" Triple="i686-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="x86" Libc="" />
     <RustTarget Include="win-arm64" Triple="aarch64-pc-windows-msvc" Library="armonik_transport_ffi.dll" Os="Windows" Arch="ARM64" Libc="" />
-    <RustTarget Include="linux-x64" Triple="x86_64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="x64" Libc="gnu" X64V4="true" />
+    <RustTarget Include="linux-x64" Triple="x86_64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="x64" Libc="gnu" X64V4="true" CpuProbe="libarmonik_cpu_probe.so" />
     <RustTarget Include="linux-arm" Triple="armv7-unknown-linux-gnueabihf" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="ARM" Libc="gnu" />
     <RustTarget Include="linux-arm64" Triple="aarch64-unknown-linux-gnu" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="ARM64" Libc="gnu" />
     <RustTarget Include="linux-musl-x64" Triple="x86_64-unknown-linux-musl" Library="libarmonik_transport_ffi.so" Os="Linux" Arch="x64" Libc="musl" />
