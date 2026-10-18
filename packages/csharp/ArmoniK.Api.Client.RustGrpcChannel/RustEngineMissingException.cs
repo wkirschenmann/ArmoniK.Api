@@ -38,13 +38,18 @@ public sealed class RustEngineMissingException : Exception
   /// <param name="build">The build asked for.</param>
   /// <param name="looked">The folders it was looked for in, when it was looked for.</param>
   /// <param name="inner">Why it would not load, when it was found.</param>
+  /// <param name="x64V4File">The file found, when it is the build compiled for x86-64-v4.</param>
   internal static RustEngineMissingException ForBuild(NativeEngineBuild    build,
                                                       IEnumerable<string>? looked,
-                                                      Exception?           inner)
+                                                      Exception?           inner,
+                                                      string?              x64V4File = null)
     => new($"the {build} build of `{NativeMethods.Library}` could not be loaded for this {IntPtr.Size * 8}-bit {RuntimeInformation.ProcessArchitecture} process."
            + (looked is null
                 ? string.Empty
                 : $" It was looked for in: {string.Join("; ", looked)}.")
+           + (x64V4File is null
+                ? string.Empty
+                : $" The file that did not load, `{x64V4File}`, is the one compiled for x86-64-v4, chosen because the CPU probe says this CPU runs it: delete it and the binding loads the baseline.")
            + (inner is null
                 ? string.Empty
                 : $" The cause: {inner.Message}"),
