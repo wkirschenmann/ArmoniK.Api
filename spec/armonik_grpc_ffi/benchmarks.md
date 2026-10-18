@@ -1266,6 +1266,103 @@ most private bytes above the client's before its channel opened (`peak_above_mib
 `base_private_mib`), a run none of whose samples succeeds failing, and the failed ones counted
 (`samples_failed`, which `campaign.ps1` reports for the worst pass rather than the median).
 
+### The first campaign: one thread, one connection
+
+Measured on 2026-10-17 and 18: the final campaign, five passes, with the benchmark of `bebd56bd7`;
+the exploration of the pools and the probe, three passes each, with that of `2ee604e1d` and with the
+working tree that became `bebd56bd7`. The client on the performance cores (`0xFF`), the server on
+the efficiency cores (`0xFF00`), both at AboveNormal priority, on AC power, every engine option at
+its default (the h2-batch build, 16 frames per write) but where a table names one. Each run started
+once no cargo, rustc, linker, MSBuild, compiler server, test host or prover ran, and none found one
+when it ended. The System log shows no Kernel-Power 42, 105, 107, 506 or 507 and no
+Power-Troubleshooter 1 from 2026-10-17 22:00 to the end. Every run is kept whatever its first
+calibration, 7 500 to 14 300 us, most near 7 500 or 9 300. On .NET 8 the server's CPU per call over
+the warm-up's last 10 000 calls read 158 to 406 us in the final campaign, a median of 239: over
+mutual TLS on the efficiency cores, a warm server costs that much. One run of the final campaign,
+grpc-dotnet on .NET Framework with K = 0, ended on an unhandled exception and was run again once the
+campaign was over. Each cell is the median of the passes, interleaved, the order rotated each pass,
+the range in brackets; 128 MiB uploads in 64 KiB chunks.
+
+On .NET 8 just-in-time, five passes, one connection (`FromServer`) for the native channel:
+
+| M | K | Native MiB/s | Managed MiB/s | Native calls/s | Managed calls/s | Native P99 (us) | Managed P99 (us) | Native busiest thread | Native CPU (cores) | Managed CPU (cores) |
+|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| 0 | 1 | 358 (339-378) | 105 (97-121) | | | | | 0.63 | 1.06 | 1.17 |
+| 0 | 4 | 188 (140-190) | 134 (108-153) | | | | | 0.40 | 0.64 | 1.61 |
+| 16 | 0 | | | 10368 (9335-10491) | 22766 (21301-28890) | 2679 (2498-3128) | 1981 (1728-2048) | 0.75 | 1.56 | 5.03 |
+| 16 | 1 | 317 (313-329) | 136 (131-141) | 8253 (8200-8565) | 17952 (17669-18912) | 3210 (3039-3594) | 2254 (2097-2270) | 0.90 | 1.85 | 3.99 |
+| 16 | 2 | 311 (304-335) | 177 (165-186) | 5043 (5001-5430) | 16754 (15376-17596) | 6215 (5494-8305) | 2366 (2258-2651) | 0.75 | 1.33 | 3.90 |
+| 16 | 4 | 309 (258-345) | 198 (186-208) | 4749 (3870-5388) | 12353 (11385-12861) | 15795 (5761-17534) | 2730 (2585-3165) | 0.73 | 1.39 | 3.33 |
+| 16 | 8 | 196 (182-201) | 125 (94-163) | 2054 (1856-2083) | 5038 (3852-6148) | 30365 (28752-32502) | 17484 (16479-20791) | 0.56 | 1.01 | 2.38 |
+| 64 | 0 | | | 21719 (16256-24098) | 57818 (55692-58657) | 6664 (5620-8011) | 4241 (4101-4630) | 0.84 | 1.57 | 6.07 |
+| 64 | 1 | 63 (60-97) | 120 (116-123) | 13975 (13610-18247) | 36187 (36051-37321) | 10230 (9698-10909) | 4670 (4597-4853) | 0.97 | 1.98 | 6.00 |
+| 64 | 2 | 71 (66-81) | 154 (148-157) | 12878 (12404-13887) | 30191 (29678-35815) | 12636 (12250-13228) | 4929 (4651-5224) | 0.96 | 1.96 | 5.77 |
+| 64 | 4 | 104 (96-128) | 161 (156-167) | 12793 (12117-14034) | 30765 (25541-32560) | 12577 (11628-12912) | 5211 (4988-5314) | 0.96 | 1.96 | 5.77 |
+| 64 | 8 | 197 (166-229) | 158 (142-166) | 9682 (8279-10697) | 21563 (20250-22134) | 26258 (19395-26964) | 10214 (6790-12994) | 0.86 | 1.58 | 4.82 |
+
+The native channel with `{"Limit": 4}`, five passes, which at M = 16 keeps 16 + K calls on five or
+six connections, the uploads probably apart from the unary calls:
+
+| M | K | MiB/s | Calls/s | P99 (us) | Busiest thread |
+|--:|--:|--:|--:|--:|--:|
+| 16 | 1 | 266 (258-274) | 10609 (10416-10935) | 2719 (2616-2818) | 0.99 |
+| 16 | 4 | 300 (290-319) | 8788 (8565-9935) | 3264 (3101-3320) | 0.99 |
+| 16 | 8 | 391 (375-401) | 6164 (6050-6285) | 4164 (4037-4288) | 0.99 |
+| 64 | 1 | 16 (14-17) | 12281 (10525-13113) | 9920 (9644-11922) | 0.98 |
+| 64 | 8 | 123 (104-126) | 12292 (10550-12738) | 12109 (8222-17916) | 0.99 |
+
+Uploads alone on one connection, three passes, a probe of the build's frames per write and of stock
+h2 (the benchmark built with `-p:NativeEngineH2Batch=false`), MiB/s:
+
+| K | h2-batch, 16 frames per write | h2-batch, `fpw=1` | Stock h2 |
+|--:|--:|--:|--:|
+| 1 | 373 (371-375) | 306 (305-332) | 336 (323-346) |
+| 2 | 223 (196-250) | 322 (310-328) | 327 (301-339) |
+| 4 | 176 (163-186) | 295 (254-309) | 325 (299-331) |
+| 8 | 194 (155-202) | 224 (215-260) | 269 (239-276) |
+
+What they say:
+
+- **Uploads alone, the native channel is 3.4 times as fast** (358 against 105 MiB/s) for a quarter
+  of the client CPU per MiB (2 953 against 11 391 us). With unary calls beside them, grpc-dotnet
+  makes 2.2 to 3.3 times as many calls a second, at a P99 1.4 to 5.8 times lower, for 2.2 to 3.1
+  times the client CPU with uploads beside the calls; at M = 64 the native upload falls to 63 MiB/s,
+  half of grpc-dotnet's.
+- **The native channel's thread is the limit once the unary calls are many**: at M = 64 it reads
+  0.86 to 0.97 cores with uploads beside the calls. The binding admits one send per call in flight
+  and waits for its WRITE_DONE before the next, so each chunk of an upload makes a round trip
+  through that thread; that an upload then moves a chunk per turn of a busy thread is inferred, not
+  profiled. Fewer, larger chunks are consistent with it: with `{"Limit": 1}` at M = 64, three
+  passes, 1 MiB chunks take the uploads from 13 to 174 MiB/s at K = 1 and from 84 to 553 at
+  K = 8, and the unary calls pay for it, from 10 957 to 9 140 calls a second at K = 1 and from
+  8 949 to 3 362 at K = 8, the P99 from 11.7 to 14.5 ms and from 14.2 to 44.3 ms.
+- **Uploads alone, more of them in flight lower the aggregate on one connection**, 358 MiB/s at
+  K = 1 against 188 at K = 4; beside 16 unary calls it holds to K = 4, from 317 to 309, and falls at
+  8, to 196. Beside 64, where the thread is saturated, it rises with K, from 63 to 197. grpc-dotnet's
+  rises to K = 4, from 136 to 198 at M = 16 and from 120 to 161 at M = 64, then at K = 8 falls to
+  125 at M = 16 and holds at 158 at M = 64. On connections of their own (`{"Limit": 1}`, uploads
+  alone, three passes) the native aggregate doubles from K = 1 to 2, 377 to 680 MiB/s, and stays
+  there, the server then at 6.3 to 6.8 of its eight cores.
+- **The fall of uploads alone at K = 2 and 4 follows the build's 16 frames per write**: at one
+  frame, or on stock h2, K = 2 and 4 stay at K = 1's level. The client's busiest thread falls with
+  it, to 0.48 and 0.37 cores at K = 2 and 4, and the server to 2.9 and 2.4, which suggests both
+  ends waiting rather than working. It is not the connection window granted: 1 MiB, which an h2
+  trace finds spent at 7, 22 and 39 % of the capacity checks at K = 1, 2 and 4; a server granting
+  16 MiB (a probe build, not committed, two passes) gives 172 to 201 MiB/s at K = 2 and 4, and
+  takes away the one-frame build's advantage. What does is not established.
+- **Each upload more costs the unary calls on the shared connection**: at M = 16, 10 368 calls a
+  second with none, 8 253 with one, 2 054 with eight, and a P99 from 2.7 to 3.2 and 30.4 ms. With
+  `{"Limit": 4}`, where the uploads probably sit on connections of their own, the P99 stays at 2.7
+  to 4.2 ms there, but at M = 64 its saturated thread starves the uploads, 16 to 123 MiB/s.
+- **Neither larger uploads nor memory change the picture**: 512 MiB uploads give 259 and 278 MiB/s
+  at K = 1 and 4 beside 16 unary calls; the native client's private bytes peak 6 to 19 MiB above
+  its base on one connection, whatever K.
+- **On .NET Framework 4.8**, at M = 16, the native channel makes 14 911 calls a second alone and
+  uploads at 149 to 181 MiB/s beside them; grpc-dotnet over `WinHttpHandler` makes 957 calls a
+  second, at a P99 of 33 ms, and uploads at 8 MiB/s, on up to 17 connections it opens itself. The
+  native client there spends 4.1 to 6.4 cores, against 1.0 to 2.0 on .NET 8, which these runs do
+  not explain.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
