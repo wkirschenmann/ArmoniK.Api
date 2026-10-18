@@ -16,7 +16,7 @@ param(
   # large: compression both ways, 16 and 64 calls in flight, unary messages of 4 and 16 MiB; zstd
   # runs on the native transports, against a server ARMONIK_BENCH_SERVER names (benchmarks.md).
   # mixed: large uploads and unary calls at once over mutual TLS, its parameters after it, space
-  # separated, e.g. "mixed k=4 m=64 pool=16"; a pool other than server runs on the native transports.
+  # separated, e.g. "mixed k=4 m=64 pool=16"; a numbered pool, and fpw, run on the native transports.
   [string[]] $Scenarios = @("idle", "busy"),
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
@@ -107,7 +107,7 @@ try {
       foreach ($variant in $variants) {
         foreach ($transport in $Transports) {
           if (($scenario -in @("pinned", "shared", "zstd")) -and ($transport -notlike "native*")) { continue }
-          if (($scenario -match ' pool=\d') -and ($transport -notlike "native*")) { continue }
+          if (($scenario -match ' (pool|fpw)=\d') -and ($transport -notlike "native*")) { continue }
           $arguments = @($transport)
           if ($scenario -ne "idle") { $arguments += -split $scenario }
           Set-Environment DOTNET_ROOT $(if ($variant.Root) { $variant.Root } else { $saved.DOTNET_ROOT })
@@ -177,7 +177,12 @@ $runs | Group-Object { $_.Scenario -replace '^mixed-.*', 'mixed' } | ForEach-Obj
       Write-Warning "$($first.Variant) $($first.Scenario) $($first.Transport): the median of $($_.Count) runs, not $Passes"
     }
     $cells = foreach ($column in $columns) {
-      Median ($_.Group | ForEach-Object { if ($_.Fields.Contains($column)) { $_.Fields[$column] } })
+      $values = @($_.Group | ForEach-Object { if ($_.Fields.Contains($column)) { $_.Fields[$column] } })
+      # A count of failures shows its worst pass: a median would hide one pass's failures. A cell
+      # whose runs printed no count is "-", so that it never reads as no failure.
+      if ($column -eq "samples_failed") {
+        if ($values.Count -eq 0) { "-" } else { ($values | Measure-Object -Maximum).Maximum }
+      } else { Median $values }
     }
     "| $($first.Variant) | $($first.Scenario) | $($first.Transport) | " + ($cells -join " | ") + " |"
   }

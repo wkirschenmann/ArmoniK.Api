@@ -99,7 +99,7 @@ public static class Program
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
       Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
-      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N]   (pool: native only)");
+      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256]   (pool, fpw: native only)");
       return 2;
     }
 
@@ -852,7 +852,10 @@ public static class Program
                                   pinned: false,
                                   pool: mixed.Pool == 0
                                           ? null
-                                          : new CallsPerConnection.Limit(mixed.Pool));
+                                          : new CallsPerConnection.Limit(mixed.Pool),
+                                  framesPerWrite: mixed.FramesPerWrite == 0
+                                                    ? null
+                                                    : mixed.FramesPerWrite);
     try
     {
       var client = new Echo.EchoClient(channel);
@@ -881,15 +884,18 @@ public static class Program
                                                                  request,
                                                                  stop.Token)))
                               .ToArray();
-      var       measured = false;
-      var       port     = new Uri(server.Endpoint).Port;
-      var       most     = 0;
-      var       peak     = 0L;
-      var       sampled  = new object();
+      var measured = false;
+      var port     = new Uri(server.Endpoint).Port;
+      var most     = 0;
+      var peak     = 0L;
+      var samples  = 0;
+      var failures = 0;
+      var failed   = (Exception?)null;
+      var sampled  = new object();
       using var sampler = new Timer(_ =>
                                     {
-                                      // A sample that fails is skipped: an exception here would end
-                                      // the process mid-window.
+                                      // A sample that fails is counted, not thrown: an exception
+                                      // here would end the process mid-window.
                                       try
                                       {
                                         var       now  = Connections(port);
@@ -900,10 +906,16 @@ public static class Program
                                                           now);
                                           peak = Math.Max(peak,
                                                           self.PrivateMemorySize64);
+                                          samples++;
                                         }
                                       }
-                                      catch (Exception)
+                                      catch (Exception error)
                                       {
+                                        lock (sampled)
+                                        {
+                                          failures++;
+                                          failed = error;
+                                        }
                                       }
                                     });
       try
@@ -919,7 +931,8 @@ public static class Program
                         : Math.Max(mixed.Uploads,
                                    (int)Math.Ceiling(Math.Max(MixedLeastMiB,
                                                               8.0 * mixed.SizeMiB) / mixed.SizeMiB));
-        var taken = 0;
+        var next      = 0;
+        var threads   = ThreadTimes();
         var cpu       = CpuNow();
         var serverCpu = server.Cpu;
         var start     = Stopwatch.GetTimestamp();
@@ -930,7 +943,7 @@ public static class Program
                                   .Select(_ => Task.Run(() => UploadLoop(client,
                                                                          chunk,
                                                                          chunks,
-                                                                         () => Interlocked.Increment(ref taken) <= uploads)))
+                                                                         () => Interlocked.Increment(ref next) <= uploads)))
                                   .ToArray();
         if (mixed.Uploads == 0)
         {
@@ -941,7 +954,11 @@ public static class Program
         var uploaded = await Task.WhenAll(uploaders)
                                  .ConfigureAwait(false);
         var end = Stopwatch.GetTimestamp();
-        var used = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        // Read at the close, so that the thread times end with the window; listing the threads costs
+        // CPU the process figure counts, as it counts the sampler's.
+        var busiest = Busiest(threads,
+                              ThreadTimes());
+        var used       = (CpuNow()   - cpu).TotalMilliseconds       * 1000;
         var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
         sampler.Change(Timeout.InfiniteTimeSpan,
                        Timeout.InfiniteTimeSpan);
@@ -999,23 +1016,38 @@ public static class Program
           }
         }
 
-        int  connections;
-        long privateBytes;
+        int        connections;
+        long       privateBytes;
+        int        taken;
+        int        missed;
+        Exception? lastFailure;
         lock (sampled)
         {
           connections  = most;
           privateBytes = peak;
+          taken        = samples;
+          missed       = failures;
+          lastFailure  = failed;
+        }
+
+        // The window opens with a sample, so a run with none has its sampling broken, not empty.
+        if (taken == 0)
+        {
+          throw new InvalidOperationException($"no sample of the connections and private bytes succeeded, {missed} failed",
+                                              lastFailure);
         }
 
         return line + string.Format(CultureInfo.InvariantCulture,
-                                    " cpu_cores={0:F2} srv_cpu_cores={1:F2} conns={2} peak_above_mib={3:F0} base_private_mib={4:F0} window_s={5:F1} srv_warm_us_call={6:F1}",
+                                    " cpu_cores={0:F2} busiest_thread_cores={1:F2} srv_cpu_cores={2:F2} conns={3} peak_above_mib={4:F0} base_private_mib={5:F0} window_s={6:F1} srv_warm_us_call={7:F1} samples_failed={8}",
                                     used / 1e6 / seconds,
+                                    busiest / 1e6 / seconds,
                                     serverUsed / 1e6 / seconds,
                                     connections,
                                     (privateBytes - before.PrivateBytes) / (1024.0 * 1024),
                                     before.PrivateBytes / (1024.0 * 1024),
                                     seconds,
-                                    serverWarm);
+                                    serverWarm,
+                                    missed);
       }
       finally
       {
@@ -1163,6 +1195,43 @@ public static class Program
                          .GetActiveTcpConnections()
                          .Count(connection => connection.State == TcpState.Established && connection.RemoteEndPoint.Port == port);
 
+  /// <summary>Each thread of the process and its CPU time so far, in microseconds.</summary>
+  private static Dictionary<int, double> ThreadTimes()
+  {
+    using var self  = Process.GetCurrentProcess();
+    var       times = new Dictionary<int, double>();
+    foreach (ProcessThread thread in self.Threads)
+    {
+      // A thread that ends between the listing and the read has no time to give.
+      try
+      {
+        times[thread.Id] = thread.TotalProcessorTime.TotalMilliseconds * 1000;
+      }
+      catch (Exception)
+      {
+      }
+    }
+
+    return times;
+  }
+
+  /// <summary>The most CPU microseconds one thread used between two readings, a thread new since
+  /// the first counting from zero.</summary>
+  /// <remarks>
+  ///   A native channel's engine work runs on one thread, which lives through the window, so this
+  ///   nears 1.0 core when that thread saturates. Threads are told apart by id: one that ends in
+  ///   the window is not counted, and one that takes the id of a thread ended since the first
+  ///   reading is undercounted, which only pool threads that retire, a managed run's, may do.
+  /// </remarks>
+  private static double Busiest(Dictionary<int, double> before,
+                                Dictionary<int, double> after)
+    => after.Select(thread => thread.Value - (before.TryGetValue(thread.Key,
+                                                                 out var then)
+                                                ? then
+                                                : 0))
+            .DefaultIfEmpty(0)
+            .Max();
+
   /// <summary>The parameters of a mixed run, from its key=value arguments.</summary>
   private sealed class Mixed
   {
@@ -1179,19 +1248,29 @@ public static class Program
     /// server allows, the engine's default.</summary>
     internal int Pool { get; private set; }
 
+    /// <summary>The DATA frames one queued part of a native channel's request may span; 0 for the
+    /// build's default.</summary>
+    internal int FramesPerWrite { get; private set; }
+
+    /// <summary>The parameters, with the -fN suffix only when the frames per write are stated.</summary>
     internal string Label
       => string.Format(CultureInfo.InvariantCulture,
-                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}",
+                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}",
                        Uploads,
                        Callers,
                        SizeMiB,
                        ChunkKiB,
                        Pool == 0
                          ? "S"
-                         : Pool.ToString(CultureInfo.InvariantCulture));
+                         : Pool.ToString(CultureInfo.InvariantCulture),
+                       FramesPerWrite == 0
+                         ? ""
+                         : string.Format(CultureInfo.InvariantCulture,
+                                         "-f{0}",
+                                         FramesPerWrite));
 
-    /// <summary>Null for an argument it does not know, a value out of range, or a pool on a
-    /// managed channel, which has none.</summary>
+    /// <summary>Null for an argument it does not know, a value out of range, or a pool or frames
+    /// per write on a managed channel, which has neither.</summary>
     internal static Mixed? Parse(IEnumerable<string> args,
                                  bool                managed)
     {
@@ -1235,14 +1314,19 @@ public static class Program
           case "pool" when value > 0:
             mixed.Pool = value;
             break;
+          case "fpw" when value is >= 1 and <= 256:
+            mixed.FramesPerWrite = value;
+            break;
           default:
             return null;
         }
       }
 
-      // A chunk divides the upload, and stays within a message the engine sends by default.
-      var valid = mixed.Uploads + mixed.Callers > 0 && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
-                  mixed.ChunkKiB is > 0 and <= 4096 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 && !(managed && mixed.Pool != 0);
+      // A chunk divides the upload. At most 1 GiB: its byte count has to fit an int and a protobuf
+      // message (2 GiB).
+      var valid = mixed.Uploads + mixed.Callers > 0        && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
+                  mixed.ChunkKiB is > 0 and <= 1024 * 1024 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 &&
+                  !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0));
       return valid
                ? mixed
                : null;
@@ -1302,16 +1386,18 @@ public static class Program
   /// <summary>The transport's channel to the server; a native one held to one connection when
   /// <paramref name="pinned" />, compressing both ways in <paramref name="compression" />, and
   /// accepting messages past 4 MiB when <paramref name="large" />, its connections each carrying
-  /// at most <paramref name="pool" /> calls when given. Either presents the server's client
+  /// at most <paramref name="pool" /> calls and a queued part spanning at most
+  /// <paramref name="framesPerWrite" /> DATA frames when given. Either presents the server's client
   /// certificate when the server has one.</summary>
   /// <remarks>A managed channel takes none of the native options: grpc-dotnet compresses per call,
   /// its channel's receive limit is the factory's, and GrpcClient has no calls per connection.</remarks>
   private static (ChannelBase Channel, Func<Task> Release) Open(string              transport,
                                                                Server              server,
                                                                bool                pinned,
-                                                               string?             compression = null,
-                                                               bool                large       = false,
-                                                               CallsPerConnection? pool        = null)
+                                                               string?             compression    = null,
+                                                               bool                large          = false,
+                                                               CallsPerConnection? pool           = null,
+                                                               int?                framesPerWrite = null)
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
@@ -1351,6 +1437,13 @@ public static class Program
       {
         http2                                ??= new Http2Options();
         http2.SimultaneousCallsPerConnection =   pool;
+      }
+
+      if (framesPerWrite is not null)
+      {
+        http2                     ??= new Http2Options();
+        http2.Send                ??= new Http2SendOptions();
+        http2.Send.FramesPerWrite =   framesPerWrite;
       }
 
       var channel = runtime.Channel(server.Endpoint,
