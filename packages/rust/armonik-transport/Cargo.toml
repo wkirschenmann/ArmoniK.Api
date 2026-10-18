@@ -107,8 +107,11 @@ http.workspace = true
 http-body-util.workspace = true
 bytes.workspace = true
 # Compresses the messages a call sends when the channel is set to; tonic's own encoder is out of
-# the path, the engine framing its messages itself.
-flate2.workspace = true
+# the path, the engine framing its messages itself. `zlib-rs` as flate2's backend, here and in
+# tonic's decoder, which shares the crate: it deflates and inflates faster than miniz_oxide, choosing
+# its AVX2, BMI2 and PCLMULQDQ paths at run time (decisions.md, "Which deflate backend the engine
+# uses").
+flate2 = { workspace = true, features = ["zlib-rs"] }
 zstd.workspace = true
 # The backoff's jitter, drawn below its bound so calls that failed together do not come back
 # together.
