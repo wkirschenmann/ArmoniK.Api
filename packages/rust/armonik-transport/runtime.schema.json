@@ -24,6 +24,14 @@
     "BeforeSleep": {
       "description": "What a channel's thread does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `\"None\"`: it sleeps as soon as it runs out of work. `{\"Spin\": {}}` has it poll\nfor new work for 100 microseconds after it last called the host.",
       "$ref": "#/$defs/BeforeSleep"
+    },
+    "WorkerThreads": {
+      "description": "How many threads the runtime's connections run on, every channel's together. A connection\nruns on one of them for its whole life, and its calls with it, so that a call never moves\nbetween threads; a thread carries the connections of any channel. A thread starts when\nthe first connection is given to it, so a process with one connection has one. Ignored by\na Rust host, whose channels run on its own runtime.\n\nDefaults to `\"Auto\"`: as many as the logical processors the process may run on.",
+      "$ref": "#/$defs/WorkerThreads"
+    },
+    "WorkerAssignment": {
+      "description": "Which of the `WorkerThreads` a new connection is given. Ignored by a Rust host.\n\nDefaults to `\"LeastConnections\"`.",
+      "$ref": "#/$defs/WorkerAssignment"
     }
   },
   "additionalProperties": false,
@@ -1168,6 +1176,47 @@
         }
       },
       "additionalProperties": false
+    },
+    "WorkerThreads": {
+      "description": "How many threads the runtime's connections run on.",
+      "oneOf": [
+        {
+          "description": "As many as the logical processors the process may run on, its affinity mask included.",
+          "type": "string",
+          "const": "Auto"
+        },
+        {
+          "description": "This many, from 1 to 1024.",
+          "type": "object",
+          "properties": {
+            "Count": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1,
+              "maximum": 1024
+            }
+          },
+          "required": [
+            "Count"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WorkerAssignment": {
+      "description": "Which thread a new connection is given.",
+      "oneOf": [
+        {
+          "description": "The thread that carries the fewest connections, opened or opening, of every channel; of\ntwo, the first. A thread that has not started carries none, so the threads fill one\nconnection each before any takes a second, and a thread whose connections closed is the\nnext one given.",
+          "type": "string",
+          "const": "LeastConnections"
+        },
+        {
+          "description": "Each thread in turn, whatever it carries.",
+          "type": "string",
+          "const": "RoundRobin"
+        }
+      ]
     }
   }
 }

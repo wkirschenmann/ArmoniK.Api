@@ -16,6 +16,7 @@ pub mod hooks;
 pub mod http2;
 pub mod metrics;
 pub mod options;
+mod processors;
 mod proxy;
 pub mod settings;
 mod tls;

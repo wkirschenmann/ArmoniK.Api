@@ -68,6 +68,8 @@ public sealed class RuntimeOptions
                 ? null
                 : new LoggingOptions(other.Logging);
     BeforeSleep = other.BeforeSleep;
+    WorkerThreads = other.WorkerThreads;
+    WorkerAssignment = other.WorkerAssignment;
   }
 
   /// <summary>
@@ -115,6 +117,24 @@ public sealed class RuntimeOptions
   [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
   public BeforeSleep? BeforeSleep { get; set; }
 
+  /// <summary>
+  ///   How many threads the runtime's connections run on, every channel's together. A connection
+  ///   runs on one of them for its whole life, and its calls with it, so that a call never moves
+  ///   between threads; a thread carries the connections of any channel. A thread starts when
+  ///   the first connection is given to it, so a process with one connection has one. Ignored by
+  ///   a Rust host, whose channels run on its own runtime.
+  /// </summary>
+  /// <remarks>Defaults to <c>"Auto"</c>: as many as the logical processors the process may run on.</remarks>
+  [JsonPropertyName("WorkerThreads")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public WorkerThreads? WorkerThreads { get; set; }
+
+  /// <summary>Which of the <c>WorkerThreads</c> a new connection is given. Ignored by a Rust host.</summary>
+  /// <remarks>Defaults to <c>"LeastConnections"</c>.</remarks>
+  [JsonPropertyName("WorkerAssignment")]
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public WorkerAssignment? WorkerAssignment { get; set; }
+
   /// <summary>Refuses an option outside the range the engine accepts.</summary>
   /// <exception cref="ArgumentOutOfRangeException">An option is outside its stated bounds.</exception>
   public void Validate()
@@ -126,10 +146,18 @@ public sealed class RuntimeOptions
                                             "Endpoint has to be at least 1 character long.");
     }
 
+    if (WorkerAssignment is WorkerAssignment workerAssignment && !Enum.IsDefined(typeof(WorkerAssignment), workerAssignment))
+    {
+      throw new ArgumentOutOfRangeException(nameof(WorkerAssignment),
+                                            workerAssignment,
+                                            "WorkerAssignment has to be a name WorkerAssignment declares.");
+    }
+
     MemoryCeiling?.Validate();
     ChannelDefaults?.Validate();
     Logging?.Validate();
     BeforeSleep?.Validate();
+    WorkerThreads?.Validate();
   }
 
   /// <summary>The document the engine reads, as UTF-8.</summary>
@@ -367,4 +395,102 @@ internal sealed class BeforeSleepJsonConverter : JsonConverter<BeforeSleep>
       }
     }
   }
+}
+
+/// <summary>How many threads the runtime's connections run on.</summary>
+[JsonConverter(typeof(WorkerThreadsJsonConverter))]
+public abstract record WorkerThreads
+{
+  private WorkerThreads()
+  {
+  }
+
+  /// <summary>As many as the logical processors the process may run on, its affinity mask included.</summary>
+  public sealed record Auto : WorkerThreads
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      // The schema bounds nothing here.
+    }
+  }
+
+  /// <summary>This many, from 1 to 1024.</summary>
+  /// <param name="Value">This many, from 1 to 1024.</param>
+  public sealed record Count(int Value) : WorkerThreads
+  {
+    /// <inheritdoc />
+    public override void Validate()
+    {
+      if (Value is int value && (value < 1 || value > 1024))
+      {
+        throw new ArgumentOutOfRangeException(nameof(Value),
+                                              value,
+                                              "Value has to be at least 1 and at most 1024.");
+      }
+    }
+  }
+
+  /// <summary>Refuses a field outside the range the engine accepts.</summary>
+  /// <exception cref="ArgumentOutOfRangeException">A field is outside its stated bounds.</exception>
+  public abstract void Validate();
+}
+
+/// <summary>Writes a <see cref="WorkerThreads" /> as the engine reads one: the name of an alternative that carries nothing, else an object whose one key names the alternative.</summary>
+internal sealed class WorkerThreadsJsonConverter : JsonConverter<WorkerThreads>
+{
+  /// <inheritdoc />
+  /// <remarks>Options go to the engine and nothing reads them back, so this reads nothing.</remarks>
+  public override WorkerThreads? Read(ref Utf8JsonReader reader,
+                                      Type typeToConvert,
+                                      JsonSerializerOptions options)
+    => throw new NotSupportedException("WorkerThreads is written to the engine, and never read back.");
+
+  /// <inheritdoc />
+  public override void Write(Utf8JsonWriter writer,
+                             WorkerThreads value,
+                             JsonSerializerOptions options)
+    => WriteValue(writer,
+                  value);
+
+  /// <summary>Writes <paramref name="written" />, as the converter of a choice holding one does too.</summary>
+  /// <param name="writer">Where it is written.</param>
+  /// <param name="written">The alternative.</param>
+  internal static void WriteValue(Utf8JsonWriter writer,
+                                  WorkerThreads written)
+  {
+    switch (written)
+    {
+      case WorkerThreads.Auto:
+      {
+        writer.WriteStringValue("Auto");
+        break;
+      }
+
+      case WorkerThreads.Count count:
+      {
+        writer.WriteStartObject();
+        writer.WriteNumber("Count",
+                           count.Value);
+        writer.WriteEndObject();
+        break;
+      }
+    }
+  }
+}
+
+/// <summary>Which thread a new connection is given.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<WorkerAssignment>))]
+public enum WorkerAssignment
+{
+  /// <summary>
+  ///   The thread that carries the fewest connections, opened or opening, of every channel; of
+  ///   two, the first. A thread that has not started carries none, so the threads fill one
+  ///   connection each before any takes a second, and a thread whose connections closed is the
+  ///   next one given.
+  /// </summary>
+  LeastConnections,
+
+  /// <summary>Each thread in turn, whatever it carries.</summary>
+  RoundRobin,
 }

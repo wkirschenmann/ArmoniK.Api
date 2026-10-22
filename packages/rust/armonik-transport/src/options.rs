@@ -2618,6 +2618,8 @@ over_values!(
 macro_rules! over_variants {
     ($type:ident { $($unit:ident),* ; $($variant:ident),* $(,)? }) => {
         impl Over for $type {
+            // A type whose variants carry nothing reads nothing of `defaults`.
+            #[allow(unused_variables)]
             fn over(self, defaults: &Self) -> Self {
                 match self {
                     $(Self::$unit => Self::$unit,)*
@@ -3315,9 +3317,52 @@ pub struct RuntimeOptions {
     )]
     #[cfg_attr(feature = "schema", schemars(with = "BeforeSleep"))]
     pub before_sleep: Option<BeforeSleep>,
+
+    /// How many threads the runtime's connections run on, every channel's together. A connection
+    /// runs on one of them for its whole life, and its calls with it, so that a call never moves
+    /// between threads; a thread carries the connections of any channel. A thread starts when
+    /// the first connection is given to it, so a process with one connection has one. Ignored by
+    /// a Rust host, whose channels run on its own runtime.
+    ///
+    /// Defaults to `"Auto"`: as many as the logical processors the process may run on.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "WorkerThreads"))]
+    pub worker_threads: Option<WorkerThreads>,
+
+    /// Which of the `WorkerThreads` a new connection is given. Ignored by a Rust host.
+    ///
+    /// Defaults to `"LeastConnections"`.
+    #[serde(
+        default,
+        deserialize_with = "alternative::optional",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "schema", schemars(with = "WorkerAssignment"))]
+    pub worker_assignment: Option<WorkerAssignment>,
 }
 
 impl RuntimeOptions {
+    /// How many threads the runtime's connections run on: `WorkerThreads`, its default when it is
+    /// left out, and a count out of its bounds, which only a Rust caller can state, held within
+    /// them.
+    pub fn worker_count(&self) -> usize {
+        match &self.worker_threads {
+            None | Some(WorkerThreads::Auto) => crate::processors::available(),
+            Some(WorkerThreads::Count(count)) => {
+                (*count).clamp(1, WorkerThreads::LARGEST_COUNT) as usize
+            }
+        }
+    }
+
+    /// Which thread a new connection is given, `WorkerAssignment`'s default when it is left out.
+    pub fn worker_assignment(&self) -> WorkerAssignment {
+        self.worker_assignment.clone().unwrap_or_default()
+    }
+
     /// How long a channel's thread polls before it sleeps, `BeforeSleep`'s default when it is
     /// left out, none when the thread sleeps at once.
     pub fn spin_window(&self) -> Option<Duration> {
@@ -3352,6 +3397,44 @@ impl BeforeSleep {
             Self::Spin(spin) => Some(spin.window()),
         }
     }
+}
+
+/// How many threads the runtime's connections run on.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum WorkerThreads {
+    /// As many as the logical processors the process may run on, its affinity mask included.
+    #[default]
+    Auto,
+
+    /// This many, from 1 to 1024.
+    Count(
+        #[serde(deserialize_with = "within::between::<_, _, 1, 1024>")]
+        #[cfg_attr(feature = "schema", schemars(with = "i32", range(min = 1, max = 1024)))]
+        i32,
+    ),
+}
+
+impl WorkerThreads {
+    /// The largest `Count`.
+    pub const LARGEST_COUNT: i32 = 1024;
+}
+
+/// Which thread a new connection is given.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum WorkerAssignment {
+    /// The thread that carries the fewest connections, opened or opening, of every channel; of
+    /// two, the first. A thread that has not started carries none, so the threads fill one
+    /// connection each before any takes a second, and a thread whose connections closed is the
+    /// next one given.
+    #[default]
+    LeastConnections,
+
+    /// Each thread in turn, whatever it carries.
+    RoundRobin,
 }
 
 /// How long a channel's thread polls for work before it sleeps.
@@ -3494,6 +3577,8 @@ impl std::fmt::Debug for RuntimeOptions {
             .field("channel_defaults", &self.channel_defaults)
             .field("logging", &self.logging)
             .field("before_sleep", &self.before_sleep)
+            .field("worker_threads", &self.worker_threads)
+            .field("worker_assignment", &self.worker_assignment)
             .finish()
     }
 }
@@ -3505,6 +3590,16 @@ over_fields!(RuntimeOptions {
     channel_defaults,
     logging,
     before_sleep,
+    worker_threads,
+    worker_assignment,
+});
+over_variants!(WorkerThreads {
+    Auto;
+    Count,
+});
+over_variants!(WorkerAssignment {
+    LeastConnections,
+    RoundRobin;
 });
 over_fields!(LoggingOptions { filter });
 over_variants!(BeforeSleep {
@@ -5737,6 +5832,70 @@ mod tests {
             Some(Duration::from_micros(20))
         );
         assert_eq!(window(r#"{"BeforeSleep":"None"}"#), None);
+    }
+
+    #[test]
+    fn the_workers_are_the_processors_unless_counted_and_least_connections_assigns_them() {
+        let read = |document: &str| {
+            serde_json::from_str::<RuntimeOptions>(document).expect("valid options")
+        };
+        let processors = crate::processors::available();
+
+        assert_eq!(read("{}").worker_count(), processors);
+        assert_eq!(
+            read(r#"{"WorkerThreads":"Auto"}"#).worker_count(),
+            processors
+        );
+        assert_eq!(read(r#"{"WorkerThreads":{"Count":3}}"#).worker_count(), 3);
+        assert_eq!(
+            read("{}").worker_assignment(),
+            WorkerAssignment::LeastConnections
+        );
+        assert_eq!(
+            read(r#"{"WorkerAssignment":"RoundRobin"}"#).worker_assignment(),
+            WorkerAssignment::RoundRobin
+        );
+
+        for refused in [
+            r#"{"WorkerThreads":{"Count":0}}"#,
+            r#"{"WorkerThreads":{"Count":1025}}"#,
+            r#"{"WorkerThreads":4}"#,
+            r#"{"WorkerAssignment":"Random"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<RuntimeOptions>(refused).is_err(),
+                "{refused}"
+            );
+        }
+    }
+
+    /// A count stated later replaces an earlier one, and `Auto` replaces a count.
+    #[test]
+    fn a_later_worker_count_replaces_an_earlier_one() {
+        let earlier = RuntimeOptions {
+            worker_threads: Some(WorkerThreads::Count(2)),
+            ..RuntimeOptions::default()
+        };
+        let later = |worker_threads| RuntimeOptions {
+            worker_threads,
+            ..RuntimeOptions::default()
+        };
+        assert_eq!(
+            later(Some(WorkerThreads::Count(5)))
+                .over(&earlier)
+                .worker_threads,
+            Some(WorkerThreads::Count(5))
+        );
+        assert_eq!(
+            later(Some(WorkerThreads::Auto))
+                .over(&earlier)
+                .worker_threads,
+            Some(WorkerThreads::Auto)
+        );
+        assert_eq!(
+            later(None).over(&earlier).worker_threads,
+            Some(WorkerThreads::Count(2))
+        );
     }
 
     /// The runtime's schema is what generates its C# class, kept as the channel's is.
