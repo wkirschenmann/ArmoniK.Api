@@ -129,10 +129,14 @@ async fn a_connection_carries_no_more_calls_than_its_server_allows() {
 }
 
 /// A server that allows no stream for now: once it has said so, a call waits on its connection
-/// rather than the channel dialling another, and another, for it.
+/// rather than the channel dialling another, and another, for it. A call sent before it said so
+/// is refused. Which of the two a call meets depends on whether h2 has sent its request when the
+/// server's SETTINGS arrive, so the test makes each happen.
 #[tokio::test]
 async fn a_server_that_allows_no_stream_is_not_dialled_again_and_again() {
-    let server = TestServer::allowing(0).await;
+    // Late, so that the first call is sent before the server's SETTINGS are in: a server on the
+    // same runtime that speaks at once may have them read before the request is.
+    let server = TestServer::allowing_late(0, Duration::from_millis(100)).await;
     let channel = unreplayed(&server.endpoint);
 
     // Refused, sent before the server's SETTINGS were in, and ended once they are.
@@ -148,6 +152,7 @@ async fn a_server_that_allows_no_stream_is_not_dialled_again_and_again() {
     .expect("the first call waited, its stream held back after the server's SETTINGS");
     assert_eq!(status.code, GrpcStatusCode::Unavailable, "{status}");
 
+    // Started after the SETTINGS: waits.
     let waited = tokio::time::timeout(Duration::from_millis(500), echo(&channel)).await;
     assert!(waited.is_err(), "the call ended, where it had no stream");
     assert_eq!(server.connections(), 1);

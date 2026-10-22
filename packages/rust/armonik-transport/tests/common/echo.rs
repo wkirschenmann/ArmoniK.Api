@@ -982,18 +982,24 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn start() -> Self {
-        Self::serving(None, None).await
+        Self::serving(None, None, Duration::ZERO).await
     }
 
     /// One whose SETTINGS let a connection open at most `streams` streams at once.
     pub async fn allowing(streams: u32) -> Self {
-        Self::serving(Some(streams), None).await
+        Self::serving(Some(streams), None, Duration::ZERO).await
+    }
+
+    /// Like `allowing`, but waiting `late` after a connection opens before it speaks, so that a
+    /// request the client sends at once is on the wire before the server's SETTINGS.
+    pub async fn allowing_late(streams: u32, late: Duration) -> Self {
+        Self::serving(Some(streams), None, late).await
     }
 
     /// One that closes a connection gracefully once it has taken `requests`, as nginx's
     /// `keepalive_requests` does: a GOAWAY, the streams it took answered to their end.
     pub async fn closing_after(requests: usize) -> Self {
-        Self::serving(None, Some(requests)).await
+        Self::serving(None, Some(requests), Duration::ZERO).await
     }
 
     /// A server listening at `endpoint`, such as the address `closed_port` returned.
@@ -1004,12 +1010,12 @@ impl TestServer {
         let listener = tokio::net::TcpListener::bind(address)
             .await
             .expect("bind the address the endpoint names");
-        Self::serving_on(listener, endpoint.to_owned(), None, None)
+        Self::serving_on(listener, endpoint.to_owned(), None, None, Duration::ZERO)
     }
 
-    async fn serving(streams: Option<u32>, requests: Option<usize>) -> Self {
+    async fn serving(streams: Option<u32>, requests: Option<usize>, late: Duration) -> Self {
         let (listener, endpoint) = loopback().await;
-        Self::serving_on(listener, endpoint, streams, requests)
+        Self::serving_on(listener, endpoint, streams, requests, late)
     }
 
     fn serving_on(
@@ -1017,6 +1023,7 @@ impl TestServer {
         endpoint: String,
         streams: Option<u32>,
         requests: Option<usize>,
+        late: Duration,
     ) -> Self {
         let connections = Arc::new(AtomicUsize::new(0));
 
@@ -1029,6 +1036,9 @@ impl TestServer {
                 serving.fetch_add(1, Ordering::SeqCst);
                 let serving = serving.clone();
                 tokio::spawn(async move {
+                    if !late.is_zero() {
+                        tokio::time::sleep(late).await;
+                    }
                     let taken = AtomicUsize::new(0);
                     let enough = tokio::sync::Notify::new();
                     let service = hyper::service::service_fn(|request| {
