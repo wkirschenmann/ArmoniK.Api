@@ -34,40 +34,12 @@
     <NativeEngineCargo>cargo</NativeEngineCargo>
     <NativeEngineCargo Condition="'$(NativeEngineH2Batch)' != 'false'">bash patches/h2-batch/build.sh</NativeEngineCargo>
     <_NativeEngineCargoNeeds Condition="'$(NativeEngineH2Batch)' != 'false'"> The h2-batch recipe also needs the bash of Git for Windows first on PATH, not WSL's.</_NativeEngineCargoNeeds>
-    <!-- The Windows engines compile their C with clang-cl rather than cl.exe: zstd's run-time BMI2
-         dispatch is written for gcc and clang only, and its compression and decompression run
-         faster for it (decisions.md, "Which C compiler builds zstd on Windows"). cc reads the
-         compiler from CC_[triple], which also moves ring's C, the rest of the engine's C, to it. By
-         default the clang-cl of the Visual Studio environment the build runs in, else one in a
-         Visual Studio installed under Program Files, since cargo finds link.exe outside such an
-         environment and a build there would otherwise stop; a path given here replaces both.
-         Elsewhere the engine keeps the target's own compiler: gcc on Linux, Apple's clang on
-         macOS, which compile that dispatch already. -->
-    <_NativeEngineLlvmHost>x64</_NativeEngineLlvmHost>
-    <_NativeEngineLlvmHost Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">ARM64</_NativeEngineLlvmHost>
-    <NativeEngineClangCl Condition="'$(NativeEngineClangCl)' == '' AND '$(VCINSTALLDIR)' != ''">$(VCINSTALLDIR)Tools\Llvm\$(_NativeEngineLlvmHost)\bin\clang-cl.exe</NativeEngineClangCl>
     <!-- Shared by every configuration and left by a clean: the check depends on its inputs
          alone. -->
     <NativeEngineStamps>$(MSBuildThisFileDirectory)obj\NativeEngine\</NativeEngineStamps>
   </PropertyGroup>
 
   <Target Name="Build" DependsOnTargets="CheckGeneratedBindingsMatchTheAbi;BuildNativeEngine" />
-
-  <Target Name="FindNativeEngineClangCl"
-          Condition="'$(NativeEngineClangCl)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">
-    <PropertyGroup>
-      <_NativeEngineProgramFiles>$(ProgramW6432)</_NativeEngineProgramFiles>
-      <_NativeEngineProgramFiles Condition="'$(_NativeEngineProgramFiles)' == ''">$(ProgramFiles)</_NativeEngineProgramFiles>
-    </PropertyGroup>
-    <ItemGroup>
-      <_NativeEngineClangClFound Include="$(_NativeEngineProgramFiles)\Microsoft Visual Studio\*\*\VC\Tools\Llvm\$(_NativeEngineLlvmHost)\bin\clang-cl.exe" />
-    </ItemGroup>
-    <!-- Any one of them when several versions or editions have it: the glob's order is the file
-         system's. -->
-    <PropertyGroup>
-      <NativeEngineClangCl>%(_NativeEngineClangClFound.FullPath)</NativeEngineClangCl>
-    </PropertyGroup>
-  </Target>
 
   <!-- Interop/NativeMethods.g.cs is rendered from the engine's Rust and committed, beside the C
        header rendered from the same declarations. A stale one is a P/Invoke that reads the wrong
@@ -105,7 +77,7 @@
 
   <!-- NativeEngineRids comes from the binding, which defaults it to the SDK's own identifier: a
        project without an SDK does not know it. -->
-  <Target Name="BuildNativeEngine" Outputs="%(RustTarget.Identity)" DependsOnTargets="FindNativeEngineClangCl">
+  <Target Name="BuildNativeEngine" Outputs="%(RustTarget.Identity)">
     <Error Condition="'$(NativeEngineRids)' == ''" Text="NativeEngine.targets needs NativeEngineRids" />
     <!-- Batched over the requested runtime identifiers, so `Outputs` above is what makes MSBuild
          run this once per architecture rather than once with all of them. -->
@@ -115,13 +87,7 @@
       <RustTargetWanted>$(_NativeEngineRidList.Contains(';%(RustTarget.Identity);'))</RustTargetWanted>
       <RustTargetX64V4Wanted>false</RustTargetX64V4Wanted>
       <RustTargetX64V4Wanted Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineX64V4)' != 'false' AND '%(RustTarget.X64V4)' == 'true'">true</RustTargetX64V4Wanted>
-      <_NativeEngineCc></_NativeEngineCc>
-      <_NativeEngineClangClWhere Condition="'$(NativeEngineClangCl)' != ''"> at $(NativeEngineClangCl)</_NativeEngineClangClWhere>
-      <_NativeEngineCc Condition="'%(RustTarget.Os)' == 'Windows'">CC_$([System.String]::Copy('%(RustTarget.Triple)').Replace('-', '_'))=$(NativeEngineClangCl)</_NativeEngineCc>
     </PropertyGroup>
-    <!-- Ahead of any build, which would otherwise succeed with cl.exe. -->
-    <Error Condition="'$(RustTargetWanted)' == 'true' AND '%(RustTarget.Os)' == 'Windows' AND ('$(NativeEngineClangCl)' == '' OR !Exists('$(NativeEngineClangCl)'))"
-           Text="The %(RustTarget.Identity) engine compiles its C with clang-cl, which was not found$(_NativeEngineClangClWhere): install Visual Studio's &quot;C++ Clang Compiler for Windows&quot; component (Microsoft.VisualStudio.Component.VC.Llvm.Clang), which the build finds through the Visual Studio environment it runs in or under Program Files, or name a clang-cl.exe with -p:NativeEngineClangCl=[path]." />
     <!-- Ahead of any build: either variable replaces the flags .cargo/x86-64-v4.toml gives, and the
          x86-64-v4 build would succeed at the baseline under that name. -->
     <Error Condition="'$(RustTargetX64V4Wanted)' == 'true' AND ('$(RUSTFLAGS)' != '' OR '$(CARGO_ENCODED_RUSTFLAGS)' != '')"
@@ -130,7 +96,6 @@
     <Exec Condition="'$(RustTargetWanted)' == 'true'"
           Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
-          EnvironmentVariables="$(_NativeEngineCc)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoExitCode" />
     </Exec>
@@ -144,7 +109,6 @@
     <Exec Condition="'$(RustTargetWanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true'"
           Command="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
-          EnvironmentVariables="$(_NativeEngineCc)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoMetricsExitCode" />
     </Exec>
@@ -156,7 +120,6 @@
     <Exec Condition="'$(RustTargetX64V4Wanted)' == 'true'"
           Command="$(NativeEngineCargo) build -p armonik-transport-ffi --target %(RustTarget.Triple) --target-dir target/x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
-          EnvironmentVariables="$(_NativeEngineCc)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoX64V4ExitCode" />
     </Exec>
@@ -166,7 +129,6 @@
     <Exec Condition="'$(RustTargetX64V4Wanted)' == 'true' AND '$(NativeEngineMetrics)' == 'true'"
           Command="$(NativeEngineCargo) build -p armonik-transport-ffi --features metrics --target %(RustTarget.Triple) --target-dir target/metrics-x86-64-v4 --config .cargo/x86-64-v4.toml $(RustProfileFlag)"
           WorkingDirectory="$(RustWorkspace)"
-          EnvironmentVariables="$(_NativeEngineCc)"
           ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="CargoMetricsX64V4ExitCode" />
     </Exec>

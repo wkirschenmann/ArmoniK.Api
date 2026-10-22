@@ -1519,16 +1519,6 @@ package no job publishes, and a consumer restoring one fails:
   stock build, which no job runs. The default already builds patched, before this task: the ten
   legs of `test-rust-grpc-channel`, eight of them on Windows, and the `ArmoniK.Api.Client` leg of
   `publish.yml`'s `csharp` job, which reaches the binding through its project reference;
-- the C compiler of the Windows engines: `NativeEngine.targets` compiles their C, zstd's and
-  ring's, with clang-cl (decisions.md, "Which C compiler builds zstd on Windows") and stops before
-  cargo when it finds none. Every Windows leg that builds an engine, win-arm64's included, needs
-  Visual Studio's "C++ Clang Compiler for Windows" component
-  (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`), which the build finds under Program Files
-  as `test-rust-grpc-channel`'s legs run today, outside a Visual Studio environment, or a clang-cl
-  given as `-p:NativeEngineClangCl=<path>`; whether GitHub's Windows images carry the component is
-  not checked here. What it costs in build time is not measured: the clean release builds of the
-  win-x64 engine timed on 2026-10-18 ran beside two other builds, 442 and 340 s with cl.exe against
-  249 and 512 s with clang-cl. The Linux, musl and macOS legs keep their own compiler;
 - the package: `ArmoniK.Api.Client.RustGrpcChannel.csproj` is not in the job's matrix, and the
   `ArmoniK.Api.Client` package depends on it at the same version, so it has to be pushed first or
   the restore of a consumer fails until the index has it; the matrix legs run in parallel, and a

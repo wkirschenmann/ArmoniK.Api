@@ -1375,8 +1375,9 @@ What they say:
 
 ## Compression backends: zlib-rs for gzip, clang-cl for zstd
 
-Two changes decided by the user on 2026-10-18 (decisions.md, "Which deflate backend the engine
-uses" and "Which C compiler builds zstd on Windows"), each measured against the engine without it.
+Two changes considered on 2026-10-18, each measured against the engine without it: zlib-rs, which
+the engine adopts (decisions.md, "Which deflate backend the engine uses"), and clang-cl, which the
+user declined on 2026-10-22 (decisions.md, "Which C compiler builds zstd on Windows").
 Three release engines, fat LTO, h2-batch, built from `0dd1139b4` with the change applied by hand:
 the base one (flate2 on miniz_oxide, C compiled by cl.exe), `zrs` (flate2 on zlib-rs 0.6.8) and
 `clang` (`CC_<triple>` naming the clang-cl 19.1.5 of Visual Studio 2022), each for x86-64 and for
