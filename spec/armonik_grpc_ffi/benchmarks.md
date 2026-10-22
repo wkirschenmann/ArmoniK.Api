@@ -1373,6 +1373,189 @@ What they say:
   native client there spends 4.1 to 6.4 cores, against 1.0 to 2.0 on .NET 8, which these runs do
   not explain.
 
+## Compression backends: zlib-rs for gzip, clang-cl for zstd
+
+Two changes considered on 2026-10-18, each measured against the engine without it: zlib-rs, which
+the engine adopts (decisions.md, "Which deflate backend the engine uses"), and clang-cl, which the
+user declined on 2026-10-22 (decisions.md, "Which C compiler builds zstd on Windows").
+Three release engines, fat LTO, h2-batch, built from `0dd1139b4` with the change applied by hand:
+the base one (flate2 on miniz_oxide, C compiled by cl.exe), `zrs` (flate2 on zlib-rs 0.6.8) and
+`clang` (`CC_<triple>` naming the clang-cl 19.1.5 of Visual Studio 2022), each for x86-64 and for
+i686. The benchmark is that of `f9f33fd1c`, built for .NET 8 x64 and for .NET Framework 4.8 x86,
+the engine file swapped before each run. The server is the test server of that commit rebuilt for
+.NET 11 RC with gzip, deflate and zstd providers, as "The processor levels, on LTO engines" says,
+started with `--plain-say`, and with `--mtls` for `mixed`; each `gzip` and `zstd` run warms it
+first. Client on the performance cores (`0xFF`), server on the efficiency cores (`0xFF00`),
+AboveNormal, on AC power; each run started once no cargo, rustc, linker, MSBuild, compiler server,
+test host or prover ran, and none found one when it ended.
+
+The first campaign ran 18 runs a pass, interleaved, the order rotated each pass: `gzip`, `zstd`,
+`mixed comp=gzip` and `mixed comp=zstd` (K = 1, M = 16, 128 MiB in 64 KiB chunks), and as TLS
+checks for ring's C, which `CC_<triple>` moves to clang-cl as well, the idle scenario and
+`concurrent`; .NET Framework x86 runs `gzip`, `zstd` and the idle scenario. Five passes are kept,
+two on 2026-10-18 and three on 2026-10-22; a first pass that lost three result lines is left out,
+and `mixed comp=zstd` keeps four passes for the same reason. A second campaign, six passes of six
+runs on .NET 8 on 2026-10-22, ran `zstd`, the idle scenario and `concurrent` again with the base
+and `clang` engines, the first campaign's spread having decided nothing there. No Kernel-Power
+42, 105, 107, 506 or 507 nor Power-Troubleshooter 1 falls within the runs. The first calibration ranged from 7 500 to 15 100 us on
+.NET 8 and 15 200 to 25 900 us on .NET Framework; every run is kept and each variant is paired
+with the base engine of its pass. Each cell is the median of the passes, the range in brackets;
+the last column is the change of each pass's pair, its median and its range.
+
+### gzip: zlib-rs against miniz_oxide, first campaign
+
+| Runtime | Scenario | Figure | Base | zlib-rs | Change per pass, median [range] |
+|---|---|---|--:|--:|--:|
+| net8.0 | gzip | `up_stream_mib_s` | 32 (26-38) | 38 (31-57) | +19 % [-14..+62] |
+| net8.0 | gzip | `up_stream_cpu_us_mib` | 35 205 (29 053-44 482) | 31 982 (21 045-35 547) | -15 % [-42..+6] |
+| net8.0 | gzip | `up_stream_srv_us_mib` | 16 064 (14 307-21 729) | 19 531 (14 746-21 045) | +19 % [-32..+27] |
+| net8.0 | gzip | `up_unary_mib_s` | 33 (29-36) | 41 (36-46) | +24 % [+15..+44] |
+| net8.0 | gzip | `up_unary_cpu_us_mib` | 24 219 (22 217-26 416) | 18 604 (15 771-21 826) | -26 % [-33..-17] |
+| net8.0 | gzip | `up_unary_srv_us_mib` | 10 400 (8 984-11 035) | 9 766 (9 277-12 354) | +3 % [-11..+19] |
+| net8.0 | gzip | `down_mib_s` | 60 (58-62) | 58 (51-61) | -3 % [-18..+5] |
+| net8.0 | gzip | `down_cpu_us_mib` | 9 814 (9 131-10 400) | 7 715 (7 080-10 742) | -25 % [-26..+7] |
+| net8.0 | gzip | `down_srv_us_mib` | 22 461 (21 875-24 658) | 23 975 (22 217-28 662) | +4 % [-10..+29] |
+| net4.8-x86 | gzip | `up_stream_mib_s` | 24 (22-32) | 40 (28-45) | +41 % [+17..+91] |
+| net4.8-x86 | gzip | `up_stream_cpu_us_mib` | 61 377 (43 164-64 990) | 40 771 (38 477-54 395) | -18 % [-39..-6] |
+| net4.8-x86 | gzip | `up_stream_srv_us_mib` | 16 943 (13 184-20 557) | 14 941 (13 232-17 773) | -10 % [-23..+13] |
+| net4.8-x86 | gzip | `up_unary_mib_s` | 30 (24-33) | 40 (30-41) | +30 % [+20..+67] |
+| net4.8-x86 | gzip | `up_unary_cpu_us_mib` | 27 197 (25 635-33 496) | 18 945 (18 213-26 318) | -28 % [-45..-20] |
+| net4.8-x86 | gzip | `up_unary_srv_us_mib` | 9 912 (9 033-12 061) | 10 352 (8 984-11 035) | +3 % [-14..+7] |
+| net4.8-x86 | gzip | `down_mib_s` | 59 (47-62) | 62 (52-65) | +5 % [-12..+38] |
+| net4.8-x86 | gzip | `down_cpu_us_mib` | 24 512 (22 363-33 691) | 20 850 (18 066-25 684) | -16 % [-46..+7] |
+| net4.8-x86 | gzip | `down_srv_us_mib` | 23 438 (22 998-29 297) | 22 070 (21 338-26 025) | -6 % [-27..+11] |
+| net8.0 | mixed_comp=gzip | `l_mib_s` | 20 (18-26) | 28 (26-37) | +42 % [+39..+44] |
+| net8.0 | mixed_comp=gzip | `cpu_us_mib_both` | 115 875 (94 353-129 074) | 83 664 (71 297-95 886) | -28 % [-30..-24] |
+| net8.0 | mixed_comp=gzip | `srv_us_mib_both` | 72 968 (65 056-81 276) | 60 295 (56 854-67 711) | -16 % [-19..-13] |
+| net8.0 | mixed_comp=gzip | `u_calls_s` | 5 892 (5 447-8 102) | 6 655 (6 274-8 944) | +11 % [+6..+19] |
+| net8.0 | mixed_comp=gzip | `u_p99_us` | 5 649 (4 666-6 517) | 5 092 (3 926-5 481) | -16 % [-26..+9] |
+| net8.0 | mixed_comp=gzip | `busiest_thread_cores` | 0.89 (0.88-0.90) | 0.91 (0.90-0.92) | +2 % [+0..+2] |
+| net8.0 | mixed_comp=gzip | `srv_cpu_cores` | 1.49 (1.43-1.70) | 1.79 (1.71-2.08) | +20 % [+11..+22] |
+
+### zstd: clang-cl against cl.exe, first campaign
+
+| Runtime | Scenario | Figure | Base | clang-cl | Change per pass, median [range] |
+|---|---|---|--:|--:|--:|
+| net8.0 | zstd | `up_stream_mib_s` | 90 (84-115) | 96 (78-109) | +0 % [-32..+21] |
+| net8.0 | zstd | `up_stream_cpu_us_mib` | 13 525 (12 012-17 090) | 15 820 (10 791-19 824) | -6 % [-20..+65] |
+| net8.0 | zstd | `up_stream_srv_us_mib` | 18 164 (14 404-18 750) | 18 359 (14 844-20 020) | -1 % [-18..+27] |
+| net8.0 | zstd | `up_unary_mib_s` | 63 (41-73) | 68 (56-75) | +3 % [-10..+37] |
+| net8.0 | zstd | `up_unary_cpu_us_mib` | 9 180 (7 666-14 795) | 9 277 (7 666-12 305) | +0 % [-24..+15] |
+| net8.0 | zstd | `up_unary_srv_us_mib` | 10 742 (8 691-12 158) | 9 814 (8 398-11 328) | -7 % [-11..+13] |
+| net8.0 | zstd | `down_mib_s` | 49 (44-49) | 46 (43-48) | -6 % [-12..+5] |
+| net8.0 | zstd | `down_cpu_us_mib` | 5 225 (4 785-6 348) | 5 615 (4 980-6 689) | +16 % [-22..+26] |
+| net8.0 | zstd | `down_srv_us_mib` | 26 953 (25 879-30 566) | 28 027 (27 295-30 811) | +4 % [-10..+15] |
+| net4.8-x86 | zstd | `up_stream_mib_s` | 44 (37-50) | 52 (45-56) | +22 % [+4..+23] |
+| net4.8-x86 | zstd | `up_stream_cpu_us_mib` | 40 674 (35 400-48 389) | 36 816 (35 693-43 164) | -10 % [-12..+2] |
+| net4.8-x86 | zstd | `up_stream_srv_us_mib` | 13 623 (11 572-17 676) | 14 111 (12 744-16 113) | -6 % [-11..+14] |
+| net4.8-x86 | zstd | `up_unary_mib_s` | 49 (35-60) | 59 (33-66) | +10 % [-6..+36] |
+| net4.8-x86 | zstd | `up_unary_cpu_us_mib` | 14 063 (11 426-21 436) | 10 596 (9 717-22 559) | -15 % [-33..+5] |
+| net4.8-x86 | zstd | `up_unary_srv_us_mib` | 10 107 (8 447-11 230) | 9 717 (8 398-12 598) | -1 % [-5..+12] |
+| net4.8-x86 | zstd | `down_mib_s` | 47 (39-50) | 47 (42-48) | +0 % [-4..+8] |
+| net4.8-x86 | zstd | `down_cpu_us_mib` | 20 215 (15 576-22 021) | 16 406 (16 260-20 654) | -6 % [-25..+5] |
+| net4.8-x86 | zstd | `down_srv_us_mib` | 27 783 (25 586-33 545) | 26 758 (26 172-32 520) | -3 % [-9..+2] |
+| net8.0 | mixed_comp=zstd | `l_mib_s` | 62 (54-74) | 60 (49-68) | -6 % [-14..+3] |
+| net8.0 | mixed_comp=zstd | `cpu_us_mib_both` | 42 462 (36 522-47 310) | 44 880 (37 735-52 414) | +7 % [-3..+15] |
+| net8.0 | mixed_comp=zstd | `srv_us_mib_both` | 38 532 (37 651-45 525) | 42 396 (38 300-48 698) | +7 % [+2..+13] |
+| net8.0 | mixed_comp=zstd | `u_calls_s` | 8 161 (7 441-10 355) | 7 793 (6 499-8 734) | -10 % [-20..+3] |
+| net8.0 | mixed_comp=zstd | `u_p99_us` | 4 082 (3 176-4 866) | 4 455 (3 725-4 807) | +4 % [-3..+30] |
+| net8.0 | mixed_comp=zstd | `busiest_thread_cores` | 0.91 (0.88-0.92) | 0.91 (0.89-0.91) | +0 % [-1..+1] |
+| net8.0 | mixed_comp=zstd | `srv_cpu_cores` | 2.46 (2.25-2.85) | 2.51 (2.38-2.64) | +1 % [-7..+8] |
+
+### TLS without compression: clang-cl against cl.exe, first campaign
+
+| Runtime | Scenario | Figure | Base | clang-cl | Change per pass, median [range] |
+|---|---|---|--:|--:|--:|
+| net8.0 | idle | `p50_us` | 838 (655-991) | 734 (586-950) | -11 % [-26..+13] |
+| net8.0 | idle | `p99_us` | 1 746 (1 508-2 129) | 1 611 (1 451-2 076) | -4 % [-31..+19] |
+| net8.0 | idle | `cpu_us_call` | 416 (292-522) | 348 (300-448) | -22 % [-32..+39] |
+| net8.0 | idle | `stream_mib_s` | 199 (131-235) | 194 (172-229) | +2 % [-14..+48] |
+| net8.0 | idle | `upload_stream_mib_s` | 304 (228-321) | 273 (235-343) | +1 % [-26..+20] |
+| net8.0 | idle | `upload_stream_cpu_us_mib` | 3 229 (2 854-4 521) | 3 458 (3 104-4 646) | +21 % [-29..+44] |
+| net8.0 | idle | `upload_unary_mib_s` | 219 (155-239) | 208 (178-224) | -8 % [-18..+34] |
+| net8.0 | idle | `upload_unary_cpu_us_mib` | 1 792 (1 375-2 542) | 1 667 (1 500-2 167) | +3 % [-41..+21] |
+| net8.0 | concurrent | `c16_calls_s` | 10 192 (7 586-10 525) | 9 778 (7 320-12 294) | -5 % [-30..+54] |
+| net8.0 | concurrent | `c16_cpu_us_call` | 189 (147-279) | 152 (117-240) | -7 % [-46..+56] |
+| net8.0 | concurrent | `c16_p99_us` | 3 417 (3 211-4 253) | 3 258 (2 661-4 238) | -6 % [-37..+32] |
+| net8.0 | concurrent | `c64_calls_s` | 16 191 (11 756-26 178) | 15 023 (11 401-17 370) | -18 % [-43..+48] |
+| net8.0 | concurrent | `c64_cpu_us_call` | 98 (53-160) | 110 (81-163) | +12 % [-49..+144] |
+| net8.0 | concurrent | `c64_p99_us` | 8 294 (4 690-10 448) | 8 952 (6 430-11 300) | +8 % [-29..+91] |
+| net4.8-x86 | idle | `p50_us` | 847 (676-981) | 818 (745-900) | +3 % [-22..+10] |
+| net4.8-x86 | idle | `p99_us` | 2 086 (1 662-2 424) | 1 965 (1 547-2 341) | -5 % [-30..+27] |
+| net4.8-x86 | idle | `cpu_us_call` | 1 558 (1 436-1 747) | 1 584 (1 216-1 838) | -0 % [-22..+27] |
+| net4.8-x86 | idle | `stream_mib_s` | 203 (129-222) | 197 (178-248) | +12 % [-3..+47] |
+| net4.8-x86 | idle | `upload_stream_mib_s` | 288 (271-327) | 277 (232-351) | -1 % [-29..+21] |
+| net4.8-x86 | idle | `upload_stream_cpu_us_mib` | 7 458 (6 188-7 813) | 7 958 (6 542-9 292) | +2 % [-12..+50] |
+| net4.8-x86 | idle | `upload_unary_mib_s` | 179 (160-248) | 213 (173-239) | +19 % [-11..+39] |
+| net4.8-x86 | idle | `upload_unary_cpu_us_mib` | 2 958 (1 917-3 021) | 2 208 (2 146-3 000) | -10 % [-29..+13] |
+
+### zstd: clang-cl against cl.exe, second campaign
+
+| Runtime | Scenario | Figure | Base | clang-cl | Change per pass, median [range] |
+|---|---|---|--:|--:|--:|
+| net8.0 | zstd | `up_stream_mib_s` | 100 (85-125) | 86 (77-113) | -17 % [-32..+23] |
+| net8.0 | zstd | `up_stream_cpu_us_mib` | 13 062 (10 791-15 137) | 15 039 (13 135-16 748) | +15 % [-12..+36] |
+| net8.0 | zstd | `up_stream_srv_us_mib` | 16 748 (12 793-20 117) | 18 018 (16 455-20 801) | +14 % [-18..+54] |
+| net8.0 | zstd | `up_unary_mib_s` | 71 (68-75) | 67 (50-72) | -4 % [-32..+3] |
+| net8.0 | zstd | `up_unary_cpu_us_mib` | 7 959 (7 764-8 301) | 8 496 (7 861-12 061) | +7 % [-5..+50] |
+| net8.0 | zstd | `up_unary_srv_us_mib` | 9 033 (8 594-10 352) | 8 960 (8 057-10 352) | -1 % [-10..+10] |
+| net8.0 | zstd | `down_mib_s` | 45 (44-50) | 46 (42-50) | +3 % [-16..+14] |
+| net8.0 | zstd | `down_cpu_us_mib` | 5 322 (4 639-7 617) | 4 980 (4 053-6 885) | -19 % [-38..+48] |
+| net8.0 | zstd | `down_srv_us_mib` | 29 322 (25 830-30 762) | 28 198 (25 342-31 787) | -4 % [-14..+23] |
+
+### TLS without compression: clang-cl against cl.exe, second campaign
+
+| Runtime | Scenario | Figure | Base | clang-cl | Change per pass, median [range] |
+|---|---|---|--:|--:|--:|
+| net8.0 | idle | `p50_us` | 852 (736-891) | 852 (823-878) | -0 % [-3..+13] |
+| net8.0 | idle | `p99_us` | 1 770 (1 379-2 726) | 1 838 (1 327-2 228) | -4 % [-32..+62] |
+| net8.0 | idle | `cpu_us_call` | 392 (272-598) | 370 (327-409) | -12 % [-41..+49] |
+| net8.0 | idle | `stream_mib_s` | 192 (150-232) | 208 (180-230) | +6 % [-16..+49] |
+| net8.0 | idle | `upload_stream_mib_s` | 326 (207-362) | 306 (264-343) | +3 % [-27..+52] |
+| net8.0 | idle | `upload_stream_cpu_us_mib` | 3 281 (2 708-4 604) | 3 240 (2 854-4 250) | -2 % [-36..+27] |
+| net8.0 | idle | `upload_unary_mib_s` | 208 (185-240) | 210 (182-215) | +1 % [-22..+16] |
+| net8.0 | idle | `upload_unary_cpu_us_mib` | 1 802 (1 500-2 271) | 1 979 (1 625-2 271) | +3 % [-10..+40] |
+| net8.0 | concurrent | `c16_calls_s` | 8 780 (6 401-9 891) | 7 960 (6 661-9 453) | -7 % [-24..+34] |
+| net8.0 | concurrent | `c16_cpu_us_call` | 193 (128-258) | 206 (135-224) | +12 % [-48..+42] |
+| net8.0 | concurrent | `c16_p99_us` | 4 236 (3 133-6 036) | 4 162 (3 350-4 665) | +6 % [-42..+21] |
+| net8.0 | concurrent | `c64_calls_s` | 11 354 (9 558-15 998) | 13 026 (10 375-14 818) | +6 % [-9..+40] |
+| net8.0 | concurrent | `c64_cpu_us_call` | 136 (84-154) | 119 (100-138) | -4 % [-34..+20] |
+| net8.0 | concurrent | `c64_p99_us` | 11 283 (7 942-15 333) | 9 388 (7 312-15 322) | -7 % [-46..+12] |
+
+What they say:
+
+- **zlib-rs makes gzip uploads faster for less client CPU, on both runtimes.** One 64 MiB message
+  goes from 33 to 41 MiB/s on .NET 8 and from 30 to 40 on .NET Framework x86, faster in every
+  pass, for 26 and 28 % less client CPU per MiB. Streamed, the i686 engine gains 41 % (+17 to +91)
+  and the x64 one 19 %, one pass of five slower (-14 %). Beside 16 unary calls on one mutual-TLS
+  channel the upload goes from 20 to 28 MiB/s, +39 to +44 % in every pass, for 28 % less client
+  CPU per MiB, and the unary calls make 11 % more calls a second (+6 to +19). The downloads, which
+  the server compresses and the engine inflates, change within the spread (-3 % and +5 % MiB/s).
+  Alone, the server's CPU per MiB of upload changes within the spread. Beside the unary calls it
+  falls by 16 % (-19 to -13), and the server runs 20 % more cores, receiving 42 % more.
+- **The streamed gzip upload on .NET 8 gains less here than on 2026-10-17**: 19 % against the 45 %
+  of the row "Which deflate backend the engine uses", which another harness measured; why is not
+  established.
+- **zlib-rs sends fewer bytes.** The engine's level, flate2's default, shrinks a 64 KiB message of
+  this text 2.537 times against 2.445 with miniz_oxide, and a 64 MiB one 2.904 times against 2.856
+  (a scratch program over flate2 1.1.10 and the benchmark's text framed as a `Chunk`).
+- **clang-cl speeds the i686 engine's zstd up; on x86-64 these runs show no change.** On .NET
+  Framework x86 the streamed upload goes from 44 to 52 MiB/s, +4 to +23 % in every pass; its
+  client CPU per MiB changes within the spread. On .NET 8 the streamed upload changes by +0 % (-32
+  to +21) in the first campaign and -17 % (-32 to +23) in the second, and `mixed comp=zstd` by
+  -6 % (-14 to +3). The +20 % of 2026-10-17 on x86-64 (decisions.md, "Which C compiler builds
+  zstd on Windows"), measured with another harness, is not reproduced here; why is not
+  established. The compressed bytes are the same with
+  either compiler, so the ratio does not change: 2.669 for a 64 KiB message, 3.374 for 64 MiB
+  (the same scratch program, its zstd output identical byte for byte).
+- **The TLS checks show no change of one sign from moving ring's C to clang-cl.** Over eleven pairs
+  on .NET 8 and five on .NET Framework, no figure of the idle or `concurrent` scenarios moves the
+  same way in every pass. Their spread, up to +144 % for one figure and 30 to 60 % for many, is
+  wide enough to hide a change of a few per cent, which these runs therefore do not exclude.
+- **The server**, on the efficiency cores, spends 9 to 20 ms of CPU per MiB of compressed upload
+  on .NET 8 and 22 to 29 ms per MiB it compresses for a download; in the mixed runs it uses 1.5 to
+  2.5 cores.
+
 ## The machine
 
 Windows 11 Pro 10.0.26100, 13th Gen Intel Core i7-1360P, 16 GB, with the desktop's usual
@@ -1425,18 +1608,23 @@ alone, on a native channel held to one connection, without and with a streamed u
 managed transports skip them. `gzip`, `zstd`, `concurrent` and `large` run the workloads of "The
 processor levels, on LTO engines", each summed up in a table of its own; the managed transports
 skip `zstd`, and the test server built here refuses it: that section says how to build one that
-takes it. A `gzip` or `zstd` run fails if a leg's stream does not announce the encoding; a
-message the engine leaves uncompressed under that announcement, as it may, is not detected.
+takes it. A `gzip` or `zstd` run first warms the server as a `mixed` run does, in its encoding, with
+64 MiB of compressed downloads besides, and gives the server's CPU per MiB of each leg
+(`*_srv_us_mib`) and its CPU per call at the end of the warm-up (`srv_warm_us_call`). It fails if a
+leg's stream does not announce the encoding; a message the engine leaves uncompressed under that
+announcement, as it may, is not detected.
 `mixed` runs the scenario of "Large uploads beside unary calls, over mutual TLS", its parameters
 after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB (at most
 4 096) and `chunk=` in KiB (at most 1 GiB, dividing the size), `pool=`, `server` or a number, and
 `fpw=`, 1 to 256, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which
-names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1; a
-numbered pool and `fpw=` are refused by the managed transports. A value outside these, or an unknown
-key, has the benchmark print its usage and exit 2. In `-Scenarios` the parameters follow it after
-spaces, as in `"mixed k=4 m=64 pool=16"`; the managed transports skip a numbered pool and `fpw=`,
-and the mixed runs share one table, a row per set of parameters, which each run's line names
-(`mixed-k4-m64-s128-c64-p16`).
+names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1, and
+`comp=`, `gzip` or `zstd`, the encoding the native channel compresses every message in both ways,
+the uploads' chunks then the text of the `gzip` and `zstd` scenarios rather than zeros, which names
+the run with the encoding last; a numbered pool, `fpw=` and `comp=` are refused by the managed
+transports. A value outside these, or an unknown key, has the benchmark print its usage and exit 2.
+In `-Scenarios` the parameters follow it after spaces, as in `"mixed k=4 m=64 pool=16"`; the
+managed transports skip a numbered pool, `fpw=` and `comp=`, and the mixed runs share one table, a
+row per set of parameters, which each run's line names (`mixed-k4-m64-s128-c64-p16`).
 
 The DATA after a cancel and the PINGs' waits come from the test `h2_batch_costs`, run in the
 stock build and in the build against h2-batch's patch:

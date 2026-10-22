@@ -99,7 +99,7 @@ public static class Program
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
       Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
-      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256]   (pool, fpw: native only)");
+      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256] [comp=gzip|zstd]   (pool, fpw, comp: native only)");
       return 2;
     }
 
@@ -407,7 +407,8 @@ public static class Program
   /// <summary>
   ///   Compressible text sent streamed in 64 KiB chunks and as one 64 MiB message, and received in
   ///   64 KiB chunks the server compresses, with <paramref name="encoding" /> both ways: MiB per
-  ///   second, the median of five runs of 64 MiB, and the process's CPU per MiB over them.
+  ///   second, the median of five runs of 64 MiB, and the process's CPU and the server's per MiB
+  ///   over them, the server warmed first in that encoding.
   /// </summary>
   private static async Task<string> MeasureCompressed(string transport,
                                                       Server server,
@@ -415,6 +416,40 @@ public static class Program
   {
     var managed = transport.StartsWith("managed",
                                        StringComparison.Ordinal);
+    var text = new byte[ChunkSize];
+    Corpus.Fill(text);
+    var chunk = new Chunk
+                {
+                  Data = Google.Protobuf.ByteString.CopyFrom(text),
+                };
+    // grpc-dotnet compresses a call's messages in the encoding this entry names.
+    var compressed = managed
+                       ? new Metadata
+                         {
+                           {
+                             "grpc-internal-encoding-request", encoding
+                           },
+                         }
+                       : null;
+    var asked = new Metadata
+                {
+                  {
+                    "x-compress-response", encoding
+                  },
+                };
+    var serverWarm = await WarmServer(transport,
+                                      server,
+                                      new EchoRequest
+                                      {
+                                        Text = "x",
+                                      },
+                                      chunk,
+                                      managed
+                                        ? null
+                                        : encoding,
+                                      compressed,
+                                      asked)
+                       .ConfigureAwait(false);
     var (channel, release) = Open(transport,
                                   server,
                                   pinned: false,
@@ -424,27 +459,6 @@ public static class Program
     try
     {
       var client = new Echo.EchoClient(channel);
-      // grpc-dotnet compresses a call's messages in the encoding this entry names.
-      var compressed = managed
-                         ? new Metadata
-                           {
-                             {
-                               "grpc-internal-encoding-request", encoding
-                             },
-                           }
-                         : null;
-      var asked = new Metadata
-                  {
-                    {
-                      "x-compress-response", encoding
-                    },
-                  };
-      var text = new byte[ChunkSize];
-      Corpus.Fill(text);
-      var chunk = new Chunk
-                  {
-                    Data = Google.Protobuf.ByteString.CopyFrom(text),
-                  };
       var wholeText = new byte[CompressedWhole];
       Corpus.Fill(wholeText);
       var whole = new Chunk
@@ -480,9 +494,10 @@ public static class Program
         }
       }
 
-      var clock    = new Stopwatch();
-      var cpu      = CpuNow();
-      var streamed = new List<double>();
+      var clock     = new Stopwatch();
+      var cpu       = CpuNow();
+      var serverCpu = server.Cpu;
+      var streamed  = new List<double>();
       for (var run = 0; run < StreamRuns; run++)
       {
         clock.Restart();
@@ -499,6 +514,9 @@ public static class Program
 
       var streamedCpu = PerMib(ref cpu,
                                StreamRuns * (double)CompressedChunks * ChunkSize);
+      var streamedServer = PerMib(ref serverCpu,
+                                  server.Cpu,
+                                  StreamRuns * (double)CompressedChunks * ChunkSize);
       var unary = new List<double>();
       for (var run = 0; run < StreamRuns; run++)
       {
@@ -514,6 +532,9 @@ public static class Program
 
       var unaryCpu = PerMib(ref cpu,
                             StreamRuns * (double)CompressedWhole);
+      var unaryServer = PerMib(ref serverCpu,
+                               server.Cpu,
+                               StreamRuns * (double)CompressedWhole);
       var received = new List<double>();
       for (var run = 0; run < StreamRuns; run++)
       {
@@ -530,11 +551,14 @@ public static class Program
 
       var receivedCpu = PerMib(ref cpu,
                                StreamRuns * (double)CompressedChunks * ChunkSize);
+      var receivedServer = PerMib(ref serverCpu,
+                                  server.Cpu,
+                                  StreamRuns * (double)CompressedChunks * ChunkSize);
       streamed.Sort();
       unary.Sort();
       received.Sort();
       return string.Format(CultureInfo.InvariantCulture,
-                           "{0} {1} {2} up_stream_mib_s={3:F0} up_stream_cpu_us_mib={4:F0} up_unary_mib_s={5:F0} up_unary_cpu_us_mib={6:F0} down_mib_s={7:F0} down_cpu_us_mib={8:F0}",
+                           "{0} {1} {2} up_stream_mib_s={3:F0} up_stream_cpu_us_mib={4:F0} up_stream_srv_us_mib={9:F0} up_unary_mib_s={5:F0} up_unary_cpu_us_mib={6:F0} up_unary_srv_us_mib={10:F0} down_mib_s={7:F0} down_cpu_us_mib={8:F0} down_srv_us_mib={11:F0} srv_warm_us_call={12:F1}",
                            transport,
                            Framework(),
                            encoding,
@@ -543,7 +567,11 @@ public static class Program
                            unary[StreamRuns / 2],
                            unaryCpu,
                            received[StreamRuns / 2],
-                           receivedCpu);
+                           receivedCpu,
+                           streamedServer,
+                           unaryServer,
+                           receivedServer,
+                           serverWarm);
     }
     finally
     {
@@ -603,8 +631,16 @@ public static class Program
   /// which then moves to now.</summary>
   private static double PerMib(ref TimeSpan since,
                                double       bytes)
+    => PerMib(ref since,
+              CpuNow(),
+              bytes);
+
+  /// <summary>The CPU microseconds per MiB of <paramref name="bytes" /> from <paramref name="since" />
+  /// to <paramref name="now" />, a reading of any process's CPU time, to which it then moves.</summary>
+  private static double PerMib(ref TimeSpan since,
+                               TimeSpan     now,
+                               double       bytes)
   {
-    var now  = CpuNow();
     var used = (now - since).TotalMilliseconds * 1000 / (bytes / (1024 * 1024));
     since = now;
     return used;
@@ -835,21 +871,31 @@ public static class Program
                     Text = new string('x',
                                       MixedTextLength),
                   };
+    // Text when compressed, which the encodings shrink as they would a payload rather than to
+    // almost nothing.
+    var data = new byte[mixed.ChunkKiB * 1024];
+    if (mixed.Compression is not null)
+    {
+      Corpus.Fill(data);
+    }
+
     var chunk = new Chunk
                 {
-                  Data = Google.Protobuf.ByteString.CopyFrom(new byte[mixed.ChunkKiB * 1024]),
+                  Data = Google.Protobuf.ByteString.CopyFrom(data),
                 };
     var chunks     = (int)((long)mixed.SizeMiB * 1024 / mixed.ChunkKiB);
     var serverWarm = await WarmServer(transport,
                                       server,
                                       request,
-                                      chunk)
+                                      chunk,
+                                      mixed.Compression)
                        .ConfigureAwait(false);
 
     var before = Footprint.Read();
     var (channel, release) = Open(transport,
                                   server,
                                   pinned: false,
+                                  compression: mixed.Compression,
                                   pool: mixed.Pool == 0
                                           ? null
                                           : new CallsPerConnection.Limit(mixed.Pool),
@@ -1078,8 +1124,11 @@ public static class Program
 
   /// <summary>
   ///   Warms the server on a channel of its own, closed before the run's opens, with unary calls
-  ///   and then uploads in the run's chunks. The server's CPU per call over the last calls, which
-  ///   tells a server still compiling from a settled one.
+  ///   and then uploads in the run's chunks, compressed as the run's are: by a native channel in
+  ///   <paramref name="compression" />, by a managed one per call through
+  ///   <paramref name="headers" />; then, when <paramref name="download" /> is given, a download of
+  ///   64 KiB chunks with those headers, which ask the server to compress. The server's CPU per call
+  ///   over the last calls, which tells a server still compiling from a settled one.
   /// </summary>
   /// <remarks>
   ///   Its just-in-time compiler tiers a method up only after it has run a while: a server warmed
@@ -1090,11 +1139,15 @@ public static class Program
   private static async Task<double> WarmServer(string      transport,
                                                Server      server,
                                                EchoRequest request,
-                                               Chunk       chunk)
+                                               Chunk       chunk,
+                                               string?     compression = null,
+                                               Metadata?   headers     = null,
+                                               Metadata?   download    = null)
   {
     var (channel, release) = Open(transport,
                                   server,
-                                  pinned: false);
+                                  pinned: false,
+                                  compression: compression);
     try
     {
       var client = new Echo.EchoClient(channel);
@@ -1115,8 +1168,17 @@ public static class Program
                                    .Select(_ => Task.Run(() => StreamUpload(client,
                                                                             chunk,
                                                                             ServerWarmupUploadMiB * 1024 * 1024 / chunk.Data.Length,
-                                                                            null))))
+                                                                            headers))))
                 .ConfigureAwait(false);
+      if (download is not null)
+      {
+        await Download(client,
+                       ServerWarmupUploadMiB * 1024 * 1024 / ChunkSize,
+                       ChunkSize,
+                       download)
+          .ConfigureAwait(false);
+      }
+
       return perCall;
     }
     finally
@@ -1252,10 +1314,15 @@ public static class Program
     /// build's default.</summary>
     internal int FramesPerWrite { get; private set; }
 
-    /// <summary>The parameters, with the -fN suffix only when the frames per write are stated.</summary>
+    /// <summary>The encoding a native channel compresses every message in, both ways; null for
+    /// none.</summary>
+    internal string? Compression { get; private set; }
+
+    /// <summary>The parameters, with the -fN suffix only when the frames per write are stated, and
+    /// the encoding last when there is one.</summary>
     internal string Label
       => string.Format(CultureInfo.InvariantCulture,
-                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}",
+                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}{6}",
                        Uploads,
                        Callers,
                        SizeMiB,
@@ -1267,10 +1334,13 @@ public static class Program
                          ? ""
                          : string.Format(CultureInfo.InvariantCulture,
                                          "-f{0}",
-                                         FramesPerWrite));
+                                         FramesPerWrite),
+                       Compression is null
+                         ? ""
+                         : "-" + Compression);
 
-    /// <summary>Null for an argument it does not know, a value out of range, or a pool or frames
-    /// per write on a managed channel, which has neither.</summary>
+    /// <summary>Null for an argument it does not know, a value out of range, or a pool, frames per
+    /// write or compression on a managed channel, which sets none of them.</summary>
     internal static Mixed? Parse(IEnumerable<string> args,
                                  bool                managed)
     {
@@ -1286,6 +1356,12 @@ public static class Program
         if (parts[0] == "pool" && parts[1] == "server")
         {
           mixed.Pool = 0;
+          continue;
+        }
+
+        if (parts[0] == "comp" && parts[1] is "gzip" or "zstd")
+        {
+          mixed.Compression = parts[1];
           continue;
         }
 
@@ -1326,7 +1402,7 @@ public static class Program
       // message (2 GiB).
       var valid = mixed.Uploads + mixed.Callers > 0        && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
                   mixed.ChunkKiB is > 0 and <= 1024 * 1024 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 &&
-                  !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0));
+                  !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0 || mixed.Compression is not null));
       return valid
                ? mixed
                : null;
