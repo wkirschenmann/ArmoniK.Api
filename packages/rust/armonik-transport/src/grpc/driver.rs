@@ -18,7 +18,7 @@ use super::call::{
     ResponseSink,
 };
 use super::cause;
-use super::channel::Inner;
+use super::channel::{CallPlace, Inner};
 use super::compression::{compressed, CompressionBudget, Encoding};
 use super::contained::contained;
 use super::metadata::Metadata;
@@ -99,6 +99,8 @@ pub(crate) struct Outgoing {
     /// The call's place in the registry of its channel's stats, ended by its driver with the
     /// status the call ends with, or as a cancelled call when the driver is dropped.
     pub(crate) guard: Option<CallGuard>,
+    /// The worker the call runs on and what it took there when it was placed; none until then.
+    pub(crate) place: Option<CallPlace>,
 }
 
 pub(crate) async fn drive<S: ResponseSink>(
@@ -336,6 +338,7 @@ async fn run<S: ResponseSink>(
         wait_for_ready,
         compression_budget,
         guard: _,
+        place,
     } = outgoing;
 
     let policy = inner.retry.as_ref();
@@ -398,7 +401,7 @@ async fn run<S: ResponseSink>(
             // request a resend, with a turn of its own.
             if wait_for_ready
                 && inner.admission.may_wait()
-                && until_stopped(stop, inner.connected(&responding.counters))
+                && until_stopped(stop, inner.connected(&responding.counters, place.as_ref()))
                     .await
                     .is_none()
             {
@@ -463,6 +466,7 @@ async fn run<S: ResponseSink>(
                 wait_for_ready,
                 chosen,
                 sent,
+                place.as_ref(),
                 stop,
                 responding,
             )
@@ -647,6 +651,7 @@ async fn attempt<S: ResponseSink>(
     wait_for_ready: bool,
     encoding: Option<Encoding>,
     replay: &Sent,
+    place: Option<&CallPlace>,
     stop: &mut Stop,
     responding: &mut Responding<S>,
 ) -> Ended {
@@ -675,6 +680,7 @@ async fn attempt<S: ResponseSink>(
         body,
         encoding,
         responding.counters.clone(),
+        place.cloned(),
     );
     let response = match until_stopped(stop, client.streaming(request, path, BytesCodec)).await {
         None => return Ended::local(GrpcStatus::cancelled()),

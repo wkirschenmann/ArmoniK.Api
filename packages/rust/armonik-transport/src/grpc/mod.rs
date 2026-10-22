@@ -13,6 +13,7 @@ mod origin;
 mod request;
 mod retry;
 mod status;
+mod workers;
 
 pub use admission::{default_overload, default_transient, AdaptiveConfig};
 #[cfg(feature = "test-hooks")]
@@ -32,3 +33,4 @@ pub use origin::{Origin, Pushback};
 pub use request::{FramedMessage, OneRequest, FRAME_PREFIX};
 pub use retry::{default_failures, ReplayConfig, RetryConfig};
 pub use status::{GrpcStatus, GrpcStatusCode};
+pub use workers::Workers;

@@ -38,6 +38,7 @@ use super::origin::Origin;
 use super::request::OneRequest;
 use super::retry::{AttemptMessages, ChannelReplay, ReplayConfig, RequestBody, RetryConfig};
 use super::status::{Failure, GrpcStatus, GrpcStatusCode};
+use super::workers::{Claim as WorkerClaim, Worker, Workers};
 use crate::utils::safe_endpoint;
 
 const DEFAULT_USER_AGENT: &str = concat!("armonik-transport/", env!("CARGO_PKG_VERSION"));
@@ -108,9 +109,11 @@ pub struct GrpcChannel {
 }
 
 impl GrpcChannel {
+    /// A channel whose connections and calls run on `workers`: a runtime the caller gives, or a
+    /// pool of threads several channels share.
     pub fn new(
         mut config: GrpcChannelConfig,
-        spawner: tokio::runtime::Handle,
+        workers: impl Into<Workers>,
     ) -> Result<Self, GrpcChannelConfigError> {
         if config.max_sends_in_flight == 0 {
             return Err(GrpcChannelConfigError::ZeroSendWindow);
@@ -170,7 +173,7 @@ impl GrpcChannel {
             metrics: metrics.clone(),
             endpoint,
             connector,
-            spawner,
+            workers: workers.into(),
             user_agent,
             max_sends_in_flight: config.max_sends_in_flight,
             max_send_message_size: config.max_send_message_size,
@@ -219,7 +222,7 @@ impl GrpcChannel {
 
     pub async fn connect(&self) -> Result<(), ChannelError> {
         self.inner
-            .sender(false, &CallCounters::new())
+            .sender(false, &CallCounters::new(), None)
             .await
             .map(|_| ())
     }
@@ -231,7 +234,7 @@ impl GrpcChannel {
             self.inner.max_send_message_size,
             self.inner.closed.subscribe(),
         );
-        let outgoing = Outgoing {
+        let mut outgoing = Outgoing {
             path,
             metadata,
             messages: Sending::Stream(messages.charging(options.compression_budget.clone())),
@@ -241,16 +244,18 @@ impl GrpcChannel {
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
             guard: Some(self.inner.metrics.start_call(&driving.counters())),
+            place: None,
         };
-        self.inner
-            .spawner
+        let worker = self.inner.place(&mut outgoing);
+        worker
+            .handle
             .spawn(driver::drive(self.inner.clone(), outgoing, driving));
         Ok(grpc_call)
     }
 
-    /// A call's send half and control, and what drives it, which the caller runs on the channel's
-    /// runtime, joined with its own work on the call rather than as a task of its own. Nothing is
-    /// sent until it is driven.
+    /// A call's send half and control, and what drives it, which the caller runs on the runtime
+    /// `CallDriver::place` names, joined with its own work on the call rather than as a task of
+    /// its own. Nothing is sent until it is driven.
     pub fn prepare_call(
         &self,
         options: CallStartOptions,
@@ -271,6 +276,7 @@ impl GrpcChannel {
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
             guard: Some(self.inner.metrics.start_call(&driving.counters())),
+            place: None,
         };
         Ok((
             send,
@@ -302,6 +308,7 @@ impl GrpcChannel {
             wait_for_ready: options.wait_for_ready,
             compression_budget: options.compression_budget,
             guard: Some(self.inner.metrics.start_call(&driving.counters())),
+            place: None,
         };
         Ok((
             request,
@@ -375,8 +382,25 @@ impl CallDriver {
         self.outgoing.deadline.map(tokio::time::Instant::into_std)
     }
 
-    /// The call, driven to its terminal, its response going to `sink`.
-    pub fn drive<S: ResponseSink>(self, sink: S) -> impl Future<Output = ()> + Send + 'static {
+    /// Gives the call its connection, or the dial that will open it, and answers with the runtime
+    /// that connection runs on, where the caller spawns what `drive` returns: a call runs on its
+    /// connection's thread, and never moves. Taken when the call is about to be spawned rather
+    /// than when it is prepared, so that a call held back takes no room meanwhile.
+    pub fn place(&mut self) -> tokio::runtime::Handle {
+        self.inner.place(&mut self.outgoing).handle
+    }
+
+    /// The call, driven to its terminal, its response going to `sink`. A driver not placed yet is
+    /// placed here and runs where it is polled, which only a channel on the one runtime its caller
+    /// gave may do: on a pool, the call would run on another thread than its connection.
+    pub fn drive<S: ResponseSink>(mut self, sink: S) -> impl Future<Output = ()> + Send + 'static {
+        if self.outgoing.place.is_none() {
+            debug_assert!(
+                self.inner.workers.is_one_runtime(),
+                "a call on a pool of workers is placed before it is driven"
+            );
+            self.inner.place(&mut self.outgoing);
+        }
         driver::drive(self.inner, self.outgoing, self.driving.with_sink(sink))
     }
 }
@@ -422,7 +446,8 @@ pub(crate) struct Inner {
     pub(crate) metrics: Metrics,
     endpoint: Uri,
     connector: TransportConnector,
-    spawner: tokio::runtime::Handle,
+    /// Where its connections run, each on one worker, and the calls on each with it.
+    workers: Workers,
     user_agent: HeaderValue,
     max_sends_in_flight: usize,
     pub(crate) max_send_message_size: Option<usize>,
@@ -464,6 +489,8 @@ struct Sessions {
 
 struct Session {
     id: u64,
+    /// The worker its connection runs on, and every call it carries.
+    worker: Worker,
     sender: SendRequest<tonic::body::Body>,
     /// How many streams its server lets it open at once, asked of the connection each time:
     /// hyper takes SETTINGS in on a task of its own and wakes nothing here. Without waiting,
@@ -481,10 +508,19 @@ struct Session {
     conn: ConnCounters,
 }
 
+/// What a caller looking for a session found: a session and its claim on it, or something to
+/// wait on.
+enum Found {
+    Session(SendRequest<tonic::body::Body>, Lease, usize),
+    /// What to wait on, and the worker the session it waits for will run on, when it is known.
+    Waiting(Waiting, Option<usize>),
+}
+
 /// What a caller looking for a session waits on.
 enum Waiting {
-    /// A dial's outcome.
-    Dial(broadcast::Receiver<Result<(), ChannelError>>),
+    /// A dial's outcome, the session it opened when it did, and the caller's seat among its
+    /// callers.
+    Dial(broadcast::Receiver<Result<u64, ChannelError>>, Seat),
     /// The time the channel may dial again, or a session opened before it.
     Backoff(tokio::time::Instant, watch::Receiver<u64>),
 }
@@ -499,8 +535,54 @@ enum Waiting {
 /// would.
 struct Dial {
     id: u64,
+    /// The worker the session it opens runs on.
+    worker: usize,
     waiting: usize,
-    outcome: broadcast::Sender<Result<(), ChannelError>>,
+    outcome: broadcast::Sender<Result<u64, ChannelError>>,
+    /// The worker's claim, until the dial starts: a dial starts when the first of its callers
+    /// waits for it, so a call placed and ended before it needs a connection - its deadline past,
+    /// its request refused - opens none. Planned, it counts against its worker all the same, so
+    /// that calls placed together spread their dials over the workers.
+    pending: Option<WorkerClaim>,
+}
+
+/// A caller's place among a dial's callers: counted against the dial while it runs, then against
+/// the session it opens, which keeps that room for the caller rather than for whoever looks first.
+/// Let go unused, it gives the room back.
+struct Seat {
+    inner: Arc<Inner>,
+    /// The dial's id, which the session it opens takes.
+    dial: u64,
+    taken: bool,
+}
+
+impl Seat {
+    fn new(inner: &Arc<Inner>, dial: u64) -> Self {
+        Self {
+            inner: Arc::clone(inner),
+            dial,
+            taken: false,
+        }
+    }
+
+    /// The caller's claim on the session the dial opened, whose room the seat already counts.
+    fn into_lease(mut self) -> Lease {
+        self.taken = true;
+        Lease {
+            _claim: Arc::new(Claim {
+                inner: Arc::clone(&self.inner),
+                session: self.dial,
+            }),
+        }
+    }
+}
+
+impl Drop for Seat {
+    fn drop(&mut self) {
+        if !self.taken {
+            self.inner.leave_seat(self.dial);
+        }
+    }
 }
 
 /// A call's claim on its session: from the request's dispatch to the end of its response and of
@@ -521,6 +603,42 @@ struct Claim {
 impl Drop for Claim {
     fn drop(&mut self) {
         self.inner.release(self.session);
+    }
+}
+
+/// Where a call runs: the worker its first session or dial was found on when it was placed, and
+/// what it took there, which its first attempt uses.
+///
+/// Every attempt looks for a session on that worker alone, and dials there when none has room,
+/// so that the call, its connections and their tasks share one thread for the call's whole life.
+#[derive(Clone)]
+pub(crate) struct CallPlace(Arc<Placed>);
+
+struct Placed {
+    worker: usize,
+    reserved: std::sync::Mutex<Option<Reserved>>,
+}
+
+/// What a call took when it was placed: room on a session, counted from then so that calls placed
+/// together do not all read the same room, or a place among a dial's callers.
+enum Reserved {
+    Session(SendRequest<tonic::body::Body>, Lease),
+    Dial(broadcast::Receiver<Result<u64, ChannelError>>, Seat),
+}
+
+impl CallPlace {
+    fn new(worker: usize, reserved: Option<Reserved>) -> Self {
+        Self(Arc::new(Placed {
+            worker,
+            reserved: std::sync::Mutex::new(reserved),
+        }))
+    }
+
+    fn reserved(&self) -> std::sync::MutexGuard<'_, Option<Reserved>> {
+        self.0
+            .reserved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -572,6 +690,7 @@ impl Inner {
     /// A tonic client over this channel's sessions. One per call, and cheap: it holds the
     /// channel's handle and its configuration, not a connection of its own - and the call's
     /// marker, which it sets once the peer's response is in.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn client(
         self: &Arc<Self>,
         answered: Answered,
@@ -580,6 +699,7 @@ impl Inner {
         body: RequestBody,
         send: Option<Encoding>,
         counters: CallCounters,
+        place: Option<CallPlace>,
     ) -> tonic::client::Grpc<Http2> {
         let mut client = tonic::client::Grpc::with_origin(
             Http2 {
@@ -590,6 +710,7 @@ impl Inner {
                 body: Some(body),
                 send,
                 counters,
+                place,
             },
             self.endpoint.clone(),
         )
@@ -605,14 +726,48 @@ impl Inner {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Completes when a call that waits for the channel to be ready has a connection to go out on,
-    /// holding none: a connection that fails after that is the call's request unsent.
-    pub(crate) async fn connected(self: &Arc<Self>, counters: &CallCounters) {
-        let _ = self.sender(true, counters).await;
+    /// Completes when a call that waits for the channel to be ready has a connection to go out on.
+    /// The room it finds is kept for the call's first attempt; a connection that fails after that
+    /// is the call's request unsent.
+    pub(crate) async fn connected(
+        self: &Arc<Self>,
+        counters: &CallCounters,
+        place: Option<&CallPlace>,
+    ) {
+        if let (Ok((sender, lease)), Some(place)) =
+            (self.sender(true, counters, place).await, place)
+        {
+            *place.reserved() = Some(Reserved::Session(sender, lease));
+        }
+    }
+
+    /// Places a call that is about to be spawned, and answers with the worker it runs on: the
+    /// worker of the session it takes room on, or of the dial it waits on, found as `sender` finds
+    /// them on any worker. A call that finds neither - its channel closed, or waiting out a failed
+    /// dial's backoff - runs where the workers' rule puts it, and looks again when it runs.
+    pub(crate) fn place(self: &Arc<Self>, outgoing: &mut Outgoing) -> Worker {
+        let (index, reserved) = match self.find(None, outgoing.wait_for_ready) {
+            Ok(Found::Session(sender, lease, worker)) => {
+                (Some(worker), Some(Reserved::Session(sender, lease)))
+            }
+            Ok(Found::Waiting(Waiting::Dial(outcome, seat), worker)) => {
+                (worker, Some(Reserved::Dial(outcome, seat)))
+            }
+            Ok(Found::Waiting(Waiting::Backoff(..), worker)) => (worker, None),
+            Err(_) => (None, None),
+        };
+        let worker = match index {
+            Some(index) => self.workers.worker(index),
+            None => self.workers.choose(),
+        };
+        outgoing.place = Some(CallPlace::new(worker.index, reserved));
+        worker
     }
 
     /// A session with room for one more call, and the call's claim on it, dialling one if none
-    /// has room.
+    /// has room. A call that is placed looks on its own worker alone, and takes first what it
+    /// reserved there when it was placed; one that is not - the channel's eager dial - looks on
+    /// every worker.
     ///
     /// A session has room below both `calls_per_session` and the streams its server allows. The
     /// server tells the second once the session is open, h2 assuming 100 until then, so the calls
@@ -620,13 +775,6 @@ impl Inner {
     /// request is still held whole goes again once, where there is room, and ends UNAVAILABLE
     /// otherwise. One that h2 has not sent when the limit arrives waits in h2 for a stream of the
     /// session to end.
-    ///
-    /// The session taken is the fullest that has room, then the one idle most recently, so that
-    /// the others go idle and close. With none, a caller joins a dial in flight that has room for
-    /// it, or starts one - and starting one means spawning it, not running it here. Going away
-    /// then detaches this caller from the dial instead of cancelling it for everyone waiting. A
-    /// dial that ends opens a session its callers then take like any other, so one that finds it
-    /// full by then looks again.
     ///
     /// A caller that waits for the channel to be ready is not told of a failed dial: it waits for
     /// the channel's backoff to pass, which a session opened meanwhile cuts short, and dials
@@ -636,92 +784,203 @@ impl Inner {
         self: &Arc<Self>,
         wait_for_ready: bool,
         counters: &CallCounters,
+        place: Option<&CallPlace>,
     ) -> Result<(SendRequest<tonic::body::Body>, Lease), ChannelError> {
+        let pin = place.map(|place| place.0.worker);
+        let reserved = place.and_then(|place| place.reserved().take());
+        match reserved {
+            Some(Reserved::Session(sender, lease)) if !sender.is_closed() => {
+                return Ok((sender, lease))
+            }
+            Some(Reserved::Session(..)) | None => {}
+            Some(Reserved::Dial(outcome, seat)) => {
+                let waiting = Waiting::Dial(outcome, seat);
+                if let Some(found) = self.wait(waiting, wait_for_ready, counters).await? {
+                    return Ok(found);
+                }
+            }
+        }
         loop {
-            let waiting = {
-                let mut sessions = self.sessions();
-                if *self.closed.borrow() {
-                    return Err(ChannelError::Closed);
-                }
-
-                sessions.open.retain(|session| !session.sender.is_closed());
-                let roomy = sessions
-                    .open
-                    .iter_mut()
-                    // At least one: a server that allows none for now has a call wait in h2 rather
-                    // than the channel dial for good.
-                    .filter(|session| {
-                        session.calls < self.calls_per_session
-                            && session.calls < (session.streams)().max(1)
-                    })
-                    .max_by_key(|session| (session.calls, session.idle_since));
-                if let Some(session) = roomy {
-                    session.calls += 1;
-                    let lease = Lease {
-                        _claim: Arc::new(Claim {
-                            inner: Arc::clone(self),
-                            session: session.id,
-                        }),
-                    };
-                    return Ok((session.sender.clone(), lease));
-                }
-
-                let calls_per_session = self.calls_per_session;
-                let now = tokio::time::Instant::now();
-                match sessions
-                    .dials
-                    .iter_mut()
-                    .find(|dial| dial.waiting < calls_per_session)
-                {
-                    Some(dial) => {
-                        dial.waiting += 1;
-                        Waiting::Dial(dial.outcome.subscribe())
-                    }
-                    // Subscribed under the lock a session is added under, so one opened after this
-                    // is seen.
-                    None => match wait_for_ready
-                        .then(|| sessions.backoff.pending(now))
-                        .flatten()
-                    {
-                        Some(until) => Waiting::Backoff(until, self.opened.subscribe()),
-                        None => {
-                            // One, because one outcome is sent and every waiter subscribed before
-                            // it was.
-                            let (outcome, waiting) = broadcast::channel(1);
-                            let id = sessions.next;
-                            sessions.next += 1;
-                            sessions.dials.push(Dial {
-                                id,
-                                waiting: 1,
-                                outcome,
-                            });
-                            let inner = Arc::clone(self);
-                            self.spawner.spawn(async move { inner.dial(id).await });
-                            Waiting::Dial(waiting)
-                        }
-                    },
-                }
-            };
-
-            // The lock is released, so the dial is free to take it when it is done. A caller
-            // dropped here drops only its receiver.
-            let _waiting_for_a_stream = counters.wait_for_stream();
-            match waiting {
-                Waiting::Dial(mut outcome) => match outcome.recv().await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) if wait_for_ready && error.is_connection_failure() => {}
-                    Ok(Err(error)) => return Err(error),
-                    // The dial task went away without an outcome, which happens when the runtime
-                    // it was spawned on is shutting down.
-                    Err(_) => return Err(ChannelError::Closed),
-                },
-                Waiting::Backoff(until, mut opened) => {
-                    tokio::select! {
-                        () = tokio::time::sleep_until(until) => {}
-                        _ = opened.changed() => {}
+            match self.find(pin, wait_for_ready)? {
+                Found::Session(sender, lease, _) => return Ok((sender, lease)),
+                Found::Waiting(waiting, _) => {
+                    if let Some(found) = self.wait(waiting, wait_for_ready, counters).await? {
+                        return Ok(found);
                     }
                 }
             }
+        }
+    }
+
+    /// The session `sender` takes, on `pin` alone when it is given, or what to wait on for one.
+    ///
+    /// The session taken is the fullest that has room, then the one idle most recently, so that
+    /// the others go idle and close. With none, a caller joins a dial in flight or planned that
+    /// has room for it, or plans one, on `pin` or on the worker the workers' rule gives. The
+    /// first caller that waits for a planned dial spawns it on its worker. A caller that goes
+    /// away while it waits leaves the dial to the others rather than cancelling it. The session a
+    /// dial opens starts with its callers' seats counted, and each takes its claim from its seat.
+    fn find(
+        self: &Arc<Self>,
+        pin: Option<usize>,
+        wait_for_ready: bool,
+    ) -> Result<Found, ChannelError> {
+        let mut sessions = self.sessions();
+        if *self.closed.borrow() {
+            return Err(ChannelError::Closed);
+        }
+
+        sessions.open.retain(|session| !session.sender.is_closed());
+        let on_pin = |worker: usize| pin.is_none_or(|pin| pin == worker);
+        let roomy = sessions
+            .open
+            .iter_mut()
+            .filter(|session| on_pin(session.worker.index))
+            // At least one: a server that allows none for now has a call wait in h2 rather than
+            // the channel dial for good.
+            .filter(|session| {
+                session.calls < self.calls_per_session && session.calls < (session.streams)().max(1)
+            })
+            .max_by_key(|session| (session.calls, session.idle_since));
+        if let Some(session) = roomy {
+            session.calls += 1;
+            let lease = Lease {
+                _claim: Arc::new(Claim {
+                    inner: Arc::clone(self),
+                    session: session.id,
+                }),
+            };
+            return Ok(Found::Session(
+                session.sender.clone(),
+                lease,
+                session.worker.index,
+            ));
+        }
+
+        let calls_per_session = self.calls_per_session;
+        let now = tokio::time::Instant::now();
+        if let Some(dial) = sessions
+            .dials
+            .iter_mut()
+            .find(|dial| on_pin(dial.worker) && dial.waiting < calls_per_session)
+        {
+            dial.waiting += 1;
+            return Ok(Found::Waiting(
+                Waiting::Dial(dial.outcome.subscribe(), Seat::new(self, dial.id)),
+                Some(dial.worker),
+            ));
+        }
+        // Subscribed under the lock a session is added under, so one opened after this is seen.
+        if let Some(until) = wait_for_ready
+            .then(|| sessions.backoff.pending(now))
+            .flatten()
+        {
+            return Ok(Found::Waiting(
+                Waiting::Backoff(until, self.opened.subscribe()),
+                pin,
+            ));
+        }
+        // One, because one outcome is sent and every waiter subscribed before it was.
+        let (outcome, waiting) = broadcast::channel(1);
+        let id = sessions.next;
+        sessions.next += 1;
+        let claim = self.workers.claim(pin);
+        let worker = claim.worker().clone();
+        sessions.dials.push(Dial {
+            id,
+            worker: worker.index,
+            waiting: 1,
+            outcome,
+            pending: Some(claim),
+        });
+        Ok(Found::Waiting(
+            Waiting::Dial(waiting, Seat::new(self, id)),
+            Some(worker.index),
+        ))
+    }
+
+    /// Waits on what `find` found, the sessions' lock released so that a dial is free to take it
+    /// when it is done, and answers with the session a dial opened for the caller, or with none
+    /// when the caller is to look again. A caller dropped here gives its seat back.
+    async fn wait(
+        self: &Arc<Self>,
+        waiting: Waiting,
+        wait_for_ready: bool,
+        counters: &CallCounters,
+    ) -> Result<Option<(SendRequest<tonic::body::Body>, Lease)>, ChannelError> {
+        let _waiting_for_a_stream = counters.wait_for_stream();
+        match waiting {
+            Waiting::Dial(mut outcome, seat) => {
+                self.start_dial(seat.dial);
+                match outcome.recv().await {
+                    Ok(Ok(session)) => Ok(self.seated(seat, session)),
+                    Ok(Err(error)) if wait_for_ready && error.is_connection_failure() => Ok(None),
+                    Ok(Err(error)) => Err(error),
+                    // The dial task went away without an outcome, which happens when the runtime
+                    // it was spawned on is shutting down.
+                    Err(_) => Err(ChannelError::Closed),
+                }
+            }
+            Waiting::Backoff(until, mut opened) => {
+                tokio::select! {
+                    () = tokio::time::sleep_until(until) => {}
+                    _ = opened.changed() => {}
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    /// The session `id` a dial opened, and the claim on it `seat` kept; none when the session has
+    /// gone already, and the seat's room with it.
+    fn seated(&self, seat: Seat, id: u64) -> Option<(SendRequest<tonic::body::Body>, Lease)> {
+        let sender = self
+            .sessions()
+            .open
+            .iter()
+            .find(|session| session.id == id)
+            .map(|session| session.sender.clone());
+        sender.map(|sender| (sender, seat.into_lease()))
+    }
+
+    /// A seat let go unused: off its dial while the dial runs, off the session it opened after.
+    fn leave_seat(self: &Arc<Self>, id: u64) {
+        let unstarted = {
+            let mut sessions = self.sessions();
+            match sessions.dials.iter().position(|dial| dial.id == id) {
+                Some(at) => {
+                    let dial = &mut sessions.dials[at];
+                    dial.waiting = dial.waiting.saturating_sub(1);
+                    // A dial nobody waits for and nobody started is a connection nobody needs.
+                    if dial.waiting > 0 || dial.pending.is_none() {
+                        return;
+                    }
+                    sessions.dials.swap_remove(at)
+                }
+                None => {
+                    drop(sessions);
+                    // Outside the lock, which a release takes again.
+                    self.release(id);
+                    return;
+                }
+            }
+        };
+        // Outside the lock: the claim gives its worker's count back.
+        drop(unstarted);
+    }
+
+    /// Starts dial `id` on the worker it was planned for, unless it has started already.
+    fn start_dial(self: &Arc<Self>, id: u64) {
+        let claim = self
+            .sessions()
+            .dials
+            .iter_mut()
+            .find(|dial| dial.id == id)
+            .and_then(|dial| dial.pending.take());
+        if let Some(claim) = claim {
+            let inner = Arc::clone(self);
+            let handle = claim.worker().handle.clone();
+            handle.spawn(async move { inner.dial(id, claim).await });
         }
     }
 
@@ -731,7 +990,13 @@ impl Inner {
     /// the dial cleared before the outcome goes out, so a caller that arrives after the send finds
     /// the session rather than a dial that is no longer running. The session starts idle, its
     /// timer running, so that one whose callers all went away is closed too.
-    async fn dial(self: Arc<Self>, id: u64) {
+    ///
+    /// It runs on the worker `claim` counts the connection against, and the connection's task and
+    /// hyper's tasks for its calls run there too, for the connection's whole life.
+    async fn dial(self: Arc<Self>, id: u64, claim: WorkerClaim) {
+        let worker = claim.worker().clone();
+        // No lock is held here, which a host's log callback needs.
+        self.workers.report_refusals();
         self.metrics.dial_tried();
         let conn = ConnCounters::new();
         // Contained, because a panic here would leave the dial listed with no task behind it, and
@@ -744,7 +1009,7 @@ impl Inner {
             crate::http2::open(
                 &self.connector,
                 &self.endpoint,
-                Spawner(self.spawner.clone()),
+                Spawner(worker.handle.clone()),
                 conn.clone(),
             )
             .await
@@ -776,7 +1041,11 @@ impl Inner {
         let Some(at) = sessions.dials.iter().position(|dial| dial.id == id) else {
             return;
         };
-        let outcome = sessions.dials.swap_remove(at).outcome;
+        let Dial {
+            outcome,
+            waiting: seats,
+            ..
+        } = sessions.dials.swap_remove(at);
         let told = |result| {
             // Every waiter may have gone; the sessions are what the next caller reads.
             let _ = outcome.send(result);
@@ -809,7 +1078,9 @@ impl Inner {
         let last = AtomicUsize::new(connection.current_max_send_streams());
         let connection = Arc::new(std::sync::Mutex::new(Some(Box::pin(connection))));
         let driven = Driven(Arc::clone(&connection));
-        self.spawner.spawn(async move {
+        worker.handle.spawn(async move {
+            // Counted against its worker for as long as the task drives the connection.
+            let _claim = claim;
             let ended = std::future::poll_fn(|cx| {
                 match driven
                     .0
@@ -832,6 +1103,7 @@ impl Inner {
         let since = tokio::time::Instant::now();
         sessions.open.push(Session {
             id,
+            worker: worker.clone(),
             sender,
             streams: Box::new(move || {
                 let connection = match connection.try_lock() {
@@ -846,7 +1118,8 @@ impl Inner {
                 last.store(streams, Ordering::Relaxed);
                 streams
             }),
-            calls: 0,
+            // Its callers' room, kept for them: each takes its claim from its seat.
+            calls: seats,
             idle_since: since,
             timing: self.idle_timeout.is_some(),
             conn,
@@ -856,19 +1129,19 @@ impl Inner {
         drop(sessions);
         tracing::debug!(endpoint = %safe_endpoint(&self.endpoint), "the HTTP/2 session opened");
         if let Some(idle_timeout) = self.idle_timeout {
-            self.spawner.spawn(close_when_idle(
+            worker.handle.spawn(close_when_idle(
                 Arc::downgrade(&self),
                 id,
                 since,
                 idle_timeout,
             ));
         }
-        told(Ok(()));
+        told(Ok(id));
     }
 
     /// Lets go of a call's claim on session `id`, starting its idle timer if that was the last.
     fn release(self: &Arc<Self>, id: u64) {
-        let (since, idle_timeout) = {
+        let (since, idle_timeout, worker) = {
             let mut sessions = self.sessions();
             let Some(session) = sessions.open.iter_mut().find(|session| session.id == id) else {
                 return;
@@ -885,9 +1158,9 @@ impl Inner {
             if std::mem::replace(&mut session.timing, true) {
                 return;
             }
-            (since, idle_timeout)
+            (since, idle_timeout, session.worker.handle.clone())
         };
-        self.spawner.spawn(close_when_idle(
+        worker.spawn(close_when_idle(
             Arc::downgrade(self),
             id,
             since,
@@ -933,6 +1206,9 @@ pub(crate) struct Http2 {
     /// the header has to say what its messages are, whatever the channel has learned since.
     send: Option<Encoding>,
     counters: CallCounters,
+    /// Where the call runs, which every attempt looks for a session on; none for a call that was
+    /// never placed.
+    place: Option<CallPlace>,
 }
 
 /// Removed from every head and every trailer before tonic reads them. tonic decodes it with an
@@ -966,6 +1242,7 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
         let wait_for_ready = self.wait_for_ready;
         let send = self.send;
         let counters = self.counters.clone();
+        let place = self.place.clone();
         match self.body.take() {
             Some(RequestBody::Framed(body)) => {
                 *request.body_mut() = tonic::body::Body::new(http_body_util::Full::new(body));
@@ -998,26 +1275,25 @@ impl Service<http::Request<tonic::body::Body>> for Http2 {
                 }
             }
 
-            let (mut sender, lease) =
-                inner
-                    .sender(wait_for_ready, &counters)
-                    .await
-                    .map_err(|error| match error {
-                        ChannelError::Closed => worded(GrpcStatus::cancelled()),
-                        // A fault on this side, as the driver's own panic is, and not a peer out of
-                        // reach: UNAVAILABLE would tell a caller the connection or the server failed.
-                        ChannelError::DialPanicked { .. } => {
-                            worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
-                        }
-                        // A dial that failed is the connection's, or the handshake's; one that
-                        // could not be tried is the engine's own.
-                        error => Failure::of(if error.is_connection_failure() {
-                            Origin::Dial
-                        } else {
-                            Origin::Local
-                        })
-                        .on(GrpcStatus::unreachable(error)),
-                    })?;
+            let (mut sender, lease) = inner
+                .sender(wait_for_ready, &counters, place.as_ref())
+                .await
+                .map_err(|error| match error {
+                    ChannelError::Closed => worded(GrpcStatus::cancelled()),
+                    // A fault on this side, as the driver's own panic is, and not a peer out of
+                    // reach: UNAVAILABLE would tell a caller the connection or the server failed.
+                    ChannelError::DialPanicked { .. } => {
+                        worded(GrpcStatus::new(GrpcStatusCode::Internal, error.to_string()))
+                    }
+                    // A dial that failed is the connection's, or the handshake's; one that
+                    // could not be tried is the engine's own.
+                    error => Failure::of(if error.is_connection_failure() {
+                        Origin::Dial
+                    } else {
+                        Origin::Local
+                    })
+                    .on(GrpcStatus::unreachable(error)),
+                })?;
             // A call counts on its session until hyper is done with its request too: a call whose
             // response ends first keeps its request open, and its stream, until the driver
             // half-closes it, and the next call would otherwise overlap it.
