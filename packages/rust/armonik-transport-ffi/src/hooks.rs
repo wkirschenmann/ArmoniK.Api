@@ -117,10 +117,10 @@ static RETURN_STEP: Mutex<Option<StepHook<ReturnStep>>> = Mutex::new(None);
 static REPAY_STEP: Mutex<Option<StepHook<RepayStep>>> = Mutex::new(None);
 static BEFORE_CHARGE: Mutex<Option<Hook>> = Mutex::new(None);
 static BEFORE_QUEUEING: Mutex<Option<Hook>> = Mutex::new(None);
-static CHANNEL_THREAD_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
+static WORKER_ENDING: Mutex<Option<Hook>> = Mutex::new(None);
 static TEARDOWN_SPAWN: Mutex<Option<Refusing>> = Mutex::new(None);
 static AFTER_STOPPED: Mutex<Option<Hook>> = Mutex::new(None);
-static CHANNEL_THREADS: AtomicUsize = AtomicUsize::new(0);
+static WORKER_THREADS: AtomicUsize = AtomicUsize::new(0);
 static NEW_ARENAS: AtomicUsize = AtomicUsize::new(0);
 
 /// The options a runtime was created with, as its configuration loaded them.
@@ -172,26 +172,26 @@ pub(crate) fn count_spare_kept() {
     SPARES_KEPT.fetch_add(1, Ordering::SeqCst);
 }
 
-/// How many channels' threads are running, counted until each has dropped its tokio runtime.
-pub fn channel_threads() -> usize {
-    CHANNEL_THREADS.load(Ordering::SeqCst)
+/// How many workers' threads are running, counted until each has dropped its tokio runtime.
+pub fn worker_threads() -> usize {
+    WORKER_THREADS.load(Ordering::SeqCst)
 }
 
-/// Counts a channel's thread for as long as it lives; the first local of the thread, so that it is
+/// Counts a worker's thread for as long as it lives; the first local of the thread, so that it is
 /// the last one dropped.
-pub(crate) struct ChannelThreadAlive;
+pub(crate) struct WorkerAlive;
 
-impl ChannelThreadAlive {
+impl WorkerAlive {
     pub(crate) fn new() -> Self {
-        CHANNEL_THREADS.fetch_add(1, Ordering::SeqCst);
-        ChannelThreadAlive
+        WORKER_THREADS.fetch_add(1, Ordering::SeqCst);
+        WorkerAlive
     }
 }
 
-impl Drop for ChannelThreadAlive {
+impl Drop for WorkerAlive {
     fn drop(&mut self) {
-        run(&CHANNEL_THREAD_ENDING);
-        CHANNEL_THREADS.fetch_sub(1, Ordering::SeqCst);
+        run(&WORKER_ENDING);
+        WORKER_THREADS.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -227,12 +227,10 @@ pub fn before_queueing(hook: Option<Hook>) {
         .unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
-/// Runs `hook` on every channel's thread as it ends, before it stops being counted. `None`
-/// removes it.
-pub fn channel_thread_ending(hook: Option<Hook>) {
-    *CHANNEL_THREAD_ENDING
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = hook;
+/// Runs `hook` on every worker's thread as it ends, before it stops being counted. `None` removes
+/// it.
+pub fn worker_ending(hook: Option<Hook>) {
+    *WORKER_ENDING.lock().unwrap_or_else(PoisonError::into_inner) = hook;
 }
 
 /// Runs `hook` where a shutdown is about to spawn its teardown thread, which is refused as the

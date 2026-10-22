@@ -1,6 +1,6 @@
 //! The deadlines of a channel's calls whose task is not spawned yet.
 //!
-//! A call that sends one request is spawned by its commit, which saves the channel's thread a wake
+//! A call that sends one request is spawned by its commit, which saves the call's worker a wake
 //! for a task that would only wait for the request. Its deadline still runs from its start, so a
 //! call its host neither commits nor cancels is spawned when the deadline passes, and its task
 //! ends it DEADLINE_EXCEEDED at once. One watcher per channel holds those deadlines, rather than a

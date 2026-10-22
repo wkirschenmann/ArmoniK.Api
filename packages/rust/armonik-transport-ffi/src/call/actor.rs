@@ -72,12 +72,16 @@ pub(super) fn streaming(
 
 /// The call's one task: the transport's driver, which delivers the response itself, and the
 /// writer - or, on a call that sends one request, what stands for it: the budget's wake-ups.
-/// One spawn wakes the channel's thread once for both, and they share its task cell.
+/// One spawn wakes the call's worker once for both, and they share its task cell. The worker is
+/// its connection's, which the call is given here, as it is spawned.
 pub(super) fn spawn(state: &Arc<CallState>, task: CallTask) {
     let (writer_done, writer_is_done) = oneshot::channel();
     let state = Arc::clone(state);
-    let spawner = state.channel.spawner.clone();
-    let CallTask { driver, writing } = task;
+    let CallTask {
+        mut driver,
+        writing,
+    } = task;
+    let spawner = driver.place();
 
     // The futures are made inside, where they are polled, so the task is laid out with each once.
     // The writer after the driver on every poll, so it sees at once that the driver has ended the

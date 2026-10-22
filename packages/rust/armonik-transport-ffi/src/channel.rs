@@ -10,7 +10,7 @@ use crate::deadlines::Deadlines;
 use crate::held::Held;
 use crate::refusal::Refusal;
 use crate::registry::Spread;
-use crate::runtime::{AkRuntime, ChannelThread};
+use crate::runtime::AkRuntime;
 use crate::spares::Spares;
 use crate::tables;
 
@@ -23,13 +23,8 @@ pub(crate) struct AkChannel {
     pub(crate) max_sends_in_flight: usize,
     /// The arenas its sends are done with, to lend again.
     pub(crate) spares: Arc<Spares>,
-    /// Its thread's runtime, where its connection and its calls run.
-    pub(crate) spawner: tokio::runtime::Handle,
     /// The deadlines of its calls not spawned yet.
     pub(crate) deadlines: Arc<Deadlines>,
-    /// Dropped with the channel, which is what stops its thread: a channel goes once the host
-    /// has released it and the last of its calls has been reclaimed.
-    _stop: tokio::sync::oneshot::Sender<()>,
     /// Its own handle, which it takes out of the table once it is released and closed.
     handle: ak_handle,
     members: Mutex<Members>,
@@ -233,7 +228,6 @@ pub(crate) fn create(
     let max_sends_in_flight = settings.max_sends_in_flight();
     let connect_eagerly = settings.connect_eagerly();
 
-    let ChannelThread { spawner, stop } = owner.start_channel_thread()?;
     // Host and port, which is what a server is told apart by: http and https to one are one.
     let key = match (endpoint.host(), endpoint.port_u16()) {
         (Some(host), Some(port)) => format!("{host}:{port}"),
@@ -242,7 +236,7 @@ pub(crate) fn create(
     };
     let mut config = settings.into_channel_config(endpoint);
     config.metrics = Some(owner.metrics_of(&key));
-    let grpc = GrpcChannel::new(config, spawner.clone()).map_err(Refusal::channel)?;
+    let grpc = GrpcChannel::new(config, owner.workers().clone()).map_err(Refusal::channel)?;
     let dialled = grpc.clone();
     let deadlines = Deadlines::new();
     let watcher = Arc::clone(&deadlines);
@@ -256,9 +250,7 @@ pub(crate) fn create(
                 delivery_credits,
                 max_sends_in_flight,
                 spares: Spares::new(owner.ledger(), SPARES_PER_SEND * max_sends_in_flight),
-                spawner: spawner.clone(),
                 deadlines,
-                _stop: stop,
                 handle,
                 members: Mutex::new(Members::open()),
             });
@@ -266,13 +258,16 @@ pub(crate) fn create(
         })
         .map(|(handle, ())| handle)
         .ok_or(CHANNELS_SPENT)?;
-    spawner.spawn(watcher.run());
+    // On the runtime's orchestration thread rather than on a connection's worker: it watches
+    // calls of every connection, and spawns each, when its deadline passes, where it is placed.
+    owner.spawner().spawn(watcher.run());
 
     // Spawned once the channel is the host's, so a refused creation dials nothing. Its failure is
     // the first call's to report: nothing caches a failed dial, so that call dials again, or
-    // joins this dial while it runs, and meets the same answer.
+    // joins this dial while it runs, and meets the same answer. The dial itself runs on the worker
+    // its connection is given; the orchestration thread only waits for it.
     if connect_eagerly {
-        spawner.spawn(async move {
+        owner.spawner().spawn(async move {
             let _ = dialled.connect().await;
         });
     }

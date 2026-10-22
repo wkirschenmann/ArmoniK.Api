@@ -3265,8 +3265,8 @@ impl ChannelOptions {
 }
 
 /// What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
-/// channel takes where its own state none, what the engine logs, and whether a channel's thread
-/// spins before it sleeps.
+/// channel takes where its own state none, what the engine logs, and how its workers run: how
+/// many, which one a connection is given, and whether one spins before it sleeps.
 #[derive(Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -3305,7 +3305,7 @@ pub struct RuntimeOptions {
     #[serde(default)]
     pub logging: LoggingOptions,
 
-    /// What a channel's thread does once it has run out of work, before it sleeps until more
+    /// What a worker does once it has run out of work, before it sleeps until more
     /// comes. Ignored by a Rust host, whose channels run on its own runtime.
     ///
     /// Defaults to `"None"`: it sleeps as soon as it runs out of work. `{"Spin": {}}` has it poll
@@ -3363,7 +3363,7 @@ impl RuntimeOptions {
         self.worker_assignment.clone().unwrap_or_default()
     }
 
-    /// How long a channel's thread polls before it sleeps, `BeforeSleep`'s default when it is
+    /// How long a worker polls before it sleeps, `BeforeSleep`'s default when it is
     /// left out, none when the thread sleeps at once.
     pub fn spin_window(&self) -> Option<Duration> {
         match &self.before_sleep {
@@ -3373,7 +3373,7 @@ impl RuntimeOptions {
     }
 }
 
-/// What a channel's thread does once it has run out of work, before it sleeps.
+/// What a worker does once it has run out of work, before it sleeps.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[non_exhaustive]
@@ -3390,7 +3390,7 @@ pub enum BeforeSleep {
 }
 
 impl BeforeSleep {
-    /// How long a channel's thread polls before it sleeps, none when it sleeps at once.
+    /// How long a worker polls before it sleeps, none when it sleeps at once.
     pub fn spin_window(&self) -> Option<Duration> {
         match self {
             Self::None => None,
@@ -3437,7 +3437,7 @@ pub enum WorkerAssignment {
     RoundRobin,
 }
 
-/// How long a channel's thread polls for work before it sleeps.
+/// How long a worker polls for work before it sleeps.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

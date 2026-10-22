@@ -511,12 +511,13 @@ fn a_unary_call_through_the_abi_reaches_a_grpc_server_and_comes_back() {
     fixture.close();
 }
 
-/// A channel runs its calls on a thread of its own: a call's events all come from its channel's
-/// thread, and another channel's from another.
+/// A connection runs its calls on a worker of its own: a call's events all come from its
+/// connection's worker, and another connection's, given the worker that carries none, from
+/// another - whichever channel the connections belong to.
 #[test]
-fn each_channel_runs_its_calls_on_a_thread_of_its_own() {
+fn each_connection_runs_its_calls_on_a_worker_of_its_own() {
     let server = TestServer::start();
-    let host = Host::start();
+    let host = Host::with_runtime_options(r#"{"WorkerThreads":{"Count":2}}"#);
     let first = host.channel(&server.endpoint);
     let second = host.channel(&server.endpoint);
 
@@ -528,7 +529,7 @@ fn each_channel_runs_its_calls_on_a_thread_of_its_own() {
 
     let only = |threads: &[Option<String>]| {
         let name = threads[0].clone().expect("a named thread");
-        assert!(name.starts_with("armonik-channel-"), "{threads:?}");
+        assert!(name.starts_with("armonik-worker-"), "{threads:?}");
         assert!(
             threads
                 .iter()

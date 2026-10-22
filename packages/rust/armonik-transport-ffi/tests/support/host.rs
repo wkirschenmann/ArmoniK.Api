@@ -179,6 +179,32 @@ impl Host {
         })
     }
 
+    /// A runtime created by `ak_runtime_create_from` from one document of runtime options.
+    pub fn with_runtime_options(document: &str) -> Self {
+        let sources = [ak_config_source {
+            kind: ak_source_kind::AK_SOURCE_DOCUMENT as u32,
+            reserved: 0,
+            value: ak_bytes_in {
+                ptr: document.as_ptr(),
+                len: document.len(),
+            },
+        }];
+        let config = ak_config {
+            struct_size: std::mem::size_of::<ak_config>() as u32,
+            version: 0,
+            flags: 0,
+            source_count: 1,
+            sources: sources.as_ptr(),
+            prefix: ak_bytes_in {
+                ptr: std::ptr::null(),
+                len: 0,
+            },
+            log_callback: None,
+            log_ctx: std::ptr::null_mut(),
+        };
+        Self::from_config(&config).unwrap_or_else(|refused| panic!("{document}: {refused:?}"))
+    }
+
     /// A runtime created from `config` by `ak_runtime_create`, which holds its options as fields.
     pub fn from_runtime_config(config: &ak_runtime_config) -> Self {
         let turn = ONE_RUNTIME.lock().unwrap_or_else(|held| held.into_inner());

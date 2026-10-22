@@ -232,9 +232,12 @@ fn the_runtimes_effective_configuration_is_logged_once_it_is_created() {
 }
 
 #[test]
-fn a_runtime_whose_channel_threads_spin_says_for_how_long() {
+fn a_runtime_says_how_many_workers_it_has_how_it_assigns_them_and_how_long_they_spin() {
     let _turn = turn();
-    let host = create(r#"{"BeforeSleep":{"Spin":{}}}"#).expect("a runtime");
+    let host = create(
+        r#"{"BeforeSleep":{"Spin":{}},"WorkerThreads":{"Count":3},"WorkerAssignment":"RoundRobin"}"#,
+    )
+    .expect("a runtime");
 
     let records = logged();
     let record = records
@@ -242,6 +245,8 @@ fn a_runtime_whose_channel_threads_spin_says_for_how_long() {
         .find(|record| record.message.contains("runtime's effective configuration"))
         .expect("the configuration is logged");
     assert_eq!(record.field("spin_window_us"), Some("100"));
+    assert_eq!(record.field("worker_threads"), Some("3"));
+    assert_eq!(record.field("worker_assignment"), Some("RoundRobin"));
     drop(host);
 }
 
@@ -420,7 +425,7 @@ fn the_filter_option_selects_what_the_engine_logs_and_the_default_keeps_debug_ou
     assert_ne!(
         dialled.thread,
         std::thread::current().id(),
-        "the dial runs on the channel's thread"
+        "the dial runs on its connection's worker"
     );
     assert!(has(
         &records,

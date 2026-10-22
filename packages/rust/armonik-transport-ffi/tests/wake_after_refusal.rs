@@ -85,7 +85,7 @@ impl Retry {
     }
 }
 
-/// Keeps the channel's thread in a callback until it is opened, and with it every call's writer.
+/// Keeps the call's worker in a callback until it is opened, and with it every call's writer.
 #[derive(Default)]
 struct Gate {
     open: Mutex<bool>,
@@ -157,7 +157,7 @@ fn assert_served(retry: &Retry, context: &str) -> Parts {
 }
 
 /// SLOT_BUSY: the WRITE_DONE that frees the slot comes from another buffer's send, which the
-/// channel's thread holds back until the refused lend is held.
+/// call's worker holds back until the refused lend is held.
 #[test]
 fn a_lend_asked_at_the_write_done_a_slot_busy_waits_for_is_served() {
     let _turn = take_turn();
@@ -191,7 +191,7 @@ fn asked_at_the_write_done(step: RepayStep) {
     })));
 
     // A call of one request has no WRITE_DONE to be mistaken for the other's, and its head is
-    // where the gate holds the channel's thread.
+    // where the gate holds the call's worker.
     let holder = start_call_flagged(channel, ECHO, &[], AK_CALL_ONE_REQUEST);
     let (status, request) = lend(holder, 4);
     assert_eq!(status, ak_status::AK_STATUS_OK);
@@ -201,7 +201,7 @@ fn asked_at_the_write_done(step: RepayStep) {
     );
     poll_until(
         || gate.holding.load(Ordering::SeqCst),
-        || format!("{context}: the gate never held the channel's thread"),
+        || format!("{context}: the gate never held the call's worker"),
     );
 
     // The one slot is spent by a message the writer cannot send yet.
@@ -236,7 +236,7 @@ fn asked_at_the_write_done(step: RepayStep) {
 const READS_WHILE_WAITING: usize = 2;
 
 /// A WRITE_DONE held back for a lend answering waits to be told the lend has answered: the
-/// channel's thread does nothing meanwhile, however long the lend takes.
+/// call's worker does nothing meanwhile, however long the lend takes.
 #[test]
 fn a_write_done_waits_for_a_lend_answering_without_polling() {
     let _turn = take_turn();
@@ -266,7 +266,7 @@ fn a_write_done_waits_for_a_lend_answering_without_polling() {
     );
     poll_until(
         || gate.holding.load(Ordering::SeqCst),
-        || "the gate never held the channel's thread".to_owned(),
+        || "the gate never held the call's worker".to_owned(),
     );
     let (status, first) = lend(call, ASKED);
     assert_eq!(status, ak_status::AK_STATUS_OK);

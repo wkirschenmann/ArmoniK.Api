@@ -218,7 +218,9 @@ pub(crate) fn log_runtime(options: &RuntimeOptions, ceilings: (u64, u64)) {
             .filter
             .as_deref()
             .unwrap_or(crate::log::DEFAULT_FILTER),
-        // 0 when a channel's thread sleeps at once.
+        worker_threads = options.worker_count(),
+        worker_assignment = ?options.worker_assignment(),
+        // 0 when a worker sleeps at once.
         spin_window_us = options
             .spin_window()
             .map_or(0, |window| window.as_micros() as u64),
@@ -305,7 +307,8 @@ mod tests {
     /// endpoint is what a channel names itself there, and the filter and the spin are given
     /// through the loader's options alone, `ak_runtime_create` taking their defaults.
     #[test]
-    fn every_runtime_option_but_the_endpoint_the_filter_and_the_spin_is_a_field_of_the_config() {
+    fn every_runtime_option_but_the_endpoint_the_filter_the_spin_and_the_workers_is_a_field_of_the_config(
+    ) {
         let schema: serde_json::Value =
             serde_json::from_str(&armonik_transport::options::runtime_schema())
                 .expect("the schema is a document");
@@ -331,8 +334,9 @@ mod tests {
             log_callback: None,
             log_ctx: std::ptr::null_mut(),
         };
-        // Logging.Filter and BeforeSleep are no fields: a value other than the default is only
-        // loaded, and ak_runtime_create has no sources to load it from.
+        // Logging.Filter, BeforeSleep, WorkerThreads and WorkerAssignment are no fields: a value
+        // other than the default is only loaded, and ak_runtime_create has no sources to load it
+        // from.
         let _ = (
             config.memory_ceiling,
             config.memory_hard_ceiling,
@@ -345,7 +349,9 @@ mod tests {
                 "ChannelDefaults",
                 "Endpoint",
                 "Logging",
-                "MemoryCeiling"
+                "MemoryCeiling",
+                "WorkerAssignment",
+                "WorkerThreads"
             ]
         );
     }

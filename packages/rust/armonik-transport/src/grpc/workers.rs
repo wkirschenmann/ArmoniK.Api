@@ -17,8 +17,8 @@ use crate::options::WorkerAssignment;
 #[derive(Clone)]
 pub struct Workers(Arc<Pool>);
 
-/// What starts the worker of an index and answers with its runtime, or with none when the system
-/// gives no thread.
+/// What starts the worker of an index and answers with its runtime, or with none when it cannot:
+/// the system gives no thread, or whoever owns the pool is stopping it.
 type Start = Box<dyn Fn(usize) -> Option<Handle> + Send + Sync>;
 
 struct Pool {
@@ -32,7 +32,7 @@ struct Slots {
     slots: Vec<Slot>,
     /// The next worker `RoundRobin` gives.
     next: usize,
-    /// The workers whose thread the system refused, not reported yet: the report waits until no
+    /// The workers no thread could be started for, not reported yet: the report waits until no
     /// lock is held, since a host's log callback runs inside the emitting call.
     unreported: Vec<usize>,
 }
@@ -42,7 +42,7 @@ struct Slot {
     handle: Option<Handle>,
     /// The connections it carries, opened or being dialled.
     connections: usize,
-    /// The system gave no thread for it, and it is not asked again.
+    /// No thread could be started for it, and it is not asked again.
     refused: bool,
 }
 
@@ -104,14 +104,14 @@ impl Workers {
         self.0.start.is_none()
     }
 
-    /// Logs the workers whose thread the system refused since the last report. Called where no
+    /// Logs the workers no thread could be started for since the last report. Called where no
     /// lock is held.
     pub(crate) fn report_refusals(&self) {
         let refused = std::mem::take(&mut self.slots().unreported);
         for worker in refused {
             tracing::warn!(
                 worker,
-                "the system gave no thread for a worker; its connections go to the others"
+                "no thread could be started for a worker; its connections go to the others"
             );
         }
     }
@@ -170,7 +170,7 @@ impl Workers {
     }
 
     /// The index the rule gives, its worker started, or the started worker with the fewest
-    /// connections when the system refuses the thread, which is reported later.
+    /// connections when no thread can be started for it, which is reported later.
     ///
     /// The thread starts under the lock, so that two dials do not both start the same worker: a
     /// start runs no code of this crate's and takes no lock of it, and is once per worker.

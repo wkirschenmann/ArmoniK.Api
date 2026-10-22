@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "RuntimeOptions",
-  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, what the engine logs, and whether a channel's thread\nspins before it sleeps.",
+  "description": "What a caller may set on the runtime: the endpoint, the memory ceiling, the options every\nchannel takes where its own state none, what the engine logs, and how its workers run: how\nmany, which one a connection is given, and whether one spins before it sleeps.",
   "type": "object",
   "properties": {
     "Endpoint": {
@@ -22,7 +22,7 @@
       "$ref": "#/$defs/LoggingOptions"
     },
     "BeforeSleep": {
-      "description": "What a channel's thread does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `\"None\"`: it sleeps as soon as it runs out of work. `{\"Spin\": {}}` has it poll\nfor new work for 100 microseconds after it last called the host.",
+      "description": "What a worker does once it has run out of work, before it sleeps until more\ncomes. Ignored by a Rust host, whose channels run on its own runtime.\n\nDefaults to `\"None\"`: it sleeps as soon as it runs out of work. `{\"Spin\": {}}` has it poll\nfor new work for 100 microseconds after it last called the host.",
       "$ref": "#/$defs/BeforeSleep"
     },
     "WorkerThreads": {
@@ -1141,7 +1141,7 @@
       "additionalProperties": false
     },
     "BeforeSleep": {
-      "description": "What a channel's thread does once it has run out of work, before it sleeps.",
+      "description": "What a worker does once it has run out of work, before it sleeps.",
       "oneOf": [
         {
           "description": "Nothing: the thread sleeps at once, and the operating system wakes it when a socket is\nready, a timer is due or the host hands it work.",
@@ -1164,7 +1164,7 @@
       ]
     },
     "SpinOptions": {
-      "description": "How long a channel's thread polls for work before it sleeps.",
+      "description": "How long a worker polls for work before it sleeps.",
       "type": "object",
       "properties": {
         "WindowMicroseconds": {

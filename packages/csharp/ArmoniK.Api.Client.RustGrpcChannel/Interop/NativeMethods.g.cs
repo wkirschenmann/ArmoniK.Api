@@ -94,9 +94,14 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Interop
 
         /// <summary>
         ///  Creates a runtime, synchronously; it starts in AK_RUNTIME_RUNNING. One exists at a time: a
-        ///  second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE. Each
-        ///  channel created on it runs on a thread of its own, so that a call never moves between threads.
-        ///  AK_RUNTIME_QUIESCENT means those threads are gone too.
+        ///  second create before the first is destroyed is refused with AK_STATUS_INVALID_STATE. Its
+        ///  channels' connections run on a pool of threads it owns, at most one per logical processor the
+        ///  process may run on, or the `WorkerThreads` that ak_runtime_create_from is given: each
+        ///  connection on one thread for its whole life, with the calls it carries, so that a call never
+        ///  moves between threads. A callback that does not return holds its thread, and with it every
+        ///  connection of every channel on that thread. The first thread starts here, and a create that
+        ///  cannot start it is refused with AK_STATUS_INTERNAL. AK_RUNTIME_QUIESCENT means those threads
+        ///  are gone too.
         ///
         ///  # Safety
         ///

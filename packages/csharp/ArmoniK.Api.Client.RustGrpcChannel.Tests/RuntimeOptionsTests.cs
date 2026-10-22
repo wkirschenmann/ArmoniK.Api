@@ -216,7 +216,7 @@ public class RuntimeOptionsTests : RuntimeFixture
 
   /// <summary>Either alternative reaches the engine, which starts with it.</summary>
   [Test]
-  public async Task ARuntimeStartsWithItsChannelThreadsSleepingAtOnceOrSpinning()
+  public async Task ARuntimeStartsWithItsWorkersSleepingAtOnceOrSpinning()
   {
     foreach (var beforeSleep in new BeforeSleep[]
                                 {
@@ -237,6 +237,37 @@ public class RuntimeOptionsTests : RuntimeFixture
                    .ConfigureAwait(false);
     }
   }
+
+  /// <summary>Every alternative of the workers' count and of their rule reaches the engine, which starts with it.</summary>
+  [Test]
+  public async Task ARuntimeStartsWithTheWorkersItIsGiven()
+  {
+    foreach (var (workerThreads, workerAssignment) in new (WorkerThreads, WorkerAssignment)[]
+                                                      {
+                                                        (new WorkerThreads.Auto(), WorkerAssignment.LeastConnections),
+                                                        (new WorkerThreads.Count(2), WorkerAssignment.RoundRobin),
+                                                      })
+    {
+      var runtime = await RestartAsync(() => NativeRuntime.Create(new RuntimeOptions
+                                                                  {
+                                                                    WorkerThreads    = workerThreads,
+                                                                    WorkerAssignment = workerAssignment,
+                                                                  }))
+                      .ConfigureAwait(false);
+      var channel = runtime.Channel("http://127.0.0.1:1");
+      await channel.DisposeAsync()
+                   .ConfigureAwait(false);
+    }
+  }
+
+  /// <summary>A count of workers past what the engine admits is refused before the engine is asked.</summary>
+  [Test]
+  public void TooManyWorkersAreRefusedBeforeTheEngineIsAsked()
+    => Assert.That(() => NativeRuntime.Create(new RuntimeOptions
+                                              {
+                                                WorkerThreads = new WorkerThreads.Count(1025),
+                                              }),
+                   Throws.InstanceOf<ArgumentOutOfRangeException>());
 
   /// <summary>Refused by the engine, not by the binding: the order of the two is the engine's rule, checked once the
   /// sources are merged. Which is also what shows the second threshold reaching the engine.</summary>

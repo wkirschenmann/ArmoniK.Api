@@ -37,8 +37,8 @@ internal partial class RuntimeOptionsJsonContext : JsonSerializerContext
 
 /// <summary>
 ///   What a caller may set on the runtime: the endpoint, the memory ceiling, the options every
-///   channel takes where its own state none, what the engine logs, and whether a channel's thread
-///   spins before it sleeps.
+///   channel takes where its own state none, what the engine logs, and how its workers run: how
+///   many, which one a connection is given, and whether one spins before it sleeps.
 /// </summary>
 public sealed class RuntimeOptions
 {
@@ -106,7 +106,7 @@ public sealed class RuntimeOptions
   public LoggingOptions? Logging { get; set; }
 
   /// <summary>
-  ///   What a channel's thread does once it has run out of work, before it sleeps until more
+  ///   What a worker does once it has run out of work, before it sleeps until more
   ///   comes. Ignored by a Rust host, whose channels run on its own runtime.
   /// </summary>
   /// <remarks>
@@ -298,7 +298,7 @@ public sealed class LoggingOptions
   }
 }
 
-/// <summary>What a channel's thread does once it has run out of work, before it sleeps.</summary>
+/// <summary>What a worker does once it has run out of work, before it sleeps.</summary>
 [JsonConverter(typeof(BeforeSleepJsonConverter))]
 public abstract record BeforeSleep
 {

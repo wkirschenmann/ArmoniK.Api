@@ -1,4 +1,4 @@
-//! A channel's thread polling for work for a while before it sleeps.
+//! A worker polling for work for a while before it sleeps.
 //!
 //! The thread is a tokio current-thread runtime, which sleeps in its I/O driver when it has no
 //! task to run, and wakes when a socket is ready, a timer is due, or another thread hands it work.

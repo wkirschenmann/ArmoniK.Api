@@ -1,5 +1,5 @@
 //! What the counting costs a call: unary calls over loopback to a server of another runtime, from
-//! a current-thread runtime, which is a channel's thread in the C ABI, and from tokio's multi-thread
+//! a current-thread runtime, which is a worker of the C ABI's runtime, and from tokio's multi-thread
 //! runtime, which a Rust host has.
 //!
 //! Run it twice and compare, once with the `metrics` feature and once without:

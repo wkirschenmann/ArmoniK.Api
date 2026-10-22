@@ -344,7 +344,7 @@ impl CallState {
     /// this: a lend that claims after it reads from it, and so sees that slot. One that claimed
     /// before it is what it waits for, and that lend waits on nothing of the channel's.
     ///
-    /// The wait is told when the lend answers, and the channel's thread does nothing meanwhile: a
+    /// The wait is told when the lend answers, and the call's worker does nothing meanwhile: a
     /// lend runs on a host thread, which the system may hold back for as long as it likes.
     pub(super) async fn lend_answered(&self) {
         if !self.lend_answering() {
@@ -917,7 +917,7 @@ impl CallState {
     }
 
     /// Reclaims a settled call on the thread that paid its last debt: a downcall that pays it
-    /// must not pay a wake-up of the channel's thread besides.
+    /// must not pay a wake-up of the call's worker besides.
     fn reclaim_if_settled(&self) {
         if self.debt.settled() && !self.reclaimed.swap(true, Ordering::AcqRel) {
             crate::lifecycle::call_settled(self.handle);
