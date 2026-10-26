@@ -225,21 +225,45 @@ is the guarantee: a callback runs on one of the runtime's own threads, so it can
 that the threads are gone. `ak_runtime_status` returning QUIESCENT is the guarantee, and from
 there unloading the library, destroying the runtime and starting a new one are all safe.
 
-**A thread per channel.** Each channel runs on a thread of its own, a current-thread tokio
-runtime that carries the channel's connection and one task for each of its calls, joining its
-driver, which delivers the response, and its writer, so that a call never moves between threads (`decisions.md` gives
-what that was measured against). The calls of one channel share that thread for all their work -
-framing, encoding and decoding, the host's callbacks - and channels run in parallel. The
-runtime keeps one worker of its own, which delivers AK_EVENT_SHUTDOWN_COMPLETE. A channel's
-thread stops with the channel, once the host has released it and its last call has been
-reclaimed, or with the teardown; either way it first gives the close of the connection up to a
-second to finish, so that the peer sees the connection closed rather than dropped. The teardown
-waits for every channel's thread before it finishes - so QUIESCENT still means that no thread
-of the runtime is left, and may come up to that second later. What a callback costs is its
-channel's to pay: one that blocks stops that channel's connection and every call on it.
+**Connections run on a pool of workers.** The runtime owns a pool of threads, each a
+current-thread tokio runtime, and every channel's connections run on it: at most one worker per
+logical processor the process may run on, or `WorkerThreads` (`"Auto"`, the default, or
+`{"Count": n}`, 1 to 1024). A connection is given a worker when it is dialled and keeps it for its
+whole life: the dial, the connection's task, hyper's tasks for each of its calls, and each call's
+own task, joining its driver, which delivers the response, and its writer, all run there, so that
+a call never moves between threads (`decisions.md` gives what that was measured against). A
+worker carries connections of any channel, and the connections of one channel spread over the
+workers, so a channel with several connections - `Http2.SimultaneousCallsPerConnection` at
+`{"Limit": n}`, or a server that allows fewer streams than the calls in flight - runs them in
+parallel. Which worker a new connection is given is `WorkerAssignment`: `"LeastConnections"`, the
+default, the one that carries the fewest connections, opened or opening, of every channel, the
+first of equals - so the workers fill one connection each before any takes a second, and a worker
+whose connections closed is the next one given; `"RoundRobin"`, each in turn whatever it carries.
+A worker starts when it is first given a connection, but the first, which starts with the runtime:
+a process with one connection has one. One the system refuses is not asked again, and its
+connections go to the others.
 
-**A channel's thread may poll before it sleeps.** With the runtime's `BeforeSleep` a spin,
-`{"Spin": {}}`, a channel's thread that runs out of work within `Spin.WindowMicroseconds` (100 by
+**A call is placed before it is spawned.** Its connection decides its worker, so the call finds
+its connection as it is spawned - at `ak_call_start` for a stream, at the commit of its request
+for a call that sends one - on the host's thread, under the lock of the channel's connections: room
+on the fullest connection that has some, of any worker, or a place among the callers of a dial in
+flight, or a new dial on the worker `WorkerAssignment` gives. The room is taken there, so that calls
+placed together do not all read the same room and open more connections than they need. Every later
+attempt of the call - a retry, a resend of a request its peer never processed, a call that waits
+for the channel to be ready dialling again - looks on its own worker alone, and dials there when
+it finds no room. The runtime keeps one worker of its own besides, which delivers
+AK_EVENT_SHUTDOWN_COMPLETE and watches the deadlines of calls not spawned yet.
+
+**Workers outlive channels; the teardown ends them.** A channel that goes leaves its connections
+to close on their workers. The teardown stops every worker, gives each up to a second to finish
+the work left on it, so that a peer sees a connection closed rather than dropped, and waits for
+them all before it finishes - so QUIESCENT still means that no thread of the runtime is left, and
+may come up to that second later. What a callback costs is its worker's to pay: one that blocks
+stops every connection on that worker, of every channel, and every call on them (abi.md, "A
+callback must return").
+
+**A worker may poll before it sleeps.** With the runtime's `BeforeSleep` a spin,
+`{"Spin": {}}`, a worker that runs out of work within `Spin.WindowMicroseconds` (100 by
 default) of its last callback into the host does not sleep: it polls its I/O driver without
 blocking, which sees a socket that is ready, a timer that is due and work the host hands over,
 until the window has passed. What the host does with an event - its next call, a buffer given
@@ -247,14 +271,16 @@ back, its next message once the last is written - then finds the thread awake ra
 the operating system's wake-up of it. Tokio offers no hook into its driver's park; the thread's
 `on_thread_park` callback wakes a task kept for the purpose, which yields, and a runtime with a
 yielded task polls its driver with a timeout of zero instead of parking. The task is aborted
-when the channel stops, before the wind-down waits for the channel's tasks. `"None"`, the
+when the worker stops, before the wind-down waits for the worker's tasks. `"None"`, the
 default, sleeps at once: the spin costs CPU per call for a gain in P50 the benchmarks do not tell
 from their spread (`decisions.md`).
 
-**Writes gather what is ready.** The connection writes once the work already ready on the
-channel's thread adds nothing to what it has to write, or once that reaches
+**Writes gather what is ready.** The connection writes once the work already ready on its
+worker adds nothing to what it has to write, or once that reaches
 `Http2.Send.CoalescingBytes`: a request's message, handed over from the host's thread while
-its headers wait, goes out in the same write as they do (`decisions.md` gives the figures).
+its headers wait, goes out in the same write as they do (`decisions.md` gives the figures). The
+calls the connection carries run on that worker too, which is what lets a round of it gather
+their frames.
 
 **Request headers are bounded where they are built.** With `Http2.Send.HeaderListBytes`, a
 call whose header list - counted as RFC 9113 counts one - is past the limit ends
@@ -262,7 +288,7 @@ RESOURCE_EXHAUSTED before a connection is taken: nginx answers such a header by 
 connection, which ends every call on it, and the channel refuses the one call instead.
 
 **Deliveries gather what is ready.** A response's delivery to the host waits while the work
-already ready on the channel's thread reads more of it, up to `Grpc.Host.Receive.CoalescingBytes`: the
+already ready on the call's worker reads more of it, up to `Grpc.Host.Receive.CoalescingBytes`: the
 connection shares that thread, so the message a head precedes, and the trailers a message
 precedes, are decoded on its next turn, and a unary answer whose server wrote it in parts still
 reaches the host in one callback rather than two or three.

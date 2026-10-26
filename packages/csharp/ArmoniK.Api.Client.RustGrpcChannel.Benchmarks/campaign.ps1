@@ -16,7 +16,8 @@ param(
   # large: compression both ways, 16 and 64 calls in flight, unary messages of 4 and 16 MiB; zstd
   # runs on the native transports, against a server ARMONIK_BENCH_SERVER names (benchmarks.md).
   # mixed: large uploads and unary calls at once over mutual TLS, its parameters after it, space
-  # separated, e.g. "mixed k=4 m=64 pool=16"; a numbered pool, and fpw, run on the native transports.
+  # separated, e.g. "mixed k=4 m=64 pool=16"; a numbered pool, fpw and workers run on the native
+  # transports, and concurrent takes pool and workers the same way, e.g. "concurrent pool=16 workers=4".
   [string[]] $Scenarios = @("idle", "busy"),
   # Ahead-of-time variants of the frameworks above but net4.8, published with `dotnet publish`.
   [switch] $Aot,
@@ -107,7 +108,7 @@ try {
       foreach ($variant in $variants) {
         foreach ($transport in $Transports) {
           if (($scenario -in @("pinned", "shared", "zstd")) -and ($transport -notlike "native*")) { continue }
-          if (($scenario -match ' (pool|fpw)=\d') -and ($transport -notlike "native*")) { continue }
+          if (($scenario -match ' (pool|fpw|workers)=\d') -and ($transport -notlike "native*")) { continue }
           $arguments = @($transport)
           if ($scenario -ne "idle") { $arguments += -split $scenario }
           Set-Environment DOTNET_ROOT $(if ($variant.Root) { $variant.Root } else { $saved.DOTNET_ROOT })
@@ -129,7 +130,7 @@ finally {
 }
 
 # The median of the passes, per transport, variant and scenario.
-$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent| large| mixed-\S+)? (.*)$' } | ForEach-Object {
+$runs = Get-Content $Out -Encoding UTF8 | Where-Object { $_ -match '^pass=\d+ (\S+) (\S+)( busy| pinned| shared| gzip| zstd| concurrent\S*| large| mixed-\S+)? (.*)$' } | ForEach-Object {
   # In the order the line gives them, so each scenario's table keeps the benchmark's columns.
   $fields = [ordered]@{}
   foreach ($pair in ($Matches[4] -split ' ')) {

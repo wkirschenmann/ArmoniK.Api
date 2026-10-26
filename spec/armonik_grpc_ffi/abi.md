@@ -71,15 +71,17 @@ The schema is the source of truth for:
 The runtime's options have a schema of their own, `runtime.schema.json`, generated from
 `armonik-transport`'s `options::RuntimeOptions` under its `schema` feature: `Endpoint`, the server a
 channel created with an empty endpoint reaches, the two memory ceilings, `ChannelDefaults`,
-`Logging`, whose `Filter` selects the engine's logs, and `BeforeSleep`, whether a channel's thread
-spins before it sleeps. It
+`Logging`, whose `Filter` selects the engine's logs, `BeforeSleep`, whether a worker spins before
+it sleeps, `WorkerThreads`, how many workers the connections run on, and `WorkerAssignment`, which
+worker a new connection is given. It
 is the document `ak_runtime_create_from` loads from the sources an `ak_config` lists - files, the
 environment, pairs and documents, a later one over an earlier one (configuration-loading.md) - and
 the one the `armonik` client loads; `ak_runtime_create` takes the ceilings and the channel defaults
 as the fields of `ak_runtime_config`, the cases of one document with no endpoint, no filter and no
-`BeforeSleep`, and its zero ceiling is the default where a loaded document refuses a zero. So a
-runtime `ak_runtime_create` creates has its channels' threads sleep at once, the default, and a
-host has them spin only through `ak_runtime_create_from`. `RuntimeOptions.g.cs` is generated
+`BeforeSleep`, `WorkerThreads` or `WorkerAssignment`, and its zero ceiling is the default where a
+loaded document refuses a zero. So a runtime `ak_runtime_create` creates has a worker per logical
+processor at most, given to connections by their counts, each sleeping at once, the defaults; a
+host sets them otherwise only through `ak_runtime_create_from`. `RuntimeOptions.g.cs` is generated
 from it with its encoding, which the .NET binding's `LoadConfigFromObject` writes. A source is a
 document judged whole against the schema: a key no option declares, the root's included, a value of
 the wrong type or out of the bounds the schema states and a missing mandatory field are refused by
@@ -229,9 +231,9 @@ integer to.
 
 #### Runtime lifecycle
 
-`ak_runtime_status` is the guarantee criterion, and no callback can be: a callback runs on the
-runtime's own thread, so it is by construction delivered while the runtime still has one.
-`AK_RUNTIME_QUIESCENT` is the only observation that means everything is gone, that thread
+`ak_runtime_status` is the guarantee criterion, and no callback can be: a callback runs on one of
+the runtime's own threads, so it is by construction delivered while the runtime still has one.
+`AK_RUNTIME_QUIESCENT` is the only observation that means everything is gone, those threads
 included. The events are notifications; the status is the gate.
 
 `ak_runtime_destroy` is refused before quiescence and for no other reason. Quiescence already
@@ -323,6 +325,17 @@ with the acquittal and not with the bytes.
 field is a use-after-free. That is the floor, not the policy: the .NET binding holds it longer
 and releases it after `ak_runtime_destroy` returns, which needs no reasoning about which event
 was last.
+
+#### A callback must return, and one that does not stops its whole worker
+
+A call's callbacks run on the worker thread of the connection that carries it, and that thread
+carries other connections too, of any channel of the runtime (architecture.md, "Connections run
+on a pool of workers"). A callback that blocks, waits on another thread or never returns holds
+that worker: every connection on it and every call on those connections stops until it returns,
+whichever channel they belong to. With `WorkerThreads` at `{"Count": 1}`, that is the whole
+engine. A callback copies what it needs and returns; the work it hands on runs on the host's own
+threads. The .NET binding's callback does nothing else: it stores the event in the call's ring
+and signals a waiter whose continuation runs on the thread pool, never inline.
 
 #### The log callback
 

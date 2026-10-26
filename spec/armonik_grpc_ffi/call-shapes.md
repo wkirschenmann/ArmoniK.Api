@@ -22,11 +22,11 @@ of the engine at `956b8811`:
 | | per unary call |
 |---|---|
 | downcalls | seven: `ak_call_start`, `ak_get_call_buffer`, `ak_call_send_message`, `ak_call_end_send`, three `ak_event_consumed` |
-| wake-ups of the channel's thread from the host | up to five: three spawns in `ak_call_start`, the send, the end of the sending |
+| wake-ups of the call's worker from the host | up to five: three spawns in `ak_call_start`, the send, the end of the sending |
 | `ak_call_start` alone | a median of 17 to 41.5 us depending on the pass, broken down below |
 | callbacks | four: WRITE_DONE, INITIAL_METADATA, MESSAGE, STATUS |
 | thread-pool wake-ups on the .NET side | about three: from a callback's return to the code it wakes, a median of 11 to 27 us after the head, 3 to 6 us after the message and 12 to 17 us after the status, depending on the pass |
-| tasks on the channel's thread | five, counted in the code: the driver, the FFI writer and reader, hyper's request task, hyper's body pipe |
+| tasks on the call's worker | five, counted in the code: the driver, the FFI writer and reader, hyper's request task, hyper's body pipe |
 | engine allocations | 80, 30 KB |
 | copies of the sent message | one, into tonic's encoding buffer |
 
@@ -38,7 +38,7 @@ In one pass, where `ak_call_start` took 38.5 us at the median, the median of eac
 | checks and decoding | 2.9 |
 | joining the channel | 3.1 |
 | the transport's start | 18.8 |
-| - of which spawning the driver, which wakes the channel's thread | 9.9 |
+| - of which spawning the driver, which wakes the call's worker | 9.9 |
 | - of which creating the call's queues | 5.0 |
 | - of which the path and metadata | 2.4 |
 | - of which the rest: the closed check, the deadline, the return | 1.5 |
@@ -91,7 +91,7 @@ the binding reports a unary call answered with more than one message.
 **Engine.**
 
 - On a one-request call, `ak_call_start` registers the call and spawns nothing. The commit spawns
-  the call's one task with the request as its argument: the host wakes the channel's thread once
+  the call's one task with the request as its argument: the host wakes the call's worker once
   for the whole request. Any other call has its one task spawned at `ak_call_start`, as today.
 - A call that needs its task before the commit has it spawned then, without its request. That is a
   cancellation, a channel release or a shutdown, which then end the call through the paths they
@@ -191,7 +191,7 @@ model's guard on a free slot holds there unless the host holds a lent buffer bes
   the driver and the actor, no hand-off of the read admission between them.
 - When a data event is ready, the task looks once more at what is already there - a message in
   hand, trailers received - and delivers all of it in one callback. What is not there yet is
-  waited for one round of the channel's thread while the batch holds less than
+  waited for one round of the call's worker while the batch holds less than
   `Grpc.Host.Receive.CoalescingBytes`: the connection shares that thread, and decodes on its next turn what
   the same read of the socket brought. A head goes alone only when nothing follows it within
   that round, as from a server that sends its headers early.
@@ -269,7 +269,7 @@ stays, as a property of the model rather than of the callback.
   whichever of it and the reader comes first, the phase arbitrating as it does today. A head
   nobody asks for is consumed by the reader in its pass. No message takes a side path: the
   reader parses every one.
-- A one-request send commits its buffer, which ends the sending: one wake of the channel's thread
+- A one-request send commits its buffer, which ends the sending: one wake of the call's worker
   for the request, and no acquittal to wait for.
 
 `DotNetBinding.tla` describes the binding as built, so it follows. What its new steps were to
@@ -375,10 +375,10 @@ rather than added up:
 | | today | then |
 |---|---|---|
 | downcalls | 7 | 4: the start, the lend, the send, one consume |
-| wake-ups of the channel's thread from the host | up to 5 | 1 |
+| wake-ups of the call's worker from the host | up to 5 | 1 |
 | callbacks | 4 | typically 1 |
 | .NET pool wake-ups | about 3 | typically 1, when no caller asks for the headers |
-| tasks on the channel's thread | 5 | 2 or 3: the call's, hyper's request task, and its body pipe unless step 4's measure shows it gone |
+| tasks on the call's worker | 5 | 2 or 3: the call's, hyper's request task, and its body pipe unless step 4's measure shows it gone |
 | copies of the sent message | 1 | 0 |
 | engine allocations | 80 | counted after each step; the command queue, the request and response channels, the writer's and reader's task cells and tonic's encoding buffer go |
 
@@ -495,7 +495,7 @@ the one exception: its new steps are proved, not reworded, so it came last, at s
    two without, so hyper's body pipe still takes the DATA after the HEADERS. With the two engines
    in one process and their calls interleaved, 10 000 pairs twice: `ak_call_start` from 8.1 to 3.8
    us at the median, one callback per unary call where there were two, the round trip a paired
-   median of 3.4 and 1.7 us shorter, the channel's thread being woken at the commit rather than at
+   median of 3.4 and 1.7 us shorter, the call's worker being woken at the commit rather than at
    the start; 177.4 allocations per call and 53 KB, where a stream's call takes 193.9 and 59 KB.
 5. **Level 2**: `DotNetBinding.tla` following the binding with its refinement proved again, and the
    TLC instantiability check. Done, as `formal-model.md` describes; the model departs from what
