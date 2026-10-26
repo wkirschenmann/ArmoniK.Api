@@ -612,7 +612,8 @@ public static class Program
 
   /// <summary>
   ///   Unary calls with 16 and then 64 in flight on one channel, each worker starting its next call
-  ///   once its last ends: calls a second, the process's CPU per call, and the latencies.
+  ///   once its last ends: calls a second, the process's CPU per call, the latencies, the busiest
+  ///   thread's CPU in cores, and the server's CPU per call.
   /// </summary>
   private static async Task<string> MeasureConcurrent(string transport,
                                                       Server server)
@@ -638,6 +639,8 @@ public static class Program
                     null)
           .ConfigureAwait(false);
         var latencies = new double[ConcurrentCalls];
+        var threads   = ThreadTimes();
+        var serverCpu = server.Cpu;
         var cpu       = CpuNow();
         var clock     = Stopwatch.StartNew();
         await Calls(client,
@@ -645,18 +648,23 @@ public static class Program
                     ConcurrentCalls,
                     latencies)
           .ConfigureAwait(false);
-        var elapsed = clock.Elapsed.TotalSeconds;
-        var used    = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        var elapsed    = clock.Elapsed.TotalSeconds;
+        var used       = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
+        var busiest    = Busiest(threads,
+                                 ThreadTimes());
         Array.Sort(latencies);
         line += string.Format(CultureInfo.InvariantCulture,
-                              " c{0}_calls_s={1:F0} c{0}_cpu_us_call={2:F1} c{0}_p50_us={3:F0} c{0}_p99_us={4:F0}",
+                              " c{0}_calls_s={1:F0} c{0}_cpu_us_call={2:F1} c{0}_p50_us={3:F0} c{0}_p99_us={4:F0} c{0}_busiest_thread_cores={5:F2} c{0}_srv_cpu_us_call={6:F1}",
                               inFlight,
                               ConcurrentCalls / elapsed,
                               used / ConcurrentCalls,
                               Percentile(latencies,
                                          0.50),
                               Percentile(latencies,
-                                         0.99));
+                                         0.99),
+                              busiest / 1e6 / elapsed,
+                              serverUsed / ConcurrentCalls);
       }
 
       return line;
