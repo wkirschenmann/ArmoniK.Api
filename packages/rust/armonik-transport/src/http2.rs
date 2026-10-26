@@ -5,6 +5,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use snafu::Snafu;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
-use crate::coalesce::Coalescing;
+use crate::coalesce::{Coalescing, Gating, Round};
 use crate::metrics::ConnCounters;
 use crate::proxy::ProxyConnector;
 use crate::proxy::ProxyError;
@@ -612,12 +613,12 @@ pub(crate) async fn open<E, B>(
 ) -> Result<
     (
         SendRequest<B>,
-        Connection<Coalescing<TransportConnection>, B, E>,
+        Connection<Coalescing<TransportConnection>, B, Gating<E>>,
     ),
     TransportError,
 >
 where
-    E: Http2ClientConnExec<B, Coalescing<TransportConnection>> + Unpin + Clone,
+    Gating<E>: Http2ClientConnExec<B, Coalescing<TransportConnection>> + Unpin + Clone,
     B: hyper::body::Body + 'static,
     B::Data: Send,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
@@ -628,7 +629,9 @@ where
         std::future::poll_fn(|cx| connector.poll_ready(cx)).await?;
         let io = connector.call(endpoint.clone()).await?;
         let http2 = connector.http2;
-        let mut builder = hyper::client::conn::http2::Builder::new(executor);
+        let round = Arc::new(Round::default());
+        let mut builder =
+            hyper::client::conn::http2::Builder::new(Gating::new(executor, Arc::clone(&round)));
         builder
             // The keepalive's clock: hyper keeps no time of its own.
             .timer(hyper_util::rt::TokioTimer::new())
@@ -646,7 +649,7 @@ where
                 builder.adaptive_window(true);
             }
         }
-        let handshake = builder.handshake(Coalescing::new(io, http2.write_coalescing, conn));
+        let handshake = builder.handshake(Coalescing::new(io, http2.write_coalescing, round, conn));
         // The patched h2 takes the connection's frames per write from the poll that makes its
         // codec, which is one of this handshake's.
         #[cfg(h2_batch)]

@@ -57,9 +57,10 @@ fn a_unary_request_goes_out_in_one_write() {
         written.writes
     );
     // The headers are written alone first: h2 gives a stream room to send its message only once
-    // it opens the stream, on the turn that writes the headers. That write waits.
+    // it opens the stream, on the turn that writes the headers. That write waits, one round: the
+    // message joins it during the round.
     assert!(
-        written.held >= CALLS,
+        (CALLS..=CALLS + 2).contains(&written.held),
         "{} rounds held for {CALLS} calls",
         written.held
     );
@@ -79,13 +80,9 @@ fn a_limit_of_zero_writes_the_headers_alone() {
     assert_eq!(written.held, 0);
 }
 
-/// Calls in flight together share their writes: a write waits while a round adds another call's
-/// frames to it, not only its own call's, so a burst goes out in a few writes rather than one or
-/// more per call.
-#[test]
-fn calls_in_flight_together_share_their_writes() {
-    const BURST: usize = 8;
-    const BURSTS: usize = 10;
+/// What `BURSTS` bursts of `burst` one-request unary calls wrote, started and sent from one host
+/// thread on one channel: the writes, and the rounds they waited.
+fn writes_of_bursts(burst: usize) -> Written {
     let server = TestServer::start();
     let host = Host::start();
     let channel = host.channel(&server.endpoint);
@@ -95,24 +92,63 @@ fn calls_in_flight_together_share_their_writes() {
     );
     host.recorder.await_terminals(1);
 
-    let before = hooks::writes();
-    for burst in 0..BURSTS {
-        let calls: Vec<ak_handle> = (0..BURST)
+    let (writes, held) = (hooks::writes(), hooks::held_writes());
+    for round in 0..BURSTS {
+        let calls: Vec<ak_handle> = (0..burst)
             .map(|_| start_call_flagged(channel, ECHO, &[], AK_CALL_ONE_REQUEST))
             .collect();
         for call in calls {
             send_one_request(call, b"hello");
         }
-        host.recorder.await_terminals(1 + (burst + 1) * BURST);
+        host.recorder.await_terminals(1 + (round + 1) * burst);
     }
-    let writes = hooks::writes() - before;
+    let written = Written {
+        writes: hooks::writes() - writes,
+        held: hooks::held_writes() - held,
+    };
 
     ak_channel_release(channel);
     host.stop();
+    written
+}
+
+const BURSTS: usize = 10;
+
+/// Calls in flight together share their writes: a write waits while a round adds another call's
+/// frames to it, not only its own call's, so a burst goes out in a few writes rather than one or
+/// more per call.
+#[test]
+fn calls_in_flight_together_share_their_writes() {
+    const BURST: usize = 8;
+    let written = writes_of_bursts(BURST);
     // A few writes per burst: a request whose end is written still waits, for the next calls.
     assert!(
-        writes <= BURST * BURSTS / 2,
-        "{writes} writes for {} calls",
+        written.writes <= BURST * BURSTS / 2,
+        "{} writes for {} calls",
+        written.writes,
+        BURST * BURSTS
+    );
+    // A write waits whole rounds, not a round each time a call of the burst hands the connection
+    // a frame: the connection takes in what the round brought in one poll at its end.
+    assert!(
+        written.held <= 2 * written.writes,
+        "{} rounds held for {} writes",
+        written.held,
+        written.writes
+    );
+}
+
+/// A burst longer than the runtime runs between two reads of its events still gathers: the
+/// runtime ends the round with calls still ready, and what they hand the connection after it
+/// earns the write another round.
+#[test]
+fn a_long_burst_gathers_past_the_runtime_reading_its_events() {
+    const BURST: usize = 64;
+    let written = writes_of_bursts(BURST);
+    assert!(
+        written.writes <= BURST * BURSTS / 8,
+        "{} writes for {} calls",
+        written.writes,
         BURST * BURSTS
     );
 }
