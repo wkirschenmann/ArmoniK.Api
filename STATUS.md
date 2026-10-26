@@ -102,13 +102,13 @@ concurrents, sur un seul canal logique.
 
 ## 4. Travail en cours, hors de la branche de travail
 
-Ces branches sont sur le fork depuis le 26 octobre. Leur travail non commité y est poussé à part, sur les branches `wip/*` : ce sont des
-instantanés, non relus, dont le premier parent est la tête de la branche correspondante.
+Ces branches sont sur le fork depuis le 26 octobre. Chacune se termine par un commit `WIP:` qui contient le travail en cours tel
+quel : il n'est ni relu ni vérifié dans son ensemble.
 
-| Branche | Commits | Instantané du travail non commité | État |
+| Branche | Commits relus | Commit WIP | État |
 |---|---|---|---|
-| `wk/perf/runtime-thread-pool` | 3, de `1d7c05463` à `ac8d8087a` | `wip/runtime-thread-pool` | Pool de threads au niveau du runtime, implémenté et testé. Campagne de mesure pas encore lancée. |
-| `wk/perf/c1-hold-per-wave` | 1, `a182776b8`, un test | `wip/c1-hold-per-wave` | Regroupement des écritures par vague (C1). Code moteur non commité. En pause. |
+| `wk/perf/runtime-thread-pool` | 3, de `1d7c05463` à `ac8d8087a` | `4b00f581d` : le banc (`pool=`, `workers=`) et la documentation | Pool de threads au niveau du runtime, implémenté et testé. Campagne de mesure pas encore lancée. |
+| `wk/perf/c1-hold-per-wave` | 1, `a182776b8`, un test | `34a80342d` : le code moteur de C1 et ses tests | Regroupement des écritures par vague (C1). En pause. |
 
 **Pool de threads (`wk/perf/runtime-thread-pool`).** C'est la décision du 2026-10-18 : on revient sur « un thread par canal ».
 
@@ -126,7 +126,7 @@ instantanés, non relus, dont le premier parent est la tête de la branche corre
 - **Les tests.**
   - Tests release : 744 passent sur h2 d'origine, 745 sur h2-batch.
   - Tests de la liaison : 355 sur net8.0, 351 sur net4.8 et 351 sur net4.7.
-- **Ce qui n'est pas encore commité** (dans `wip/runtime-thread-pool`).
+- **Ce qui est dans le commit WIP** (`4b00f581d`).
   - Les options `pool=` et `workers=` du banc.
   - La documentation : abi.md, architecture.md, call-shapes.md, decisions.md, observability.md, requirements.md.
 - **Ce qui reste à faire.**
