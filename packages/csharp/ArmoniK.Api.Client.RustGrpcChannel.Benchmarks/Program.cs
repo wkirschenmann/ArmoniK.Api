@@ -50,7 +50,8 @@ namespace ArmoniK.Api.Client.RustGrpcChannel.Benchmarks;
 ///   The pinned and shared scenarios measure only the unary latency, on a native channel held to
 ///   one connection, without and with a streamed upload beside it through the whole measurement.
 ///   The gzip and zstd scenarios send and receive compressible text in that encoding, concurrent
-///   runs 16 and then 64 unary calls in flight, and large sends unary messages of 4 and 16 MiB;
+///   runs 16 and then 64 unary calls in flight, a native channel with the calls per connection and
+///   the engine's workers its arguments state, and large sends unary messages of 4 and 16 MiB;
 ///   zstd needs a server built to accept it, which ARMONIK_BENCH_SERVER names. mixed runs large
 ///   client-streaming uploads beside small unary calls on one channel, over mutual TLS.
 /// </remarks>
@@ -86,7 +87,13 @@ public static class Program
                                 args[0].StartsWith("managed",
                                                    StringComparison.Ordinal))
                   : null;
-    if (args.Length < 1 || (args.Length > 2 && args[1] != "mixed") ||
+    // concurrent too, the native engine's pool and workers.
+    var knobs = args.Length >= 2 && args[1] == "concurrent"
+                  ? Knobs.Parse(args.Skip(2),
+                                args[0].StartsWith("managed",
+                                                   StringComparison.Ordinal))
+                  : null;
+    if (args.Length < 1 || (args.Length > 2 && args[1] is not ("mixed" or "concurrent")) ||
         (args[0] != "native" && args[0] != "native-batch" && args[0] != "native-metrics" && args[0] != "native-spin" && args[0] != "native-h2c" &&
          args[0] != "managed" && args[0] != "managed-h2c") ||
         (args.Length >= 2 && args[1] is not ("busy" or "pinned" or "shared" or "gzip" or "zstd" or "concurrent" or "large" or "mixed")) ||
@@ -95,11 +102,13 @@ public static class Program
         // grpc-dotnet's channel has no zstd provider.
         (args.Length == 2 && args[1] == "zstd" && args[0].StartsWith("managed",
                                                                       StringComparison.Ordinal)) ||
-        (args.Length >= 2 && args[1] == "mixed" && mixed is null))
+        (args.Length >= 2 && args[1] == "mixed" && mixed is null) ||
+        (args.Length >= 2 && args[1] == "concurrent" && knobs is null))
     {
       Console.Error.WriteLine("usage: Benchmarks native|native-batch|native-metrics|native-spin|native-h2c|managed|managed-h2c [busy|gzip|concurrent|large]");
       Console.Error.WriteLine("       Benchmarks native|native-batch|native-metrics|native-spin|native-h2c pinned|shared|zstd");
-      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256]   (pool, fpw: native only)");
+      Console.Error.WriteLine("       Benchmarks <transport> mixed [k=K] [m=M] [size=MiB] [chunk=KiB] [pool=server|N] [fpw=1..256] [workers=auto|N]   (pool, fpw, workers: native only)");
+      Console.Error.WriteLine("       Benchmarks <transport> concurrent [pool=server|N] [workers=auto|N]   (native only)");
       return 2;
     }
 
@@ -148,7 +157,8 @@ public static class Program
                                                            scenario)
                                      .ConfigureAwait(false),
                "concurrent" => await MeasureConcurrent(transport,
-                                                       server)
+                                                       server,
+                                                       knobs!)
                                  .ConfigureAwait(false),
                "large" => await MeasureLarge(transport,
                                              server)
@@ -615,18 +625,25 @@ public static class Program
   ///   once its last ends: calls a second, the process's CPU per call, and the latencies.
   /// </summary>
   private static async Task<string> MeasureConcurrent(string transport,
-                                                      Server server)
+                                                      Server server,
+                                                      Knobs  knobs)
   {
     var (channel, release) = Open(transport,
                                   server,
-                                  pinned: false);
+                                  pinned: false,
+                                  pool: knobs.Pool == 0
+                                          ? null
+                                          : new CallsPerConnection.Limit(knobs.Pool),
+                                  workers: knobs.Workers);
     try
     {
       var client = new Echo.EchoClient(channel);
+      var port   = new Uri(server.Endpoint).Port;
       var line = string.Format(CultureInfo.InvariantCulture,
-                               "{0} {1} concurrent",
+                               "{0} {1} concurrent{2}",
                                transport,
-                               Framework());
+                               Framework(),
+                               knobs.Label);
       foreach (var inFlight in new[]
                                {
                                  16, 64,
@@ -638,6 +655,8 @@ public static class Program
                     null)
           .ConfigureAwait(false);
         var latencies = new double[ConcurrentCalls];
+        var threads   = ThreadTimes();
+        var serverCpu = server.Cpu;
         var cpu       = CpuNow();
         var clock     = Stopwatch.StartNew();
         await Calls(client,
@@ -645,18 +664,28 @@ public static class Program
                     ConcurrentCalls,
                     latencies)
           .ConfigureAwait(false);
-        var elapsed = clock.Elapsed.TotalSeconds;
-        var used    = (CpuNow() - cpu).TotalMilliseconds * 1000;
+        var elapsed    = clock.Elapsed.TotalSeconds;
+        var used       = (CpuNow()   - cpu).TotalMilliseconds       * 1000;
+        var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
+        var busiest = TopThreads(string.Format(CultureInfo.InvariantCulture,
+                                               "c{0}_",
+                                               inFlight),
+                                 threads,
+                                 ThreadTimes(),
+                                 elapsed);
         Array.Sort(latencies);
         line += string.Format(CultureInfo.InvariantCulture,
-                              " c{0}_calls_s={1:F0} c{0}_cpu_us_call={2:F1} c{0}_p50_us={3:F0} c{0}_p99_us={4:F0}",
+                              " c{0}_calls_s={1:F0} c{0}_cpu_us_call={2:F1} c{0}_p50_us={3:F0} c{0}_p99_us={4:F0} c{0}_srv_cpu_cores={5:F2} c{0}_conns={6}{7}",
                               inFlight,
                               ConcurrentCalls / elapsed,
                               used / ConcurrentCalls,
                               Percentile(latencies,
                                          0.50),
                               Percentile(latencies,
-                                         0.99));
+                                         0.99),
+                              serverUsed / 1e6 / elapsed,
+                              Connections(port),
+                              busiest);
       }
 
       return line;
@@ -855,7 +884,8 @@ public static class Program
                                           : new CallsPerConnection.Limit(mixed.Pool),
                                   framesPerWrite: mixed.FramesPerWrite == 0
                                                     ? null
-                                                    : mixed.FramesPerWrite);
+                                                    : mixed.FramesPerWrite,
+                                  workers: mixed.Workers);
     try
     {
       var client = new Echo.EchoClient(channel);
@@ -956,8 +986,9 @@ public static class Program
         var end = Stopwatch.GetTimestamp();
         // Read at the close, so that the thread times end with the window; listing the threads costs
         // CPU the process figure counts, as it counts the sampler's.
+        var after   = ThreadTimes();
         var busiest = Busiest(threads,
-                              ThreadTimes());
+                              after);
         var used       = (CpuNow()   - cpu).TotalMilliseconds       * 1000;
         var serverUsed = (server.Cpu - serverCpu).TotalMilliseconds * 1000;
         sampler.Change(Timeout.InfiniteTimeSpan,
@@ -1038,7 +1069,7 @@ public static class Program
         }
 
         return line + string.Format(CultureInfo.InvariantCulture,
-                                    " cpu_cores={0:F2} busiest_thread_cores={1:F2} srv_cpu_cores={2:F2} conns={3} peak_above_mib={4:F0} base_private_mib={5:F0} window_s={6:F1} srv_warm_us_call={7:F1} samples_failed={8}",
+                                    " cpu_cores={0:F2} busiest_thread_cores={1:F2}{9} srv_cpu_cores={2:F2} conns={3} peak_above_mib={4:F0} base_private_mib={5:F0} window_s={6:F1} srv_warm_us_call={7:F1} samples_failed={8}",
                                     used / 1e6 / seconds,
                                     busiest / 1e6 / seconds,
                                     serverUsed / 1e6 / seconds,
@@ -1047,7 +1078,11 @@ public static class Program
                                     before.PrivateBytes / (1024.0 * 1024),
                                     seconds,
                                     serverWarm,
-                                    missed);
+                                    missed,
+                                    TopThreads("",
+                                               threads,
+                                               after,
+                                               seconds));
       }
       finally
       {
@@ -1218,8 +1253,8 @@ public static class Program
   /// <summary>The most CPU microseconds one thread used between two readings, a thread new since
   /// the first counting from zero.</summary>
   /// <remarks>
-  ///   A native channel's engine work runs on one thread, which lives through the window, so this
-  ///   nears 1.0 core when that thread saturates. Threads are told apart by id: one that ends in
+  ///   A native connection's engine work runs on one worker, which lives through the window, so
+  ///   this nears 1.0 core when that worker saturates. Threads are told apart by id: one that ends in
   ///   the window is not counted, and one that takes the id of a thread ended since the first
   ///   reading is undercounted, which only pool threads that retire, a managed run's, may do.
   /// </remarks>
@@ -1231,6 +1266,30 @@ public static class Program
                                                 : 0))
             .DefaultIfEmpty(0)
             .Max();
+
+  /// <summary>The cores the four busiest threads used between two readings
+  /// <paramref name="seconds" /> apart, busiest first, as fields <c>top1_cores</c> to
+  /// <c>top4_cores</c> after <paramref name="prefix" />.</summary>
+  /// <remarks>A native channel's connections run on the engine's workers, one connection on one
+  /// worker: how the work spreads over them is what this shows.</remarks>
+  private static string TopThreads(string                  prefix,
+                                   Dictionary<int, double> before,
+                                   Dictionary<int, double> after,
+                                   double                  seconds)
+    => string.Concat(after.Select(thread => thread.Value - (before.TryGetValue(thread.Key,
+                                                                               out var then)
+                                                              ? then
+                                                              : 0))
+                          .OrderByDescending(used => used)
+                          .Concat(Enumerable.Repeat(0.0,
+                                                    4))
+                          .Take(4)
+                          .Select((used,
+                                   rank) => string.Format(CultureInfo.InvariantCulture,
+                                                          " {0}top{1}_cores={2:F2}",
+                                                          prefix,
+                                                          rank + 1,
+                                                          used / 1e6 / seconds)));
 
   /// <summary>The parameters of a mixed run, from its key=value arguments.</summary>
   private sealed class Mixed
@@ -1252,10 +1311,13 @@ public static class Program
     /// build's default.</summary>
     internal int FramesPerWrite { get; private set; }
 
+    /// <summary>The native engine's workers; none for its default, as many as the processors.</summary>
+    internal int? Workers { get; private set; }
+
     /// <summary>The parameters, with the -fN suffix only when the frames per write are stated.</summary>
     internal string Label
       => string.Format(CultureInfo.InvariantCulture,
-                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}",
+                       "mixed-k{0}-m{1}-s{2}-c{3}-p{4}{5}{6}",
                        Uploads,
                        Callers,
                        SizeMiB,
@@ -1267,7 +1329,8 @@ public static class Program
                          ? ""
                          : string.Format(CultureInfo.InvariantCulture,
                                          "-f{0}",
-                                         FramesPerWrite));
+                                         FramesPerWrite),
+                       Knobs.WorkersLabel(Workers));
 
     /// <summary>Null for an argument it does not know, a value out of range, or a pool or frames
     /// per write on a managed channel, which has neither.</summary>
@@ -1286,6 +1349,12 @@ public static class Program
         if (parts[0] == "pool" && parts[1] == "server")
         {
           mixed.Pool = 0;
+          continue;
+        }
+
+        if (parts[0] == "workers" && parts[1] == "auto")
+        {
+          mixed.Workers = null;
           continue;
         }
 
@@ -1317,6 +1386,9 @@ public static class Program
           case "fpw" when value is >= 1 and <= 256:
             mixed.FramesPerWrite = value;
             break;
+          case "workers" when value is >= 1 and <= 1024:
+            mixed.Workers = value;
+            break;
           default:
             return null;
         }
@@ -1326,10 +1398,79 @@ public static class Program
       // message (2 GiB).
       var valid = mixed.Uploads + mixed.Callers > 0        && mixed.Uploads <= 64 && mixed.Callers <= 1024 && mixed.SizeMiB is > 0 and <= 4096 &&
                   mixed.ChunkKiB is > 0 and <= 1024 * 1024 && (long)mixed.SizeMiB * 1024 % mixed.ChunkKiB == 0 &&
-                  !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0));
+                  !(managed && (mixed.Pool != 0 || mixed.FramesPerWrite != 0 || mixed.Workers is not null));
       return valid
                ? mixed
                : null;
+    }
+  }
+
+  /// <summary>The native engine's knobs of a concurrent run, from its key=value arguments.</summary>
+  private sealed class Knobs
+  {
+    /// <summary>The calls a native channel's connection carries at most; 0 for as many as the
+    /// server allows, the engine's default.</summary>
+    internal int Pool { get; private set; }
+
+    /// <summary>The native engine's workers; none for its default, as many as the processors.</summary>
+    internal int? Workers { get; private set; }
+
+    /// <summary>Empty for the defaults, else <c>-p</c> and <c>-w</c> with what is stated.</summary>
+    internal string Label
+      => (Pool == 0
+            ? ""
+            : string.Format(CultureInfo.InvariantCulture,
+                            "-p{0}",
+                            Pool)) + WorkersLabel(Workers);
+
+    internal static string WorkersLabel(int? workers)
+      => workers is null
+           ? ""
+           : string.Format(CultureInfo.InvariantCulture,
+                           "-w{0}",
+                           workers);
+
+    /// <summary>Null for an argument it does not know, a value out of range, or any argument on a
+    /// managed channel, which has neither knob.</summary>
+    internal static Knobs? Parse(IEnumerable<string> args,
+                                 bool                managed)
+    {
+      var knobs = new Knobs();
+      foreach (var arg in args)
+      {
+        var parts = arg.Split('=');
+        if (managed || parts.Length != 2)
+        {
+          return null;
+        }
+
+        if ((parts[0], parts[1]) is ("pool", "server") or ("workers", "auto"))
+        {
+          continue;
+        }
+
+        if (!int.TryParse(parts[1],
+                          NumberStyles.None,
+                          CultureInfo.InvariantCulture,
+                          out var value))
+        {
+          return null;
+        }
+
+        switch (parts[0])
+        {
+          case "pool" when value > 0:
+            knobs.Pool = value;
+            break;
+          case "workers" when value is >= 1 and <= 1024:
+            knobs.Workers = value;
+            break;
+          default:
+            return null;
+        }
+      }
+
+      return knobs;
     }
   }
 
@@ -1387,8 +1528,9 @@ public static class Program
   /// <paramref name="pinned" />, compressing both ways in <paramref name="compression" />, and
   /// accepting messages past 4 MiB when <paramref name="large" />, its connections each carrying
   /// at most <paramref name="pool" /> calls and a queued part spanning at most
-  /// <paramref name="framesPerWrite" /> DATA frames when given. Either presents the server's client
-  /// certificate when the server has one.</summary>
+  /// <paramref name="framesPerWrite" /> DATA frames when given, on <paramref name="workers" /> of the
+  /// engine's workers when given. Either presents the server's client certificate when the server
+  /// has one.</summary>
   /// <remarks>A managed channel takes none of the native options: grpc-dotnet compresses per call,
   /// its channel's receive limit is the factory's, and GrpcClient has no calls per connection.</remarks>
   private static (ChannelBase Channel, Func<Task> Release) Open(string              transport,
@@ -1397,25 +1539,31 @@ public static class Program
                                                                string?             compression    = null,
                                                                bool                large          = false,
                                                                CallsPerConnection? pool           = null,
-                                                               int?                framesPerWrite = null)
+                                                               int?                framesPerWrite = null,
+                                                               int?                workers        = null)
   {
     if (transport is "native" or "native-batch" or "native-metrics" or "native-spin" or "native-h2c")
     {
       // native takes the build's frames per write, 16 against h2-batch's patch, the binding's
       // default, and 1 with -p:NativeEngineH2Batch=false; native-batch states 16, which a stock
       // build refuses. native-metrics loads the build with the engine's counters, which is
-      // selected before the first runtime exists. native-spin has the channel's thread poll for
-      // work for the spin's default window after each callback into the host before it sleeps.
+      // selected before the first runtime exists. native-spin has the engine's workers poll for
+      // work for the spin's default window after each callback into the host before they sleep.
       // native-h2c reaches a server with no authority, so its channel states no Tls.
       if (transport == "native-metrics")
       {
         NativeLibrarySelection.Select(NativeEngineBuild.Metrics);
       }
 
-      var runtime = transport == "native-spin"
+      var runtime = transport == "native-spin" || workers is not null
                       ? NativeRuntime.Create(new RuntimeOptions
                                              {
-                                               BeforeSleep = new BeforeSleep.Spin(),
+                                               BeforeSleep = transport == "native-spin"
+                                                               ? new BeforeSleep.Spin()
+                                                               : null,
+                                               WorkerThreads = workers is null
+                                                                 ? null
+                                                                 : new WorkerThreads.Count(workers.Value),
                                              })
                       : NativeRuntime.Create();
       var http2 = transport == "native-batch"

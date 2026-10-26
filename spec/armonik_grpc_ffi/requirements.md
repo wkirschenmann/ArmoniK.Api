@@ -250,8 +250,9 @@ efficient, so that I do not have to manually manage HTTP/2 connections.
 4. The connection pool manages TCP keepalive and idle timeout.
 5. A connect timeout is configurable and applied to connection establishment.
 6. A single process can create multiple channels to different endpoints.
-7. Channels share a single native runtime per process, and each channel runs its connection and
-   its calls on a thread of its own, so that a call never moves between threads.
+7. Channels share a single native runtime per process, whose pool of threads carries every
+   channel's connections: each connection runs on one thread for its whole life, with the calls
+   it carries, so that a call never moves between threads.
 
 ---
 

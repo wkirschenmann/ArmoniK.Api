@@ -287,7 +287,8 @@ silent.
   the instrument leaves unreported; it is not a cap of zero, which would forbid every call.
 - **A counting point of a message or a byte is a relaxed load and a relaxed store, shared with no
   other writer.** The engine supports
-  one thread per channel - the FFI's runtime - and tokio's multi-thread runtime, which a Rust user
+  a pool of current-thread workers, a connection and its calls on one - the FFI's runtime - and
+  tokio's multi-thread runtime, which a Rust user
   has, and counts correctly under both with no atomic that two writers update:
   - What a message or a byte touches is counted by the one task that writes it, in a block of
     counters that task owns: the request's body for what leaves, the call's driver for what
