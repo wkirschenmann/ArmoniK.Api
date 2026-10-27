@@ -1261,8 +1261,9 @@ gives what it measured over the window, `window_s` long:
   their P50, P99, P99.9 and longest (`u_*`);
 - the CPU of the client and of the server per MiB and per call, both tasks' together (`*_both`),
   and in cores (`cpu_cores`, `srv_cpu_cores`), the server's telling a run it held back;
-- the client's busiest thread in cores (`busiest_thread_cores`), a native channel's engine work
-  running on one thread;
+- the client's busiest thread in cores (`busiest_thread_cores`), a native connection's engine work
+  running on one worker, and its four busiest, busiest first (`top1_cores` to `top4_cores`), which
+  show how that work spreads over the workers;
 - sampled every 250 ms, since the process's own peak would count the warm-up's: the most
   connections established to the server (`conns`), and the most private bytes above the client's
   before its channel opened (`peak_above_mib`, above `base_private_mib`). A run none of whose
@@ -1414,7 +1415,7 @@ refuses it. `native-metrics` loads the engine's build with its counters, which t
 build copies beside it unless `-p:NativeEngineMetrics=false`, and which it selects with
 `NativeLibrarySelection` before the first runtime exists; the published ahead-of-time benchmarks do
 not carry that build, so it does not run there. `native-spin` runs the engine with `BeforeSleep`
-`{"Spin": {}}`, a channel's thread polling for work for the default window, 100 us, after each
+`{"Spin": {}}`, each worker polling for work for the default window, 100 us, after each
 callback into the host before it sleeps. `native-h2c` and `managed-h2c` speak HTTP/2 in the clear,
 prior knowledge, to the test server started without TLS, which tells what TLS costs from the rest;
 `managed-h2c` does not run on .NET Framework, whose `WinHttpHandler` speaks HTTP/2 only over TLS.
@@ -1425,16 +1426,23 @@ alone, on a native channel held to one connection, without and with a streamed u
 managed transports skip them. `gzip`, `zstd`, `concurrent` and `large` run the workloads of "The
 processor levels, on LTO engines", each summed up in a table of its own; the managed transports
 skip `zstd`, and the test server built here refuses it: that section says how to build one that
-takes it. A `gzip` or `zstd` run fails if a leg's stream does not announce the encoding; a
-message the engine leaves uncompressed under that announcement, as it may, is not detected.
+takes it. `concurrent` takes `pool=`, `server` or a number, and `workers=`, `auto` or 1 to 1 024,
+the engine's `WorkerThreads`; numbered, they name the run with `-pN` and `-wN`
+(`concurrent-p16-w4`), and the managed transports refuse them. Each round's fields add the server's
+cores (`srv_cpu_cores`), the connections established to the server as the round ends (`conns`) and
+the client's four busiest threads (`top1_cores` to `top4_cores`). A `gzip` or `zstd` run fails if a
+leg's stream does not announce the encoding; a message the engine leaves uncompressed under that
+announcement, as it may, is not detected.
 `mixed` runs the scenario of "Large uploads beside unary calls, over mutual TLS", its parameters
 after it: `k=` (K, at most 64), `m=` (M, at most 1 024, K + M above 0), `size=` in MiB (at most
 4 096) and `chunk=` in KiB (at most 1 GiB, dividing the size), `pool=`, `server` or a number, and
 `fpw=`, 1 to 256, the native channel's `Http2.Send.FramesPerWrite` in place of the build's, which
-names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1; a
-numbered pool and `fpw=` are refused by the managed transports. A value outside these, or an unknown
+names the run with `-fN` after its pool and which an engine built on stock h2 refuses above 1, and
+`workers=` as for `concurrent`, which names it with `-wN` last; a numbered pool, `fpw=` and
+numbered workers are refused by the managed transports. A value outside these, or an unknown
 key, has the benchmark print its usage and exit 2. In `-Scenarios` the parameters follow it after
-spaces, as in `"mixed k=4 m=64 pool=16"`; the managed transports skip a numbered pool and `fpw=`,
+spaces, as in `"mixed k=4 m=64 pool=16"` or `"concurrent pool=16 workers=4"`; the managed
+transports skip a numbered pool, `fpw=` and numbered workers,
 and the mixed runs share one table, a row per set of parameters, which each run's line names
 (`mixed-k4-m64-s128-c64-p16`).
 

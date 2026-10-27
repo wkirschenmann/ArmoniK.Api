@@ -87,7 +87,7 @@ public static class Program
                                 args[0].StartsWith("managed",
                                                    StringComparison.Ordinal))
                   : null;
-    // concurrent too, the native engine's pool and workers.
+    // concurrent too, the native channel's pool and the engine's workers.
     var knobs = args.Length >= 2 && args[1] == "concurrent"
                   ? Knobs.Parse(args.Skip(2),
                                 args[0].StartsWith("managed",
@@ -1311,7 +1311,8 @@ public static class Program
     /// build's default.</summary>
     internal int FramesPerWrite { get; private set; }
 
-    /// <summary>The native engine's workers; none for its default, as many as the processors.</summary>
+    /// <summary>The native engine's workers; none for its default, at most one per logical
+    /// processor.</summary>
     internal int? Workers { get; private set; }
 
     /// <summary>The parameters, with the -fN suffix only when the frames per write are stated.</summary>
@@ -1332,8 +1333,8 @@ public static class Program
                                          FramesPerWrite),
                        Knobs.WorkersLabel(Workers));
 
-    /// <summary>Null for an argument it does not know, a value out of range, or a pool or frames
-    /// per write on a managed channel, which has neither.</summary>
+    /// <summary>Null for an argument it does not know, a value out of range, or a numbered pool,
+    /// frames per write or workers on a managed channel, which has none.</summary>
     internal static Mixed? Parse(IEnumerable<string> args,
                                  bool                managed)
     {
@@ -1412,7 +1413,8 @@ public static class Program
     /// server allows, the engine's default.</summary>
     internal int Pool { get; private set; }
 
-    /// <summary>The native engine's workers; none for its default, as many as the processors.</summary>
+    /// <summary>The native engine's workers; none for its default, at most one per logical
+    /// processor.</summary>
     internal int? Workers { get; private set; }
 
     /// <summary>Empty for the defaults, else <c>-p</c> and <c>-w</c> with what is stated.</summary>
@@ -1430,8 +1432,8 @@ public static class Program
                            "-w{0}",
                            workers);
 
-    /// <summary>Null for an argument it does not know, a value out of range, or any argument on a
-    /// managed channel, which has neither knob.</summary>
+    /// <summary>Null for an argument it does not know, a value out of range, or a numbered pool or
+    /// workers on a managed channel, which has neither.</summary>
     internal static Knobs? Parse(IEnumerable<string> args,
                                  bool                managed)
     {
@@ -1439,7 +1441,7 @@ public static class Program
       foreach (var arg in args)
       {
         var parts = arg.Split('=');
-        if (managed || parts.Length != 2)
+        if (parts.Length != 2)
         {
           return null;
         }
@@ -1470,7 +1472,9 @@ public static class Program
         }
       }
 
-      return knobs;
+      return managed && (knobs.Pool != 0 || knobs.Workers is not null)
+               ? null
+               : knobs;
     }
   }
 
