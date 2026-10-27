@@ -1030,7 +1030,8 @@ server built here.
   compresses gzip only, at its default level, which the benchmark does not set.
 - **concurrent**: unary calls of the plain `Say` with 16 and then 64 in flight on one channel,
   each worker starting its next call when its last ends; 40 000 calls after 2 000 of warm-up;
-  calls a second, the process's CPU per call, and P50.
+  calls a second, the process's CPU per call, P50 and P99, the busiest thread's CPU in cores,
+  and the server's CPU per call.
 - **large**: 512 MiB sent as unary messages of 4 MiB and of 16 MiB, one call at a time, and, on
   the native transport only, received as server-streaming calls of one such message; MiB/s and
   CPU per MiB. grpc-dotnet's channel refuses a message past 4 MiB, so its row only sends.
