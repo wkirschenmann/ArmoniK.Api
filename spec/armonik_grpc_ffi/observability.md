@@ -509,7 +509,7 @@ lets go, and two allocations, the counters and the place that folds them, which 
 not separate. The eight threads cost two to three times the one, probably because the registry's
 reference count is written by each call, whichever shard it is in. It is paid once per call.
 
-The same bench times unary calls over loopback, from a current-thread runtime, which is a channel's
+The same bench times unary calls over loopback, from a current-thread runtime, which is a worker's
 thread in the C ABI, and from tokio's multi-thread runtime with four workers, each with and without
 the feature. Five paired runs of 20000 calls, 32 at once, gave medians of 113 microseconds a call
 without the feature and 101 with it on the current-thread runtime, and 104 without and 95 with it

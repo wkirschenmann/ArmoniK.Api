@@ -52,7 +52,7 @@ transports take the build's frames per write: 16 since the .NET binding builds i
 h2-batch's patch by default, and 1 with `-p:NativeEngineH2Batch=false`. In every campaign before
 that they ran at 1, and the engine was stock unless a section says otherwise; on the default build
 `native` and `native-batch` now agree, and a comparison of the two builds takes both. `native` is
-the engine as a host gets it, a channel's thread sleeping as soon as it runs out of work
+the engine as a host gets it, each worker sleeping as soon as it runs out of work
 (`BeforeSleep` `"None"`), and `native-spin` the same engine with `{"Spin": {}}`. `native` ran
 `"None"` too in every campaign whose engine predates the option, those of `bf86fece3` and
 `21a0b7807` among them.
